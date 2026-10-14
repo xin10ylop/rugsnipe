@@ -21,7 +21,7 @@ REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "analysis"))
 sys.path.insert(0, str(REPO / "analysis" / "scripts" / "strategy"))
 from rugsnipe_analysis.strategy import sim, stats  # noqa: E402
-from rugsnipe_analysis.strategy.tapes import build_tape, load_deep, load_gap3  # noqa: E402
+from rugsnipe_analysis.strategy.tapes import build_tape, drop_wallets, load_deep, load_gap3  # noqa: E402
 from sweep import PER_DAY, filters_for, splits_for  # noqa: E402
 
 OUT = REPO / "data" / "reports" / "strategy"
@@ -168,6 +168,28 @@ def evaluate():
                         ev["deep_ret"] = ret[fm].tolist()
             # pooled out-of-sample: gap-3 test + deep + fresh (equal launch weight within each source)
             rec["eval"][key] = ev
+        # counterfactual: a fraction f of the third-party slot-0 snipers never lands (e.g. their slippage
+        # limit fails because our rank-1 buy moved the price); all their trades are removed, curve re-priced
+        rec["sniper_drop"] = {}
+        for f in (0.25, 0.5, 1.0):
+            ev = {}
+            for nm, tapes in sets.items():
+                rng = np.random.default_rng(11)
+                cf = []
+                for t in tapes:
+                    th = sorted(set(t.uid[t.s0tp].tolist()))
+                    cf.append(drop_wallets(t, {u for u in th if rng.random() < f}))
+                w = np.array([t.w for t in cf])
+                ret, trig = returns(cf, P, pol["size"])
+                ret = ret[:, 0]
+                fm = filt(cf)[pol["filter"]] & trig
+                if nm == "gap3":
+                    for sp in ("test", "all"):
+                        m = fm & S3[sp]
+                        ev[f"gap3_{sp}"] = summarize(ret[m], w[m], B=300)
+                else:
+                    ev[nm] = summarize(ret[fm], w[fm], B=300)
+            rec["sniper_drop"][str(f)] = ev
         res["per_policy"].append(rec)
         b = rec["eval"][f"p{PREM}_c{COST}_l{LAT}"]
         log(f"{pol['size']} {pol['filter']:8s} {pol['exit']:45s} train {b['gap3_train']['ev']:+.4f} test {b['gap3_test']['ev']:+.4f} "

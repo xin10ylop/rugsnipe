@@ -1,0 +1,48 @@
+[package]
+name = "rugsnipe"
+version = "0.1.0"
+description = "The rugsnipe binaries: rugsnipe-hot (docs/06 section 7.1 hot loop; paper mode end to end), rugsnipe-replay (recorded frames through the same loop, counting allocator + hdrhistogram) and rugsnipe-guard (exits-lease watcher skeleton)."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+# Real senders (feature-gated twice: here AND by Config::validate + a signed,
+# gate_passed ArmSet at runtime). Never enabled for paper runs.
+real-senders = ["rugsnipe-tx/senders", "rugsnipe-tx/rpc"]
+# Chain reads for recovery / guard prices (public JSON-RPC inside the RPC budget).
+rpc = ["rugsnipe-state/rpc"]
+
+[dependencies]
+pump-codec = { workspace = true }
+rugsnipe-core = { path = "../rugsnipe-core" }
+rugsnipe-feed = { path = "../rugsnipe-feed" }
+rugsnipe-tx = { path = "../rugsnipe-tx" }
+rugsnipe-exit = { path = "../rugsnipe-exit" }
+rugsnipe-state = { path = "../rugsnipe-state" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bs58 = { workspace = true }
+base64 = { workspace = true }
+toml = { version = "1.1", default-features = false, features = ["parse", "serde", "std"] }
+rtrb = "0.4"
+arc-swap = "1.9"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+hdrhistogram = { version = "7.6", default-features = false }
+prometheus-client = "0.25"
+zeroize = "1.9"
+signal-hook = { version = "0.4", default-features = false, features = ["iterator"] }
+sd-notify = "0.5"
+core_affinity = "0.8"
+rusqlite = { version = "0.40", features = ["bundled"] }
+# Cold runtime only (state, metrics, paper-fill lane); the hot loop never touches it.
+tokio = { version = "1.53", default-features = false, features = ["rt", "net", "time", "io-util", "macros", "sync"] }
+
+[dev-dependencies]
+ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize"] }
+
+[lints.clippy]
+too_many_arguments = "allow"
+large_enum_variant = "allow"

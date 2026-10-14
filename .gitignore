@@ -1,4 +1,3 @@
-!config/*.example.toml
 # secrets and real configs (docs/06-architecture.md section 13)
 *-keypair.json
 *.db-shm
@@ -11,6 +10,7 @@
 .venv/
 __pycache__/
 config/*.toml
+!config/*.example.toml
 data/analytics.db
 data/analytics.db*
 data/analytics.db-shm

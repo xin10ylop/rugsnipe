@@ -48,10 +48,17 @@ impl IntentState {
     }
     /// States from which `to` is reachable in one step.
     pub fn allowed_from(to: IntentState) -> Vec<IntentState> {
-        [Self::Paper, Self::Sent, Self::Landed, Self::Failed, Self::Burned, Self::LateFill]
-            .into_iter()
-            .filter(|f| f.next_allowed().contains(&to))
-            .collect()
+        [
+            Self::Paper,
+            Self::Sent,
+            Self::Landed,
+            Self::Failed,
+            Self::Burned,
+            Self::LateFill,
+        ]
+        .into_iter()
+        .filter(|f| f.next_allowed().contains(&to))
+        .collect()
     }
 }
 
@@ -308,7 +315,9 @@ mod tests {
 
     #[test]
     fn intent_transitions() {
-        assert!(IntentState::Sent.next_allowed().contains(&IntentState::Landed));
+        assert!(IntentState::Sent
+            .next_allowed()
+            .contains(&IntentState::Landed));
         assert!(IntentState::Paper.next_allowed().is_empty());
         assert_eq!(
             IntentState::allowed_from(IntentState::LateFill),

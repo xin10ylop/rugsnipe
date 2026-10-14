@@ -219,7 +219,7 @@ collector = 12
 backfill = 4
 [tx]
 format = "legacy"
-cu_limit = 0                                       # 0 = probe/live refused until `ctl sim` sets p99 x 1.05
+cu_limit = 0                                       # static floor only; the hot path patches 62,500 + 1,500*S (+1,500) per mint (gap-5); 0 = probe/live refused until `ctl sim` confirms the fit
 lads_bytes = 0
 nonce_pool = 32
 sell_nonce_pool = 8

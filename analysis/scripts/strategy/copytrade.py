@@ -448,6 +448,8 @@ def sim():
                     continue
                 tt = np.array([mint_t[e["mint"]].bt >= cut_bt for e, _ in ev_ok])
                 wp = np.array([W[e["mint"]] for e, _ in ev_ok])
+                # "all": unit weight per launch, except gap-3 launches from the 1-in-5 low-ATH subsample keep w=5
+                wa = np.array([mint_t[e["mint"]].w for e, _ in ev_ok])
                 srcs = np.array([mint_t[e["mint"]].src for e, _ in ev_ok])
                 orc = np.array([(ev["oracle"] - size - COST) / size for _, ev in ev_ok])
                 prem = np.array([ev["prem"] for _, ev in ev_ok])
@@ -458,7 +460,7 @@ def sim():
                     row = {"name": pname(kind, lag, size, keys, tp, H, front), "kind": kind, "lag": lag, "size": size,
                            "keys": list(keys), "tp": tp, "hold": H, "front": front}
                     for split, msk in (("train", ~tt), ("test", tt)):
-                        for popn, wv in (("pop", wp), ("all", np.ones_like(wp))):
+                        for popn, wv in (("pop", wp), ("all", wa)):
                             m_ = msk & (wv > 0)
                             n = int(m_.sum())
                             key = f"{split}_{popn}"
@@ -571,7 +573,7 @@ def report():
             t = mint_t[e["mint"]]
             if (t.bt >= cut_bt) != (split == "test"):
                 continue
-            wt = W[t.mint] if popn == "pop" else 1.0
+            wt = W[t.mint] if popn == "pop" else t.w
             if wt <= 0:
                 continue
             ev = e["evs"][(r["lag"], r["size"])]

@@ -55,6 +55,7 @@ class Tape:
     vtok: np.ndarray
     vsol: np.ndarray
     rsol: np.ndarray
+    agcum: np.ndarray       # agent cumulative net SOL bought (buys - sells), post trade
     meta: dict = field(default_factory=dict)
 
     @property
@@ -92,8 +93,9 @@ def build_tape(row: dict) -> Tape | None:
         if price[i] <= 0:
             price[i] = price[i - 1] if i else VSOL0 / VTOK0
     vsol = price * vtok
+    agcum = np.cumsum(np.where(agent, sgn * sol, 0.0))
     return Tape(row["mint"], int(row["bt"]), int(row["slot"]), row.get("cov"), slot, ts, agent,
-                buy, sol, tok, price, vtok, vsol, rsol,
+                buy, sol, tok, price, vtok, vsol, rsol, agcum,
                 meta={k: row.get(k) for k in ("ath_usd", "ath_ts", "sol_usd", "complete", "cp", "dev_buys")})
 
 
@@ -124,8 +126,12 @@ def buy_fill(tp: Tape, i: int, size: float, premium: float = 0.0) -> tuple[float
     return toks / (1 + premium), net
 
 
+AGENT_CAP_SOL = 20.0   # global_params holds two 20-SOL values; treated as a per-coin agent budget
+                       # in the 'agentcap' sensitivity (UNVERIFIED semantics)
+
+
 def sell_value(tp: Tape, i: int, toks: float, net_in: float, cap: bool = True,
-               p_in: float | None = None) -> tuple[float, bool]:
+               p_in: float | None = None, agent_cap: float | None = None) -> tuple[float, bool]:
     """SOL received (after fee) for selling `toks` at post-trade state i; real-SOL capped.
 
     The cap is the historical real SOL plus our own SOL scaled by the price ratio since entry:
@@ -138,6 +144,10 @@ def sell_value(tp: Tape, i: int, toks: float, net_in: float, cap: bool = True,
     if cap:
         scale = tp.price[i] / p_in if p_in else 1.0
         lim = max(tp.rsol[i], 0.0) + net_in * scale
+        if agent_cap is not None and scale > 1:
+            # the agent must fund our gain; it cannot exceed its remaining per-coin budget
+            room = max(agent_cap - tp.agcum[i], 0.0)
+            lim = min(lim, max(tp.rsol[i], 0.0) + net_in + room)
         if gross > lim:
             gross, capped = lim, True
     return gross * (1 - FEE), capped
@@ -225,7 +235,8 @@ def entry_index(tp: Tape, e: Entry, lat: int = 1) -> int | None:
 
 
 def simulate(tp: Tape, fi: int, x: Exit, size: float = 0.5, premium: float = 0.011,
-             fixed_cost: float = 0.004, lat: int = 1, cap: bool = True) -> dict:
+             fixed_cost: float = 0.004, lat: int = 1, cap: bool = True,
+             agent_cap: float | None = None) -> dict:
     """Run one exit policy from fill index fi. Returns dict(ret, reason, hold_s, ...)."""
     toks, net_in = buy_fill(tp, fi, size, premium)
     p_in = tp.price[fi]
@@ -268,7 +279,7 @@ def simulate(tp: Tape, fi: int, x: Exit, size: float = 0.5, premium: float = 0.0
         if tp.agent[i]:
             last_agent_t = tp.ts[i]
         p = tp.price[i]
-        val, _ = sell_value(tp, i, toks, net_in, cap, p_in)
+        val, _ = sell_value(tp, i, toks, net_in, cap, p_in, agent_cap)
         r = (val - fixed_cost) / size - 1
         fired = None
         if x.tp is not None and r >= x.tp:
@@ -285,7 +296,7 @@ def simulate(tp: Tape, fi: int, x: Exit, size: float = 0.5, premium: float = 0.0
             sig_i, reason, t_sig = i, fired, tp.ts[i]
             fi_out = tp.end_of_slot(int(tp.slot[i]) + lat)
             break
-    val, capped = sell_value(tp, fi_out, toks, net_in, cap, p_in)
+    val, capped = sell_value(tp, fi_out, toks, net_in, cap, p_in, agent_cap)
     ret = (val - fixed_cost) / size - 1
     return {"ret": ret, "reason": reason, "hold_s": float(tp.ts[fi_out] - t_in), "capped": capped,
             "entry_mcap": tp.mcap(fi), "exit_mcap": tp.mcap(fi_out), "t_entry": float(t_in - tp.bt)}

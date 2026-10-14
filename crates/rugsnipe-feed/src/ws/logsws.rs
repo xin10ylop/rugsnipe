@@ -164,6 +164,15 @@ impl LogsWs {
         self.ctl.send(Control::UnwatchMint(k)).is_ok()
     }
 
+    /// A cloneable control handle (watch / unwatch from another thread after
+    /// the adapter moved into a [`crate::FeedMux`]).
+    pub fn handle(&self) -> LogsWsHandle {
+        LogsWsHandle {
+            ctl: self.ctl.clone(),
+            health: self.feed.health_arc().clone(),
+        }
+    }
+
     pub fn health_arc(&self) -> &Arc<FeedHealth> {
         self.feed.health_arc()
     }
@@ -190,6 +199,32 @@ impl Feed for LogsWs {
 
     fn health(&self) -> Option<&FeedHealth> {
         self.feed.health()
+    }
+}
+
+/// Cloneable control handle of a [`LogsWs`] (cold threads use it to watch
+/// held mints and funders; each call is one channel send).
+#[derive(Debug, Clone)]
+pub struct LogsWsHandle {
+    ctl: mpsc::UnboundedSender<Control>,
+    health: Arc<FeedHealth>,
+}
+
+impl LogsWsHandle {
+    pub fn watch_funder(&self, k: Pubkey) -> bool {
+        self.ctl.send(Control::WatchFunder(k)).is_ok()
+    }
+    pub fn unwatch_funder(&self, k: Pubkey) -> bool {
+        self.ctl.send(Control::UnwatchFunder(k)).is_ok()
+    }
+    pub fn watch_mint(&self, k: Pubkey) -> bool {
+        self.ctl.send(Control::WatchMint(k)).is_ok()
+    }
+    pub fn unwatch_mint(&self, k: Pubkey) -> bool {
+        self.ctl.send(Control::UnwatchMint(k)).is_ok()
+    }
+    pub fn health(&self) -> &Arc<FeedHealth> {
+        &self.health
     }
 }
 

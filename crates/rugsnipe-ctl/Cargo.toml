@@ -13,6 +13,8 @@ rugsnipe-core = { path = "../rugsnipe-core" }
 rugsnipe-tx = { path = "../rugsnipe-tx" }
 base64 = { workspace = true }
 bs58 = { workspace = true }
+serde_json = { workspace = true }
+zeroize = "1.9"
 
 [dev-dependencies]
 ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize"] }

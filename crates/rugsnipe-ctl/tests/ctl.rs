@@ -153,3 +153,85 @@ fn usage_on_unknown() {
     assert_eq!(out.code, 2);
     assert!(out.text.contains("usage"));
 }
+
+#[test]
+fn armset_keygen_sign_verify_roundtrip_and_keygen_refuses_git_tree() {
+    let dir = std::env::temp_dir().join(format!("rugsnipe-ctl-armset-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let key = dir.join("dev.key");
+    let _ = std::fs::remove_file(&key);
+    let args = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let out = rugsnipe_ctl::run(&args(&["armset", "keygen", "--out", key.to_str().unwrap()]));
+    assert_eq!(out.code, 0, "{}", out.text);
+    let pubkey = out
+        .text
+        .lines()
+        .find_map(|l| l.strip_prefix("pubkey "))
+        .unwrap()
+        .to_string();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&key).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+    // never overwritten
+    assert_ne!(
+        rugsnipe_ctl::run(&args(&["armset", "keygen", "--out", key.to_str().unwrap()])).code,
+        0
+    );
+    // refused inside this repository (outside keys/)
+    let in_repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("should-not-exist.key");
+    let r = rugsnipe_ctl::run(&args(&[
+        "armset",
+        "keygen",
+        "--out",
+        in_repo.to_str().unwrap(),
+    ]));
+    assert_ne!(r.code, 0);
+    assert!(!in_repo.exists());
+    // sign
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let json = dir.join("in.json");
+    std::fs::write(
+        &json,
+        format!(r#"{{"ver":7,"created_at":{now},"regime":"paper","gate_passed":false,"operators":[],"watch":[],"funding_rules":[]}}"#),
+    )
+    .unwrap();
+    let out = rugsnipe_ctl::run(&args(&[
+        "armset",
+        "sign",
+        "--key",
+        key.to_str().unwrap(),
+        "--in",
+        json.to_str().unwrap(),
+        "--out-dir",
+        dir.to_str().unwrap(),
+    ]));
+    assert_eq!(out.code, 0, "{}", out.text);
+    let file = out.text.lines().next().unwrap().to_string();
+    assert!(file.contains("armset-7-"));
+    let v = rugsnipe_ctl::run(&args(&["armset", "verify", &file, "--pubkey", &pubkey]));
+    assert_eq!(v.code, 0, "{}", v.text);
+    // a group-readable key is refused
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o640)).unwrap();
+        let r = rugsnipe_ctl::run(&args(&[
+            "armset",
+            "sign",
+            "--key",
+            key.to_str().unwrap(),
+            "--in",
+            json.to_str().unwrap(),
+        ]));
+        assert_ne!(r.code, 0);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -1,7 +1,7 @@
 import sys,json,base64,struct,collections; sys.path.insert(0,'.')
 from sol import *
 CV2=bytes.fromhex('d6904cec5f8b31b4'); CR=bytes.fromhex('181ec828051c0777'); CEV=bytes.fromhex('1b72a94ddeeb6376')
-txs=json.load(open('creates_raw.json'))
+txs=json.load(__import__('gzip').open('creates_raw.json.gz','rt'))
 def keys(t):
     m=t['transaction']['message']; k=list(m['accountKeys'])
     la=t['meta'].get('loadedAddresses') or {}

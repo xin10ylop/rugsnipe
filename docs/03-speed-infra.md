@@ -194,9 +194,20 @@ must be capped near +10%. Use **transaction v1** where the path
 accepts it: no compute-budget instructions, the compute-unit limit and loaded-accounts size **must**
 be set in the header (unset means zero and the transaction pays its fee for nothing), the priority fee
 is a total in lamports, no address-lookup tables. Simulated on mainnet against fresh curves: the
-snipe `ATA create + buy_v3 + tip` is **805 bytes** (880 with a nonce advance), consumes **61.5-71k CU**
-depending on PDA bumps (set the limit to **72,000**, or 72,150 with a nonce), and loads
-**12,089,448 bytes** of accounts (set 12,124,160 = 370 pages; recompute from live program sizes),
+snipe `ATA create + buy_v3 + tip` is **805 bytes** (880 with a nonce advance) and loads
+**12,089,448-12,095,893 bytes** of accounts (set 12,124,160 = 370 pages; recompute from live program
+sizes). Its compute cost is **deterministic per mint**: `62,310 + 1,500·S` with a nonce (62,160
+without), where S is the sum of `255 − bump` over four PDAs the decoder derives anyway (bonding
+curve, the curve's base ATA, the curve's WSOL ATA, our base ATA). S is roughly negative-binomial
+with mean 4, so the median mint costs ~68k but the tail reaches 83k (S = 14 in 361 mainnet
+simulations; research/gap-5, re-derived here on every record). **A static 72,150 limit fails 16%
+of mints**; 88,000 fails 0.075%. Set the limit **per mint at `62,500 + 1,500·S` plus a 1,500 margin**
+(the simulation residual is up to +38 CU above the envelope), with 88,000 as the static floor if
+per-mint patching is unavailable; in v1 the fee is a fixed total, so the tighter per-mint limit buys
+~25% better priority rank per lamport at the median S. Mayhem coins cost ~400 CU less; a first trade
+without a user volume accumulator costs ~2.8k more (pre-create it, and grind the wallet key so its
+UVA and WSOL-ATA bumps are 255). `partial_fill` never rescues a slippage failure (6002/6042), so omit
+it on SOL non-mayhem snipes; a failing slippage buy still burns ~49k CU,
 which cuts the scheduler's "phantom" cost by ~13,400 units versus the 64 MiB default. Keep every
 variant ≤ 1,232 bytes: Astralane and NextBlock QUIC and Nozomi bundles cap there even for v1. In a
 160-block scan, v1 landed through Jito (`sendBundle` included), Helius (both tiers), Nozomi,

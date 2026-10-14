@@ -9,6 +9,8 @@
 //! rugsnipe-ctl nonce init  --authority A [--count N] [--pool buy|sell] [--blockhash B58] [--lamports L]
 //! rugsnipe-ctl nonce close --authority A --to T [--count N] [--pool buy|sell] [--blockhash B58] [--lamports L]
 //! rugsnipe-ctl armset verify <file> --pubkey PK [--sig FILE] [--regime R] [--max-age S] [--now UNIX]
+//! rugsnipe-ctl armset keygen --out FILE           (dev/paper signing key; refused inside a git tree except keys/)
+//! rugsnipe-ctl armset sign --key FILE --in JSON [--out-dir DIR]   (writes armset-<ver>-<sha>.json + .sig)
 //! ```
 //!
 //! Nothing here signs or sends: nonce init/close print **unsigned**
@@ -80,12 +82,14 @@ pub fn run(args: &[String]) -> Out {
         ["nonce", "init", ..] => nonce_txs(&args[2..], true),
         ["nonce", "close", ..] => nonce_txs(&args[2..], false),
         ["armset", "verify", file, ..] => armset_verify(file, &args[3..]),
+        ["armset", "keygen", ..] => armset_keygen(&args[2..]),
+        ["armset", "sign", ..] => armset_sign(&args[2..]),
         _ => Err(USAGE.to_string()),
     };
     r.unwrap_or_else(err)
 }
 
-pub const USAGE: &str = "usage: rugsnipe-ctl <config validate FILE | template dump | nonce init | nonce close | armset verify FILE> [options]\n(see `rugsnipe-ctl` crate docs for options)";
+pub const USAGE: &str = "usage: rugsnipe-ctl <config validate FILE | template dump | nonce init | nonce close | armset verify FILE | armset keygen | armset sign> [options]\n(see `rugsnipe-ctl` crate docs for options)";
 
 /// Mode bits of a credential file (`None` if missing).
 fn mode_of(p: &Path) -> Option<u32> {
@@ -418,5 +422,117 @@ pub fn armset_verify(file: &str, args: &[String]) -> Result<Out, String> {
             code: 0,
         },
         Err(e) => Out { text: format!("REJECTED: {e} (hot box would run exits only)\n"), code: 1 },
+    })
+}
+
+/// `true` if `path` would land inside a git working tree outside a
+/// gitignored `keys/` directory (key material never goes into git).
+fn inside_git_tree(path: &Path) -> bool {
+    let abs = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().unwrap_or_default().join(path)
+    };
+    let mut in_keys = false;
+    let mut dir = abs.parent();
+    while let Some(d) = dir {
+        if d.file_name().is_some_and(|n| n == "keys") {
+            in_keys = true;
+        }
+        if d.join(".git").exists() {
+            return !in_keys;
+        }
+        dir = d.parent();
+    }
+    false
+}
+
+/// `armset keygen --out FILE`: a fresh ed25519 key for signing paper/dev
+/// ArmSets (Solana keypair JSON, mode 0600, never overwritten). The
+/// production key lives on ohio1 only.
+pub fn armset_keygen(args: &[String]) -> Result<Out, String> {
+    use std::io::{Read, Write};
+    let out = opt(args, "--out").ok_or("--out required")?;
+    let path = Path::new(out);
+    if inside_git_tree(path) {
+        return Err(format!(
+            "{out}: refusing to write key material inside a git working tree (use a path outside it, or keys/ which is gitignored)"
+        ));
+    }
+    let mut seed = zeroize::Zeroizing::new([0u8; 32]);
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut seed[..]))
+        .map_err(|e| format!("/dev/urandom: {e}"))?;
+    let signer = rugsnipe_tx::signer::HotSigner::from_seed(&seed);
+    let pk = signer.pubkey();
+    let mut text = zeroize::Zeroizing::new(String::from("["));
+    for (i, b) in seed.iter().chain(pk.as_ref().iter()).enumerate() {
+        if i > 0 {
+            text.push(',');
+        }
+        text.push_str(&b.to_string());
+    }
+    text.push(']');
+    let mut oo = std::fs::OpenOptions::new();
+    oo.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        oo.mode(0o600);
+    }
+    let mut f = oo.open(path).map_err(|e| format!("{out}: {e}"))?;
+    f.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(Out {
+        text: format!("wrote {out} (0600)\npubkey {pk}\n"),
+        code: 0,
+    })
+}
+
+/// `armset sign --key FILE --in JSON [--out-dir DIR]`: sign the exact JSON
+/// bytes, write `armset-<ver>-<sha256>.json` and its detached `.sig`
+/// (base58), then verify the result with the key's public half.
+pub fn armset_sign(args: &[String]) -> Result<Out, String> {
+    let key = opt(args, "--key").ok_or("--key required")?;
+    let input = opt(args, "--in").ok_or("--in required")?;
+    let dir = Path::new(opt(args, "--out-dir").unwrap_or("."));
+    let signer = rugsnipe_tx::signer::HotSigner::load_file(Path::new(key))
+        .map_err(|e| format!("{key}: {e}"))?;
+    let bytes = std::fs::read(input).map_err(|e| format!("{input}: {e}"))?;
+    let set: armset::ArmSet =
+        serde_json::from_slice(&bytes).map_err(|e| format!("{input}: not an ArmSet: {e}"))?;
+    let sha = armset::sha256_hex(&bytes);
+    let sig = signer.sign(&bytes);
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let file = dir.join(format!("armset-{}-{sha}.json", set.ver));
+    std::fs::write(&file, &bytes).map_err(|e| e.to_string())?;
+    let sig_file = format!("{}.sig", file.display());
+    std::fs::write(&sig_file, bs58::encode(sig).into_string()).map_err(|e| e.to_string())?;
+    let pk = signer.pubkey();
+    let check = armset::verify(
+        &bytes,
+        Some(bs58::encode(sig).into_string().as_bytes()),
+        &VerifyCtx {
+            pubkey: &pk,
+            expected_sha: Some(&sha),
+            now_unix: set.created_at,
+            max_age_s: u64::MAX,
+            regime: None,
+            hot_version: "999.0.0",
+        },
+    );
+    if let Err(e) = check {
+        return Err(format!("signed ArmSet does not verify: {e}"));
+    }
+    Ok(Out {
+        text: format!(
+            "{}\n{sig_file}\nver {} sha256 {sha} signer {pk} operators {} watch {} funding_rules {} gate_passed={}\n",
+            file.display(),
+            set.ver,
+            set.operators.len(),
+            set.watch.len(),
+            set.funding_rules.len(),
+            set.gate_passed
+        ),
+        code: 0,
     })
 }

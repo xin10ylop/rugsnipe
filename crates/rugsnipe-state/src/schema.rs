@@ -29,8 +29,17 @@ CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT);
 
 /// Table names in DDL order.
 pub const TABLES: [&str; 11] = [
-    "intents", "sends", "fills", "positions", "exits", "nonces", "watch_dyn", "risk", "op_risk",
-    "lease", "kv",
+    "intents",
+    "sends",
+    "fills",
+    "positions",
+    "exits",
+    "nonces",
+    "watch_dyn",
+    "risk",
+    "op_risk",
+    "lease",
+    "kv",
 ];
 
 /// Open settings for every connection: WAL, NORMAL sync, busy timeout,

@@ -1,0 +1,542 @@
+[
+ {
+  "wallet": "97zvZgkJHZUD8avjCXJqLQBEujLxYfNHyPnanpaNt7hn",
+  "n_sigs": 1000,
+  "span_days": 3.100115740740741,
+  "tx_per_day": 322.5686018293821,
+  "pump_trades_sampled": 133,
+  "pump_share": 0.8866666666666667,
+  "buy_share": 0.631578947368421,
+  "med_buy_sol": 0.342222221,
+  "med_entry_mcap": 55.11251105278885,
+  "mints": 126,
+  "net_sol_window": -52.53298050545998,
+  "net_ci90": [
+   -100.47797091946119,
+   5.221647657609759
+  ],
+  "net_per_day": -16.945490071576412,
+  "window": [
+   1791664770,
+   1791932620
+  ],
+  "window_after_cut": false,
+  "sample_train_n": 3,
+  "sample_train_pnl": 0.6230492449750001,
+  "sample_test_n": 1,
+  "sample_test_pnl": 0.2585181771375001
+ },
+ {
+  "wallet": "2pcL7kT6wK1Qh8Kp3HAkaDDQzhu4PHrnWmspqs1oqXmb",
+  "n_sigs": 1000,
+  "span_days": 5.760289351851852,
+  "tx_per_day": 173.602390247725,
+  "pump_trades_sampled": 143,
+  "pump_share": 0.9533333333333334,
+  "buy_share": 0.4405594405594406,
+  "med_buy_sol": 0.752160172,
+  "med_entry_mcap": 39.442760539285906,
+  "mints": 143,
+  "net_sol_window": 137.34126802501004,
+  "net_ci90": [
+   -1.5298845635375338,
+   289.93991132476634
+  ],
+  "net_per_day": 23.842772408795184,
+  "window": [
+   1791432289,
+   1791929978
+  ],
+  "window_after_cut": false,
+  "sample_train_n": 12,
+  "sample_train_pnl": 2.218896060675001,
+  "sample_test_n": 0,
+  "sample_test_pnl": 0
+ },
+ {
+  "wallet": "2Fb17Uz6xAEYH9R1xryp2eDaR6eKM4y7Bg25oJrkfeeS",
+  "n_sigs": 1000,
+  "span_days": 0.06076388888888889,
+  "tx_per_day": 16457.14285714286,
+  "pump_trades_sampled": 98,
+  "pump_share": 0.765625,
+  "buy_share": 0.35714285714285715,
+  "med_buy_sol": 0.009777777,
+  "med_entry_mcap": 43.9116005005951,
+  "mints": 35,
+  "net_sol_window": -0.15878883724999995,
+  "net_ci90": [
+   -0.5968126246318748,
+   0.27530828855437506
+  ],
+  "net_per_day": -2.6132105787428563,
+  "window": [
+   1791935120,
+   1791940370
+  ],
+  "window_after_cut": true,
+  "sample_train_n": 1,
+  "sample_train_pnl": 0.0005128246625000004,
+  "sample_test_n": 3,
+  "sample_test_pnl": 0.008383447437710953
+ },
+ {
+  "wallet": "DjcoMKQTawQxVvWzkrA9kNEMxNAcg9pfDJLGGqH47ZZC",
+  "n_sigs": 1000,
+  "span_days": 0.8833796296296297,
+  "tx_per_day": 1132.0161417116503,
+  "pump_trades_sampled": 122,
+  "pump_share": 0.8133333333333334,
+  "buy_share": 0.47540983606557374,
+  "med_buy_sol": 0.109869862,
+  "med_entry_mcap": 42.54303847223956,
+  "mints": 115,
+  "net_sol_window": 0.6228774572085044,
+  "net_ci90": [
+   -12.488099100103897,
+   13.813905662599685
+  ],
+  "net_per_day": 0.7051073358683347,
+  "window": [
+   1791901130,
+   1791977454
+  ],
+  "window_after_cut": true,
+  "sample_train_n": 2,
+  "sample_train_pnl": 0.06839135860000004,
+  "sample_test_n": 9,
+  "sample_test_pnl": 0.22257579276250006
+ },
+ {
+  "wallet": "DL11CHBXbMMAfB3WEc1MaXqNBbVnWjuPVCzUjEwsPLv4",
+  "n_sigs": 1000,
+  "span_days": 3.4905324074074073,
+  "tx_per_day": 286.4892467057052,
+  "pump_trades_sampled": 88,
+  "pump_share": 0.5866666666666667,
+  "buy_share": 0.375,
+  "med_buy_sol": 2.370370369,
+  "med_entry_mcap": 43.622168677016944,
+  "mints": 88,
+  "net_sol_window": 251.36235286593782,
+  "net_ci90": [
+   27.072068428307425,
+   478.40483514233705
+  ],
+  "net_per_day": 72.0126111227362,
+  "window": [
+   1791671133,
+   1791972715
+  ],
+  "window_after_cut": true,
+  "sample_train_n": 10,
+  "sample_train_pnl": 2.5885611100875012,
+  "sample_test_n": 3,
+  "sample_test_pnl": 0.34041004095000016
+ },
+ {
+  "wallet": "HXHoJwF5p5L9iXRgeg3NiDdS5c4DADxNtRjHLDnTLXi7",
+  "n_sigs": 1000,
+  "span_days": 14.248530092592592,
+  "tx_per_day": 70.18267803777681,
+  "pump_trades_sampled": 120,
+  "pump_share": 0.8,
+  "buy_share": 0.5166666666666667,
+  "med_buy_sol": 1.777777777,
+  "med_entry_mcap": 70.97602566440065,
+  "mints": 120,
+  "net_sol_window": -22.873601908290663,
+  "net_ci90": [
+   -196.93815278885756,
+   161.7392733344465
+  ],
+  "net_per_day": -1.6053306382938408,
+  "window": [
+   1790710473,
+   1791941546
+  ],
+  "window_after_cut": false,
+  "sample_train_n": 2,
+  "sample_train_pnl": 0.2681381778874999,
+  "sample_test_n": 3,
+  "sample_test_pnl": 0.3526330004125613
+ },
+ {
+  "wallet": "2mqrindMAjJEQPLhroYWyiYPo5h9iAsahfdd4QtsjwdY",
+  "n_sigs": 1000,
+  "span_days": 0.27997685185185184,
+  "tx_per_day": 3571.723852831749,
+  "pump_trades_sampled": 124,
+  "pump_share": 0.8266666666666667,
+  "buy_share": 0.28225806451612906,
+  "med_buy_sol": 1.836759778,
+  "med_entry_mcap": 39.35586195842786,
+  "mints": 57,
+  "net_sol_window": -36.365301091226165,
+  "net_ci90": [
+   -96.12182233517555,
+   16.418699216463594
+  ],
+  "net_per_day": -129.88681332294092,
+  "window": [
+   1791953403,
+   1791977593
+  ],
+  "window_after_cut": true,
+  "sample_train_n": 10,
+  "sample_train_pnl": 2.7490249946250014,
+  "sample_test_n": 3,
+  "sample_test_pnl": 0.03692352578750113
+ },
+ {
+  "wallet": "2H6DwrqAsETL1PjrT5KAX3MAELx71FuDkKVZj18PaeJf",
+  "n_sigs": 1000,
+  "span_days": 1.062488425925926,
+  "tx_per_day": 941.186723166919,
+  "pump_trades_sampled": 120,
+  "pump_share": 0.8,
+  "buy_share": 0.125,
+  "med_buy_sol": 6.913580246,
+  "med_entry_mcap": 59.33632527259884,
+  "mints": 47,
+  "net_sol_window": -17.32178289778298,
+  "net_ci90": [
+   -241.29032019464478,
+   217.2909797656995
+  ],
+  "net_per_day": -16.303032084973143,
+  "window": [
+   1791885927,
+   1791977726
+  ],
+  "window_after_cut": true,
+  "sample_train_n": 2,
+  "sample_train_pnl": 3.6810088405000094,
+  "sample_test_n": 2,
+  "sample_test_pnl": 4.2695230953
+ },
+ {
+  "wallet": "9qL4hMBNUo7qeC4CvUDGbbzb8nP71EgpMHfen68Awpmv",
+  "n_sigs": 1000,
+  "span_days": 5.763090277777778,
+  "tx_per_day": 173.51801755664943,
+  "pump_trades_sampled": 149,
+  "pump_share": 0.9933333333333333,
+  "buy_share": 0.3825503355704698,
+  "med_buy_sol": 0.009876542,
+  "med_entry_mcap": 50.37047414962745,
+  "mints": 149,
+  "net_sol_window": 2.338537329043667,
+  "net_ci90": [
+   0.8964399024212049,
+   3.70960366069865
+  ],
+  "net_per_day": 0.40577836131787903,
+  "window": [
+   1791416101,
+   1791914032
+  ],
+  "window_after_cut": false,
+  "sample_train_n": 11,
+  "sample_train_pnl": 0.05208087401023981,
+  "sample_test_n": 1,
+  "sample_test_pnl": -0.0018265303999999982
+ },
+ {
+  "wallet": "4VfKyL8JiSoymQ1Fb6ewcv3VWNv2c5fWP4xuE8MXQdCN",
+  "n_sigs": 1000,
+  "span_days": 1.0182638888888889,
+  "tx_per_day": 982.0636977426175,
+  "pump_trades_sampled": 121,
+  "pump_share": 0.8066666666666666,
+  "buy_share": 0.5041322314049587,
+  "med_buy_sol": 0.087632303,
+  "med_entry_mcap": 40.68701448981346,
+  "mints": 118,
+  "net_sol_window": 1.3358707541970032,
+  "net_ci90": [
+   -10.911239454240821,
+   12.836222773058127
+  ],
+  "net_per_day": 1.3119101725729283,
+  "window": [
+   1791889740,
+   1791977718
+  ],
+  "window_after_cut": true,
+  "sample_train_n": 11,
+  "sample_train_pnl": 0.17804382037500005,
+  "sample_test_n": 9,
+  "sample_test_pnl": 0.1071359012875001
+ },
+ {
+  "wallet": "SKmksffBedVUw4fYNLJKARjmwuxZMNnNjkrYR8JScjy",
+  "n_sigs": 1000,
+  "span_days": 1.9829282407407407,
+  "tx_per_day": 504.304684079965,
+  "pump_trades_sampled": 148,
+  "pump_share": 0.9866666666666667,
+  "buy_share": 0.16216216216216217,
+  "med_buy_sol": 0.098765431,
+  "med_entry_mcap": 44.47470977531921,
+  "mints": 148,
+  "net_sol_window": 83.54614637809135,
+  "net_ci90": [
+   70.06878716192449,
+   94.25686102974517
+  ],
+  "net_per_day": 42.13271295530187,
+  "window": [
+   1791806403,
+   1791977728
+  ],
+  "window_after_cut": true,
+  "sample_train_n": 7,
+  "sample_train_pnl": 0.08048539366250008,
+  "sample_test_n": 1,
+  "sample_test_pnl": 0.019383350475000005
+ },
+ {
+  "wallet": "zAnr3GphY5t6xPahAaCQKPNBSxhYEtvV41JTqPFqmbb",
+  "n_sigs": 1000,
+  "span_days": 2.7998148148148148,
+  "tx_per_day": 357.1664792645016,
+  "pump_trades_sampled": 54,
+  "pump_share": 0.36,
+  "buy_share": 0.3888888888888889,
+  "med_buy_sol": 0.493827159,
+  "med_entry_mcap": 54.172587215489116,
+  "mints": 54,
+  "net_sol_window": -14.900398959335988,
+  "net_ci90": [
+   -78.41592893107925,
+   36.12588625335546
+  ],
+  "net_per_day": -5.321923035942478,
+  "window": [
+   1791733726,
+   1791975630
+  ],
+  "window_after_cut": true,
+  "sample_train_n": 3,
+  "sample_train_pnl": 0.3002235407125,
+  "sample_test_n": 2,
+  "sample_test_pnl": 0.10912633185000023
+ },
+ {
+  "wallet": "BXB7FF4m5x74ZoUvVHfPJnVBbqWHpMEU1WNUZAL9W8PL",
+  "n_sigs": 1000,
+  "span_days": 1.1995833333333332,
+  "tx_per_day": 833.6227856894756,
+  "pump_trades_sampled": 146,
+  "pump_share": 0.9733333333333334,
+  "buy_share": 0.23972602739726026,
+  "med_buy_sol": 1.48148148,
+  "med_entry_mcap": 56.85581385363139,
+  "mints": 146,
+  "net_sol_window": 768.5634825605098,
+  "net_ci90": [
+   584.7013797686994,
+   933.8074633544044
+  ],
+  "net_per_day": 640.6920313112969,
+  "window": [
+   1791844621,
+   1791948265
+  ],
+  "window_after_cut": true,
+  "sample_train_n": 10,
+  "sample_train_pnl": 1.7995899720250015,
+  "sample_test_n": 9,
+  "sample_test_pnl": -0.12087113164999852
+ },
+ {
+  "wallet": "dKMjeGJ4Mk9S3hxdfTThvZ7exks2xMwWqSM5NvN2CTK",
+  "n_sigs": 1000,
+  "span_days": 0.3916203703703704,
+  "tx_per_day": 2553.4933207234894,
+  "pump_trades_sampled": 115,
+  "pump_share": 0.7666666666666667,
+  "buy_share": 0.25217391304347825,
+  "med_buy_sol": 1.777777777,
+  "med_entry_mcap": 46.71376356892249,
+  "mints": 109,
+  "net_sol_window": 307.73530697386377,
+  "net_ci90": [
+   57.90691525439568,
+   523.5549750431385
+  ],
+  "net_per_day": 785.8000509085539,
+  "window": [
+   1791943964,
+   1791977800
+  ],
+  "window_after_cut": true,
+  "sample_train_n": 12,
+  "sample_train_pnl": 2.4262407053876713,
+  "sample_test_n": 11,
+  "sample_test_pnl": 4.444868293425145
+ },
+ {
+  "wallet": "9Dmsi7mZqDJ8GcSNDFByKPKLSPDn5KhxENGTWfZ9FdMy",
+  "n_sigs": 1000,
+  "span_days": 0.7926388888888889,
+  "tx_per_day": 1261.6085509024006,
+  "pump_trades_sampled": 114,
+  "pump_share": 0.76,
+  "buy_share": 0.49122807017543857,
+  "med_buy_sol": 0.12650328849999998,
+  "med_entry_mcap": 42.36327464460287,
+  "mints": 112,
+  "net_sol_window": -3.2030083912645,
+  "net_ci90": [
+   -15.756103113145198,
+   9.459751148969548
+  ],
+  "net_per_day": -4.040942775031435,
+  "window": [
+   1791909390,
+   1791977874
+  ],
+  "window_after_cut": true,
+  "sample_train_n": 8,
+  "sample_train_pnl": 0.016046466662571743,
+  "sample_test_n": 8,
+  "sample_test_pnl": 0.21103037398750008
+ },
+ {
+  "wallet": "9jQ55cAgn5zEhnw4fLGT1S8wRXRwJqXWqXzKYJ7kJ4b1",
+  "n_sigs": 1000,
+  "span_days": 2.849849537037037,
+  "tx_per_day": 350.8957181787538,
+  "pump_trades_sampled": 105,
+  "pump_share": 0.7,
+  "buy_share": 0.5333333333333333,
+  "med_buy_sol": 2.469135802,
+  "med_entry_mcap": 49.67674984544474,
+  "mints": 105,
+  "net_sol_window": -53.69783983826484,
+  "net_ci90": [
+   -258.20701681061416,
+   141.05386939134345
+  ],
+  "net_per_day": -18.842342074695637,
+  "window": [
+   1791672944,
+   1791919171
+  ],
+  "window_after_cut": true,
+  "sample_train_n": 4,
+  "sample_train_pnl": 0.22270218061250008,
+  "sample_test_n": 3,
+  "sample_test_pnl": 0.5358658312625013
+ },
+ {
+  "wallet": "8ptvshQRZPRaRQBSCRxhHwbJFr6ktyUQ1SATDCLijkBW",
+  "n_sigs": 1000,
+  "span_days": 1.3968287037037037,
+  "tx_per_day": 715.9073960525661,
+  "pump_trades_sampled": 144,
+  "pump_share": 0.96,
+  "buy_share": 0.4444444444444444,
+  "med_buy_sol": 1.075535242,
+  "med_entry_mcap": 40.0480094948926,
+  "mints": 144,
+  "net_sol_window": 60.76064120471045,
+  "net_ci90": [
+   -44.46997449190935,
+   165.2106654752176
+  ],
+  "net_per_day": 43.49899242734852,
+  "window": [
+   1791857245,
+   1791977931
+  ],
+  "window_after_cut": true,
+  "sample_train_n": 10,
+  "sample_train_pnl": 1.665945851112501,
+  "sample_test_n": 3,
+  "sample_test_pnl": 0.5623180359250002
+ },
+ {
+  "wallet": "haqqiUUXB5gp7gDbSjpEkw3phAjQb25r86uXJsZQgWq",
+  "n_sigs": 1000,
+  "span_days": 0.1238888888888889,
+  "tx_per_day": 8071.748878923767,
+  "pump_trades_sampled": 119,
+  "pump_share": 0.7933333333333333,
+  "buy_share": 0.47058823529411764,
+  "med_buy_sol": 0.395061727,
+  "med_entry_mcap": 47.60386436501486,
+  "mints": 100,
+  "net_sol_window": 7.451791987985766,
+  "net_ci90": [
+   -60.78740436554567,
+   80.7731153023664
+  ],
+  "net_per_day": 60.14899362499721,
+  "window": [
+   1791967261,
+   1791977965
+  ],
+  "window_after_cut": true,
+  "sample_train_n": 91,
+  "sample_train_pnl": 5.404084927280257,
+  "sample_test_n": 63,
+  "sample_test_pnl": 2.208650310850055
+ },
+ {
+  "wallet": "7iURkMGAvkKppKnrMbA6TH9Lgweoh4oZL6kCuh2SsVSB",
+  "n_sigs": 1000,
+  "span_days": 0.03525462962962963,
+  "tx_per_day": 28365.068942875903,
+  "pump_trades_sampled": 0,
+  "pump_share": 0.0,
+  "buy_share": 0.0,
+  "med_buy_sol": null,
+  "med_entry_mcap": null,
+  "mints": 0,
+  "net_sol_window": 0.0,
+  "net_ci90": [
+   NaN,
+   NaN
+  ],
+  "net_per_day": 0.0,
+  "window": [
+   1791275026,
+   1791278072
+  ],
+  "window_after_cut": false,
+  "sample_train_n": 6,
+  "sample_train_pnl": 1.3690651911624996,
+  "sample_test_n": 0,
+  "sample_test_pnl": 0
+ },
+ {
+  "wallet": "6sfsvDJMTb5bjrdxyaACg1CoRHUfDkpJ8G7Ax2TVzYy2",
+  "n_sigs": 1000,
+  "span_days": 0.40414351851851854,
+  "tx_per_day": 2474.368520533822,
+  "pump_trades_sampled": 149,
+  "pump_share": 0.9933333333333333,
+  "buy_share": 0.31543624161073824,
+  "med_buy_sol": 1.066666666,
+  "med_entry_mcap": 34.547964729202384,
+  "mints": 127,
+  "net_sol_window": -2.367230846273975,
+  "net_ci90": [
+   -76.86827334760541,
+   85.43241847988256
+  ],
+  "net_per_day": -5.857401486856963,
+  "window": [
+   1791560541,
+   1791595459
+  ],
+  "window_after_cut": false,
+  "sample_train_n": 8,
+  "sample_train_pnl": 0.9274405885250003,
+  "sample_test_n": 0,
+  "sample_test_pnl": 0
+ }
+]

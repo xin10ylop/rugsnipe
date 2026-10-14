@@ -37,7 +37,8 @@ EXITS += [Exit(sl=0.3, max_hold=900.0), Exit(tp=0.5, sl=0.3, max_hold=900.0),
           Exit(idle=3.0, max_hold=900.0), Exit(idle=10.0, max_hold=900.0)]
 COSTS = {'base': dict(size=0.5, premium=0.011, fixed_cost=0.004),
          'stress': dict(size=0.5, premium=0.036, fixed_cost=0.01),
-         'small': dict(size=0.1, premium=0.011, fixed_cost=0.004)}
+         'small': dict(size=0.1, premium=0.011, fixed_cost=0.004),
+         'agentcap': dict(size=0.5, premium=0.011, fixed_cost=0.004, agent_cap=20.0)}
 
 def run(args):
     ei, xi, cname = args
@@ -113,7 +114,7 @@ if __name__ == '__main__':
     # cost sensitivity for the top-10 TRAIN policies
     sens = []
     with Pool(8, initializer=init) as pool:
-        sjobs = [(r['ei'], r['xi'], c) for r in best_tr for c in ('stress', 'small')]
+        sjobs = [(r['ei'], r['xi'], c) for r in best_tr for c in ('stress', 'small', 'agentcap')]
         sres = pool.map(run, sjobs)
     for ei, xi, cname, out in sres:
         te = [r for k, r, *_ in out if k in test_idx]
