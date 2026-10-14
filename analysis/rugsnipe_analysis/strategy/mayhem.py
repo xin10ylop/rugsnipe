@@ -179,6 +179,7 @@ class Exit:
     agent_drop: float | None = None  # agent trade dropping price by >= x (fraction)
     agent_idle: float | None = None  # seconds with no agent trade
     idle: float | None = None        # seconds with no trade at all
+    agent_steps: int | None = None   # exit after this many agent trades since entry
     max_hold: float = 600.0          # seconds
 
     def name(self) -> str:
@@ -189,6 +190,7 @@ class Exit:
         if self.agent_drop is not None: p.append(f"ad{int(self.agent_drop*100)}")
         if self.agent_idle is not None: p.append(f"ai{self.agent_idle:g}")
         if self.idle is not None: p.append(f"id{self.idle:g}")
+        if self.agent_steps is not None: p.append(f"as{self.agent_steps}")
         p.append(f"h{self.max_hold:g}")
         return "_".join(p)
 
@@ -214,6 +216,19 @@ def entry_index(tp: Tape, e: Entry, lat: int = 1) -> int | None:
         if e.kind == "agent1_buy" and not tp.buy[i]:
             return None
         fi = tp.end_of_slot(int(tp.slot[i]) + lat)
+    elif e.kind == "agent_up":      # first agent trade within 300 s that lifts price by >= n (fraction)
+        hit = [i for i in np.nonzero(tp.agent)[0] if i > 0 and tp.ts[i] <= tp.bt + 300
+               and tp.price[i] >= (1 + e.n) * tp.price[i - 1]]
+        if not hit:
+            return None
+        fi = tp.end_of_slot(int(tp.slot[hit[0]]) + lat)
+    elif e.kind == "deepdip":       # price <= n * eos0 within 300 s
+        j0 = tp.end_of_slot(s0)
+        ref = tp.price[j0]
+        hit = np.nonzero((tp.price[j0 + 1:] <= e.n * ref) & (tp.ts[j0 + 1:] <= tp.bt + 300))[0]
+        if len(hit) == 0:
+            return None
+        fi = tp.end_of_slot(int(tp.slot[j0 + 1 + int(hit[0])]) + lat)
     elif e.kind == "dip":           # price falls to <= n * eos0 price within the first 120 s
         j0 = tp.end_of_slot(s0)
         ref = tp.price[j0]
@@ -247,6 +262,7 @@ def simulate(tp: Tape, fi: int, x: Exit, size: float = 0.5, premium: float = 0.0
     pmax = tp.price[fi]
     last_agent_t = t_in
     last_t = t_in
+    n_ag = 0
     sig_i, reason, t_sig = None, None, None
 
     def time_fill(t_trig: float, j: int) -> int:
@@ -278,6 +294,7 @@ def simulate(tp: Tape, fi: int, x: Exit, size: float = 0.5, premium: float = 0.0
         last_t = tp.ts[i]
         if tp.agent[i]:
             last_agent_t = tp.ts[i]
+            n_ag += 1
         p = tp.price[i]
         val, _ = sell_value(tp, i, toks, net_in, cap, p_in, agent_cap)
         r = (val - fixed_cost) / size - 1
@@ -291,6 +308,8 @@ def simulate(tp: Tape, fi: int, x: Exit, size: float = 0.5, premium: float = 0.0
         elif x.agent_drop is not None and tp.agent[i] and not tp.buy[i] and \
                 p <= (1 - x.agent_drop) * tp.price[i - 1]:
             fired = "agent_drop"
+        elif x.agent_steps is not None and n_ag >= x.agent_steps:
+            fired = "agent_steps"
         pmax = max(pmax, p)
         if fired:
             sig_i, reason, t_sig = i, fired, tp.ts[i]

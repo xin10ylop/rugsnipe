@@ -1,5 +1,6 @@
 //! A decision forced to paper inside a real mode (ArmSet gate, regime
-//! freeze, operator not armed) must never reach a real sender: not the
+//! freeze, operator not armed, or a free feed such as the logs path or the
+//! relay) must never reach a real sender: not the
 //! primary variant, not the secondary variant handed to the sender thread,
 //! and not the sells of its simulated position. Its real nonce is released
 //! (nothing was sent with it) and its P&L never touches the RiskGate.
@@ -24,7 +25,7 @@ use rugsnipe_core::risk::RiskGate;
 use rugsnipe_core::rslog::{box_id, RslogWriter};
 use rugsnipe_core::watchlist::Watchlist;
 use rugsnipe_core::Mode;
-use rugsnipe_feed::{FeedBuf, FeedStatus, FiredSet, Payload};
+use rugsnipe_feed::{FeedBuf, FeedSrc, FeedStatus, FiredSet, Payload};
 use rugsnipe_tx::nonce::NoncePool;
 use rugsnipe_tx::senders::{ApiKeys, SenderSet};
 use rugsnipe_tx::signer::HotSigner;
@@ -213,7 +214,7 @@ fn drain(hot: &mut HotLoop, feed: &mut VecFeed) {
 
 /// Run the sender thread over whatever the hot loop handed it; returns the
 /// number of (sender, result) pairs it produced.
-fn run_sender(r: Rig) -> (u64, Arc<SenderSet>) {
+fn run_sender(r: Rig, dir: &std::path::Path) -> (u64, Arc<SenderSet>) {
     let Rig {
         hot,
         fire_rx,
@@ -223,13 +224,8 @@ fn run_sender(r: Rig) -> (u64, Arc<SenderSet>) {
         ..
     } = r;
     drop(hot); // abandons the fire ring: the sender exits once it is empty
-    let (rs, w) = RslogWriter::spawn(
-        std::env::temp_dir().join(format!("rugsnipe-rmpf-send-{}", std::process::id())),
-        "t-send",
-        box_id("t"),
-        1 << 10,
-    )
-    .unwrap();
+    let (rs, w) =
+        RslogWriter::spawn(dir.join("rslog-send"), "t-send", box_id("t"), 1 << 10).unwrap();
     let (cold_tx, _cold_rx) = std::sync::mpsc::channel();
     let h = rugsnipe::sender::spawn(
         fire_rx,
@@ -246,20 +242,81 @@ fn run_sender(r: Rig) -> (u64, Arc<SenderSet>) {
     (n, senders)
 }
 
+/// `ev` with an explicit feed source (the class decides paper-only feeds).
+fn ev_from(src: FeedSrc, slot: u64, payload: Payload) -> rugsnipe_feed::FeedEvent {
+    rugsnipe_feed::FeedEvent {
+        src,
+        ..ev(slot, payload)
+    }
+}
+
 #[test]
 fn live_mode_paper_decisions_never_reach_a_real_sender() {
-    for case in ["armset_unverified", "regime_frozen", "op_not_armed"] {
+    // (case, feed source, ArmSet verified, regime frozen, operator state, fires)
+    let cases = [
+        (
+            "armset_unverified",
+            FeedSrc::Grpc,
+            false,
+            false,
+            OpState::Armed,
+            false,
+        ),
+        (
+            "regime_frozen",
+            FeedSrc::Grpc,
+            true,
+            true,
+            OpState::Armed,
+            false,
+        ),
+        (
+            "op_not_armed",
+            FeedSrc::Grpc,
+            true,
+            false,
+            OpState::Shadow,
+            false,
+        ),
+        // free feeds (logs path / relay) are paper only whatever the gates say
+        (
+            "free_feed_logsws",
+            FeedSrc::LogsWs,
+            true,
+            false,
+            OpState::Armed,
+            false,
+        ),
+        (
+            "free_feed_relay",
+            FeedSrc::Relay,
+            true,
+            false,
+            OpState::Armed,
+            false,
+        ),
+        // positive control: a live-class feed with every gate open fires for real
+        (
+            "live_class_fire",
+            FeedSrc::Grpc,
+            true,
+            false,
+            OpState::Armed,
+            true,
+        ),
+    ];
+    for (case, src, verified, frozen, op_state, fires) in cases {
         let mock = Mock::start();
         let dir = tmpdir(&format!("rmpf-{case}"));
         let mut cfg = live_cfg(&dir, mock.port);
+        if frozen {
+            cfg.mode.regime_freeze_slots = vec![[900, 2_000]];
+        }
         let dev = Pubkey::new_unique();
         let mut set = armset(&[dev], &[]);
-        let mut verified = true;
-        match case {
-            "armset_unverified" => verified = false,
-            "regime_frozen" => cfg.mode.regime_freeze_slots = vec![[900, 2_000]],
-            _ => set.operators[0].state = OpState::Shadow,
-        }
+        // live needs a gate-passed ArmSet: only the case's own reason may hold it back
+        set.gate_passed = true;
+        set.operators[0].state = op_state;
         let mut r = rig(&cfg, &set, verified, &dir);
         // create (1 SOL dev buy) -> trades -> deadline fill -> the dev dumps -> sell + close
         let a = Pubkey::new_unique();
@@ -271,12 +328,12 @@ fn live_mode_paper_decisions_never_reach_a_real_sender() {
         let dump = trade(&mut curve, a, dev, 1005, 12, 0, hit.intx_tokens_out / 3);
         let after = trade(&mut curve, a, Pubkey::new_unique(), 1006, 13, 10_000_000, 0);
         let mut feed = VecFeed::new(vec![
-            ev(1000, Payload::Hit(hit)),
-            ev(1001, Payload::Trade(t1)),
-            ev(1002, Payload::Trade(t2)),
-            ev(1004, Payload::Hit(other)),
-            ev(1005, Payload::Trade(dump)),
-            ev(1006, Payload::Trade(after)),
+            ev_from(src, 1000, Payload::Hit(hit)),
+            ev_from(src, 1001, Payload::Trade(t1)),
+            ev_from(src, 1002, Payload::Trade(t2)),
+            ev_from(src, 1004, Payload::Hit(other)),
+            ev_from(src, 1005, Payload::Trade(dump)),
+            ev_from(src, 1006, Payload::Trade(after)),
         ]);
         drain(&mut r.hot, &mut feed);
         let c = r.hot.counters;
@@ -284,6 +341,36 @@ fn live_mode_paper_decisions_never_reach_a_real_sender() {
             c.intents, 1,
             "{case}: the decision ran to the send step {c:?}"
         );
+        if fires {
+            // primary + secondary, both real; the nonce stays claimed; caps reserved;
+            // no simulated fill (a real position opens on its own TradeEvent only),
+            // so no sell job either
+            assert_eq!(c.fills, 0, "{case}: {c:?}");
+            assert_eq!(r.fire_rx.slots(), 2, "{case}");
+            assert!(r.fire_rx.peek().unwrap().real, "{case}");
+            assert_eq!(r.nonces.free_count(), 7, "{case}: nonce in flight");
+            assert_eq!(r.risk.open_positions(), 1, "{case}");
+            assert_eq!(
+                r.senders.paper.total(),
+                0,
+                "{case}: nothing recorded as paper"
+            );
+            let (pairs, _) = run_sender(r, &dir);
+            assert_eq!(
+                pairs,
+                2 * (1 + cfg!(feature = "real-senders") as u64),
+                "{case}"
+            );
+            if cfg!(feature = "real-senders") {
+                let t0 = Instant::now();
+                while mock.accepted() == 0 && t0.elapsed() < Duration::from_secs(3) {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                assert!(mock.accepted() >= 1, "{case}: the mock saw the real sends");
+            }
+            let _ = std::fs::remove_dir_all(&dir);
+            continue;
+        }
         assert_eq!(c.fills, 1, "{case}: the paper position filled {c:?}");
         assert!(
             c.sells >= 1 && c.closed == 1,
@@ -304,7 +391,7 @@ fn live_mode_paper_decisions_never_reach_a_real_sender() {
         assert_eq!(r.risk.op_consec_losses(0), 0, "{case}");
         let paper_before = r.senders.paper.total();
         assert!(paper_before >= 2, "{case}: primary buy + sell recorded");
-        let (pairs, senders) = run_sender(r);
+        let (pairs, senders) = run_sender(r, &dir);
         assert_eq!(
             pairs, 1,
             "{case}: the secondary went to the paper recorder only"

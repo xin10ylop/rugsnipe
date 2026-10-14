@@ -514,7 +514,14 @@ impl HotLoop {
         if op.ev_cap > 0 {
             bid = bid.min(op.ev_cap);
         }
-        let mode = self.cfg.mode;
+        // Free feeds (logs path, collector relay) know no fee payer and no
+        // token owners and are slot+1 at best: paper only, in every mode
+        // (docs/06 section 7.1 "Free mode"). Real buys need a live-class feed.
+        let mode = if src_class(src) == FREE_CLASS {
+            Mode::Paper
+        } else {
+            self.cfg.mode
+        };
         let d = self.risk.decide(&DecideInput {
             mode,
             op_slot: op.slot,
@@ -986,7 +993,10 @@ impl HotLoop {
                 continue;
             };
             if !s.filled {
-                if self.slot_now >= s.deadline {
+                // The local E2 fallback is a paper fill model. A real intent's
+                // position opens only on its own TradeEvent or a token balance,
+                // never on a send (docs/06 section 8), so it is never simulated.
+                if !s.real && self.slot_now >= s.deadline {
                     let (v, t, late) = Self::local_e2(s);
                     let fill_slot = s.create_slot + 1;
                     self.buy_fill(i, v, t, fill_slot, late, 0, 0);

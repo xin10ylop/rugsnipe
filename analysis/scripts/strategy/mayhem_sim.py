@@ -28,11 +28,14 @@ ENTRIES = [Entry('eos', 0), Entry('eos', 1), Entry('eos', 10), Entry('eos', 50),
            Entry('tsec', 15), Entry('tsec', 60),
            Entry('agent1'), Entry('agent1_buy'), Entry('agent1_sell'),
            Entry('dip', 0.8), Entry('dip', 0.6),
-           Entry('eos', 0, max_mcap=28.5), Entry('eos', 0, min_mcap=28.5)]
+           Entry('eos', 0, max_mcap=28.5), Entry('eos', 0, min_mcap=28.5),
+           Entry('agent_up', 0.2), Entry('agent_up', 0.35), Entry('deepdip', 0.25), Entry('deepdip', 0.1)]
 EXITS = []
 for tp_, tr, ad, ai, h in itertools.product((None, 0.3, 0.5, 1.0, 1.5), (None, 0.2, 0.3),
                                            (None, 0.2), (None, 10.0), (60.0, 300.0, 900.0)):
     EXITS.append(Exit(tp=tp_, trail=tr, agent_drop=ad, agent_idle=ai, max_hold=h))
+EXITS += [Exit(agent_steps=k, max_hold=h) for k in (1, 2, 3, 5, 10, 20) for h in (60.0, 900.0)]
+EXITS += [Exit(tp=t, sl=s_, max_hold=900.0) for t in (0.1, 0.2, 0.3) for s_ in (0.1, 0.2)]
 EXITS += [Exit(sl=0.3, max_hold=900.0), Exit(tp=0.5, sl=0.3, max_hold=900.0),
           Exit(idle=3.0, max_hold=900.0), Exit(idle=10.0, max_hold=900.0)]
 COSTS = {'base': dict(size=0.5, premium=0.011, fixed_cost=0.004),
