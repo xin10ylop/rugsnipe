@@ -101,11 +101,22 @@ fn assert_same(ctx: &str, t: &TxView<'_>, a: &AgaveView<false, &[u8]>) {
         .map(|l| (*l.account_key, l.writable_indexes, l.readonly_indexes))
         .collect();
     assert_eq!(ol, tl, "{ctx}");
-    assert_eq!(t.total_account_count(), a.total_num_accounts() as usize);
+    // agave's `total_num_accounts` / `num_requested_write_locks` (sanitized
+    // views only), recomputed from its raw header and lookup frames
+    let n_static = a.num_static_account_keys() as usize;
+    let (lw, lr) = (
+        a.total_writable_lookup_accounts() as usize,
+        a.total_readonly_lookup_accounts() as usize,
+    );
+    assert_eq!(t.total_account_count(), n_static + lw + lr, "{ctx}");
     let writable = (0..t.total_account_count())
         .filter(|&i| t.is_writable(i))
         .count();
-    assert_eq!(writable as u64, a.num_requested_write_locks(), "{ctx}");
+    let agave_writable = n_static
+        - a.num_readonly_signed_static_accounts() as usize
+        - a.num_readonly_unsigned_static_accounts() as usize
+        + lw;
+    assert_eq!(writable, agave_writable, "{ctx}");
     match (t.v1_config(), a.transaction_config()) {
         (Some(c), Some(x)) => {
             assert_eq!(c.mask, x.mask(), "{ctx}");

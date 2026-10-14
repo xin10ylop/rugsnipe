@@ -133,13 +133,24 @@ Firedancer 7.2%, other 2.6%. Two thirds of stake therefore sequence transactions
 (BAM rounds of 20-50 ms; Harmonic's default is a 50 ms frequent batch auction ordered by priority fee
 and tips, with shreds still streaming continuously), and **67.9% of stake advertises a proxy TPU**
 (BAM node or Harmonic remote TPU, almost all at TeraSwitch) rather than the validator itself. On
-Jito-Agave leaders arrival order dominates (in 25,948 same-block pump-trade pairs the earlier
-transaction had the higher fee only 54-58% of the time); on BAM and Harmonic leaders the fee decides
-the position inside the batch. So the bid policy must be **per leader class**, keyed on the leader's
-advertised `tpuQuic` address and refreshed every epoch (and every few minutes during the Alpenglow
-cutover, when BAM validators fall back to plain Jito-Agave mode). The spending priority is still
-**co-location > fan-out > compute trimming > fees** on Jito-Agave leaders, but on batched leaders a
-competitive fee inside the right 20-50 ms window matters as much as being first.
+Jito-Agave leaders arrival order dominates; on BAM and Harmonic leaders the fee decides the
+position inside the batch. Measured over 15,978 blocks in 24 h (write-conflicting pump-trade pairs,
+leaders classified by client): inside a BAM round the earlier transaction had the higher compute-unit
+price 86-89% of the time, and the fee-ordered span is ~5% of the block, which fits **20 ms rounds**
+(Jito's changelog), not the 50 ms on the docs page; Harmonic's fee-ordered span is just as narrow and
+only ~14% of stake behaves FBA-like; beyond ~5% of block distance every class falls back to arrival
+order. For **block-0 snipers reacting to the same create**, the higher bid landed first 60% of the
+time on Jito-Agave, 69-76% on Harmonic and 73% on BAM, and snipers that paid through a **Jito bundle
+landed later than direct senders on every class** (the bundle path adds the 50 ms auction tick). So
+the bid policy must be **per leader class**: BAM → compute-unit price with a trimmed limit, Harmonic
+→ priority fee (Jito-account tips buy nothing there), Jito-Agave and Rakurai → arrival first with a
+modest fee; and the block-0 variant should go **direct to the leader's TPU or a same-building sender
+with the bid in the priority fee**, keeping the Jito bundle variant as the revert-protected backup.
+Classification is free: `getClusterNodes` returns the client id (AgaveBam, JitoLabs, HarmonicAgave,
+...) matching DoubleZero's metadata for 99.8% of stake, plus the advertised `tpuQuic` address; refresh
+every epoch and every few minutes during the Alpenglow cutover, when BAM validators fall back to plain
+Jito-Agave mode (client id flips to JitoLabs). The spending priority remains **co-location > fan-out >
+compute trimming > fees** across windows; inside the window the fee is the tie-breaker.
 
 | Path | Min tip | Notes |
 |---|---|---|
