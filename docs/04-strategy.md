@@ -220,6 +220,15 @@ Config (docs/06 §6 names): `exit.default.tp = [[1.15, 1.0]]`, `exit.default.ins
    and premium must have a 90% lower bound above zero, and we must be ahead of the first follower
    on at least one hot launch in three at a premium of +2% or less. Otherwise the answer is no
    edge, and we stop. Failed attempts are charged at their priority fee.
+   *Status:* the shadow lane exists in paper mode (`paper.fill_model = "e1"`, `config/paper-lead.example.toml`).
+   It reconstructs the creation slot, applies the gap-3 bundle definition, records our would-be
+   index, buyers ahead and behind, premium and the exit at that position, and charges failed
+   attempts (late-block creates, premium above the cap, slippage). On 50 of 50 closed paper fills
+   it agrees with the tape simulator on the exit slot, the post-bundle market cap (1e-11) and the
+   return (1e-8). Three 12-20 minute sessions from this container gave −4.0%, +1.4% and +0.7% EV
+   per attempt: noise, as the hourly swings predict, and with no latency information because this
+   container sees the chain about a second late. The measurement that matters needs the Frankfurt
+   box and a shred-level feed.
 2. **Probe (capped live).** About 200 trades at 0.25 SOL, `max_sol_cost` +2%, exits as in §2.
    Standard error at 200 trades is 1.4%. **Kill** if the mean is below 0 after 100 trades
    (about 4% false-kill probability if the true EV is +3.5%), if the median realised premium
