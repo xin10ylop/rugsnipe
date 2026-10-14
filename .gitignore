@@ -1,20 +1,26 @@
+!config/*.example.toml
+# secrets and real configs (docs/06-architecture.md section 13)
+*-keypair.json
+*.db-shm
+*.db-wal
 *.egg-info/
+*.keypair.json
 *.pem
 *.pyc
 .env
 .venv/
 __pycache__/
+config/*.toml
+data/analytics.db
+data/analytics.db*
+data/analytics.db-shm
+data/analytics.db-wal
 data/cache/
 data/raw/
-node_modules/
-target/
-# secrets and real configs (docs/06-architecture.md section 13)
-keys/
-secrets/
-*.keypair.json
-*-keypair.json
-id.json
-config/*.toml
-!config/*.example.toml
 deploy/*.local.conf
+id.json
+keys/
+node_modules/
+secrets/
+target/
 wg0.conf
