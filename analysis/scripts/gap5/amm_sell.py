@@ -13,7 +13,7 @@ def dpool(d):
     vqr=int.from_bytes(d[o:o+16],'little',signed=True)
     return dict(base=base,quote=quote,pbt=pbt,pqt=pqt,may=may,vqr=vqr)
 def bal(a): return int(rpc('getTokenAccountBalance',[a])['result']['value']['amount'])
-mints=[c['mint'] for c in json.load(open('/home/user/rugsnipe/data/cache/graduated_window.json'))]
+mints=json.load(open(sys.argv[1])) if len(sys.argv)>1 else [c['mint'] for c in json.load(open('/home/user/rugsnipe/data/cache/graduated_window.json'))]
 out=[]
 for m in mints[:40]:
   try:
@@ -51,8 +51,7 @@ for m in mints[:40]:
                ammcu=[l for l in (v.get('logs') or []) if l.startswith('Program pAMM') and 'consumed' in l][-1:],size=len(tx))
         if ev:
             e=ev[0]; f=lambda o: struct.unpack_from('<Q',e,8+o)[0]
-            r.update(lp_bps=f(64),proto_bps=f(80),creator_bps=struct.unpack_from('<Q',e,8+96+8+8+32*6)[0],
-                     buyback_bps=struct.unpack_from('<Q',e,8+96+8+8+32*6+8+8+8+8)[0])
+            r.update(quote_out=f(56),lp_bps=f(64),proto_bps=f(80),creator_bps=f(336),cashback_bps=f(352),buyback_bps=f(368),buyback_fee=f(376),proto_fee=f(88),user_out=f(104))
         print(json.dumps(r)); out.append(r)
   except Exception as ex: print('ex',m,ex)
-json.dump(out,open('amm_sell.json','w'))
+json.dump(out,open(sys.argv[2] if len(sys.argv)>2 else 'amm_sell.json','w'))

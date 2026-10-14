@@ -124,13 +124,20 @@ def buy_fill(tp: Tape, i: int, size: float, premium: float = 0.0) -> tuple[float
     return toks / (1 + premium), net
 
 
-def sell_value(tp: Tape, i: int, toks: float, net_in: float, cap: bool = True) -> tuple[float, bool]:
-    """SOL received (after fee) for selling `toks` at post-trade state i; real-SOL capped."""
+def sell_value(tp: Tape, i: int, toks: float, net_in: float, cap: bool = True,
+               p_in: float | None = None) -> tuple[float, bool]:
+    """SOL received (after fee) for selling `toks` at post-trade state i; real-SOL capped.
+
+    The cap is the historical real SOL plus our own SOL scaled by the price ratio since entry:
+    agent trades move real SOL in proportion to price (rsol_after/rsol_before = p_after/p_before,
+    VERIFIED), so the SOL we put in is scaled the same way by every agent move.
+    """
     vs, vt = tp.vsol[i], tp.vtok[i]
     gross = vs - vs * vt / (vt + toks)
     capped = False
     if cap:
-        lim = max(tp.rsol[i], 0.0) + net_in
+        scale = tp.price[i] / p_in if p_in else 1.0
+        lim = max(tp.rsol[i], 0.0) + net_in * scale
         if gross > lim:
             gross, capped = lim, True
     return gross * (1 - FEE), capped
@@ -146,7 +153,7 @@ class Entry:
     min_mcap: float = 0.0
 
     def name(self) -> str:
-        s = f"{self.kind}{'' if self.n == 0 else self.n:g}" if isinstance(self.n, (int, float)) else self.kind
+        s = self.kind if self.n == 0 else f"{self.kind}{self.n:g}"
         if self.max_mcap < 1e8:
             s += f"<{self.max_mcap:g}"
         if self.min_mcap > 0:
@@ -221,6 +228,7 @@ def simulate(tp: Tape, fi: int, x: Exit, size: float = 0.5, premium: float = 0.0
              fixed_cost: float = 0.004, lat: int = 1, cap: bool = True) -> dict:
     """Run one exit policy from fill index fi. Returns dict(ret, reason, hold_s, ...)."""
     toks, net_in = buy_fill(tp, fi, size, premium)
+    p_in = tp.price[fi]
     t_in = tp.ts[fi]
     horizon = t_in + x.max_hold
     if tp.cov is not None:
@@ -260,7 +268,7 @@ def simulate(tp: Tape, fi: int, x: Exit, size: float = 0.5, premium: float = 0.0
         if tp.agent[i]:
             last_agent_t = tp.ts[i]
         p = tp.price[i]
-        val, _ = sell_value(tp, i, toks, net_in, cap)
+        val, _ = sell_value(tp, i, toks, net_in, cap, p_in)
         r = (val - fixed_cost) / size - 1
         fired = None
         if x.tp is not None and r >= x.tp:
@@ -277,7 +285,7 @@ def simulate(tp: Tape, fi: int, x: Exit, size: float = 0.5, premium: float = 0.0
             sig_i, reason, t_sig = i, fired, tp.ts[i]
             fi_out = tp.end_of_slot(int(tp.slot[i]) + lat)
             break
-    val, capped = sell_value(tp, fi_out, toks, net_in, cap)
+    val, capped = sell_value(tp, fi_out, toks, net_in, cap, p_in)
     ret = (val - fixed_cost) / size - 1
     return {"ret": ret, "reason": reason, "hold_s": float(tp.ts[fi_out] - t_in), "capped": capped,
             "entry_mcap": tp.mcap(fi), "exit_mcap": tp.mcap(fi_out), "t_entry": float(t_in - tp.bt)}

@@ -16,7 +16,7 @@ def ixname(d):
     n=struct.unpack_from('<I',d,o)[0]; return d[o+4:o+4+n].decode(errors='replace'), d[o+4+n]
 def one(i_m):
     i,m=i_m; bc=pda([b'bonding-curve',b58d(m)],PUMP)[0]
-    sigs=rpc('getSignaturesForAddress',[bc,{'limit':40}],ep=i).get('result') or []
+    sigs=rpc('getSignaturesForAddress',[bc,{'limit':25}],ep=i).get('result') or []
     comp=mig=None; trade=None; nfail_between=0
     for s in sigs:
         if s['err'] is not None: continue
@@ -34,7 +34,13 @@ def one(i_m):
             break
     fails=sum(1 for s in sigs if s['err'] is not None and comp and mig and comp['slot']<=s['slot']<=mig['slot'])
     return dict(mint=m,comp=comp,mig=mig,fails_between=fails)
-with ThreadPoolExecutor(3) as ex: res=list(ex.map(one,enumerate(mints)))
+res=[]
+def safe(a):
+    try: return one(a)
+    except Exception as e: return dict(mint=a[1],comp=None,mig=None,fails_between=None,exc=str(e))
+with ThreadPoolExecutor(2) as ex:
+    for r in ex.map(safe,enumerate(mints)):
+        res.append(r); json.dump(res,open('grad.json','w'))
 json.dump(res,open('grad.json','w'))
 for r in res:
     c,m=r['comp'],r['mig']

@@ -133,8 +133,15 @@ def parse_logs_frame(raw: str | bytes) -> dict | None:
     if not isinstance(d, dict):
         return {"kind": "other"}
     if d.get("method") == "logsNotification":
-        res = (d.get("params") or {}).get("result") or {}
+        params = d.get("params")
+        if not isinstance(params, dict):  # a list or scalar here is a malformed frame, not a notification
+            return {"kind": "other"}
+        res = params.get("result") or {}
+        if not isinstance(res, dict):
+            return {"kind": "other"}
         v = res.get("value") or {}
+        if not isinstance(v, dict):
+            return {"kind": "other"}
         return {"kind": "logs", "slot": (res.get("context") or {}).get("slot"), "sig": v.get("signature"),
                 "err": v.get("err"), "logs": v.get("logs") or []}
     if "result" in d and "id" in d:

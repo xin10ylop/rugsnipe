@@ -49,8 +49,12 @@ def page_before(mint, ts):
     raw, comp = api.trades_before(mint, ts * 1000 + 999, max_pages=1)
     return {'ts': ts, 'complete': comp, 'trades': [row(t) for t in raw]}
 
+FULL_N = 320   # first FULL_N of the shuffled sample get all checkpoints; the rest 1 h + latest
+POS = {c['mint']: k for k, c in enumerate(sample)}
+
 def go(c):
     mint, bt, slot = c['mint'], c['bt'], c['slot']
+    full = POS[mint] < FULL_N
     seen = {}; cov = None; trunc = []
     for W, mp in ((900, 15), (300, 8), (60, 4)):
         raw, comp = api.trades_before(mint, (bt + W) * 1000 + 999, max_pages=mp)
@@ -67,9 +71,9 @@ def go(c):
     o = outc.get(mint, {})
     cps = {}
     for lab, ts in (('1h', bt + 3600), ('6h', bt + 6 * 3600), ('24h', bt + 24 * 3600), ('25h', bt + 25 * 3600)):
-        if ts < time.time() - 60:
+        if (full or lab == '1h') and ts < time.time() - 60:
             cps[lab] = page_before(mint, ts)
-    if o.get('ath_ts'):
+    if full and o.get('ath_ts'):
         cps['ath'] = page_before(mint, int(o['ath_ts']) + 1)
         cps['ath+600'] = page_before(mint, int(o['ath_ts']) + 600)
     raw, comp = api.trades_latest(mint, 1)
@@ -77,7 +81,7 @@ def go(c):
     res = {'mint': mint, 'bt': bt, 'slot': slot, 'cov': cov, 'trunc': trunc, 'n': len(tr),
            'trades': tr, 'cp': cps, 'ath_usd': o.get('ath_usd'), 'ath_ts': o.get('ath_ts'),
            'sol_usd': o.get('sol_usd'), 'complete': o.get('complete'),
-           'dev_buys': c.get('dev_buys')}
+           'dev_buys': c.get('dev_buys'), 'full': full}
     with lock:
         fo.write(json.dumps(res, separators=(',', ':')) + '\n'); fo.flush(); done.add(mint)
         if len(done) % 25 == 0:

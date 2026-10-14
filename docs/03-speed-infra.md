@@ -125,7 +125,7 @@ Nobody sees a transaction before the leader executes it. Earliest to latest:
 | Solana Vibe Station raw shreds | Raw shreds | $250/mo (AMS) | Cheapest way to start A/B testing shreds |
 | Triton Yellowstone `SubscribeDeshred` | Pre-execution transactions with ALTs resolved | Usage-based | Simplest API that is still pre-execution |
 | **Yellowstone gRPC `processed`** (Helius LaserStream fra/ams $499-999/mo, SVS $150/mo, QuickNode) | Post-execution stream, 10-80 ms after shreds | | Needed anyway for state, fills, blockhash; the realistic free-ish starting point |
-| PumpPortal websocket | Third-party relay | Free | ~1 slot late; fallback and cross-check only |
+| PumpPortal websocket | Third-party relay | Free | ~1 slot late; fallback and cross-check only. **Carries no v1 transactions** (0 of 519 v1 creates in a 40-min collector run, while `logsSubscribe` saw all 519; v1 is ~45% of creates) and on non-SOL quotes its `mint` field is the quote mint. Never a sole create feed. |
 
 Plan: start on Yellowstone gRPC (paper trading measures exactly how late we are per leader). Once the
 strategy is validated, the recommended feed stack is **one DZ Edge Frankfurt seat ($1,500) plus Helius

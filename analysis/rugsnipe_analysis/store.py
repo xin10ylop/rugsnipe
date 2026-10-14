@@ -146,6 +146,17 @@ CREATE TABLE IF NOT EXISTS op_edges(
 CREATE INDEX IF NOT EXISTS op_edges_key ON op_edges(kind, key);
 CREATE TABLE IF NOT EXISTS op_assign(
   mint TEXT PRIMARY KEY, op_id INTEGER, as_of_slot INTEGER, rule TEXT, conf REAL);
+-- write-once at the engine level too: a raw UPDATE or REPLACE (delete+insert) is refused.
+-- A deliberate repair must DROP these triggers first.
+CREATE TRIGGER IF NOT EXISTS op_assign_no_update BEFORE UPDATE ON op_assign
+  BEGIN SELECT RAISE(ABORT, 'op_assign is write-once'); END;
+CREATE TRIGGER IF NOT EXISTS op_assign_no_delete BEFORE DELETE ON op_assign
+  BEGIN SELECT RAISE(ABORT, 'op_assign is write-once'); END;
+-- REPLACE resolves the conflict by a delete that fires no trigger, so refuse the insert itself
+-- (RAISE(IGNORE) keeps INSERT OR IGNORE a silent no-op and turns REPLACE into one).
+CREATE TRIGGER IF NOT EXISTS op_assign_no_overwrite BEFORE INSERT ON op_assign
+  WHEN EXISTS (SELECT 1 FROM op_assign WHERE mint = NEW.mint)
+  BEGIN SELECT RAISE(IGNORE); END;
 
 -- evaluation
 CREATE TABLE IF NOT EXISTS outcomes(
@@ -504,7 +515,8 @@ def load_funding_creators(con: sqlite3.Connection, path: Path) -> int:
             wallet, r.get("chain") or [], r.get("summary"), fresh=r.get("fresh_creator"),
             n_prior=r.get("creator_txs_before_create"), lag_s=r.get("funding_to_create_s"),
             as_of_slot=r.get("create_slot"), as_of_mint=r.get("mint"), src=f"funding_creators:{r.get('arm')}"))
-        if r.get("create_slot"):
+        decoded = con.execute("SELECT 1 FROM creates WHERE mint=? AND decoded_from='tx'", (r.get("mint"),)).fetchone()
+        if r.get("create_slot") and not decoded:   # its create_sig can be wrong: never overwrite a decoded tx
             upsert(con, "creates", {
                 "mint": r["mint"], "slot": r.get("create_slot"), "block_time": r.get("create_time"),
                 "sig": r.get("create_sig"), "signer": r.get("create_event_user"),

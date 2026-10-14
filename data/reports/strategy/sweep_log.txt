@@ -1,0 +1,36 @@
+11:27:30 tapes 675 deep holdout 133
+11:27:30 entries 27 exit policies 49896 filters 19
+11:27:40 grid E1           trig= 675 5.6s
+11:27:46 grid E2           trig= 675 6.1s
+11:27:51 grid INS          trig= 654 5.3s
+11:27:58 grid SURV_5_0     trig=  73 6.6s
+11:28:03 grid SURV_5_5     trig=  64 4.9s
+11:28:08 grid SURV_5_10    trig=  52 5.6s
+11:28:14 grid SURV_5_20    trig=  32 5.7s
+11:28:20 grid SURV_10_0    trig= 139 6.3s
+11:28:26 grid SURV_10_5    trig= 115 5.3s
+11:28:31 grid SURV_10_10   trig=  95 5.6s
+11:28:37 grid SURV_10_20   trig=  56 5.4s
+11:28:44 grid SURV_15_0    trig= 176 7.1s
+11:28:49 grid SURV_15_5    trig= 149 5.4s
+11:28:55 grid SURV_15_10   trig= 126 6.0s
+11:29:01 grid SURV_15_20   trig=  90 5.9s
+11:29:06 grid SURV_25_0    trig= 226 4.9s
+11:29:14 grid SURV_25_5    trig= 190 7.9s
+11:29:21 grid SURV_25_10   trig= 164 6.8s
+11:29:27 grid SURV_25_20   trig= 127 5.9s
+11:29:33 grid SURV_50_0    trig= 229 6.8s
+11:29:39 grid SURV_50_5    trig= 205 6.2s
+11:29:45 grid SURV_50_10   trig= 187 5.8s
+11:29:51 grid SURV_50_20   trig= 148 6.1s
+11:29:57 grid DIP_0        trig= 555 6.0s
+11:30:05 grid DIP_5        trig= 574 7.4s
+11:30:16 grid DIP_10       trig= 594 11.2s
+11:30:23 grid DIP_20       trig= 608 7.3s
+11:30:23 configurations evaluated (entry x exit x filter): 25397064
+11:30:32 BH over 25397064 configs: q<=0.10: 0, q<=0.05: 0; min p 7.87e-07 (Bonferroni 5% needs p<2.0e-09)
+11:30:39 set A_time 20
+11:30:43 set B_evenodd 20
+11:30:45 set C_testtop 15
+11:30:46 set entry_best_train_all 26
+11:30:46 done in 196s

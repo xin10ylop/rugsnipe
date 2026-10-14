@@ -445,7 +445,7 @@ An ArmSet funder sending a fresh recipient (pre-balance 0) an amount in ≤ 5 **
 
 ## 11. Multi-region scheduler
 
-**Phase 1** is fra1 alone until the gate passes. **Phase 2** adds ams1. The owner of each 4-slot window (still 4 slots under Alpenglow) is `argmin(rtt[box][tpuQuic metro])`. The backup fires at half tip only if the owner's heartbeat (wg0, 50 ms) is older than 150 ms. The nonce rule makes overlap harmless; roles exist for Jito's 1 req/s/IP/region limit and fee accounting. The heartbeat carries `{armset_ver, role_epoch, killed, mode}`, so a kill propagates, and each box computes the chain-derived loss itself, which makes the cap global.
+**Phase 1** is fra1 alone until the gate passes. **Phase 2** adds a second box; docs/03 §4 picks Tokyo (TeraSwitch TYO2, +7.8 points of same-slot coverage) before Amsterdam (AMS3), so the phase-2 box is tyo1, with ams1 as the third. The owner of each 4-slot window (still 4 slots under Alpenglow) is `argmin(rtt[box][tpuQuic metro])`. The backup fires at half tip only if the owner's heartbeat (wg0, 50 ms) is older than 150 ms. The nonce rule makes overlap harmless; roles exist for Jito's 1 req/s/IP/region limit and fee accounting. The heartbeat carries `{armset_ver, role_epoch, killed, mode}`, so a kill propagates, and each box computes the chain-derived loss itself, which makes the cap global.
 
 **Leader table:** `getLeaderSchedule`, `getClusterNodes`, DZ `validators-metadata`, Jito region; refreshed on gossip change (every 60 s, Oct 18-28).
 
@@ -456,7 +456,7 @@ An ArmSet funder sending a fresh recipient (pre-balance 0) an amount in ≤ 5 **
 | **This container** | tests, collector, backfill, paper bot, reports | Ephemeral; no SSH to the user's boxes |
 | **ohio1** (exists) | collector, backfill, timers, S3 backup; paper bot until fra1 exists | Only the ArmSet signing key. Never live (0% of stake, ~105 ms to FRA). User runs `deploy/install.sh --role analytics` |
 | **fra1** (to rent) | hot, guard, keeper; chrony; isolcpus | TeraSwitch FRA bare metal (Latitude/Cherry; AWS eu-central-1 fallback). SVS gRPC ($150) first; after the gate, DZ Edge ($1,500) + Helius shreds ($800-1,000) |
-| **ams1** | phase 2 | Only after the gate passes |
+| **tyo1** (then ams1) | phase 2 | Only after the gate passes; order per docs/03 §4 |
 
 **systemd:** `Type=notify`, `WatchdogSec=3` fed only while the feed and exit loops advance, `LoadCredential=`; chain recovery before `READY=1`.
 
