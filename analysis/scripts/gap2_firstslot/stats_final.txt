@@ -1,0 +1,132 @@
+
+=== ALL creates: n=3581
+ slot+0: launches with >=1 indep. winner 20.4% (732/3581, ±1.3), >=3 5.3% (189/3581, ±0.7), >=5 1.7% (62/3581, ±0.4); mean winners 0.42, mean attempting wallets 0.92; >=1 attempt 29.9% (1071/3581, ±1.5)
+   winners hist {0: 2849, 1: 393, 2: 150, 3: 78, 4: 49, 5: 28, 6: 34}
+   wallet-attempts 3310: win 45.9% (1518/3310, ±1.7), fail-slippage 21.1% (700/3310, ±1.4), fail-botguard/dup-only 29.5% (977/3310, ±1.6), other 3.5% (115/3310, ±0.6)
+ slot+1: launches with >=1 indep. winner 19.4% (693/3581, ±1.3), >=3 4.9% (177/3581, ±0.7), >=5 1.5% (55/3581, ±0.4); mean winners 0.40, mean attempting wallets 1.37; >=1 attempt 36.9% (1321/3581, ±1.6)
+   winners hist {0: 2888, 1: 356, 2: 160, 3: 78, 4: 44, 5: 28, 6: 27}
+   wallet-attempts 4891: win 29.1% (1421/4891, ±1.3), fail-slippage 12.1% (593/4891, ±0.9), fail-botguard/dup-only 56.1% (2743/4891, ±1.4), other 2.7% (134/4891, ±0.5)
+ slot0+1 combined: >=1 winner 32.3% (1156/3581, ±1.5), >=3 11.6% (414/3581, ±1.0), >=5 4.7% (167/3581, ±0.7)
+ reactive #1: n=1156 slot={0: 732, 1: 424} prem_avg p10/25/50/75/90 = [-100.0, 0.0, 0.7, 3.3, 7.3]%  prem_start = [-100.0, 0.0, 0.0, 0.0, 0.0]%
+ reactive #3: n=414 slot={0: 189, 1: 225} prem_avg p10/25/50/75/90 = [0.9, 3.5, 10.3, 20.2, 35.0]%  prem_start = [0.5, 3.0, 9.1, 19.0, 32.7]%
+ reactive #5: n=166 slot={0: 62, 1: 104} prem_avg p10/25/50/75/90 = [2.6, 5.8, 15.4, 35.0, 47.8]%  prem_start = [2.0, 5.2, 15.2, 33.7, 47.2]%
+
+=== SOL-quoted: n=2925
+ slot+0: launches with >=1 indep. winner 22.1% (645/2925, ±1.5), >=3 6.4% (187/2925, ±0.9), >=5 2.1% (61/2925, ±0.5); mean winners 0.48, mean attempting wallets 1.05; >=1 attempt 31.7% (927/2925, ±1.7)
+   winners hist {0: 2280, 1: 323, 2: 135, 3: 77, 4: 49, 5: 27, 6: 34}
+   wallet-attempts 3063: win 46.0% (1410/3063, ±1.8), fail-slippage 22.1% (676/3063, ±1.5), fail-botguard/dup-only 28.9% (885/3063, ±1.6), other 3.0% (92/3063, ±0.6)
+ slot+1: launches with >=1 indep. winner 21.3% (622/2925, ±1.5), >=3 5.7% (166/2925, ±0.8), >=5 1.8% (54/2925, ±0.5); mean winners 0.45, mean attempting wallets 1.49; >=1 attempt 36.8% (1075/2925, ±1.7)
+   winners hist {0: 2303, 1: 309, 2: 147, 3: 73, 4: 39, 5: 28, 6: 26}
+   wallet-attempts 4349: win 30.0% (1306/4349, ±1.4), fail-slippage 12.6% (550/4349, ±1.0), fail-botguard/dup-only 54.8% (2383/4349, ±1.5), other 2.5% (110/4349, ±0.5)
+ slot0+1 combined: >=1 winner 34.6% (1013/2925, ±1.7), >=3 13.6% (399/2925, ±1.2), >=5 5.6% (165/2925, ±0.8)
+ reactive #1: n=1013 slot={0: 645, 1: 368} prem_avg p10/25/50/75/90 = [0.0, 0.2, 1.1, 3.9, 7.8]%  prem_start = [0.0, 0.0, 0.0, 0.0, 0.0]%
+ reactive #3: n=399 slot={0: 187, 1: 212} prem_avg p10/25/50/75/90 = [1.2, 4.2, 10.8, 21.2, 35.3]%  prem_start = [0.9, 3.4, 9.5, 19.8, 33.2]%
+ reactive #5: n=164 slot={0: 61, 1: 103} prem_avg p10/25/50/75/90 = [2.7, 6.2, 15.8, 35.1, 48.0]%  prem_start = [2.2, 5.7, 15.3, 33.9, 47.3]%
+
+=== labeled SOL-quoted: n=2925
+ slot+0: launches with >=1 indep. winner 22.1% (645/2925, ±1.5), >=3 6.4% (187/2925, ±0.9), >=5 2.1% (61/2925, ±0.5); mean winners 0.48, mean attempting wallets 1.05; >=1 attempt 31.7% (927/2925, ±1.7)
+   winners hist {0: 2280, 1: 323, 2: 135, 3: 77, 4: 49, 5: 27, 6: 34}
+   wallet-attempts 3063: win 46.0% (1410/3063, ±1.8), fail-slippage 22.1% (676/3063, ±1.5), fail-botguard/dup-only 28.9% (885/3063, ±1.6), other 3.0% (92/3063, ±0.6)
+ slot+1: launches with >=1 indep. winner 21.3% (622/2925, ±1.5), >=3 5.7% (166/2925, ±0.8), >=5 1.8% (54/2925, ±0.5); mean winners 0.45, mean attempting wallets 1.49; >=1 attempt 36.8% (1075/2925, ±1.7)
+   winners hist {0: 2303, 1: 309, 2: 147, 3: 73, 4: 39, 5: 28, 6: 26}
+   wallet-attempts 4349: win 30.0% (1306/4349, ±1.4), fail-slippage 12.6% (550/4349, ±1.0), fail-botguard/dup-only 54.8% (2383/4349, ±1.5), other 2.5% (110/4349, ±0.5)
+ slot0+1 combined: >=1 winner 34.6% (1013/2925, ±1.7), >=3 13.6% (399/2925, ±1.2), >=5 5.6% (165/2925, ±0.8)
+ reactive #1: n=1013 slot={0: 645, 1: 368} prem_avg p10/25/50/75/90 = [0.0, 0.2, 1.1, 3.9, 7.8]%  prem_start = [0.0, 0.0, 0.0, 0.0, 0.0]%
+ reactive #3: n=399 slot={0: 187, 1: 212} prem_avg p10/25/50/75/90 = [1.2, 4.2, 10.8, 21.2, 35.3]%  prem_start = [0.9, 3.4, 9.5, 19.8, 33.2]%
+ reactive #5: n=164 slot={0: 61, 1: 103} prem_avg p10/25/50/75/90 = [2.7, 6.2, 15.8, 35.1, 48.0]%  prem_start = [2.2, 5.7, 15.3, 33.9, 47.3]%
+
+=== TRACKED (repeat>=3 or CEX-fresh): n=2186
+ slot+0: launches with >=1 indep. winner 20.1% (439/2186, ±1.7), >=3 6.2% (135/2186, ±1.0), >=5 2.2% (49/2186, ±0.6); mean winners 0.45, mean attempting wallets 0.96; >=1 attempt 26.8% (586/2186, ±1.9)
+   winners hist {0: 1747, 1: 209, 2: 95, 3: 49, 4: 37, 5: 24, 6: 25}
+   wallet-attempts 2104: win 47.0% (989/2104, ±2.1), fail-slippage 24.3% (511/2104, ±1.8), fail-botguard/dup-only 25.7% (541/2104, ±1.9), other 3.0% (63/2104, ±0.7)
+ slot+1: launches with >=1 indep. winner 19.4% (423/2186, ±1.7), >=3 5.1% (112/2186, ±0.9), >=5 1.9% (41/2186, ±0.6); mean winners 0.42, mean attempting wallets 1.48; >=1 attempt 33.9% (740/2186, ±2.0)
+   winners hist {0: 1763, 1: 209, 2: 102, 3: 44, 4: 27, 5: 20, 6: 21}
+   wallet-attempts 3246: win 28.0% (908/3246, ±1.5), fail-slippage 13.1% (426/3246, ±1.2), fail-botguard/dup-only 56.1% (1822/3246, ±1.7), other 2.8% (90/3246, ±0.6)
+ slot0+1 combined: >=1 winner 31.3% (684/2186, ±1.9), >=3 12.9% (283/2186, ±1.4), >=5 5.8% (127/2186, ±1.0)
+ reactive #1: n=684 slot={0: 439, 1: 245} prem_avg p10/25/50/75/90 = [0.0, 0.2, 1.0, 3.5, 7.6]%  prem_start = [0.0, 0.0, 0.0, 0.0, 0.0]%
+ reactive #3: n=283 slot={0: 135, 1: 148} prem_avg p10/25/50/75/90 = [1.4, 4.0, 9.5, 19.3, 33.2]%  prem_start = [1.0, 3.3, 8.4, 18.2, 31.1]%
+ reactive #5: n=126 slot={0: 49, 1: 77} prem_avg p10/25/50/75/90 = [2.9, 6.4, 15.3, 35.1, 44.1]%  prem_start = [2.6, 5.9, 14.9, 33.9, 43.8]%
+
+===   repeat 3-49: n=642
+ slot+0: launches with >=1 indep. winner 12.8% (82/642, ±2.6), >=3 2.8% (18/642, ±1.3), >=5 1.4% (9/642, ±0.9); mean winners 0.26, mean attempting wallets 0.59; >=1 attempt 19.9% (128/642, ±3.1)
+   winners hist {0: 560, 1: 46, 2: 18, 3: 5, 4: 4, 5: 4, 6: 5}
+   wallet-attempts 376: win 43.9% (165/376, ±5.0), fail-slippage 29.8% (112/376, ±4.6), fail-botguard/dup-only 22.6% (85/376, ±4.2), other 3.7% (14/376, ±1.9)
+ slot+1: launches with >=1 indep. winner 14.6% (94/642, ±2.7), >=3 3.0% (19/642, ±1.3), >=5 1.2% (8/642, ±0.9); mean winners 0.28, mean attempting wallets 0.84; >=1 attempt 26.5% (170/642, ±3.4)
+   winners hist {0: 548, 1: 57, 2: 18, 3: 8, 4: 3, 5: 3, 6: 5}
+   wallet-attempts 537: win 33.5% (180/537, ±4.0), fail-slippage 15.3% (82/537, ±3.0), fail-botguard/dup-only 49.0% (263/537, ±4.2), other 2.2% (12/537, ±1.3)
+ slot0+1 combined: >=1 winner 22.4% (144/642, ±3.2), >=3 6.2% (40/642, ±1.9), >=5 3.4% (22/642, ±1.4)
+ reactive #1: n=144 slot={0: 82, 1: 62} prem_avg p10/25/50/75/90 = [0.0, 0.1, 0.8, 2.9, 6.6]%  prem_start = [0.0, 0.0, 0.0, 0.0, 0.0]%
+ reactive #3: n=40 slot={0: 18, 1: 22} prem_avg p10/25/50/75/90 = [1.2, 3.0, 9.8, 26.2, 44.4]%  prem_start = [0.3, 1.8, 8.6, 22.2, 37.3]%
+ reactive #5: n=22 slot={0: 9, 1: 13} prem_avg p10/25/50/75/90 = [3.2, 6.4, 14.1, 43.2, 64.0]%  prem_start = [2.9, 5.2, 14.0, 41.8, 63.1]%
+
+===   repeat >=50 (farm): n=1346
+ slot+0: launches with >=1 indep. winner 18.9% (254/1346, ±2.1), >=3 6.6% (89/1346, ±1.3), >=5 2.4% (32/1346, ±0.8); mean winners 0.45, mean attempting wallets 0.93; >=1 attempt 23.9% (322/1346, ±2.3)
+   winners hist {0: 1092, 1: 114, 2: 51, 3: 30, 4: 27, 5: 19, 6: 13}
+   wallet-attempts 1258: win 47.9% (602/1258, ±2.8), fail-slippage 25.8% (324/1258, ±2.4), fail-botguard/dup-only 24.3% (306/1258, ±2.4), other 2.1% (26/1258, ±0.8)
+ slot+1: launches with >=1 indep. winner 18.9% (255/1346, ±2.1), >=3 5.1% (69/1346, ±1.2), >=5 1.9% (25/1346, ±0.7); mean winners 0.42, mean attempting wallets 1.68; >=1 attempt 32.6% (439/1346, ±2.5)
+   winners hist {0: 1091, 1: 120, 2: 66, 3: 24, 4: 20, 5: 11, 6: 14}
+   wallet-attempts 2260: win 24.8% (561/2260, ±1.8), fail-slippage 13.2% (298/2260, ±1.4), fail-botguard/dup-only 59.9% (1353/2260, ±2.0), other 2.1% (48/2260, ±0.6)
+ slot0+1 combined: >=1 winner 30.2% (406/1346, ±2.5), >=3 13.7% (184/1346, ±1.8), >=5 5.9% (80/1346, ±1.3)
+ reactive #1: n=406 slot={0: 254, 1: 152} prem_avg p10/25/50/75/90 = [0.0, 0.1, 0.7, 3.1, 7.5]%  prem_start = [0.0, 0.0, 0.0, 0.0, 0.0]%
+ reactive #3: n=184 slot={0: 89, 1: 95} prem_avg p10/25/50/75/90 = [1.3, 3.4, 8.1, 18.5, 31.0]%  prem_start = [0.9, 2.8, 7.4, 16.8, 28.5]%
+ reactive #5: n=79 slot={0: 32, 1: 47} prem_avg p10/25/50/75/90 = [2.2, 5.6, 13.5, 31.8, 38.5]%  prem_start = [1.9, 4.6, 13.1, 30.2, 37.8]%
+
+===   CEX-fresh: n=271
+ slot+0: launches with >=1 indep. winner 41.0% (111/271, ±5.9), >=3 10.7% (29/271, ±3.7), >=5 3.0% (8/271, ±2.0); mean winners 0.88, mean attempting wallets 1.82; >=1 attempt 54.2% (147/271, ±5.9)
+   winners hist {0: 160, 1: 51, 2: 31, 3: 14, 4: 7, 5: 1, 6: 7}
+   wallet-attempts 492: win 48.4% (238/492, ±4.4), fail-slippage 15.4% (76/492, ±3.2), fail-botguard/dup-only 31.3% (154/492, ±4.1), other 4.9% (24/492, ±1.9)
+ slot+1: launches with >=1 indep. winner 29.9% (81/271, ±5.5), >=3 9.2% (25/271, ±3.4), >=5 3.3% (9/271, ±2.1); mean winners 0.66, mean attempting wallets 1.80; >=1 attempt 53.1% (144/271, ±5.9)
+   winners hist {0: 190, 1: 36, 2: 20, 3: 12, 4: 4, 5: 7, 6: 2}
+   wallet-attempts 489: win 36.8% (180/489, ±4.3), fail-slippage 9.6% (47/489, ±2.6), fail-botguard/dup-only 47.4% (232/489, ±4.4), other 6.1% (30/489, ±2.1)
+ slot0+1 combined: >=1 winner 55.0% (149/271, ±5.9), >=3 22.5% (61/271, ±5.0), >=5 9.6% (26/271, ±3.5)
+ reactive #1: n=149 slot={0: 111, 1: 38} prem_avg p10/25/50/75/90 = [0.2, 0.9, 1.9, 4.6, 8.2]%  prem_start = [0.0, 0.0, 0.0, 0.0, 0.0]%
+ reactive #3: n=61 slot={0: 29, 1: 32} prem_avg p10/25/50/75/90 = [3.6, 6.4, 12.3, 19.3, 35.1]%  prem_start = [2.6, 5.2, 10.7, 18.6, 29.9]%
+ reactive #5: n=26 slot={1: 18, 0: 8} prem_avg p10/25/50/75/90 = [7.1, 11.3, 18.7, 35.0, 46.2]%  prem_start = [7.0, 10.0, 17.8, 34.2, 45.7]%
+
+=== UNTRACKED: n=739
+ slot+0: launches with >=1 indep. winner 27.9% (206/739, ±3.2), >=3 7.0% (52/739, ±1.8), >=5 1.6% (12/739, ±0.9); mean winners 0.57, mean attempting wallets 1.30; >=1 attempt 46.1% (341/739, ±3.6)
+   winners hist {0: 533, 1: 114, 2: 40, 3: 28, 4: 12, 5: 3, 6: 9}
+   wallet-attempts 959: win 43.9% (421/959, ±3.1), fail-slippage 17.2% (165/959, ±2.4), fail-botguard/dup-only 35.9% (344/959, ±3.0), other 3.0% (29/959, ±1.1)
+ slot+1: launches with >=1 indep. winner 26.9% (199/739, ±3.2), >=3 7.3% (54/739, ±1.9), >=5 1.8% (13/739, ±0.9); mean winners 0.54, mean attempting wallets 1.49; >=1 attempt 45.3% (335/739, ±3.6)
+   winners hist {0: 540, 1: 100, 2: 45, 3: 29, 4: 12, 5: 8, 6: 5}
+   wallet-attempts 1103: win 36.1% (398/1103, ±2.8), fail-slippage 11.2% (124/1103, ±1.9), fail-botguard/dup-only 50.9% (561/1103, ±3.0), other 1.8% (20/1103, ±0.8)
+ slot0+1 combined: >=1 winner 44.5% (329/739, ±3.6), >=3 15.7% (116/739, ±2.6), >=5 5.1% (38/739, ±1.6)
+ reactive #1: n=329 slot={0: 206, 1: 123} prem_avg p10/25/50/75/90 = [0.0, 0.2, 1.3, 4.6, 9.1]%  prem_start = [0.0, 0.0, 0.0, 0.0, 0.0]%
+ reactive #3: n=116 slot={0: 52, 1: 64} prem_avg p10/25/50/75/90 = [1.1, 5.1, 13.8, 24.2, 40.0]%  prem_start = [0.7, 4.7, 12.1, 22.3, 39.4]%
+ reactive #5: n=38 slot={0: 12, 1: 26} prem_avg p10/25/50/75/90 = [-1.4, 4.4, 18.6, 33.2, 53.5]%  prem_start = [-1.9, 3.5, 17.9, 30.3, 50.9]%
+
+=== BUNDLED (>=1 SOL or >=2 bundle wallets): n=570
+ slot+0: launches with >=1 indep. winner 50.9% (290/570, ±4.1), >=3 18.9% (108/570, ±3.2), >=5 6.5% (37/570, ±2.0); mean winners 1.31, mean attempting wallets 2.95; >=1 attempt 63.7% (363/570, ±3.9)
+   winners hist {0: 280, 1: 112, 2: 70, 3: 42, 4: 29, 5: 11, 6: 26}
+   wallet-attempts 1681: win 44.4% (746/1681, ±2.4), fail-slippage 26.9% (452/1681, ±2.1), fail-botguard/dup-only 24.9% (418/1681, ±2.1), other 3.9% (65/1681, ±0.9)
+ slot+1: launches with >=1 indep. winner 49.5% (282/570, ±4.1), >=3 16.1% (92/570, ±3.0), >=5 4.7% (27/570, ±1.7); mean winners 1.16, mean attempting wallets 4.39; >=1 attempt 83.5% (476/570, ±3.0)
+   winners hist {0: 288, 1: 109, 2: 81, 3: 45, 4: 20, 5: 8, 6: 19}
+   wallet-attempts 2501: win 26.5% (663/2501, ±1.7), fail-slippage 13.0% (324/2501, ±1.3), fail-botguard/dup-only 57.1% (1427/2501, ±1.9), other 3.5% (87/2501, ±0.7)
+ slot0+1 combined: >=1 winner 74.7% (426/570, ±3.6), >=3 38.8% (221/570, ±4.0), >=5 16.8% (96/570, ±3.1)
+ reactive #1: n=426 slot={0: 290, 1: 136} prem_avg p10/25/50/75/90 = [0.1, 0.4, 1.6, 4.6, 8.4]%  prem_start = [0.0, 0.0, 0.0, 0.0, 0.0]%
+ reactive #3: n=221 slot={1: 113, 0: 108} prem_avg p10/25/50/75/90 = [1.2, 3.7, 10.3, 22.2, 37.3]%  prem_start = [0.7, 3.0, 9.1, 20.4, 33.4]%
+ reactive #5: n=95 slot={1: 58, 0: 37} prem_avg p10/25/50/75/90 = [2.7, 6.0, 18.0, 37.5, 54.3]%  prem_start = [2.0, 5.6, 17.4, 35.7, 52.1]%
+
+=== BUNDLED & TRACKED: n=402
+ slot+0: launches with >=1 indep. winner 51.5% (207/402, ±4.9), >=3 18.2% (73/402, ±3.8), >=5 7.0% (28/402, ±2.5); mean winners 1.31, mean attempting wallets 2.99; >=1 attempt 62.9% (253/402, ±4.7)
+   winners hist {0: 195, 1: 79, 2: 55, 3: 23, 4: 22, 5: 9, 6: 19}
+   wallet-attempts 1201: win 43.8% (526/1201, ±2.8), fail-slippage 28.1% (337/1201, ±2.5), fail-botguard/dup-only 24.5% (294/1201, ±2.4), other 3.7% (44/1201, ±1.1)
+ slot+1: launches with >=1 indep. winner 51.2% (206/402, ±4.9), >=3 16.4% (66/402, ±3.6), >=5 5.2% (21/402, ±2.2); mean winners 1.22, mean attempting wallets 4.88; >=1 attempt 86.8% (349/402, ±3.3)
+   winners hist {0: 196, 1: 78, 2: 62, 3: 30, 4: 15, 5: 7, 6: 14}
+   wallet-attempts 1961: win 25.0% (491/1961, ±1.9), fail-slippage 12.5% (245/1961, ±1.5), fail-botguard/dup-only 58.7% (1152/1961, ±2.2), other 3.7% (73/1961, ±0.8)
+ slot0+1 combined: >=1 winner 75.4% (303/402, ±4.2), >=3 40.5% (163/402, ±4.8), >=5 18.4% (74/402, ±3.8)
+ reactive #1: n=303 slot={0: 207, 1: 96} prem_avg p10/25/50/75/90 = [0.1, 0.5, 2.2, 4.8, 8.4]%  prem_start = [0.0, 0.0, 0.0, 0.0, 0.0]%
+ reactive #3: n=163 slot={1: 90, 0: 73} prem_avg p10/25/50/75/90 = [1.7, 4.1, 10.6, 24.3, 35.0]%  prem_start = [1.4, 3.2, 9.3, 20.9, 32.7]%
+ reactive #5: n=73 slot={1: 45, 0: 28} prem_avg p10/25/50/75/90 = [3.6, 8.6, 18.6, 37.7, 55.8]%  prem_start = [3.2, 7.2, 17.7, 35.9, 53.5]%
+
+=== BUNDLED & untracked: n=168
+ slot+0: launches with >=1 indep. winner 49.4% (83/168, ±7.6), >=3 20.8% (35/168, ±6.1), >=5 5.4% (9/168, ±3.4); mean winners 1.31, mean attempting wallets 2.86; >=1 attempt 65.5% (110/168, ±7.2)
+   winners hist {0: 85, 1: 33, 2: 15, 3: 19, 4: 7, 5: 2, 6: 7}
+   wallet-attempts 480: win 45.8% (220/480, ±4.5), fail-slippage 24.0% (115/480, ±3.8), fail-botguard/dup-only 25.8% (124/480, ±3.9), other 4.4% (21/480, ±1.8)
+ slot+1: launches with >=1 indep. winner 45.2% (76/168, ±7.5), >=3 15.5% (26/168, ±5.5), >=5 3.6% (6/168, ±2.8); mean winners 1.02, mean attempting wallets 3.21; >=1 attempt 75.6% (127/168, ±6.5)
+   winners hist {0: 92, 1: 31, 2: 19, 3: 15, 4: 5, 5: 1, 6: 5}
+   wallet-attempts 540: win 31.9% (172/540, ±3.9), fail-slippage 14.6% (79/540, ±3.0), fail-botguard/dup-only 50.9% (275/540, ±4.2), other 2.6% (14/540, ±1.3)
+ slot0+1 combined: >=1 winner 73.2% (123/168, ±6.7), >=3 34.5% (58/168, ±7.2), >=5 13.1% (22/168, ±5.1)
+ reactive #1: n=123 slot={1: 40, 0: 83} prem_avg p10/25/50/75/90 = [0.0, 0.2, 0.8, 4.2, 8.2]%  prem_start = [0.0, 0.0, 0.0, 0.0, 0.0]%
+ reactive #3: n=58 slot={0: 35, 1: 23} prem_avg p10/25/50/75/90 = [1.0, 2.4, 10.1, 18.5, 39.7]%  prem_start = [0.7, 2.2, 8.9, 17.8, 36.0]%
+ reactive #5: n=22 slot={0: 9, 1: 13} prem_avg p10/25/50/75/90 = [-11.4, 3.3, 17.5, 32.5, 49.2]%  prem_start = [-12.6, 2.8, 15.3, 30.3, 47.7]%

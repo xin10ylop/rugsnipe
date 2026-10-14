@@ -16,8 +16,8 @@ python3 -m venv .venv
 
 | script | what it does | runtime |
 |---|---|---|
-| `analysis/scripts/pull_dataset.py` | index -> light -> deep -> stats (see below) | ~15-30 min cold, seconds warm |
-| `analysis/scripts/verify_decoding.py` | cross-checks swap-api trades vs on-chain TradeEvents | ~1-2 min |
+| `analysis/scripts/pull_dataset.py` | index -> light -> deep -> stats (see below) | 47 min cold (swap-api allows ~1000 req / 5 min), seconds warm |
+| `analysis/scripts/verify_decoding.py` | cross-checks swap-api trades vs on-chain TradeEvents (last run: 256/256 trades matched on 12 tokens) | ~2-3 min |
 
 ```bash
 .venv/bin/python -I analysis/scripts/pull_dataset.py                 # everything
@@ -27,6 +27,9 @@ python3 -m venv .venv
 
 All network responses are cached under `data/cache/` (gitignored), so every script is
 resumable and re-runs are cheap. `--refresh-index` re-anchors the population window.
+For a faster cold run (< 25 min) use e.g. `--n-interesting 60 --early-pages 8 --latest-pages 3`.
+The graduated-coin list used to top up the interesting arm is snapshotted to
+`data/cache/graduated_window.json` so the sample stays reproducible.
 
 ### Pipeline
 
@@ -42,7 +45,11 @@ resumable and re-runs are cheap. `--refresh-index` re-anchors the population win
    arm (light tokens with ATH >= $20k, topped up with graduated coins created in the
    window) -> swap-api trades: everything in the first 300 s after creation plus the
    latest 600 trades -> per-token metrics (`firstslot.token_metrics`).
-4. **stats** - aggregates with 95 % CIs (`firstslot.aggregate`) -> JSON + console.
+4. **stats** - aggregates with 95 % CIs (`firstslot.aggregate`) -> JSON, markdown tables
+   (`data/reports/firstslot_tables.md`) + console. Tokens whose curve completed inside
+   the creation slot ("instant graduation") are excluded from the groups.
+
+Results and definitions: `docs/research/onchain-firstslot-stats.md`.
 
 ## Modules
 

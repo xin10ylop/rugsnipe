@@ -1,0 +1,158 @@
+{
+ "fetched_at": "2026-10-14T09:53:50Z",
+ "name": "fresh_v1_inner_bexq_v2",
+ "query": {
+  "endpoint": "https://solana-rpc.publicnode.com",
+  "method": "getTransaction",
+  "params": [
+   "5MFmSQTzSbuSfKcX1op4ABa5bL2HqDHnkHa5F5oNQgS8YxKbbQTRuzmDN5Nc4SxgpQK7sJFXLso8J5vziA2R1EFn",
+   {
+    "commitment": "confirmed",
+    "encoding": "json",
+    "maxSupportedTransactionVersion": 1
+   }
+  ]
+ },
+ "result": {
+  "slot": 456794544,
+  "transaction": {
+   "message": {
+    "accountKeys": [
+     "8RZrLdqoJU2AFnCvWw8KTbtpkyHidaPgEQAwoPjFtM4z",
+     "21L1QB6DJ9HBvePgwN6jFuK3UT9mq2SgTq1oJ7D6cNiV",
+     "2s2d6dchcszShxayeBeY9oPdTanNoseMpt9pXvXD4dgd",
+     "3BpXnfJaUTiwXnJNe7Ej1rcbzqTTQUvLShZaWazebsVR",
+     "4TQLFNWK8AovT1gFvda5jfw2oJeRMKEmw7aH6MGBJ3or",
+     "58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2",
+     "6rVkF4HSgy1jrnC3HogfRgPHrq4CtLg5f11URpsC4i9D",
+     "7JYBWXmFEqeV6PKUnevmrxXy51Ytz8zqXFKGVAPqdAnf",
+     "7kM32vqdmozBef8VtU9MyyMk3oYrw4aCjPbUd6eAdAuz",
+     "811XXStYvQfVgzFCjqdGsgRrDMBurAmVGJDkhNmhguHM",
+     "8sNeir4QsLsJdYpc9RZacohhK1Y5FLU3nC5LXgYB4aa6",
+     "BhUDQdUZA3woE4wtSirBQWknRPd3saTp8AxBEMNM6Tym",
+     "BwWTaVGMsafjZiR5cVYmcY9kbVq9TfoHQugoYLDqZyjs",
+     "CiHpkcc1KPUMQ1HMogUrU8ahXWfmp8LaNNwRL2z842aU",
+     "DQyrAcCrDXQ7NeoqGgDCZwBvWDcYmFCjSb9JtteuvPpz",
+     "E2ppBaqKC76b8sJ8MAb878CwP3PDY3eJ5gn8GXWq68Tu",
+     "EsgXfwtp7gfoQNV2TghZNjjAtie5CXfG2czgCdVDQzaV",
+     "FNRudBdAAJDz4FfWxcBkrur1r1zVkL6t2BX6RWSV8TK8",
+     "HLmqeL62xR1QoZ1HKKbXRrdN1p3phKpxRMb2VVopvBBz",
+     "11111111111111111111111111111111",
+     "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+     "So11111111111111111111111111111111111111112",
+     "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+     "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+     "ZXFK2eLUxt79iTkDgky6YxCqjXfRZ4UpR7XS85kpump",
+     "pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ",
+     "4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf",
+     "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1",
+     "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+     "6Vo3245eszAb5wuqEMw8mGdbfRUdKbHhDHP5LcaGuTAB",
+     "768rhTSgXFVohNuR4LoHLQtt7huPApu9yeSjrR94nHBe",
+     "8Wf5TiAheLUqBrKXeYg2JtAFFMWtKdG2BSFgqUcPVwTt",
+     "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+     "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",
+     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "Hq2wp8uJ9jCPsYgNHex8RtqdvMPfVGoYwjvF1ATiwn2Y",
+     "jitodontfront111111111111111111nopainnogain"
+    ],
+    "header": {
+     "numReadonlySignedAccounts": 0,
+     "numReadonlyUnsignedAccounts": 18,
+     "numRequiredSignatures": 1
+    },
+    "instructions": [
+     {
+      "accounts": [
+       0,
+       17,
+       0,
+       24,
+       19,
+       23
+      ],
+      "data": "2",
+      "programIdIndex": 32,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       0,
+       15,
+       0,
+       34,
+       19,
+       22
+      ],
+      "data": "2",
+      "programIdIndex": 32,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       26,
+       24,
+       21,
+       23,
+       22,
+       32,
+       10,
+       1,
+       3,
+       6,
+       13,
+       8,
+       9,
+       0,
+       17,
+       2,
+       7,
+       12,
+       30,
+       35,
+       16,
+       11,
+       31,
+       25,
+       19,
+       33,
+       20,
+       2,
+       22,
+       15,
+       28,
+       27,
+       5,
+       14,
+       18
+      ],
+      "data": "7MmSjiexwdSw9sjhDGhYSKTu22UzopP6Mc63",
+      "programIdIndex": 29,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       0,
+       4
+      ],
+      "data": "3Bxs43ZMjSRQLs6o",
+      "programIdIndex": 19,
+      "stackHeight": 1
+     }
+    ],
+    "recentBlockhash": "JB4nd17Sye9oSbGXRRC23U2bmQ4Bha3s8YayN51tGYYs",
+    "transactionConfig": {
+     "computeUnitLimit": 400000,
+     "heapSize": null,
+     "loadedAccountsDataSizeLimit": 67108864,
+     "priorityFee": 4000
+    }
+   },
+   "signatures": [
+    "5MFmSQTzSbuSfKcX1op4ABa5bL2HqDHnkHa5F5oNQgS8YxKbbQTRuzmDN5Nc4SxgpQK7sJFXLso8J5vziA2R1EFn"
+   ]
+  },
+  "version": 1
+ },
+ "signature": "5MFmSQTzSbuSfKcX1op4ABa5bL2HqDHnkHa5F5oNQgS8YxKbbQTRuzmDN5Nc4SxgpQK7sJFXLso8J5vziA2R1EFn"
+}

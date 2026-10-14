@@ -1,0 +1,159 @@
+{
+ "fetched_at": "2026-10-14T09:53:45Z",
+ "name": "fresh_v1_create_v2_mayhem_buy_v2",
+ "query": {
+  "endpoint": "https://solana-rpc.publicnode.com",
+  "method": "getTransaction",
+  "params": [
+   "3A329VP4ipo7XooVMjn6ovWo7mpR3k1HJ8tGF8CTVbdmnbLEUQHAMoU2hXgAg2bR4d6Mgq1j153cgR1KRCLwAyHZ",
+   {
+    "commitment": "confirmed",
+    "encoding": "json",
+    "maxSupportedTransactionVersion": 1
+   }
+  ]
+ },
+ "result": {
+  "slot": 456794837,
+  "transaction": {
+   "message": {
+    "accountKeys": [
+     "2zrVkYbYXRahMxTxJNMUqXKeaw1T8oX6uvHKhrxP8UBC",
+     "AUc4JiGNwhasgQrFiP3foLPmV37pTnqD9uKovfMvpump",
+     "9M4giFFMxmFGXtc3feFzRai56WbBqehoSeRE5GK7gf7",
+     "MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e",
+     "kwwD1DCxErjjFTDa715gWUzLbYdDiNQEaWRkqHc2QRt",
+     "21L1QB6DJ9HBvePgwN6jFuK3UT9mq2SgTq1oJ7D6cNiV",
+     "51ZjjcXy2bZ5QNPbwwCAoQ3dAzcbCHqNLW16tpxtsKxZ",
+     "8sNeir4QsLsJdYpc9RZacohhK1Y5FLU3nC5LXgYB4aa6",
+     "97xHGaD55xvkvu8jKBoyEHk88N9wDjEoZWE1b2T5uji4",
+     "AAnGors2yB1RSe7pWV6MnKbpcmgFEo1kZuBxj8zH65NQ",
+     "BmWBGcL59ahwREB7h3yZhzDSRL7JgWpbHJb7ZxeGtkc8",
+     "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s",
+     "CTq8YDy2o3x8SpPuUvMqsVAspDPDBQ161YaP27rDLw5z",
+     "CVrUn9rbX6P8jUvKBs6x9SkimwLNBe1kqznnp7xHXPvJ",
+     "Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY",
+     "FMwXDAR6WWi582iwi5ByHQzwWZvK7dDvF1pDoaSv2BdD",
+     "GAFuhgcd328SkkBYHpfadzmef9hTGAFRCi9QoCnsZQug",
+     "HbpT1N9bNuiYBNDMM18nvomSDiJ9JityQBEmBF2tUtRH",
+     "HcaU8yJFPvLKpWGRaXHWLEdvYq5mL9jxUNvgtDYdpRMK",
+     "J4TscLjXCrqb85k2PnekgvQwyHejPL45SXZ3MTVe7wzY",
+     "11111111111111111111111111111111",
+     "13ec7XdrjF3h3YcqBTFDSReRcUFwbCnJaAQspM4j6DDJ",
+     "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+     "So11111111111111111111111111111111111111112",
+     "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM",
+     "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+     "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+     "pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ",
+     "4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf",
+     "6DJU37ioEvXQhGmcy6ksmGHJo1GZVXWKMBLXuRndSPYQ",
+     "8Wf5TiAheLUqBrKXeYg2JtAFFMWtKdG2BSFgqUcPVwTt",
+     "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+     "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",
+     "Hq2wp8uJ9jCPsYgNHex8RtqdvMPfVGoYwjvF1ATiwn2Y",
+     "jitodontfront111111111111111111nopainnogain"
+    ],
+    "header": {
+     "numReadonlySignedAccounts": 0,
+     "numReadonlyUnsignedAccounts": 15,
+     "numRequiredSignatures": 2
+    },
+    "instructions": [
+     {
+      "accounts": [
+       1,
+       24,
+       8,
+       9,
+       28,
+       0,
+       20,
+       26,
+       31,
+       3,
+       21,
+       11,
+       10,
+       4,
+       32,
+       22
+      ],
+      "data": "zp5kwxfeVDos7utLhuRrbspt3vCjTuVe3sadKAxz8mToSDuSF2zq7buTY2kt7nk32bbDua5o677PqPd3d1qyM8EE7o9TPY1gFKwNsxZBtAy3yQjDpZd9kAwiotqptvN4wQTkRoASsyWe9EtrPtDWWqz4nySS4h5s6nVAedjYm15ak5BSbv6RU6rYoFDfg1jpd4AhF67vhFRzxXatTozET",
+      "programIdIndex": 22,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       0,
+       15,
+       0,
+       1,
+       20,
+       26
+      ],
+      "data": "2",
+      "programIdIndex": 31,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       28,
+       1,
+       23,
+       26,
+       25,
+       31,
+       7,
+       5,
+       2,
+       16,
+       8,
+       9,
+       17,
+       0,
+       15,
+       12,
+       13,
+       19,
+       29,
+       33,
+       6,
+       18,
+       30,
+       27,
+       20,
+       32,
+       22
+      ],
+      "data": "HnQ14hy6fxGUEryQcZYj9t1W6NwLJz7dg",
+      "programIdIndex": 22,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       0,
+       14
+      ],
+      "data": "3Bxs43ZMjSRQLs6o",
+      "programIdIndex": 20,
+      "stackHeight": 1
+     }
+    ],
+    "recentBlockhash": "AtUFedus8zUf2qdPMAu7jF4NXjKonKjQtDH59CxgJtsZ",
+    "transactionConfig": {
+     "computeUnitLimit": 500000,
+     "heapSize": null,
+     "loadedAccountsDataSizeLimit": 67108864,
+     "priorityFee": 5000
+    }
+   },
+   "signatures": [
+    "3A329VP4ipo7XooVMjn6ovWo7mpR3k1HJ8tGF8CTVbdmnbLEUQHAMoU2hXgAg2bR4d6Mgq1j153cgR1KRCLwAyHZ",
+    "4kAoFfdoYeDuMmXpmE8hqRb14JyYGGqAqJ41C75VNAMfaKkyaYyksspmaTjBomW8FxLrAcdyRWR23pzCq5PPUM9J"
+   ]
+  },
+  "version": 1
+ },
+ "signature": "3A329VP4ipo7XooVMjn6ovWo7mpR3k1HJ8tGF8CTVbdmnbLEUQHAMoU2hXgAg2bR4d6Mgq1j153cgR1KRCLwAyHZ"
+}

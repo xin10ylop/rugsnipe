@@ -19,9 +19,29 @@ from .pumpapi import PumpApi, normalize_trade
 from .rpc import RpcClient
 
 
-def rpc_trades(rpc: RpcClient, mint: str, bonding_curve: str, max_txs: int = 30) -> tuple[list[dict], bool]:
-    """Decode the first `max_txs` successful bonding-curve txs. Returns (trades, covers_all)."""
-    sigs, complete = rpc.get_all_signatures(bonding_curve, max_pages=3)
+def rpc_trades(rpc: RpcClient, mint: str, bonding_curve: str, max_txs: int = 30,
+               anchor_sig: str | None = None, create_slot: int | None = None,
+               max_pages: int = 6) -> tuple[list[dict], bool]:
+    """Decode the first `max_txs` successful bonding-curve txs. Returns (trades, covers_all).
+
+    For busy tokens the signature history is long (and often dominated by failed
+    sniper txs: >1000 failed sigs in the first seconds were observed), so when
+    `anchor_sig` (an early trade, from the API) is given, signatures older than it are
+    paged backwards until the creation slot is passed.
+    """
+    sigs, complete = rpc.get_all_signatures(bonding_curve, max_pages=1)
+    if not complete and anchor_sig:
+        sigs = [{"signature": anchor_sig, "err": None, "slot": None}]
+        cursor = anchor_sig
+        for _ in range(max_pages):
+            page = rpc.get_signatures(bonding_curve, before=cursor, limit=1000)
+            sigs += page
+            if not page or (create_slot is not None and page[-1]["slot"] < create_slot):
+                break
+            cursor = page[-1]["signature"]
+        if create_slot is not None:
+            sigs = [x for x in sigs if x["slot"] is None or x["slot"] >= create_slot]
+        complete = False
     ok = [s for s in reversed(sigs) if s.get("err") is None]
     covers_all = complete and len(ok) <= max_txs
     out: list[dict] = []
@@ -41,11 +61,14 @@ def rpc_trades(rpc: RpcClient, mint: str, bonding_curve: str, max_txs: int = 30)
 def compare_token(rpc: RpcClient, api: PumpApi, rec: dict, max_txs: int = 30) -> dict[str, Any]:
     """Compare RPC-decoded trades with swap-api trades for one token."""
     mint = rec["mint"]
-    rt, covers_all = rpc_trades(rpc, mint, rec["bonding_curve"], max_txs)
     raw, _ = api.trades_latest(mint, max_pages=10)
-    early, _ = api.trades_before(mint, (rec["create_time"] + 3600) * 1000, max_pages=10)
+    # the crafted cursor returns trades just BEFORE the timestamp, newest first, so a short
+    # window is needed to reach the creation slot of busy tokens
+    early, _ = api.trades_before(mint, (rec["create_time"] + 30) * 1000, max_pages=10)
     seen = {t["slotIndexId"] + t["tx"]: t for t in raw + early}
     at = sorted((normalize_trade(t) for t in seen.values()), key=lambda x: (x["slot"], x["txi"], x["sub"]))
+    anchor = at[min(len(at), max_txs) - 1]["sig"] if at else None
+    rt, covers_all = rpc_trades(rpc, mint, rec["bonding_curve"], max_txs, anchor, rec["create_slot"])
     api_by_sig: dict[str, list[dict]] = {}
     for t in at:
         api_by_sig.setdefault(t["sig"], []).append(t)
@@ -90,8 +113,13 @@ def compare_token(rpc: RpcClient, api: PumpApi, rec: dict, max_txs: int = 30) ->
             su = sorted(sol_usd)[len(sol_usd) // 2]
             out["api_ath_sol"] = coin["ath_market_cap"] / su
             out["api_ath_rel_err"] = abs(out["api_ath_sol"] - out["rpc_ath_mcap"]) / out["rpc_ath_mcap"]
-        if coin.get("market_cap"):
-            out["api_mcap_rel_err"] = abs(coin["market_cap"] - out["rpc_final_mcap"]) / out["rpc_final_mcap"]
+        api_mcap = coin.get("market_cap")
+        if not api_mcap and coin.get("usd_market_cap") and sol_usd:
+            api_mcap = coin["usd_market_cap"] / sorted(sol_usd)[len(sol_usd) // 2]
+            out["api_market_cap_sol"] = api_mcap
+            out["api_market_cap_from_usd"] = True
+        if api_mcap:
+            out["api_mcap_rel_err"] = abs(api_mcap - out["rpc_final_mcap"]) / out["rpc_final_mcap"]
     # slot0 agreement (bundle measurement depends on it)
     s0 = rec["create_slot"]
     out["slot0_buys_rpc"] = sum(1 for r in rt if r["slot"] == s0 and r["buy"])

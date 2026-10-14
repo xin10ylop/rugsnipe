@@ -1,0 +1,115 @@
+{
+ "fetched_at": "2026-10-14T09:53:48Z",
+ "name": "fresh_v1_inner_sell_v3",
+ "query": {
+  "endpoint": "https://solana-rpc.publicnode.com",
+  "method": "getTransaction",
+  "params": [
+   "23ZGm1SeSRxg9NkNNttrhVSCzHdCt74iUN2fuPKghMHodQTk5jGBTrRPguPsncwAxgUyb1xRPawFJbhHbrxAiGFb",
+   {
+    "commitment": "confirmed",
+    "encoding": "json",
+    "maxSupportedTransactionVersion": 1
+   }
+  ]
+ },
+ "result": {
+  "slot": 456794544,
+  "transaction": {
+   "message": {
+    "accountKeys": [
+     "DsKi6KALKMRfV1kGjMpenzVAfD5mZydJt5W6jVzeXWbG",
+     "4FobGn5ZWYquoJkxMzh2VUAWvV36xMgxQ3M7uG1pGGhd",
+     "5eHhjP8JaYkz83CWwvGU2uMUXefd3AazWGx4gpcuEEYD",
+     "5Msx18bKEa2DUkrEVpVAUxBTq3RuzjnqmjGqkvaAxD72",
+     "6VXZHEicDk3DzJcc9WghzK2c3dRN1dC27xiZU7fSmUV5",
+     "8WmUXsKpUax44EgztNMQQLNehLcsLEv1bjpJk5YRR5UB",
+     "9Vv9Wk5rmfNdbeo9kgSMZaSjrS6hcyLtag1HYagDJ577",
+     "B88TK7pZr4Ctgor8LCNvgaT58bRAKHaTMeXmwMtgGJrw",
+     "D2xgfqqweT5T6PmcMGFcazt88wUHKXyYzdLyA3kVYh2s",
+     "EqGzowSp6cKAsMSRyyrFTaBxnZEVeNY81LC18YFy8Cx9",
+     "EQR7grNcdw6WX4FAbXBiX55ne5V8vfJLS9ktqkB82RCM",
+     "FKfcAHHPnRLZR4oYx5FeAegb9PpSio5NUJTnHpncNfaL",
+     "HV3X9td6BkxYUm5yEdwSg4TQN9vHP6ZNTfH5VheKpFNV",
+     "J4PeVZhx2496eXjAMpbm7nrCxRBgAUfRDwhZ1YSdzTSE",
+     "11111111111111111111111111111111",
+     "4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf",
+     "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+     "8Wf5TiAheLUqBrKXeYg2JtAFFMWtKdG2BSFgqUcPVwTt",
+     "8xWodG9Q37nvqeefeHKqxrgQMdRaVSQvSeiudxispump",
+     "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",
+     "FLASHX8DrLbgeR8FcfNV1F5krxYcYMUdBkrP1EPBtxB9",
+     "jitodontfrontH1111111TradeWithAxiomDotTrade",
+     "So11111111111111111111111111111111111111112",
+     "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+     "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+    ],
+    "header": {
+     "numReadonlySignedAccounts": 0,
+     "numReadonlyUnsignedAccounts": 11,
+     "numRequiredSignatures": 1
+    },
+    "instructions": [
+     {
+      "accounts": [
+       6,
+       0,
+       1,
+       14,
+       20,
+       16,
+       15,
+       18,
+       22,
+       24,
+       23,
+       10,
+       8,
+       5,
+       0,
+       6,
+       4,
+       7,
+       17,
+       2,
+       14,
+       19,
+       16,
+       20,
+       9,
+       3,
+       11,
+       12,
+       20
+      ],
+      "data": "1FeP99pi7St4fBatk9gVFnhrgS8cJ7",
+      "programIdIndex": 20,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       0,
+       13,
+       21
+      ],
+      "data": "3Bxs4eVLF7HFuEMd",
+      "programIdIndex": 14,
+      "stackHeight": 1
+     }
+    ],
+    "recentBlockhash": "FHPE5dQ3vo8KocJz7pQDE8soUseAD2CTE4eq3YWwJvvx",
+    "transactionConfig": {
+     "computeUnitLimit": 127352,
+     "heapSize": null,
+     "loadedAccountsDataSizeLimit": 67108864,
+     "priorityFee": 100000
+    }
+   },
+   "signatures": [
+    "23ZGm1SeSRxg9NkNNttrhVSCzHdCt74iUN2fuPKghMHodQTk5jGBTrRPguPsncwAxgUyb1xRPawFJbhHbrxAiGFb"
+   ]
+  },
+  "version": 1
+ },
+ "signature": "23ZGm1SeSRxg9NkNNttrhVSCzHdCt74iUN2fuPKghMHodQTk5jGBTrRPguPsncwAxgUyb1xRPawFJbhHbrxAiGFb"
+}

@@ -1,0 +1,34 @@
+{
+ "address": "3PfeaUhTnEiwA9aS141sNLfttVboQM39dNedWicTVPUm",
+ "fetched_at": "2026-10-14T09:10:25Z",
+ "name": "bonding_curve_complete",
+ "note": "BondingCurve of Cc2QsnFfxFYXaTvdXgJkUctM9ZsNBKfgaaaSihjepump (completed + migrated)",
+ "query": {
+  "endpoint": "https://solana-rpc.publicnode.com",
+  "method": "getAccountInfo",
+  "params": [
+   "3PfeaUhTnEiwA9aS141sNLfttVboQM39dNedWicTVPUm",
+   {
+    "commitment": "confirmed",
+    "encoding": "base64"
+   }
+  ]
+ },
+ "result": {
+  "context": {
+   "apiVersion": "4.3.0",
+   "slot": 456783595
+  },
+  "value": {
+   "data": [
+    "F7f4N2DYrGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAxqR+jQMAAUPNkWP1Y+IPFKYYW1gNNqryjVkBzVwisULt/4A8DvSpAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACsI/wGAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+    "base64"
+   ],
+   "executable": false,
+   "lamports": 1493520,
+   "owner": "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+   "rentEpoch": 18446744073709551615,
+   "space": 166
+  }
+ }
+}

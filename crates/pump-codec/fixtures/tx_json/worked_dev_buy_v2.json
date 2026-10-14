@@ -1,0 +1,184 @@
+{
+ "fetched_at": "2026-10-14T09:23:35Z",
+ "name": "worked_dev_buy_v2",
+ "query": {
+  "endpoint": "https://solana-rpc.publicnode.com",
+  "method": "getTransaction",
+  "params": [
+   "RwnaexcirWm231nopvZy6NiKiPi9wrhyGZskCqs6HNPNjpxaeP6RbouRsxqvJNtoRDfXdTUboqTsdiZZWx2iuaa",
+   {
+    "commitment": "confirmed",
+    "encoding": "json",
+    "maxSupportedTransactionVersion": 1
+   }
+  ]
+ },
+ "result": {
+  "slot": 456763744,
+  "transaction": {
+   "message": {
+    "accountKeys": [
+     "H57KAwQrFru9qaoKYUfWmmv1ymaAQtdGBUefXR1M3TGo",
+     "2mFxK8mUNr4MExKZ79t4wL3Z62yj8S3hDPTPZLbFpump",
+     "qkYdTGRPHbWTWuBMz45bCiU6a23axRqf6sBHm9295WY",
+     "5BxQeKkZ9JNisNzMZ88GhNjHZS3PKs2FHUEEXqPhigwr",
+     "94qWNrtmfn42h3ZjUZwWvK1MEo9uVmmrBPd2hpNjYDjb",
+     "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",
+     "9dasz9SjBJJXMFsjS1aaRi1hiyVvFe1RibYfG5V5aize",
+     "AGgrcXgEg1AKJtGoSwnAccMf1ApEWBJhLa9QbZqJWuTB",
+     "BCToDM92TmGreUvGEGsHxnofBKd7f5h1Zc7jXQLq5SfW",
+     "BNbqQoGHWetWYkN11zsktSs5MQBu13xayYDjNqUHRQHT",
+     "C2fWw7BKw2GpiXfJTgc2GJZdYa1JicbJbfZvkBBLFozu",
+     "C68W9Qbe9ikzLAebrbr3pu8LxqAR2mp1ew8BMSN15EvZ",
+     "FW9wdhb7hjbJdZ9wyWAoLLnXExtJTn5PnVY7v6tz716o",
+     "GMN6hViEBGRCGx1RGCAuFh2XCcegGC95QegA8J4LTBGL",
+     "Go96g4FN5qfbepVhoeVmY9hzufmAJw8yDxRU69WvbLsy",
+     "HoEhJjU6iV5ZrgUfPHt5cXA2VM1r7B8DeBzCQwnrntmV",
+     "11111111111111111111111111111111",
+     "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+     "ComputeBudget111111111111111111111111111111",
+     "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+     "JDVTd2S6VQ87pXgMHW8qLCqcpjhXQ3gfrWJS4HVdzaCL"
+    ],
+    "addressTableLookups": [
+     {
+      "accountKey": "2dW7nGf9DyN94a2RH9JUiAMyGqft3J61xmx1txmQyyPJ",
+      "readonlyIndexes": [
+       12,
+       31,
+       11,
+       6,
+       7,
+       1,
+       10,
+       16,
+       14,
+       15
+      ],
+      "writableIndexes": [
+       4,
+       19,
+       28,
+       51,
+       13
+      ]
+     }
+    ],
+    "header": {
+     "numReadonlySignedAccounts": 0,
+     "numReadonlyUnsignedAccounts": 5,
+     "numRequiredSignatures": 2
+    },
+    "instructions": [
+     {
+      "accounts": [],
+      "data": "HMypLP",
+      "programIdIndex": 18,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [],
+      "data": "3DTuuPbnyF4B",
+      "programIdIndex": 18,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       1,
+       28,
+       6,
+       7,
+       32,
+       0,
+       16,
+       30,
+       19,
+       21,
+       26,
+       25,
+       10,
+       11,
+       34,
+       17
+      ],
+      "data": "5QAozyahaTZXdL4ixdDwhzoMRrjCiseXzYyrvWxnvrSN9bonxvwNrrGhKZdTvy9hAuuWqgNP5JAPpZQ9FEKU5e8sm7ZPFFTHNfKE2dUJTjGmnHd6dnbEBSzDAE1eK7vABe2s3FYMoGZPxrnRXnAQop4RWn5EanUEMjtvu3MVozF3y8hTGDtuS5oSmY7af6eQQtebYkEwA4kBcWcFeVkanYF",
+      "programIdIndex": 17,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       0,
+       8,
+       0,
+       1,
+       16,
+       30
+      ],
+      "data": "2",
+      "programIdIndex": 19,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       32,
+       1,
+       27,
+       30,
+       29,
+       19,
+       22,
+       4,
+       23,
+       2,
+       6,
+       7,
+       15,
+       0,
+       8,
+       13,
+       14,
+       9,
+       20,
+       35,
+       3,
+       12,
+       33,
+       31,
+       16,
+       34,
+       17
+      ],
+      "data": "HnQ14hy6fxGMckxeWejcJP5P5pwRyxhB5",
+      "programIdIndex": 17,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       0,
+       5
+      ],
+      "data": "3Bxs4ThwQbE4vyj5",
+      "programIdIndex": 16,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       0,
+       24
+      ],
+      "data": "3Bxs4eQ15BSZ5K8b",
+      "programIdIndex": 16,
+      "stackHeight": 1
+     }
+    ],
+    "recentBlockhash": "AWiW9NUYAoa2N4EEFWt4dNsrVX5qc9ZSMLpdb17uswbd"
+   },
+   "signatures": [
+    "RwnaexcirWm231nopvZy6NiKiPi9wrhyGZskCqs6HNPNjpxaeP6RbouRsxqvJNtoRDfXdTUboqTsdiZZWx2iuaa",
+    "kX26Eje4SbJfWjmdqVrDL3PFS1MWmbH7PYhKhyFar5Wd2ZoZmCE3yZyVRyvB7esuV3PqnDoxihUobVdTdLuZQH6"
+   ]
+  },
+  "version": 0
+ },
+ "signature": "RwnaexcirWm231nopvZy6NiKiPi9wrhyGZskCqs6HNPNjpxaeP6RbouRsxqvJNtoRDfXdTUboqTsdiZZWx2iuaa"
+}

@@ -1,0 +1,151 @@
+{
+ "fetched_at": "2026-10-14T09:23:34Z",
+ "name": "v1_create_v2_extend_bexq_v3",
+ "query": {
+  "endpoint": "https://solana-rpc.publicnode.com",
+  "method": "getTransaction",
+  "params": [
+   "2iWZxKJAMz7fpdBLeW8eKz8KdRXtzM9nPzeiFK6VkLJ9xCct1rfWaPGCtrwryHcQCDLSe7BfshkUp9FyW28pCAEH",
+   {
+    "commitment": "confirmed",
+    "encoding": "json",
+    "maxSupportedTransactionVersion": 1
+   }
+  ]
+ },
+ "result": {
+  "slot": 456782469,
+  "transaction": {
+   "message": {
+    "accountKeys": [
+     "FhzsapLHB18hWg8VvbmykYmBT5spZxSxYNYpF7xmRNGT",
+     "8vvVwpYmTEFNLSyRhaHhwaroBw2qP7kasspQibrjpump",
+     "25mLjGhQshSU3Bt3G53sTnwp81YMyptDky9bxYZCKVDU",
+     "3Ce6H3CQTGeezYQdmPiR25SmbPWVWbxMKcnGagBmdZMe",
+     "3WdaJ49KJnt4sEmxx5wFRqhQv7FzfXsuzSuggMPmZZRT",
+     "5YxQFdt3Tr9zJLvkFccqXVUwhdTWJQc1fFg2YPbxvxeD",
+     "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",
+     "AMUDwxRMmV5wBvG6ERJYsMecfrq9oAZEEqNE7ewQZQ85",
+     "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s",
+     "Cui7wCmBWoqGBkQ137AjSdCGgeZxq3bSCBcgoALC34Ur",
+     "FKPXZcopVyVUctsP5fBdjS8rzXJXtC1ja34HKtekqBUw",
+     "GaxeQ6R7rf8gyLffgeRjXcj4xeP3ZKehqbr6p3TQRd6",
+     "H5J7QDu3H4wsWJokmof5goV25Tn1RTx5zxA8E6jDEnkh",
+     "MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e",
+     "11111111111111111111111111111111",
+     "13ec7XdrjF3h3YcqBTFDSReRcUFwbCnJaAQspM4j6DDJ",
+     "4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf",
+     "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+     "8Wf5TiAheLUqBrKXeYg2JtAFFMWtKdG2BSFgqUcPVwTt",
+     "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+     "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",
+     "So11111111111111111111111111111111111111112",
+     "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+     "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+     "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM"
+    ],
+    "header": {
+     "numReadonlySignedAccounts": 0,
+     "numReadonlyUnsignedAccounts": 11,
+     "numRequiredSignatures": 2
+    },
+    "instructions": [
+     {
+      "accounts": [
+       1,
+       24,
+       7,
+       2,
+       16,
+       0,
+       14,
+       23,
+       19,
+       13,
+       15,
+       8,
+       11,
+       4,
+       20,
+       17
+      ],
+      "data": "FLUrTLMeD2fgjqXWDFgnY6e6BdLwT5SQGU5Q4AAJviVy5pEJrYYnz4mtfjXtiypw6mzSwU3QYTn4LE2SYG6F6QQKUjWoa5zZdhdabxe1oidwdAEu4YoqYNY8xgScSR2zXYyGy3hKAR2E94CFF9QiXim8p3rDMgz9gWVrPyws4pXdFihCrpdHe8CrE8YrfRYVFVfrpAvX5xZ6jHnKBT3EBsiMmF866bkSNVV",
+      "programIdIndex": 17,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       7,
+       0,
+       14,
+       20,
+       17
+      ],
+      "data": "gCzGGoTR6NG",
+      "programIdIndex": 17,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       0,
+       12,
+       0,
+       1,
+       14,
+       23
+      ],
+      "data": "2",
+      "programIdIndex": 19,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       16,
+       1,
+       21,
+       23,
+       22,
+       7,
+       2,
+       3,
+       0,
+       12,
+       9,
+       10,
+       18,
+       5,
+       14,
+       20,
+       17
+      ],
+      "data": "MboJmZWNSp9oNToJCdtJf5uj8GaFQBv1D",
+      "programIdIndex": 17,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       0,
+       6
+      ],
+      "data": "3Bxs4Z6oyhaczjLK",
+      "programIdIndex": 14,
+      "stackHeight": 1
+     }
+    ],
+    "recentBlockhash": "Fi8HscEbE9AdKj9XBJTsgRndhqaWpGSNPAXan1ZzE8He",
+    "transactionConfig": {
+     "computeUnitLimit": 400000,
+     "heapSize": null,
+     "loadedAccountsDataSizeLimit": 67108864,
+     "priorityFee": 400000
+    }
+   },
+   "signatures": [
+    "2iWZxKJAMz7fpdBLeW8eKz8KdRXtzM9nPzeiFK6VkLJ9xCct1rfWaPGCtrwryHcQCDLSe7BfshkUp9FyW28pCAEH",
+    "4C2WKoHw85x8v8CHxEdwySTymRqiSuGB91uKvbbf6wSuMLBMh4rWDpG8jLBEkTxmWbBJ9jtTWuWdgrhzSdPtReRq"
+   ]
+  },
+  "version": 1
+ },
+ "signature": "2iWZxKJAMz7fpdBLeW8eKz8KdRXtzM9nPzeiFK6VkLJ9xCct1rfWaPGCtrwryHcQCDLSe7BfshkUp9FyW28pCAEH"
+}

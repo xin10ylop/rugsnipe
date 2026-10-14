@@ -1,0 +1,171 @@
+{
+ "fetched_at": "2026-10-14T09:23:34Z",
+ "name": "v0_create_v2_quote_tail",
+ "query": {
+  "endpoint": "https://solana-rpc.publicnode.com",
+  "method": "getTransaction",
+  "params": [
+   "3NjDvfvTAfbhGFP2Pr8jY6HGp7hZjNxNxiWUTyVxz3u4QEboBinDEPG9L4sLCRMkbWL23htpQFtZengZ4F9qiAZZ",
+   {
+    "commitment": "confirmed",
+    "encoding": "json",
+    "maxSupportedTransactionVersion": 1
+   }
+  ]
+ },
+ "result": {
+  "slot": 456782652,
+  "transaction": {
+   "message": {
+    "accountKeys": [
+     "EVqx653MoY6esB9L6qruh3dTThCV4B43cBSsVWx9LQty",
+     "BiA6ixiBnArNKSXLTkRPwatLbmugvVpE4GCk6JnMpump",
+     "2Gd3uFJvpVAicMX3CmRXUyjB9UD3yqbHMBuyNvdTQRCe",
+     "5DzTBgNPfkNL7Z4j2FoQdsoLdWCKoAPGtQgrBKeyFbRe",
+     "5eA4p6evCxQUEqcgpK2Jyha75jTGCx3eSz2bWd6D5R2c",
+     "8fNaRUd85QcDDhRVS5jjBUk94N66L5nYpei2RWCZe4Tn",
+     "964HkgqRcdoA3Q83R2kUaZwLNLE4Qc6kAjxbr6WqmKpX",
+     "AL1K31Aj1AT5JXGNUPwiRRGjnx4CJrVpMpjxfFT7YeEs",
+     "CXpwfvpViyuCMPTWKE39souyfwh69z19CK6cCJmnXFry",
+     "CjYLHzcEcFzrjpjidvctvv6mjrTTEJ6yqwmeKhn2GAQG",
+     "EU66QTkSF2sBJyY8etVsxZ1eqTLq5Bpq5yu1ByYwp1qJ",
+     "G3Bqh5YAFteoPWx2j2x4TfjhFDpuCUjjiKCpEhydpDim",
+     "GVVtyKLdu3k7Tq2MQP5bXQ27qTRaEM5Y7L1MBFFT7RKT",
+     "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+     "ComputeBudget111111111111111111111111111111",
+     "pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn",
+     "6z6GDdfb2AjR9ZhJmAUQ5cipJCVxQvLJhB2H8mCwTFBP",
+     "7j5s9jUjqfnDyBujyYniiS7TsQQ9Ho7wwhdMcEoZrFFB",
+     "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+    ],
+    "addressTableLookups": [
+     {
+      "accountKey": "Hyif6eWb8x88RVrvjPfabsgRYnwkVnyByEXTVTXbUcyP",
+      "readonlyIndexes": [
+       10,
+       18,
+       158,
+       11,
+       160,
+       15,
+       1,
+       14,
+       3,
+       4
+      ],
+      "writableIndexes": [
+       16,
+       29,
+       21,
+       19,
+       174,
+       166
+      ]
+     }
+    ],
+    "header": {
+     "numReadonlySignedAccounts": 0,
+     "numReadonlyUnsignedAccounts": 6,
+     "numRequiredSignatures": 2
+    },
+    "instructions": [
+     {
+      "accounts": [
+       29
+      ],
+      "data": "JzwPro",
+      "programIdIndex": 14,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [],
+      "data": "3GAG5eogvTjV",
+      "programIdIndex": 14,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       1,
+       27,
+       6,
+       7,
+       31,
+       0,
+       25,
+       28,
+       18,
+       19,
+       26,
+       22,
+       2,
+       10,
+       33,
+       13,
+       15,
+       11,
+       28,
+       16
+      ],
+      "data": "zp5kwxfeVDooUEYnZL5KUgimZs1awGtbpAPGMScchjjNSikBFF7xfF1Xxj7vcuBEJPDnUA17mHMWo1W9JUoSg9LDQBidkgpvVaJEdTSxxZo64dvhWQFAwMrdoa6BwrkYFjEXc73cj1RTrzdRBn6TTTrg2pqPFMV6ojr6Bdc38MKT3Us2vFE1RqPSMdFbwjz7LStMj1exFVf3kB1YbyeVu",
+      "programIdIndex": 13,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       0,
+       12,
+       0,
+       1,
+       25,
+       28
+      ],
+      "data": "2",
+      "programIdIndex": 18,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       31,
+       1,
+       15,
+       28,
+       28,
+       18,
+       21,
+       23,
+       20,
+       24,
+       6,
+       7,
+       11,
+       0,
+       12,
+       3,
+       8,
+       5,
+       17,
+       34,
+       9,
+       4,
+       32,
+       30,
+       25,
+       33,
+       13
+      ],
+      "data": "HnQ14hy6fxGHQEuZ8q5h58FjbW9TX53oC",
+      "programIdIndex": 13,
+      "stackHeight": 1
+     }
+    ],
+    "recentBlockhash": "HsePyiXdTW1svDozy9EdQgo3oPGLEq6aG63ijc4uTZ18"
+   },
+   "signatures": [
+    "3NjDvfvTAfbhGFP2Pr8jY6HGp7hZjNxNxiWUTyVxz3u4QEboBinDEPG9L4sLCRMkbWL23htpQFtZengZ4F9qiAZZ",
+    "3Aba5mkJ2nNUy6oPbbejaQJ2CiiwhTYpLa5L5zL9SWAaTB1g4q5yGNVwiQKzUUUT61mzLk6WEBMdD9ahdZqihptE"
+   ]
+  },
+  "version": 0
+ },
+ "signature": "3NjDvfvTAfbhGFP2Pr8jY6HGp7hZjNxNxiWUTyVxz3u4QEboBinDEPG9L4sLCRMkbWL23htpQFtZengZ4F9qiAZZ"
+}

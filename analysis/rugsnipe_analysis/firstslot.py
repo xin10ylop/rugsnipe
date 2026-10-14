@@ -33,9 +33,10 @@ import statistics
 from collections import Counter, defaultdict
 from typing import Any, Iterable
 
-from .curve import TOTAL_SUPPLY, TOKEN_UNIT, mcap_sol
+from .curve import TOTAL_SUPPLY, TOKEN_UNIT, completion_mcap_sol, mcap_sol, roundtrip_multiple
 
 DUMP_FRACTION = 0.30
+NAIVE_SIZE = 0.3  # SOL, the guru's example position size
 TP_LEVELS = (1.5, 2.0, 2.5, 3.0)
 SUPPLY_TOKENS = TOTAL_SUPPLY / TOKEN_UNIT
 
@@ -49,11 +50,14 @@ def token_metrics(rec: dict, trades: list[dict], coverage: str) -> dict:
     slot0 = rec["create_slot"]
     t0 = rec["create_time"]
     creator = rec["creator"]
+    # 'dev' = the coin's creator (fee recipient) AND the create-tx signer / fee payer:
+    # create_v2 lets the signer name a different creator address (19 % of 2026 creates).
+    devs = {creator, rec.get("create_user"), rec.get("fee_payer")} - {None}
     init_mcap = mcap_sol(rec["init_vsol"], rec["init_vtok"])
     coin = rec.get("coin") or {}
     row: dict[str, Any] = {k: rec.get(k) for k in (
         "mint", "arm", "sample_rank", "create_sig", "create_slot", "create_time", "creator",
-        "fee_payer", "bonding_curve", "name", "symbol", "is_mayhem_mode", "launcher_programs",
+        "fee_payer", "create_user", "bonding_curve", "name", "symbol", "is_mayhem_mode", "launcher_programs",
         "token_program")}
     row["coverage"] = coverage
     row["init_mcap"] = init_mcap
@@ -70,12 +74,13 @@ def token_metrics(rec: dict, trades: list[dict], coverage: str) -> dict:
     for t in s0b:
         by_wallet[t["user"]] += t["sol"]
     create_txi = next((t["txi"] for t in s0 if t["sig"] == rec["create_sig"]), None)
-    others = {w: v for w, v in by_wallet.items() if w != creator}
+    others = {w: v for w, v in by_wallet.items() if w not in devs}
+    row["creator_is_signer"] = rec.get("create_user") in (None, creator)
     row.update({
         "slot0_n_buys": len(s0b),
         "slot0_n_sells": len(s0) - len(s0b),
         "slot0_buy_sol": _sum(by_wallet.values()),
-        "slot0_dev_sol": by_wallet.get(creator, 0.0),
+        "slot0_dev_sol": _sum(v for w, v in by_wallet.items() if w in devs),
         "slot0_other_sol": _sum(others.values()),
         "slot0_wallets": len(by_wallet),
         "slot0_other_wallets": len(others),
@@ -85,13 +90,21 @@ def token_metrics(rec: dict, trades: list[dict], coverage: str) -> dict:
         "create_txi": create_txi,
     })
     if create_txi is not None:
-        adj = [t for t in s0b if 1 <= t["txi"] - create_txi <= 4]
+        adj = [t for t in s0b if 1 <= t["txi"] - create_txi <= 4 and t["user"] not in devs]
         row["slot0_adjacent_wallets"] = len({t["user"] for t in adj})
         row["slot0_adjacent_sol"] = _sum(t["sol"] for t in adj)
         row["slot0_txi_span"] = max(t["txi"] for t in s0) - create_txi
     else:
         row["slot0_adjacent_wallets"] = row["slot0_adjacent_sol"] = row["slot0_txi_span"] = None
     row["bundled"] = bool(row["slot0_other_wallets"] >= 1 and row["slot0_buy_sol"] >= 1.0)
+    multi_signer_create = len({t["user"] for t in dev_tx}) >= 2
+    row["bundled_adjacent"] = bool(multi_signer_create or (row["slot0_adjacent_wallets"] or 0) >= 1)
+    row["slot0_buys"] = [[t["user"], round(t["sol"], 6),
+                          (t["txi"] - create_txi) if create_txi is not None else None,
+                          t["user"] in devs]
+                         for t in s0b[:25]]
+    row["instant_graduation"] = bool(s0 and s0[-1]["mcap"] >= 0.9 * completion_mcap_sol())
+    row.update(_bundle_exit(trades, s0b, t0, coverage))
 
     row["eos0_mcap"] = s0[-1]["mcap"] if s0 else init_mcap
     s1 = [t for t in trades if t["slot"] == slot0 + 1]
@@ -207,7 +220,48 @@ def token_metrics(rec: dict, trades: list[dict], coverage: str) -> dict:
         row[f"tp{m:g}_before_sl30"] = bool(hit_t is not None and (sl_t is None or hit_t <= sl_t))
         row[f"tp{m:g}_time_s"] = hit_t
     row["sl30_time_s"] = next((t["ts"] - t0 for t in after if t["mcap"] <= 0.7 * e), None)
+    # naive guru strategy: buy NAIVE_SIZE SOL at eos0, sell all at TP m x, no stop
+    # ('natural SL' = hold); if TP never hit, exit at the last observed market cap.
+    # Net of 1.25 % fees per side and own price impact (standard-curve approximation).
+    for m in (1.5, 2.0, 3.0):
+        exit_mcap = m * e if row["mult_eos0_ath"] >= m else row["final_mcap"]
+        row[f"naive_net_tp{m:g}"] = roundtrip_multiple(e, max(exit_mcap, 1.0), NAIVE_SIZE) - 1
     return row
+
+
+def _bundle_exit(trades: list[dict], s0b: list[dict], t0: int, coverage: str) -> dict[str, Any]:
+    """When did the slot-0 buyers (dev + bundle + block-0 snipers) sell half their bag?
+
+    Tracks the tokens bought in slot 0 per wallet and their later sells (sells are capped
+    at the slot-0 bag; extra buys after slot 0 are ignored). Returns the time and market
+    cap at which cumulative slot-0-bag sells first reach 50 %, the peak mcap before that,
+    and the share of the bag sold by the end of the fetched data.
+    """
+    bag: dict[str, float] = defaultdict(float)
+    for t in s0b:
+        bag[t["user"]] += t["tok"]
+    total = sum(bag.values())
+    out: dict[str, Any] = {"s0bag_exit50_s": None, "s0bag_exit50_mcap": None,
+                           "s0bag_peak_before_exit50": None, "s0bag_sold_frac": None}
+    if total <= 0:
+        return out
+    sold: dict[str, float] = defaultdict(float)
+    peak = 0.0
+    for t in trades:
+        if t["slot"] == s0b[0]["slot"]:
+            peak = max(peak, t["mcap"])
+            continue
+        if not t["buy"] and t["user"] in bag:
+            sold[t["user"]] = min(bag[t["user"]], sold[t["user"]] + t["tok"])
+        frac = sum(sold.values()) / total
+        if out["s0bag_exit50_s"] is None and frac >= 0.5:
+            out["s0bag_exit50_s"] = t["ts"] - t0
+            out["s0bag_exit50_mcap"] = t["mcap"]
+            out["s0bag_peak_before_exit50"] = peak
+        peak = max(peak, t["mcap"])
+    out["s0bag_sold_frac"] = sum(sold.values()) / total
+    out["s0bag_exit_known"] = coverage == "full" or out["s0bag_exit50_s"] is not None
+    return out
 
 
 def _retrace(trades: list[dict], t0: int, init: float, horizon: int, frac: float) -> bool:
@@ -246,6 +300,16 @@ def quantiles(xs: list[float]) -> dict[str, float] | None:
             "p50": q(.5), "p75": q(.75), "p90": q(.9), "max": xs[-1]}
 
 
+def mean_ci(xs: list[float]) -> dict[str, float] | None:
+    """Mean with a normal-approximation 95 % CI."""
+    xs = [x for x in xs if x is not None]
+    if len(xs) < 2:
+        return None
+    m = statistics.fmean(xs)
+    se = statistics.stdev(xs) / math.sqrt(len(xs))
+    return {"n": len(xs), "mean": m, "ci95": [m - 1.96 * se, m + 1.96 * se]}
+
+
 def share(rows: list[dict], pred) -> dict[str, float]:
     n = len(rows)
     k = sum(1 for r in rows if pred(r))
@@ -266,6 +330,16 @@ def group_stats(rows: list[dict]) -> dict[str, Any]:
     g["share_bundled"] = share(rows, lambda r: r["bundled"])
     g["share_slot0_other_wallets_ge2"] = share(rows, lambda r: r["slot0_other_wallets"] >= 2)
     g["share_adjacent_bundle"] = share(rows, lambda r: (r["slot0_adjacent_wallets"] or 0) >= 1)
+    g["share_bundled_adjacent"] = share(rows, lambda r: r["bundled_adjacent"])
+    g["share_instant_graduation"] = share(rows, lambda r: r["instant_graduation"])
+    ex = [r for r in rows if r["slot0_n_buys"] and r.get("s0bag_exit_known")]
+    g["share_s0bag_exit50_le_60s"] = share(ex, lambda r: r["s0bag_exit50_s"] is not None and r["s0bag_exit50_s"] <= 60)
+    g["share_s0bag_exit50_le_300s"] = share(ex, lambda r: r["s0bag_exit50_s"] is not None and r["s0bag_exit50_s"] <= 300)
+    g["s0bag_exit50_s"] = quantiles([r["s0bag_exit50_s"] for r in ex if r["s0bag_exit50_s"] is not None])
+    g["s0bag_exit50_mult_eos0"] = quantiles([r["s0bag_exit50_mcap"] / r["eos0_mcap"] for r in ex
+                                             if r["s0bag_exit50_s"] is not None])
+    g["s0bag_peak_before_exit_mult_eos0"] = quantiles([r["s0bag_peak_before_exit50"] / r["eos0_mcap"] for r in ex
+                                                       if r["s0bag_exit50_s"] is not None])
     g["eos0_mcap"] = quantiles([r["eos0_mcap"] for r in rows])
     g["eos1_mcap"] = quantiles([r["eos1_mcap"] for r in rows])
     g["eoc0_mcap"] = quantiles([r["eoc0_mcap"] for r in rows])
@@ -280,6 +354,8 @@ def group_stats(rows: list[dict]) -> dict[str, Any]:
         g[f"share_ath_ge_{m:g}x_eoc0"] = share(rows, lambda r, m=m: r["mult_eoc0_ath"] >= m)
     for m in TP_LEVELS:
         g[f"share_tp{m:g}_before_sl30"] = share(rows, lambda r, m=m: r[f"tp{m:g}_before_sl30"])
+    for m in (1.5, 2.0, 3.0):
+        g[f"naive_net_tp{m:g}"] = mean_ci([r[f"naive_net_tp{m:g}"] for r in rows])
     g["time_to_ath_s"] = quantiles([r["ath_after0_time_s"] for r in rows])
     g["time_to_ath_s_given_2x"] = quantiles([r["ath_after0_time_s"] for r in rows if r["mult_eos0_ath"] >= 2])
     g["time_to_tp2_s"] = quantiles([r["tp2_time_s"] for r in rows if r["tp2_time_s"] is not None])
@@ -312,6 +388,7 @@ def light_stats(light: list[dict]) -> dict[str, Any]:
     out["share_complete"] = share(rows, lambda r: bool(r["coin"].get("complete")))
     out["dev_buy_sol"] = quantiles([sum(t["sol"] for t in r["create_tx_trades"] if t["buy"]) for r in rows])
     out["share_dev_buy_in_create_tx"] = share(rows, lambda r: any(t["buy"] for t in r["create_tx_trades"]))
+    out["share_creator_not_signer"] = share(rows, lambda r: r.get("create_user") not in (None, r["creator"]))
     out["share_multi_buyer_create_tx"] = share(
         rows, lambda r: len({t["user"] for t in r["create_tx_trades"] if t["buy"]}) >= 2)
     lp = Counter(p for r in rows for p in r.get("launcher_programs", []))
@@ -319,15 +396,46 @@ def light_stats(light: list[dict]) -> dict[str, Any]:
     return out
 
 
+def repeat_buyers(deep: list[dict]) -> dict[str, Any]:
+    """Non-creator slot-0 buyers seen in >= 2 sampled tokens are third-party block-0
+    snipers (bundle wallets are fresh per token). Quantify how much of 'slot-0 non-dev
+    buying' they explain and whether they sit right after the create tx (adjacent)."""
+    seen: Counter = Counter()
+    for r in deep:
+        for w in {b[0] for b in r.get("slot0_buys", []) if not b[3]}:
+            seen[w] += 1
+    rep = {w for w, k in seen.items() if k >= 2}
+    buys = [(b, b[0] in rep) for r in deep for b in r.get("slot0_buys", []) if not b[3]]
+    adj = [x for x in buys if x[0][2] is not None and 1 <= x[0][2] <= 4]
+    return {
+        "distinct_nondev_slot0_wallets": len(seen), "repeat_wallets": len(rep),
+        "top_repeat": seen.most_common(10),
+        "nondev_slot0_buys": len(buys), "by_repeat_wallets": sum(1 for _, f in buys if f),
+        "sol_by_repeat_wallets": sum(b[1] for b, f in buys if f), "sol_total": sum(b[1] for b, _ in buys),
+        "adjacent_buys": len(adj), "adjacent_by_repeat_wallets": sum(1 for _, f in adj if f),
+        "tx_offset_hist": dict(sorted(Counter(min(b[2], 50) for b, _ in buys if b[2] is not None).items())[:30]),
+    }
+
+
 def aggregate(deep: list[dict], light: list[dict], meta: dict) -> dict[str, Any]:
-    rnd = [r for r in deep if r["arm"] == "random"]
-    intr = [r for r in deep if r["arm"].startswith("interesting")]
+    rnd_all = [r for r in deep if r["arm"] == "random"]
+    rnd = [r for r in rnd_all if not r["instant_graduation"]]
+    intr = [r for r in deep if r["arm"].startswith("interesting") and not r["instant_graduation"]]
     stats: dict[str, Any] = {"meta": meta}
     stats["coverage"] = dict(Counter(r["coverage"] for r in deep))
     stats["ath_source"] = dict(Counter(r["ath_source"] for r in deep))
     stats["sanity_trades_before_slot0"] = sum(1 for r in deep if r["n_trades_before_slot0"])
     stats["light"] = light_stats(light)
+    stats["population_note"] = ("random/interesting groups exclude tokens whose curve completed inside the "
+                                "creation slot (instant graduation: dev/bundle bought the whole curve)")
+    stats["random_incl_instant_graduation"] = {
+        "n": len(rnd_all), "instant_graduation": sum(1 for r in rnd_all if r["instant_graduation"]),
+        "no_trades": sum(1 for r in rnd_all if r["n_trades_fetched"] == 0)}
+    stats["interesting_instant_graduation"] = sum(
+        1 for r in deep if r["arm"].startswith("interesting") and r["instant_graduation"])
+    stats["slot0_repeat_buyers"] = repeat_buyers(deep)
     stats["random"] = group_stats(rnd)
+    stats["random_bundled_adjacent"] = group_stats([r for r in rnd if r["bundled_adjacent"]])
     stats["random_bundled"] = group_stats([r for r in rnd if r["bundled"]])
     stats["random_not_bundled"] = group_stats([r for r in rnd if not r["bundled"]])
     stats["random_non_mayhem"] = group_stats([r for r in rnd if not r["is_mayhem_mode"]])
@@ -375,6 +483,7 @@ def render_tables(stats: dict) -> str:
     """Markdown tables of the main statistics for several groups (auto-generated)."""
     groups = [("random", "random (all)"), ("random_non_mayhem", "random, non-mayhem"),
               ("random_mayhem", "random, mayhem"), ("random_bundled", "random, bundled"),
+              ("random_bundled_adjacent", "random, adjacent bundle"),
               ("random_not_bundled", "random, not bundled"), ("interesting", "interesting (ATH>=$20k)"),
               ("interesting_bundled", "interesting, bundled"),
               ("interesting_not_bundled", "interesting, not bundled")]
@@ -398,6 +507,8 @@ def render_tables(stats: dict) -> str:
         ("price halves from peak within 60 s", "share_halve_le_60s"),
         ("price halves from peak within 5 min", "share_halve_le_300s"),
         ("single-slot sell >= 30 % supply", "share_dump_slot_30pct"),
+        ("slot-0 bag 50 % sold <= 60 s", "share_s0bag_exit50_le_60s"),
+        ("slot-0 bag 50 % sold <= 5 min", "share_s0bag_exit50_le_300s"),
         ("graduated (complete)", "share_complete"), ("mayhem mode", "share_mayhem"),
     ]
     q_rows = [
@@ -410,6 +521,9 @@ def render_tables(stats: dict) -> str:
         ("time to TP 2x (s)", "time_to_tp2_s", "{:.0f}"),
         ("max single-slot sell (% supply)", "max_slot_sell_pct", "{:.1f}"),
         ("ATH USD (API)", "ath_usd_api", "{:,.0f}"),
+        ("slot-0 bag 50 % exit time (s)", "s0bag_exit50_s", "{:.0f}"),
+        ("mcap at slot-0 bag exit / eos0", "s0bag_exit50_mult_eos0", "{:.2f}"),
+        ("peak before bag exit / eos0", "s0bag_peak_before_exit_mult_eos0", "{:.2f}"),
     ]
     out = ["| metric | " + " | ".join(f"{lbl} (n={stats[k]['n']})" for k, lbl in groups) + " |",
            "|---|" + "---|" * len(groups)]
@@ -426,6 +540,18 @@ def render_tables(stats: dict) -> str:
     out.append("|---|" + "---|" * len(groups))
     for lbl, key, fmt in q_rows:
         out.append(f"| {lbl} | " + " | ".join(_q(stats[k], key, fmt) for k, _ in groups) + " |")
+    out.append("")
+    out.append(f"Naive guru strategy, {NAIVE_SIZE} SOL at eos0, TP m x, no stop, else exit at last mcap; "
+               "net of fees + impact; mean return per trade [95 % CI]:")
+    out.append("")
+    out.append("| TP | " + " | ".join(lbl for _, lbl in groups) + " |")
+    out.append("|---|" + "---|" * len(groups))
+    for m in (1.5, 2.0, 3.0):
+        cells = []
+        for k, _ in groups:
+            v = stats[k].get(f"naive_net_tp{m:g}")
+            cells.append(f"{100 * v['mean']:+.1f}% [{100 * v['ci95'][0]:+.0f}, {100 * v['ci95'][1]:+.0f}]" if v else "n/a")
+        out.append(f"| {m:g}x | " + " | ".join(cells) + " |")
     out.append("")
     buckets = [k for k in stats if k.startswith("random_slot0sol_")]
     out.append("Random arm by slot-0 buy size (SOL):")

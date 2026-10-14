@@ -83,7 +83,16 @@ def load_light() -> list[dict]:
 
 def interesting_from_graduated(args, rpc: RpcClient, api: PumpApi, idx: dict,
                                exclude: set[str]) -> list[dict]:
-    """Graduated coins created inside the window (top-up for the interesting arm)."""
+    """Graduated coins created inside the window (top-up for the interesting arm).
+
+    The list endpoint is live, so the first result is snapshotted to
+    data/cache/graduated_window.json and reused (keeps the sample reproducible).
+    """
+    snap = ds.CACHE_DIR / "graduated_window.json"
+    if snap.exists():
+        found = json.loads(snap.read_text())
+        ds.log(f"interesting: reusing snapshot of {len(found)} graduated coins")
+        return [c for c in found if c["mint"] not in exclude]
     lo = (idx["anchor_time"] - int(args.hours * 3600)) * 1000
     hi = (idx["anchor_time"] - int(args.min_age_hours * 3600)) * 1000
     found: list[dict] = []
@@ -96,6 +105,7 @@ def interesting_from_graduated(args, rpc: RpcClient, api: PumpApi, idx: dict,
         if page[-1]["created_timestamp"] < lo:
             break
     ds.log(f"interesting: {len(found)} graduated coins created in window from /coins?complete=true")
+    snap.write_text(json.dumps(found))
     return found
 
 

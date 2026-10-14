@@ -1,0 +1,162 @@
+{
+ "fetched_at": "2026-10-14T09:53:46Z",
+ "name": "fresh_v1_create_v2_usdc_buy_v2",
+ "query": {
+  "endpoint": "https://solana-rpc.publicnode.com",
+  "method": "getTransaction",
+  "params": [
+   "5Hye9ZoXV5j81hRBaLce4e7LMZEHL3Fk6CiSZjb2VsYQM1Ux8WkLiyabi2yZuPbzx8wBCr3RsFNsouN6oTqbBN9K",
+   {
+    "commitment": "confirmed",
+    "encoding": "json",
+    "maxSupportedTransactionVersion": 1
+   }
+  ]
+ },
+ "result": {
+  "slot": 456794647,
+  "transaction": {
+   "message": {
+    "accountKeys": [
+     "5tdt8YLW6wJYNFZt5yf8PBYECJzByKV443YfX237Kv3r",
+     "H2SSZAgcYF5aWmBdhsDkqJ8C1njdWYsCzJQRk8zpump",
+     "MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e",
+     "24wzeHKU6BVHKHBPKa92S2jobNkuyCdoXXJ7ASU7F7dZ",
+     "3BNtnwvJ4DY4GQXwwax6zibbTrBdzCuYMDuWPDerdhft",
+     "3gVBL546vgnoKVX5Ne5TRhQqc3va5sBNKV1iBeL8c6A8",
+     "4TQLFNWK8AovT1gFvda5jfw2oJeRMKEmw7aH6MGBJ3or",
+     "4budycTjhs9fD6xw62VBducVTNgMgJJ5BgtKq7mAZwn6",
+     "4qD2t7kbg28JJh6aEF5AyRpxbkX84nVS9M67Wt5MqQbJ",
+     "5YxQFdt3Tr9zJLvkFccqXVUwhdTWJQc1fFg2YPbxvxeD",
+     "6oCkp6gpyjxVTeL6ahMYcekN2x2pzt1KY8g2LqemaTNE",
+     "6xb2NbEE4hxpMHMps8CqyqPtYvrUtfUzccQuuBks6b3C",
+     "7pwKFM5o37UZx7PcDxfSufNqtmtZCfKGxAkLJpwURwFM",
+     "8BW2Wr1vTiPCmjavifNUrkpFJ2QaBjYos1dLuj4vaUCL",
+     "8CKqGJec12DzXr1GQbV9GmoQg4eGkvWzoJ3tuA6mvN8B",
+     "99wMBS5voV7hAG4t8j6aEUSNMYKLhBLEHdQhV7hAZ2dx",
+     "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s",
+     "CLxrwUybvWqANLCgzhFqGLeTFtcaArfTJnEPFdq2bwhf",
+     "GYahGz4ts13NYJBJfwFfMsN7aWv6mcT5D5Jd9znx18QW",
+     "HiCczDDFoN8imHaGSaEmpeNSAGzjFEUo5GvEoWwSDCri",
+     "11111111111111111111111111111111",
+     "13ec7XdrjF3h3YcqBTFDSReRcUFwbCnJaAQspM4j6DDJ",
+     "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+     "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM",
+     "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+     "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+     "pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ",
+     "4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf",
+     "8Wf5TiAheLUqBrKXeYg2JtAFFMWtKdG2BSFgqUcPVwTt",
+     "8pF6RsvnVN22Bj7L5bEaRZ97eH5SywW8PwU4jx4A4kSH",
+     "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+     "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",
+     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+     "Hq2wp8uJ9jCPsYgNHex8RtqdvMPfVGoYwjvF1ATiwn2Y",
+     "jitodontfront111111111111111111nopainnogain"
+    ],
+    "header": {
+     "numReadonlySignedAccounts": 0,
+     "numReadonlyUnsignedAccounts": 15,
+     "numRequiredSignatures": 2
+    },
+    "instructions": [
+     {
+      "accounts": [
+       1,
+       23,
+       11,
+       15,
+       27,
+       0,
+       20,
+       25,
+       30,
+       2,
+       21,
+       16,
+       13,
+       8,
+       31,
+       22,
+       32,
+       19,
+       24
+      ],
+      "data": "6SnkLiXW6PTGpjSiHqdvHDXBDWUaEWrevCr4aGDmRwWaaU7z5b4KdTA239zVMCyWzZzzAMGnubrqxUx1X1vGmW5rZgVxYUZWJ1LvVTjS2EeDPS8LqHQg8knmxu18FNRqmJZdYePYjZxqRkjrJ3BK3oSyP9DQYyRHXPWXdio3FLqXSo4NgKp8U2QbAbypT",
+      "programIdIndex": 22,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       0,
+       12,
+       0,
+       1,
+       20,
+       25
+      ],
+      "data": "2",
+      "programIdIndex": 30,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       27,
+       1,
+       32,
+       25,
+       24,
+       30,
+       7,
+       18,
+       9,
+       10,
+       11,
+       15,
+       19,
+       0,
+       12,
+       17,
+       4,
+       14,
+       29,
+       33,
+       5,
+       3,
+       28,
+       26,
+       20,
+       31,
+       22
+      ],
+      "data": "HnQ14hy6fxG7vJv4CnY2t1WoQEP6BHCPx",
+      "programIdIndex": 22,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       0,
+       6
+      ],
+      "data": "3Bxs43ZMjSRQLs6o",
+      "programIdIndex": 20,
+      "stackHeight": 1
+     }
+    ],
+    "recentBlockhash": "4qLGupbS5SGrXUvY2nmBgE7qrXbKsToD5XrfHSEJhHqv",
+    "transactionConfig": {
+     "computeUnitLimit": 500000,
+     "heapSize": null,
+     "loadedAccountsDataSizeLimit": 67108864,
+     "priorityFee": 5000
+    }
+   },
+   "signatures": [
+    "5Hye9ZoXV5j81hRBaLce4e7LMZEHL3Fk6CiSZjb2VsYQM1Ux8WkLiyabi2yZuPbzx8wBCr3RsFNsouN6oTqbBN9K",
+    "5d72x4Pj7U7vtfiFWYEMsu2CAuezrgwKkVixgemUcGNNdnA7XSVnVB5tLXffKWoKnQLeMHwPzEez3eJyRBNcpa1x"
+   ]
+  },
+  "version": 1
+ },
+ "signature": "5Hye9ZoXV5j81hRBaLce4e7LMZEHL3Fk6CiSZjb2VsYQM1Ux8WkLiyabi2yZuPbzx8wBCr3RsFNsouN6oTqbBN9K"
+}

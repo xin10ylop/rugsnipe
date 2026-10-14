@@ -39,9 +39,9 @@ def main() -> None:
     rng = random.Random(a.seed)
     small = [r for r in deep if r["coverage"] == "full" and 5 <= r["n_trades_fetched"] <= a.max_txs - 5
              and r.get("api_ath_usd")]
-    bundled = [r for r in deep if r["bundled"] and r["slot0_other_wallets"] >= 2]
+    bundled = [r for r in deep if r["bundled"] and r["slot0_other_wallets"] >= 2 and not r["instant_graduation"]]
     picks = rng.sample(small, min(a.n_small, len(small))) + rng.sample(bundled, min(a.n_bundled, len(bundled)))
-    rpc, api = RpcClient(), PumpApi()
+    rpc, api = RpcClient(max_rps=4.0, max_retries=14), PumpApi()
     results = []
     for r in picks:
         rec = dict(light.get(r["mint"]) or {})

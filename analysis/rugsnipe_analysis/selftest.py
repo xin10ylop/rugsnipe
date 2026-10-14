@@ -64,7 +64,8 @@ def _t(slot, txi, ts, user, buy, sol, tok, mcap):
 
 def test_metrics() -> None:
     rec = {"mint": "M", "arm": "test", "create_sig": "s100_5", "create_slot": 100, "create_time": 1000,
-           "creator": "DEV", "init_vsol": curve.INITIAL_VSOL, "init_vtok": curve.INITIAL_VTOK,
+           "creator": "FEE_RECIPIENT", "create_user": "DEV", "fee_payer": "DEV",
+           "init_vsol": curve.INITIAL_VSOL, "init_vtok": curve.INITIAL_VTOK,
            "create_tx_trades": [{"buy": True, "sol": 0.5, "user": "DEV"}], "coin": {}}
     trades = [
         _t(100, 5, 1000, "DEV", True, 0.5, 1.7e7, 28.9),
@@ -85,6 +86,9 @@ def test_metrics() -> None:
     assert m["dump_slot"] and abs(m["max_slot_sell_pct"] - 31.0) < 1e-9
     assert m["retrace80_le_60s"]  # 90 -> 30: gives back (90-30)/(90-27.96) > 80 %
     assert m["max_slot_sell_slot_offset"] == 20
+    assert m["bundled_adjacent"] and not m["creator_is_signer"] and m["slot0_dev_sol"] == 0.5
+    assert m["s0bag_exit50_s"] == 10 and m["s0bag_exit50_mcap"] == 30.0
+    assert m["s0bag_peak_before_exit50"] == 90.0 and not m["instant_graduation"]
 
 
 def main() -> None:

@@ -1,0 +1,188 @@
+{
+ "fetched_at": "2026-10-14T09:53:51Z",
+ "name": "fresh_v0alt2_inner_bexq_v3",
+ "query": {
+  "endpoint": "https://solana-rpc.publicnode.com",
+  "method": "getTransaction",
+  "params": [
+   "55R1yf34vrG4tro2gGQxwVxZXUXTZrNX1CVigzpZ7izS19joHm2WkU8vAgycGgUfXNCJpVhGsQskmjAADmG34y1x",
+   {
+    "commitment": "confirmed",
+    "encoding": "json",
+    "maxSupportedTransactionVersion": 1
+   }
+  ]
+ },
+ "result": {
+  "slot": 456794541,
+  "transaction": {
+   "message": {
+    "accountKeys": [
+     "FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT",
+     "FeCuMWL6CX5HxF3GhkqKAEr4YLWeD9QvqdMRWhJS5KdW",
+     "2nyhqdwKcJZR2vcqCyrYsaPVdAnFoJjiksCXJ7hfEYgD",
+     "6AwxgGszNWHczWPmFnSwYke1F1S5eAEMhyKawfJ8YERN",
+     "7eC5wvyEiYTykav75bqZjUn74a538J1TTLExw1LU6jAc",
+     "98zSR38pZDK5ZxctsHB5P9LQw6rtBHoXtYY8pT4yEKqm",
+     "A4tZoNbnKhnrnAkaMKZjm6MNS2dD7BRPPF4ep4CrQ5T9",
+     "BnXuf2iLgFk2wpC72tHWiYaYDrLhwXtBjET5t6FC7CV4",
+     "CUuTZcmTs1E2NYqG8p7174W2zaDSNFJihNknEnM1R5GA",
+     "Gbm2QW4mRLfmvY1RgbY2jrVJrkLJLCTitkABJ6ho3YF2",
+     "11111111111111111111111111111111",
+     "ComputeBudget111111111111111111111111111111",
+     "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+     "n1Z8t5ju9f3UUWFN5mewjva8wQcGghtjEcCJbALpump",
+     "4cG31VNF9TzFinNc7BmnjhFvGjxkY3sCETVMtMgbrhPs",
+     "6Vo3245eszAb5wuqEMw8mGdbfRUdKbHhDHP5LcaGuTAB",
+     "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+    ],
+    "addressTableLookups": [
+     {
+      "accountKey": "Hyif6eWb8x88RVrvjPfabsgRYnwkVnyByEXTVTXbUcyP",
+      "readonlyIndexes": [
+       0,
+       163,
+       124,
+       11,
+       160,
+       1,
+       14,
+       3,
+       164,
+       125
+      ],
+      "writableIndexes": [
+       29,
+       161
+      ]
+     },
+     {
+      "accountKey": "8BNMiq1CM4g3zZbhbWQHn27631FPAJLGMF2c52y3Vs5i",
+      "readonlyIndexes": [
+       127,
+       130,
+       135
+      ],
+      "writableIndexes": [
+       128,
+       133,
+       132
+      ]
+     }
+    ],
+    "header": {
+     "numReadonlySignedAccounts": 0,
+     "numReadonlyUnsignedAccounts": 7,
+     "numRequiredSignatures": 2
+    },
+    "instructions": [
+     {
+      "accounts": [
+       26
+      ],
+      "data": "EPZijy",
+      "programIdIndex": 11,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [],
+      "data": "3GAG5eogvTjV",
+      "programIdIndex": 11,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       0,
+       4,
+       1,
+       24,
+       10,
+       12
+      ],
+      "data": "2",
+      "programIdIndex": 16,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       27,
+       13,
+       24,
+       25,
+       12,
+       5,
+       6,
+       8,
+       1,
+       7,
+       4,
+       3,
+       28,
+       17,
+       10,
+       29,
+       22,
+       9,
+       12,
+       23,
+       1,
+       9,
+       4,
+       31,
+       24,
+       12,
+       12,
+       23,
+       30,
+       23,
+       33,
+       1,
+       20,
+       21,
+       19,
+       4,
+       9,
+       12,
+       12,
+       24,
+       31,
+       32,
+       34,
+       14
+      ],
+      "data": "23yz5xuphLGNdqunX6yWijToxMPgCmQeATEt1uobUWpz1ihsTZsJufidqZVcmKv51Y9xeg8ftQFng5inxAQwjxmnkVZbpLQg",
+      "programIdIndex": 15,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       0,
+       2
+      ],
+      "data": "3Bxs43ZMjSRQLs6o",
+      "programIdIndex": 10,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       9,
+       31,
+       18,
+       1
+      ],
+      "data": "jEvvSyUVfrZ25",
+      "programIdIndex": 12,
+      "stackHeight": 1
+     }
+    ],
+    "recentBlockhash": "9WBvQjYLYuocGMMeQrVJjduUN5T9wVbCtyS4F2oHVQMh"
+   },
+   "signatures": [
+    "55R1yf34vrG4tro2gGQxwVxZXUXTZrNX1CVigzpZ7izS19joHm2WkU8vAgycGgUfXNCJpVhGsQskmjAADmG34y1x",
+    "s64sGiFTaRMd2Gzf3mZ3GM8UGA3B4SFud9fCCkRkLAz8MdYbYn1cSbhKLWp48yW47aY6rvAu3VsZVAhxiUedom6"
+   ]
+  },
+  "version": 0
+ },
+ "signature": "55R1yf34vrG4tro2gGQxwVxZXUXTZrNX1CVigzpZ7izS19joHm2WkU8vAgycGgUfXNCJpVhGsQskmjAADmG34y1x"
+}

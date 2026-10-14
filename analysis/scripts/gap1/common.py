@@ -15,7 +15,8 @@ from rugsnipe_analysis.rpc import RpcClient  # noqa: E402
 OUT = ROOT / "data" / "cache" / "gap1"
 OUT.mkdir(parents=True, exist_ok=True)
 
-ARCHIVE = ("https://api.mainnet-beta.solana.com",
+SIGS = ("https://api.mainnet-beta.solana.com", "https://api.mainnet.solana.com")
+ARCHIVE = ("https://api.mainnet-beta.solana.com", "https://api.mainnet.solana.com",
            "https://public.rpc.solanavibestation.com",
            "https://solana.leorpc.com/?api_key=FREE")
 

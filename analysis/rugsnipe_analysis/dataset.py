@@ -171,6 +171,7 @@ def find_creation_sig(rpc: RpcClient, api: PumpApi, mint: str, created_ms: int) 
 
 # --------------------------------------------------------------------------- coins
 COIN_FIELDS = ("mint", "creator", "created_timestamp", "complete", "market_cap", "quote_mint",
+               "market_cap_usd",
                "usd_market_cap", "ath_market_cap", "ath_market_cap_timestamp",
                "last_trade_timestamp", "virtual_sol_reserves", "virtual_token_reserves",
                "real_sol_reserves", "real_token_reserves", "mayhem_state", "program",

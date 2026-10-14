@@ -1,0 +1,141 @@
+{
+ "fetched_at": "2026-10-14T09:23:39Z",
+ "name": "create_buy_complete",
+ "query": {
+  "endpoint": "https://solana-rpc.publicnode.com",
+  "method": "getTransaction",
+  "params": [
+   "5vGT6VUYJEsMYDgZisbK5pX44RfNiQ6G78TDRM8ZHdGpePR3Yw5bnRJmjKpJqqjXG53jZYsfJheHBRy43gwRUYsW",
+   {
+    "commitment": "confirmed",
+    "encoding": "json",
+    "maxSupportedTransactionVersion": 1
+   }
+  ]
+ },
+ "result": {
+  "slot": 456782788,
+  "transaction": {
+   "message": {
+    "accountKeys": [
+     "5Zg82HMLBv2EwGN6gsyD8LR1omzRFrSsCSdaNLZBznGg",
+     "Cc2QsnFfxFYXaTvdXgJkUctM9ZsNBKfgaaaSihjepump",
+     "3PfeaUhTnEiwA9aS141sNLfttVboQM39dNedWicTVPUm",
+     "7MHjRHWmrFP6BWE6EF414QpjSckpHcFARZyEPoAELDWR",
+     "MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e",
+     "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s",
+     "5NqNbSYg1ojkfq6Uq3oxsSZsi3ZWRFb7MXbfbnfCEHdW",
+     "DuXXVrLSvxe9nQmGWc8wDTjBcdswc91KZhett72zNvUz",
+     "BTntwb2Ds9X9zCFXxaLY5RsWMFozqccAvzjARgedDvnk",
+     "GiD1GTeKo9M4PwiDkeAU6jSK9ZijY7sG5Kw9wBvL1PSA",
+     "Ak8kRpFXTTmhDaCSFJmEYn5bhKZWv2cqfpaUXp5cyBHn",
+     "3BpXnfJaUTiwXnJNe7Ej1rcbzqTTQUvLShZaWazebsVR",
+     "ComputeBudget111111111111111111111111111111",
+     "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+     "TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM",
+     "4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf",
+     "11111111111111111111111111111111",
+     "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+     "13ec7XdrjF3h3YcqBTFDSReRcUFwbCnJaAQspM4j6DDJ",
+     "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",
+     "Hq2wp8uJ9jCPsYgNHex8RtqdvMPfVGoYwjvF1ATiwn2Y",
+     "8Wf5TiAheLUqBrKXeYg2JtAFFMWtKdG2BSFgqUcPVwTt",
+     "7EzGPLsgj2j1uMchYvwBAMr5ZjrRHQ61eR5283MVFDUN"
+    ],
+    "addressTableLookups": [
+     {
+      "accountKey": "2AXJUvCtsUPEf7YvWYKADwcs9aYpMwLUvZWkpcRk5zya",
+      "readonlyIndexes": [
+       2,
+       1
+      ],
+      "writableIndexes": [
+       0
+      ]
+     }
+    ],
+    "header": {
+     "numReadonlySignedAccounts": 0,
+     "numReadonlyUnsignedAccounts": 11,
+     "numRequiredSignatures": 2
+    },
+    "instructions": [
+     {
+      "accounts": [],
+      "data": "E6NUis",
+      "programIdIndex": 12,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       1,
+       14,
+       2,
+       3,
+       15,
+       0,
+       16,
+       24,
+       17,
+       4,
+       18,
+       5,
+       6,
+       7,
+       19,
+       13
+      ],
+      "data": "528rt1uFaLExy9jfB85V3QVWutBSGajf21acjCQTQfDuwsmvswTF4fxyS4GtirW1YHnoJND4SN5c7uSUrEspWxTRSuN93YiaLFpD4WwrMxjfBtPCSELqh5gZY4bSDtrHv6XLQdLaHAUj7VzLVe4vC21ayvE5Yk7L5ieEzdaTHs4FJ4jxkGVmhGYXFuRn61nKuhA7Hpq5",
+      "programIdIndex": 13,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       0,
+       8,
+       0,
+       1,
+       16,
+       24
+      ],
+      "data": "2",
+      "programIdIndex": 17,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       15,
+       23,
+       1,
+       2,
+       3,
+       8,
+       0,
+       16,
+       24,
+       9,
+       19,
+       13,
+       20,
+       10,
+       21,
+       25,
+       22,
+       11
+      ],
+      "data": "i43WeUBGKA5tmuzdMakBtXpc4dzZX7WLKS",
+      "programIdIndex": 13,
+      "stackHeight": 1
+     }
+    ],
+    "recentBlockhash": "DQr9zTMff1VSMTpaJ3BzbbbbSdE6iY681U9DhsuP5cth"
+   },
+   "signatures": [
+    "5vGT6VUYJEsMYDgZisbK5pX44RfNiQ6G78TDRM8ZHdGpePR3Yw5bnRJmjKpJqqjXG53jZYsfJheHBRy43gwRUYsW",
+    "5U3g8bEoXLWqMnzDybtG4tTrbLU4GVqsyd6MJ2VZ8YLoz8p1W8WAJJnPLNQ6RGCYRo4bDasyaiLvLTS8WQPrYy29"
+   ]
+  },
+  "version": 0
+ },
+ "signature": "5vGT6VUYJEsMYDgZisbK5pX44RfNiQ6G78TDRM8ZHdGpePR3Yw5bnRJmjKpJqqjXG53jZYsfJheHBRy43gwRUYsW"
+}

@@ -12,6 +12,7 @@ import json
 import math
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 from common import OUT, PumpApi, log
@@ -42,6 +43,13 @@ def analyse(r):
     mint = r["mint"]
     coin = coins.get(mint) or {}
     bt = r["bt"]
+    if coin and (coin.get("ath_market_cap") or 0) < 5500 and r["rank"] % 5 != 0:
+        res = {"mint": mint, "sig": r["sig"], "skip": "low_ath", "coin_found": True,
+               "ath_usd": coin.get("ath_market_cap"), "ath_ts": (coin.get("ath_market_cap_timestamp") or 0) // 1000,
+               "complete": coin.get("complete"), "entry_mcap": None, "max_after": 0.0}
+        with lock:
+            fo.write(json.dumps(res, separators=(",", ":")) + "\n"); fo.flush(); done.add(mint)
+        return
     side = {r["creator"], r["user"], r["fee_payer"], *r.get("signers", [])}
     raw, complete = api.trades_before(mint, (bt + 2) * 1000 + 999, max_pages=6)
     tr = sorted((normalize_trade(t) for t in raw), key=lambda x: (x["slot"], x["txi"], x["sub"]))
@@ -126,10 +134,21 @@ def analyse(r):
             log(f"{len(done)} outcomes; api {api.stats}")
 
 
-with ThreadPoolExecutor(8) as ex:
-    for f in [ex.submit(analyse, r) for r in todo]:
-        try:
-            f.result()
-        except Exception as e:  # noqa: BLE001
-            log("fail", type(e).__name__, str(e)[:160])
+while True:
+    with ThreadPoolExecutor(8) as ex:
+        for f in [ex.submit(analyse, r) for r in todo]:
+            try:
+                f.result()
+            except Exception as e:  # noqa: BLE001
+                log("fail", type(e).__name__, str(e)[:160])
+    log("pass done", len(done), api.stats)
+    if "--follow" not in sys.argv:
+        break
+    time.sleep(30)
+    rows = [json.loads(l) for l in open(OUT / "creates.jsonl")]
+    rows = sorted((r for r in rows if r.get("kind") == "create"), key=lambda r: r["rank"])
+    todo = [r for r in rows if r["mint"] not in done]
+    if not todo:
+        break
+    coins.update(api.get_coins([r["mint"] for r in todo]))
 log("done", len(done), api.stats)

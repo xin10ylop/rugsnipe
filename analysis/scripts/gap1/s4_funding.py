@@ -14,11 +14,11 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
-from common import OUT, log, rpc
+from common import OUT, SIGS, log, rpc
 from rugsnipe_analysis import labels as L
 from rugsnipe_analysis.funding import incoming_transfers, signers, program_ids
 
-c = rpc(12.0)
+c = rpc(9.0)
 PUMP = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
 PUMPSWAP = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
 rows = [json.loads(l) for l in open(OUT / "creates.jsonl")]
@@ -46,7 +46,7 @@ def funding_of(wallet, before_sig, before_time):
             return memo[key]
     page = c.call("getSignaturesForAddress", [wallet, {"limit": 1000, "before": before_sig}],
                   cache_key=f"sigs:{wallet}:{before_sig}:None:1000",
-                  endpoints=("https://api.mainnet-beta.solana.com",)) or []
+                  endpoints=SIGS) or []
     res = {"n_pre": len(page)}
     if len(page) >= 1000:
         res["status"] = "busy"
@@ -54,7 +54,7 @@ def funding_of(wallet, before_sig, before_time):
         res["status"] = "no_history"
     else:
         res["first_time"] = page[-1].get("blockTime")
-        chron = [s for s in reversed(page) if s.get("err") is None][:4]
+        chron = [s for s in reversed(page) if s.get("err") is None][:3]
         recs = []
         for s in chron:
             tx = c.get_transaction(s["signature"])
@@ -68,6 +68,8 @@ def funding_of(wallet, before_sig, before_time):
             via = "pump_curve" if (PUMP in progs or PUMPSWAP in progs) and t.source not in signers(tx) else ""
             recs.append({"funder": t.source, "amount": round(t.lamports / 1e9, 6), "kind": t.kind,
                          "fsig": s["signature"], "ftime": s.get("blockTime"), "via": via})
+            if t.lamports >= 50_000_000:
+                break
         if not recs:
             res["status"] = "no_incoming"
         else:
@@ -111,11 +113,20 @@ def trace(r):
             log(f"{len(done)} traced; rpc {c.stats}")
 
 
-log(f"{len(rows)} creates, {len(done)} done")
-with ThreadPoolExecutor(14) as ex:
-    for fu in [ex.submit(trace, r) for r in rows]:
-        try:
-            fu.result()
-        except Exception as e:  # noqa: BLE001
-            log("fail", type(e).__name__, str(e)[:160])
+import time
+while True:
+    log(f"{len(rows)} creates, {len(done)} done")
+    with ThreadPoolExecutor(14) as ex:
+        for fu in [ex.submit(trace, r) for r in rows if r["sig"] not in done]:
+            try:
+                fu.result()
+            except Exception as e:  # noqa: BLE001
+                log("fail", type(e).__name__, str(e)[:160])
+    if "--follow" not in sys.argv:
+        break
+    time.sleep(30)
+    rows = sorted((json.loads(l) for l in open(OUT / "creates.jsonl")), key=lambda r: r["rank"])
+    rows = [r for r in rows if r.get("kind") == "create" and r["sig"] not in done]
+    if not rows:
+        break
 log("done", len(done), c.stats)

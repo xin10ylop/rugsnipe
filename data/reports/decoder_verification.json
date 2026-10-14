@@ -1,0 +1,467 @@
+{
+ "summary": {
+  "tokens": 12,
+  "rpc_trades": 256,
+  "matched": 256,
+  "value_mismatch": 0,
+  "missing_in_api": 0,
+  "api_missing_in_rpc_window": 4,
+  "slot0_agree": 12
+ },
+ "tokens": [
+  {
+   "mint": "DaJBYf6WrVXhY1ejueV5b3D7jpudsiTTomgHeHgFpump",
+   "rpc_trades": 19,
+   "api_trades": 19,
+   "rpc_covers_all": true,
+   "matched": 19,
+   "value_mismatch": 0,
+   "missing_in_api": 0,
+   "api_trades_missing_in_rpc_window": 0,
+   "max_mcap_rel_err": 2.2318782223965946e-16,
+   "fee_bps_seen": [
+    [
+     95,
+     30
+    ]
+   ],
+   "ix_names": [
+    "buy",
+    "buy_exact_quote_in",
+    "buy_exact_sol_in",
+    "sell"
+   ],
+   "examples_missing": [],
+   "rpc_final_mcap": 27.960786775545394,
+   "api_market_cap_sol": 27.939058581137278,
+   "rpc_ath_mcap": 31.83608893307441,
+   "api_ath_sol": 31.873573396757447,
+   "api_ath_rel_err": 0.0011774204979083831,
+   "api_market_cap_from_usd": true,
+   "api_mcap_rel_err": 0.0007770952435115079,
+   "slot0_buys_rpc": 2,
+   "slot0_buys_api": 2,
+   "slot0_sol_rpc": 0.396996729,
+   "slot0_sol_api": 0.396996729,
+   "kind": "small",
+   "tx_index_check": {
+    "slot": 456489587,
+    "block_pos": 138,
+    "api_txi": 138,
+    "ok": true
+   }
+  },
+  {
+   "mint": "HuyRkUtbnEbUorYeMC2qFf6snEApAA9wJH2hyBPrpump",
+   "rpc_trades": 20,
+   "api_trades": 20,
+   "rpc_covers_all": true,
+   "matched": 20,
+   "value_mismatch": 0,
+   "missing_in_api": 0,
+   "api_trades_missing_in_rpc_window": 0,
+   "max_mcap_rel_err": 2.1370344559543672e-16,
+   "fee_bps_seen": [
+    [
+     0,
+     0
+    ],
+    [
+     95,
+     30
+    ]
+   ],
+   "ix_names": [
+    "buy",
+    "buy_exact_quote_in",
+    "sell"
+   ],
+   "examples_missing": [],
+   "rpc_final_mcap": 5.710008416384739,
+   "api_market_cap_sol": 5.713086588037777,
+   "rpc_ath_mcap": 28.068448960843217,
+   "api_ath_sol": 28.081058326953208,
+   "api_ath_rel_err": 0.0004492362982928688,
+   "api_market_cap_from_usd": true,
+   "api_mcap_rel_err": 0.0005390835579515393,
+   "slot0_buys_rpc": 1,
+   "slot0_buys_api": 1,
+   "slot0_sol_rpc": 0.058665507,
+   "slot0_sol_api": 0.058665507,
+   "kind": "small",
+   "tx_index_check": {
+    "slot": 456003423,
+    "block_pos": 814,
+    "api_txi": 814,
+    "ok": true
+   }
+  },
+  {
+   "mint": "2XhPxhHrAmVqTx9w4us5X8DqnukQBs7EaDeeKMpgpump",
+   "rpc_trades": 22,
+   "api_trades": 22,
+   "rpc_covers_all": true,
+   "matched": 22,
+   "value_mismatch": 0,
+   "missing_in_api": 0,
+   "api_trades_missing_in_rpc_window": 0,
+   "max_mcap_rel_err": 1.980579727148428e-16,
+   "fee_bps_seen": [
+    [
+     95,
+     30
+    ]
+   ],
+   "ix_names": [
+    "buy",
+    "buy_exact_quote_in",
+    "buy_exact_sol_in",
+    "sell"
+   ],
+   "examples_missing": [],
+   "rpc_final_mcap": 28.10441596121942,
+   "api_market_cap_sol": 28.1039623356112,
+   "rpc_ath_mcap": 57.56560323227743,
+   "api_ath_sol": 57.56056942929909,
+   "api_ath_rel_err": 8.744463178866697e-05,
+   "api_market_cap_from_usd": true,
+   "api_mcap_rel_err": 1.6140723537740705e-05,
+   "slot0_buys_rpc": 6,
+   "slot0_buys_api": 6,
+   "slot0_sol_rpc": 13.046913575,
+   "slot0_sol_api": 13.046913575,
+   "kind": "small",
+   "tx_index_check": {
+    "slot": 456026084,
+    "block_pos": 952,
+    "api_txi": 952,
+    "ok": true
+   }
+  },
+  {
+   "mint": "8mxSc8K8uRomrf33LscYD3WahKuz3C1KfTadoAaFpump",
+   "rpc_trades": 7,
+   "api_trades": 7,
+   "rpc_covers_all": true,
+   "matched": 7,
+   "value_mismatch": 0,
+   "missing_in_api": 0,
+   "api_trades_missing_in_rpc_window": 0,
+   "max_mcap_rel_err": 1.2570943947482993e-16,
+   "fee_bps_seen": [
+    [
+     95,
+     30
+    ]
+   ],
+   "ix_names": [
+    "buy",
+    "buy_exact_quote_in",
+    "sell"
+   ],
+   "examples_missing": [],
+   "rpc_final_mcap": 27.958993480894687,
+   "api_market_cap_sol": 28.106072538283094,
+   "rpc_ath_mcap": 28.295748186397415,
+   "api_ath_sol": 28.291937942352558,
+   "api_ath_rel_err": 0.00013465782985334007,
+   "api_market_cap_from_usd": true,
+   "api_mcap_rel_err": 0.005260527618381924,
+   "slot0_buys_rpc": 1,
+   "slot0_buys_api": 1,
+   "slot0_sol_rpc": 9.9013e-05,
+   "slot0_sol_api": 9.9013e-05,
+   "kind": "small",
+   "tx_index_check": {
+    "slot": 456705119,
+    "block_pos": 197,
+    "api_txi": 197,
+    "ok": true
+   }
+  },
+  {
+   "mint": "A585T2HdzUc4reHTqysuhfKTJzWTQUANtBYjkkcDpump",
+   "rpc_trades": 21,
+   "api_trades": 23,
+   "rpc_covers_all": false,
+   "matched": 21,
+   "value_mismatch": 0,
+   "missing_in_api": 0,
+   "api_trades_missing_in_rpc_window": 0,
+   "max_mcap_rel_err": 2.1697983631670162e-16,
+   "fee_bps_seen": [
+    [
+     0,
+     0
+    ],
+    [
+     95,
+     30
+    ]
+   ],
+   "ix_names": [
+    "buy",
+    "sell"
+   ],
+   "examples_missing": [],
+   "slot0_buys_rpc": 1,
+   "slot0_buys_api": 1,
+   "slot0_sol_rpc": 0.246913579,
+   "slot0_sol_api": 0.246913579,
+   "kind": "small",
+   "tx_index_check": {
+    "slot": 456070916,
+    "block_pos": 91,
+    "api_txi": 91,
+    "ok": true
+   }
+  },
+  {
+   "mint": "9ccVbzzRthg2dpiuPQ31VBSDTytquZNyRSg2tVTXpump",
+   "rpc_trades": 8,
+   "api_trades": 8,
+   "rpc_covers_all": true,
+   "matched": 8,
+   "value_mismatch": 0,
+   "missing_in_api": 0,
+   "api_trades_missing_in_rpc_window": 0,
+   "max_mcap_rel_err": 1.7599573352086954e-16,
+   "fee_bps_seen": [
+    [
+     95,
+     30
+    ]
+   ],
+   "ix_names": [
+    "buy",
+    "buy_exact_quote_in",
+    "sell"
+   ],
+   "examples_missing": [],
+   "rpc_final_mcap": 27.958993479030752,
+   "api_market_cap_sol": 27.95818794372008,
+   "rpc_ath_mcap": 40.927661499291986,
+   "api_ath_sol": 40.925951240565844,
+   "api_ath_rel_err": 4.178735514052105e-05,
+   "api_market_cap_from_usd": true,
+   "api_mcap_rel_err": 2.8811312942152514e-05,
+   "slot0_buys_rpc": 2,
+   "slot0_buys_api": 2,
+   "slot0_sol_rpc": 6.04980057,
+   "slot0_sol_api": 6.04980057,
+   "kind": "small",
+   "tx_index_check": {
+    "slot": 456599027,
+    "block_pos": 431,
+    "api_txi": 431,
+    "ok": true
+   }
+  },
+  {
+   "mint": "7Zf6B51t4ixKyS5L2cRWDjTi862Z5FQoeXgGsmLCpump",
+   "rpc_trades": 30,
+   "api_trades": 1198,
+   "rpc_covers_all": false,
+   "matched": 30,
+   "value_mismatch": 0,
+   "missing_in_api": 0,
+   "api_trades_missing_in_rpc_window": 0,
+   "max_mcap_rel_err": 2.1574331296548037e-16,
+   "fee_bps_seen": [
+    [
+     95,
+     30
+    ]
+   ],
+   "ix_names": [
+    "buy_exact_quote_in",
+    "buy_exact_sol_in",
+    "sell"
+   ],
+   "examples_missing": [],
+   "slot0_buys_rpc": 6,
+   "slot0_buys_api": 6,
+   "slot0_sol_rpc": 14.097068637,
+   "slot0_sol_api": 14.097068637,
+   "kind": "bundled",
+   "tx_index_check": {
+    "slot": 456642604,
+    "block_pos": 566,
+    "api_txi": 566,
+    "ok": true
+   }
+  },
+  {
+   "mint": "3SLXEM2Z2J5rbc2XLxNYsyJFZViWETkWPpR7wF5Dpump",
+   "rpc_trades": 23,
+   "api_trades": 39,
+   "rpc_covers_all": false,
+   "matched": 23,
+   "value_mismatch": 0,
+   "missing_in_api": 0,
+   "api_trades_missing_in_rpc_window": 1,
+   "max_mcap_rel_err": 1.8262108560312296e-16,
+   "fee_bps_seen": [
+    [
+     95,
+     30
+    ]
+   ],
+   "ix_names": [
+    "buy",
+    "buy_exact_quote_in",
+    "buy_exact_sol_in",
+    "sell"
+   ],
+   "examples_missing": [],
+   "slot0_buys_rpc": 8,
+   "slot0_buys_api": 8,
+   "slot0_sol_rpc": 9.697286468,
+   "slot0_sol_api": 9.697286468,
+   "kind": "bundled",
+   "tx_index_check": {
+    "slot": 456308076,
+    "error": "RPC error -32001: Block 456308076 cleaned up, does not exist on node. First available block: 456398072"
+   }
+  },
+  {
+   "mint": "H9vRXcWRgg3E7a2ekLzyF2jPA9LWmphFjhMwwKuUpump",
+   "rpc_trades": 29,
+   "api_trades": 69,
+   "rpc_covers_all": false,
+   "matched": 29,
+   "value_mismatch": 0,
+   "missing_in_api": 0,
+   "api_trades_missing_in_rpc_window": 3,
+   "max_mcap_rel_err": 2.203989567277375e-16,
+   "fee_bps_seen": [
+    [
+     95,
+     30
+    ]
+   ],
+   "ix_names": [
+    "buy",
+    "buy_exact_quote_in",
+    "buy_exact_sol_in",
+    "sell"
+   ],
+   "examples_missing": [],
+   "slot0_buys_rpc": 6,
+   "slot0_buys_api": 6,
+   "slot0_sol_rpc": 9.939023304,
+   "slot0_sol_api": 9.939023304,
+   "kind": "bundled",
+   "tx_index_check": {
+    "slot": 456567740,
+    "block_pos": 668,
+    "api_txi": 668,
+    "ok": true
+   }
+  },
+  {
+   "mint": "26rkkHo1ukLg7a4hZxBsoqvQsxfWVtzRSVeSgJPapump",
+   "rpc_trades": 19,
+   "api_trades": 63,
+   "rpc_covers_all": false,
+   "matched": 19,
+   "value_mismatch": 0,
+   "missing_in_api": 0,
+   "api_trades_missing_in_rpc_window": 0,
+   "max_mcap_rel_err": 1.8756039920962055e-16,
+   "fee_bps_seen": [
+    [
+     95,
+     30
+    ]
+   ],
+   "ix_names": [
+    "buy",
+    "buy_exact_quote_in",
+    "buy_exact_sol_in",
+    "sell"
+   ],
+   "examples_missing": [],
+   "slot0_buys_rpc": 4,
+   "slot0_buys_api": 4,
+   "slot0_sol_rpc": 7.292761453,
+   "slot0_sol_api": 7.292761453,
+   "kind": "bundled",
+   "tx_index_check": {
+    "slot": 456653868,
+    "block_pos": 1051,
+    "api_txi": 1051,
+    "ok": true
+   }
+  },
+  {
+   "mint": "GH44rA9f5p7bnnJTYQNnafHmMyATHGSByceNG9Ndpump",
+   "rpc_trades": 40,
+   "api_trades": 341,
+   "rpc_covers_all": false,
+   "matched": 40,
+   "value_mismatch": 0,
+   "missing_in_api": 0,
+   "api_trades_missing_in_rpc_window": 0,
+   "max_mcap_rel_err": 2.1697184040808592e-16,
+   "fee_bps_seen": [
+    [
+     95,
+     30
+    ]
+   ],
+   "ix_names": [
+    "buy",
+    "buy_exact_quote_in",
+    "buy_exact_sol_in",
+    "sell"
+   ],
+   "examples_missing": [],
+   "slot0_buys_rpc": 15,
+   "slot0_buys_api": 15,
+   "slot0_sol_rpc": 40.802789392,
+   "slot0_sol_api": 40.802789392,
+   "kind": "bundled"
+  },
+  {
+   "mint": "4p51fH5EFCjcybGoyCym6sZZby5XKKvgBM8fsQRnpump",
+   "rpc_trades": 18,
+   "api_trades": 18,
+   "rpc_covers_all": true,
+   "matched": 18,
+   "value_mismatch": 0,
+   "missing_in_api": 0,
+   "api_trades_missing_in_rpc_window": 0,
+   "max_mcap_rel_err": 1.836584448456269e-16,
+   "fee_bps_seen": [
+    [
+     95,
+     30
+    ]
+   ],
+   "ix_names": [
+    "buy",
+    "buy_exact_quote_in",
+    "buy_exact_sol_in",
+    "sell"
+   ],
+   "examples_missing": [],
+   "rpc_final_mcap": 27.958993481826653,
+   "api_market_cap_sol": 27.94134890288623,
+   "rpc_ath_mcap": 40.02751787235012,
+   "api_ath_sol": 40.020761249499785,
+   "api_ath_rel_err": 0.00016879944621796521,
+   "api_market_cap_from_usd": true,
+   "api_mcap_rel_err": 0.0006310877733095917,
+   "slot0_buys_rpc": 4,
+   "slot0_buys_api": 4,
+   "slot0_sol_rpc": 5.289876537,
+   "slot0_sol_api": 5.289876537,
+   "kind": "small",
+   "tx_index_check": {
+    "slot": 456069499,
+    "error": "RPC error -32001: Block 456069499 cleaned up, does not exist on node. First available block: 456398440"
+   }
+  }
+ ]
+}

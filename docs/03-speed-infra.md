@@ -104,16 +104,26 @@ Nobody sees a transaction before the leader executes it. Earliest to latest:
 | Feed | What it is | Cost | Notes |
 |---|---|---|---|
 | Helius `preconfSubscribe` | Leader execution notices (Helius-forwarding and BAM validators) | Pro plan $999/mo + credits (~$250/day at full coverage) | Earliest signal where covered; coverage is partial |
-| **DoubleZero Edge** | Leader shreds over multicast, one hop | priced per epoch on-chain: $100/epoch FRA/AMS, $60 LON/NY/SGP/TYO, $30 elsewhere; epochs are now ~24 h, so **≈ $3,000/mo in Frankfurt** (confirm with DZ) | Successor to Jito ShredStream; covers validators that publish leader shreds (~53% of stake; ~19% publish in Frankfurt); GRE multicast, has devices inside the TeraSwitch FRA/AMS buildings |
-| Helius shred delivery | Raw shreds to your IP | $800-1,000/mo per IP | |
+| **DoubleZero Edge** | Leader shreds over multicast, one hop | **$1,500/mo per machine** in FRA/AMS, $900 LON/NY/SGP/TYO, $450 elsewhere (verified on the DZ subscribe page; the old per-epoch on-chain seats were decommissioned Aug 30 2026) | Successor to Jito ShredStream. Covers leaders that publish: **53% of all slots**, 55.6% of Frankfurt-led slots, 56% of Amsterdam, 85% of London, 4% of Šiauliai. GRE multicast, needs a public IP without NAT (bare metal); has devices inside the TeraSwitch FRA/AMS buildings |
+| **Helius shred delivery** | Raw UDP shreds from Helius's #2-stake Frankfurt validator (Turbine root or layer-1 for ~every shred) | $1,000/mo per IP ($800 on Pro) | Self-serve, works on EC2; the natural complement for the ~47% of slots whose leaders do not publish to DZ |
 | Solana Vibe Station raw shreds | Raw shreds | $250/mo (AMS) | Cheapest way to start A/B testing shreds |
 | Triton Yellowstone `SubscribeDeshred` | Pre-execution transactions with ALTs resolved | Usage-based | Simplest API that is still pre-execution |
 | **Yellowstone gRPC `processed`** (Helius LaserStream fra/ams $499-999/mo, SVS $150/mo, QuickNode) | Post-execution stream, 10-80 ms after shreds | | Needed anyway for state, fills, blockhash; the realistic free-ish starting point |
 | PumpPortal websocket | Third-party relay | Free | ~1 slot late; fallback and cross-check only |
 
-Plan: start on Yellowstone gRPC (paper trading measures exactly how late we are per leader), add
-raw shreds or deshred once the strategy is validated. Run `geyserbench` from the Frankfurt box to
-compare vendors before paying for the expensive ones.
+Plan: start on Yellowstone gRPC (paper trading measures exactly how late we are per leader). Once the
+strategy is validated, the recommended feed stack is **one DZ Edge Frankfurt seat ($1,500) plus Helius
+raw shreds ($1,000) on the same box, ≈ $2,500/mo**, deduplicated per shred with eager Reed-Solomon
+recovery (any 32 of a 64-shred FEC set rebuilds it, so the "86% of slots needed repair" statistic on
+DZ costs microseconds, not a Turbine hop). Run `geyserbench`-style first-seen tests per leader class
+for a week before adding a third source (Triton raw shreds, Everstake at $4,000/mo is poor value).
+
+**Alpenglow (Oct 21)**: the leader window stays 4 slots; blocks gain a header and footer marker and
+an "abort" batch (8 zero bytes); ticks collapse to one per slot, so any "position in slot" heuristic
+based on ticks breaks; the `UpdateParent` (bank-cleared) marker only arrives with fast leader handover,
+whose feature gate is **not activated** on any cluster today (expected with Agave 4.4, Nov 9 at the
+earliest). Off-the-shelf shred decoders such as `sol-shred-sdk` silently drop the new markers, so the
+shred decoder must be ours. Yellowstone gRPC 14+/15+ exposes `bank_id` and `include_update_parent`.
 
 ## 6. Sending (land in the same slot)
 
@@ -145,7 +155,14 @@ ATA create + tip transfer, ~55-62k CU with a tight compute-unit limit and a tigh
 limit (saves ~13k cost units of "phantom" cost, i.e. ~20% more priority per lamport for free), tip
 inside the transaction (a reverted buy pays no tip), `max_sol_cost` set from the expected bundle,
 pre-created `user_volume_accumulator`, warm connections, fire on sight, and **several variants on one
-durable nonce** so only one can land and only one tip is paid. Use **transaction v1** where the path
+durable nonce** so only one can land and only one tip is paid. Measured on 3,600 creates over 24 h:
+the first independent slot-0 winner bids a median **0.0034 SOL** (p75 0.0165, p90 0.068) and lands a
+median 149 transactions (~28 ms) after the create; the fastest repeat snipers land 5-9 transactions
+after it; among contested launches the earlier winner had the higher bid 73% of the time. Creates in
+the last ~5% of a block (6.8% of creates) are unreachable in slot 0, and slot+1 has the same leader
+75% of the time. Fill premium over the post-bundle price: 1st reactive buyer +1.1% median (+3.6% on
+CEX-funded bundled launches), 3rd +10.8%, 5th +15.8%, so **rank 1 is the whole edge** and slippage
+must be capped near +10%. Use **transaction v1** where the path
 accepts it (Jito, Helius, Nozomi, Astralane and Stellium were all observed landing v1): no
 compute-budget instructions, the compute-unit limit and loaded-accounts size **must** be set in the
 header (unset means zero), the priority fee is a total in lamports, no address-lookup tables (none

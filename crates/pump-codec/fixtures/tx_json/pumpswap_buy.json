@@ -1,0 +1,141 @@
+{
+ "fetched_at": "2026-10-14T09:23:39Z",
+ "name": "pumpswap_buy",
+ "query": {
+  "endpoint": "https://solana-rpc.publicnode.com",
+  "method": "getTransaction",
+  "params": [
+   "26Ds1VryRcoT43AdRcYsf4aA477ShXY3xZkdjgxQtoqcGRNjyJq8v1DTY34tVMA9V3cdq56VPnCYrY9Bm4nVRsRr",
+   {
+    "commitment": "confirmed",
+    "encoding": "json",
+    "maxSupportedTransactionVersion": 1
+   }
+  ]
+ },
+ "result": {
+  "slot": 456782788,
+  "transaction": {
+   "message": {
+    "accountKeys": [
+     "27HFmP7ccLadGswvQfvea4o3juLw75cPF4V6jWpHM3MX",
+     "LUsNBmSdaBH4DAQZdptqJ9i9UGZvr86Px2Wovr3xjmJ",
+     "qkYdTGRPHbWTWuBMz45bCiU6a23axRqf6sBHm9295WY",
+     "4msR4fdg275PyCqRo6KP346xUnezX6KWknSeRTu6qp9p",
+     "8mbLYKTRbLEPaokcQ2a79tM5k9uUTi2P1VbjKR75WTnp",
+     "94qWNrtmfn42h3ZjUZwWvK1MEo9uVmmrBPd2hpNjYDjb",
+     "BYNHzvhjv9kmb1hB3PBRKBey7NR22QwDEL32TmLhANxM",
+     "BgwopBhnq6X6zqmhnCnyccP7MGzfs3WfxTPTj6kQWVKf",
+     "C2aFPdENg4A2HQsmrd5rTw5TaYBX5Ku887cWjbFKtZpw",
+     "Ce6q17KQCPQQXMWwcHAMUAEoLFRGw9aXzRCp15HrpfR8",
+     "EMpzysJ72GYNYrVu4qP5uEgAnqWc6SBGbkqsQfn3ajX4",
+     "FeRidZse1mDMS7FMGoo4LHMVWrMtnm6UpCj5as8gahHS",
+     "11111111111111111111111111111111",
+     "ComputeBudget111111111111111111111111111111",
+     "So11111111111111111111111111111111111111112",
+     "SysvarRecentB1ockHashes11111111111111111111",
+     "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+     "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+     "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+     "pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ",
+     "5PHirr8joyTMp9JMm6nW7hNDVyEYdkzDqazxPD7RaTjx",
+     "62qc2CNXwrYqQScmEdiZFFAnJR262PxWEuNQtxfafNgV",
+     "8hXPbMsN8mefvXaNnmaQ1HphwuoRzWUFbXyUjscQttV8",
+     "A7hAgCzFw14fejgCp387JUJRMNyz4j89JKnhtKU8piqW",
+     "ADyA8hdefvWN2dbGGWFotbzWxrAvLW83WG6QCVXvJKqw",
+     "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+     "C6hrqacvbovjgqvAYWEfViXZkNwQXz7TjBXUSbkbfAYG",
+     "Cc2QsnFfxFYXaTvdXgJkUctM9ZsNBKfgaaaSihjepump",
+     "GS4CU59F31iL7aR2Q8zVS8DRrcRnXX1yjQ66TqNVQnaR"
+    ],
+    "header": {
+     "numReadonlySignedAccounts": 0,
+     "numReadonlyUnsignedAccounts": 17,
+     "numRequiredSignatures": 1
+    },
+    "instructions": [
+     {
+      "accounts": [
+       1,
+       15,
+       0
+      ],
+      "data": "6vx8P",
+      "programIdIndex": 12,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [],
+      "data": "TBsce3",
+      "programIdIndex": 13,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [],
+      "data": "3QGMXYP8FsXD",
+      "programIdIndex": 13,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [],
+      "data": "E6icrb",
+      "programIdIndex": 13,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       0,
+       3,
+       0,
+       27,
+       12,
+       17
+      ],
+      "data": "2",
+      "programIdIndex": 25,
+      "stackHeight": 1
+     },
+     {
+      "accounts": [
+       9,
+       0,
+       24,
+       27,
+       14,
+       3,
+       10,
+       7,
+       4,
+       21,
+       5,
+       17,
+       16,
+       12,
+       25,
+       28,
+       18,
+       6,
+       22,
+       8,
+       11,
+       20,
+       19,
+       26,
+       23,
+       2
+      ],
+      "data": "2Nk86asu1ki8AN1Ak9g9tsKH8MxPYcLWztQ",
+      "programIdIndex": 18,
+      "stackHeight": 1
+     }
+    ],
+    "recentBlockhash": "BPQSRFhGEs2zriQNZTbQ1cwedjSXXJ6kqfjyoWzh4A7p"
+   },
+   "signatures": [
+    "26Ds1VryRcoT43AdRcYsf4aA477ShXY3xZkdjgxQtoqcGRNjyJq8v1DTY34tVMA9V3cdq56VPnCYrY9Bm4nVRsRr"
+   ]
+  },
+  "version": "legacy"
+ },
+ "signature": "26Ds1VryRcoT43AdRcYsf4aA477ShXY3xZkdjgxQtoqcGRNjyJq8v1DTY34tVMA9V3cdq56VPnCYrY9Bm4nVRsRr"
+}
