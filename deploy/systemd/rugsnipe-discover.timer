@@ -1,0 +1,17 @@
+# Every 6 h (00:17, 06:17, 12:17, 18:17 UTC), matching the ArmSet regeneration cadence and
+# armset_max_age_s = 21_600 (docs/06-architecture.md sections 6 and 9.4). Persistent=true
+# runs a missed cycle after a reboot.
+[Unit]
+Description=rugsnipe discovery cycle every 6 h
+Documentation=file:/opt/rugsnipe/src/docs/07-deploy.md
+PartOf=rugsnipe.target
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:17:00 UTC
+RandomizedDelaySec=120
+AccuracySec=1min
+Persistent=true
+Unit=rugsnipe-discover.service
+
+[Install]
+WantedBy=rugsnipe.target timers.target

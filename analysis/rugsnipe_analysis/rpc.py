@@ -5,6 +5,9 @@
 * disk cache for immutable data (transactions by signature, historical
   signature pages that use a `before` cursor, blocks)
 * thread-safe, so callers can use a small thread pool to hide latency
+* optional per-role RPC budget (:class:`rugsnipe_analysis.rpcbudget.RpcBudget`,
+  ``[rpc_budget]`` in the TOML config): when given, it replaces the global
+  limiter with role / host / (host, method) token buckets
 
 Note (2026): pump.fun traffic includes *version 1* transactions, so
 getTransaction must pass maxSupportedTransactionVersion=1 (0 fails with -32015).
@@ -70,8 +73,11 @@ class RpcClient:
         cache_root: str | None = None,
         max_retries: int = 8,
         timeout: float = 30.0,
+        budget: Any = None,
     ) -> None:
+        """``budget``: optional ``RpcBudget``; when set it paces calls instead of ``max_rps``."""
         self.endpoints = endpoints
+        self.budget = budget
         self._rr = itertools.cycle(range(len(endpoints)))
         self._rr_lock = threading.Lock()
         self.limiter = RateLimiter(max_rps)
@@ -108,8 +114,11 @@ class RpcClient:
         delay = 0.5
         last_err: str = ""
         for attempt in range(self.max_retries):
-            self.limiter.acquire()
             ep = random.choice(endpoints) if endpoints else self._next_endpoint()
+            if self.budget is not None:
+                self.budget.acquire(ep, method)
+            else:
+                self.limiter.acquire()
             self.stats["calls"] += 1
             try:
                 r = self._session().post(ep, json=body, timeout=self.timeout)

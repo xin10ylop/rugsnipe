@@ -1,0 +1,68 @@
+# rugsnipe-keeper -- hot role (fra1). Recovery/reconcile, nonce pool and burns, leader table,
+# upgrade gate (pump / PumpSwap / pump-fees programdata + FeeConfig), sweeps to the cold
+# wallet (docs/06 sections 7.3, 11, 13). READY=1 after recovery; rugsnipe-hot orders after it.
+[Unit]
+Description=rugsnipe keeper (recovery, nonces, leader table, upgrade gate, sweeps)
+Documentation=file:/opt/rugsnipe/src/docs/06-architecture.md file:/opt/rugsnipe/src/docs/07-deploy.md
+PartOf=rugsnipe.target
+Wants=network-online.target
+After=network-online.target time-sync.target chrony.service
+ConditionPathExists=/etc/rugsnipe/rugsnipe.toml
+StartLimitIntervalSec=300
+StartLimitBurst=30
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=rugsnipe
+Group=rugsnipe
+WorkingDirectory=/var/lib/rugsnipe
+Environment=RUGSNIPE_CONFIG=/etc/rugsnipe/rugsnipe.toml RUST_BACKTRACE=1
+ExecStart=/opt/rugsnipe/bin/rugsnipe-keeper --config /etc/rugsnipe/rugsnipe.toml
+WatchdogSec=30
+TimeoutStartSec=300
+TimeoutStopSec=30
+Restart=always
+RestartSec=2
+OOMScoreAdjust=-500
+LimitMEMLOCK=infinity
+UMask=0027
+CPUAffinity=0-1
+# Credentials: copied by PID 1 from /etc/rugsnipe/keys (root 0700, files 0400) into
+# $CREDENTIALS_DIRECTORY; the service user never reads /etc/rugsnipe/keys itself. The
+# SetCredential=...:ABSENT is the fallback when the file is missing (paper mode): the binary sees
+# the literal "ABSENT", treats it as no key, and config validation refuses probe/live (docs/06 s6).
+LoadCredential=hot-keypair:/etc/rugsnipe/keys/hot-keypair.json
+SetCredential=hot-keypair:ABSENT
+LoadCredential=api-keys:/etc/rugsnipe/keys/api-keys.toml
+SetCredential=api-keys:ABSENT
+
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictRealtime=yes
+# hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/rugsnipe /run/rugsnipe
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=rugsnipe.target

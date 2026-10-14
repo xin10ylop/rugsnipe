@@ -33,7 +33,7 @@ PUMP_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
 PUMP_AMM = "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"
 FRESH_MAX_PRIOR_TXS = 10        # create signer with <= 10 earlier txs counts as "fresh"
 MIN_BUNDLE_SOL = 1.0            # a slot-0 bundle needs >= 1 SOL of buys
-SOL_USD_LOW = 100.0             # conservative (low) SOL price for the ATH prefilter
+SOL_USD_LOW = 104.0             # low SOL price for the ATH prefilter (SOL traded ~107-108 in the window)
 
 
 def window_sigs(index: dict, start: int, end: int) -> list[dict]:
@@ -121,6 +121,45 @@ def early_trades(api: PumpApi, mint: str, t0: int, horizon_s: int = 900,
         trades = [t for t in trades if t["ts"] <= covered_until]
     return {"trades": trades, "complete": complete, "covered_until": covered_until,
             "horizon_s": horizon_s}
+
+
+def staged_trades(api: PumpApi, rec: dict, need_full, horizon_s: int = 900,
+                  full_pages: int = 15) -> dict[str, Any]:
+    """Cheap-first trade pull.
+
+    1. one page of the `horizon_s` window -> done if it already reaches the first trade;
+    2. otherwise the first 60 s (<= 2 pages) to read slot 0;
+    3. `need_full(prefix_result)` decides whether the whole window is worth pulling
+       (e.g. only bundled launches are tradable for the guru's strategy).
+    """
+    t0 = rec["create_time"]
+    mint = rec["mint"]
+    raw, comp = api.trades_before(mint, (t0 + horizon_s) * 1000 + 999, max_pages=1)
+    if comp:
+        return _as_result(raw, t0 + horizon_s, horizon_s, "full_1page")
+    raw60, comp60 = api.trades_before(mint, (t0 + 60) * 1000 + 999, max_pages=2)
+    prefix = _as_result(raw60, t0 + 60 if comp60 else None, horizon_s, "prefix60")
+    if not comp60:
+        prefix["complete"] = False
+        prefix["covered_until"] = None
+        return prefix
+    if not need_full(prefix):
+        return prefix
+    res = early_trades(api, mint, t0, horizon_s=horizon_s, max_pages=full_pages)
+    res["mode"] = "full"
+    return res
+
+
+def _as_result(raw: list[dict], covered_until: int | None, horizon_s: int, mode: str) -> dict[str, Any]:
+    seen = {}
+    for t in raw:
+        n = normalize_trade(t)
+        seen[(n["sig"], n["sub"], n["user"], n["buy"])] = n
+    trades = sorted((t for t in seen.values() if t["mcap"] > 0), key=lambda x: (x["slot"], x["txi"], x["sub"]))
+    if covered_until is not None:
+        trades = [t for t in trades if t["ts"] <= covered_until]
+    return {"trades": trades, "complete": covered_until is not None, "covered_until": covered_until,
+            "horizon_s": horizon_s, "mode": mode}
 
 
 # --------------------------------------------------------------------------- funding

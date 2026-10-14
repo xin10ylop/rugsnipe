@@ -1,0 +1,6450 @@
+{
+ "generated_at": "2026-10-14T10:12:34Z",
+ "args": {
+  "tokens": "/nonexistent",
+  "clusters": "/nonexistent",
+  "no_taskA": false,
+  "horizon": 900,
+  "allow_fetch": false,
+  "api_rps": 2.0,
+  "quick": false,
+  "min_n": 30
+ },
+ "lookahead_check": {
+  "entries_checked": 1086,
+  "mismatched": 0,
+  "ok": true
+ },
+ "window_stats": {},
+ "sample_sizes": {
+  "window": {
+   "tokens": 0,
+   "bundled": 0
+  },
+  "clusters": {
+   "tokens": 0,
+   "bundled": 0
+  },
+  "taskA": {
+   "tokens": 362,
+   "bundled": 80
+  }
+ },
+ "assumptions": [
+  "Entry state = curve after the last recorded trade of the creation slot (eos0) or of slot+1 (eos1); the entry decision uses slot-0 trades only.",
+  "Our buy is overlaid on the recorded path: impact from the constant-product curve, our SOL stays in the curve while we hold (recorded state shifted by our net SOL).",
+  "Fees 1.25 % per side (0.95 % protocol + 0.30 % creator, as observed on 2026 TradeEvents) instead of the 1 % in the brief; a fixed cost (priority fee + tip) is paid on the buy AND on the sell.",
+  "Exit triggers are evaluated on each recorded post-trade price; the sell executes after all recorded trades of the next slot (exit latency 1 slot) unless stated.",
+  "Natural SL = no stop: the position is held until TP, 150 s without trades (idle), or the 900 s horizon.",
+  "Competition is not simulated except through the entry_premium variants (fill 5/15/30 % above the post-bundle price, cf. gap-2: 3rd reactive buyer pays a median +10.8 %, 5th +15.8 %). Failed attempts (22 % slippage failures in slot 0) are not charged.",
+  "Bundled = >= 1 non-dev wallet in the contiguous run of txs right after the create tx (or inside it) and >= 1 SOL of dev + bundle buys in slot 0."
+ ],
+ "samples": {
+  "taskA": {
+   "potential": {
+    "n_bundled": 80,
+    "reach_2x_eos0": 5,
+    "rate": 0.0625,
+    "ci95": [
+     0.027,
+     0.1381
+    ]
+   },
+   "base": {
+    "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150",
+    "strategy": {
+     "name": "guru",
+     "entry": "eos0",
+     "size_sol": 0.25,
+     "attempt_cost": 0.002,
+     "fee_bps": 125,
+     "entry_premium": 0.0,
+     "require_bundle": true,
+     "max_bundle_sol": null,
+     "min_bundle_sol": null,
+     "max_entry_mcap": null,
+     "skip_mayhem": false,
+     "tp": 1.0,
+     "sl": null,
+     "idle_s": 150,
+     "trail_arm": null,
+     "trail_drop": null,
+     "big_buy_sol": null,
+     "oracle": null,
+     "exit_latency_slots": 1,
+     "horizon_s": 900,
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150"
+    },
+    "n_trades": 80,
+    "n_skipped": 282,
+    "tp_hits": 5,
+    "hit_rate": 0.0625,
+    "hit_ci95": [
+     0.027,
+     0.1381
+    ],
+    "win_rate": 0.0625,
+    "avg_win_sol": 0.26739,
+    "avg_loss_sol": -0.10091,
+    "win_loss_ratio": 2.65,
+    "breakeven_win_rate": 0.274,
+    "expectancy_sol": -0.07789,
+    "expectancy_ci95": [
+     -0.09922,
+     -0.05656
+    ],
+    "expectancy_pct": -31.16,
+    "total_pnl_sol": -6.2313,
+    "max_losing_streak": 22,
+    "guru_hit_ge_33": false,
+    "guru_wl_ge_3": false,
+    "exit_reasons": {
+     "idle": 72,
+     "tp": 5,
+     "horizon": 3
+    }
+   },
+   "grid": [
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150",
+     "n_trades": 80,
+     "tp_hits": 5,
+     "hit_rate": 0.0625,
+     "win_rate": 0.0625,
+     "avg_win_sol": 0.26739,
+     "avg_loss_sol": -0.10091,
+     "win_loss_ratio": 2.65,
+     "expectancy_sol": -0.07789,
+     "expectancy_ci95": [
+      -0.09922,
+      -0.05656
+     ],
+     "expectancy_pct": -31.16,
+     "total_pnl_sol": -6.2313,
+     "max_losing_streak": 22,
+     "exit_reasons": {
+      "idle": 72,
+      "tp": 5,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.04861,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.04861,
+     "expectancy_ci95": [
+      -0.06003,
+      -0.03719
+     ],
+     "expectancy_pct": -19.45,
+     "total_pnl_sol": -0.3889,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 8
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.0624,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.0624,
+     "expectancy_ci95": [
+      -0.07283,
+      -0.05198
+     ],
+     "expectancy_pct": -24.96,
+     "total_pnl_sol": -1.2481,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "idle": 19,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 B<=10",
+     "n_trades": 50,
+     "tp_hits": 2,
+     "hit_rate": 0.04,
+     "win_rate": 0.04,
+     "avg_win_sol": 0.28555,
+     "avg_loss_sol": -0.08118,
+     "win_loss_ratio": 3.517,
+     "expectancy_sol": -0.06651,
+     "expectancy_ci95": [
+      -0.08771,
+      -0.04532
+     ],
+     "expectancy_pct": -26.61,
+     "total_pnl_sol": -3.3257,
+     "max_losing_streak": 19,
+     "exit_reasons": {
+      "idle": 47,
+      "horizon": 1,
+      "tp": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor",
+     "n_trades": 80,
+     "tp_hits": 5,
+     "hit_rate": 0.0625,
+     "win_rate": 0.0625,
+     "avg_win_sol": 0.26739,
+     "avg_loss_sol": -0.10228,
+     "win_loss_ratio": 2.614,
+     "expectancy_sol": -0.07918,
+     "expectancy_ci95": [
+      -0.10059,
+      -0.05777
+     ],
+     "expectancy_pct": -31.67,
+     "total_pnl_sol": -6.3344,
+     "max_losing_streak": 22,
+     "exit_reasons": {
+      "horizon": 75,
+      "tp": 5
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.04996,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.04996,
+     "expectancy_ci95": [
+      -0.06182,
+      -0.0381
+     ],
+     "expectancy_pct": -19.98,
+     "total_pnl_sol": -0.3997,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "horizon": 8
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06319,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06319,
+     "expectancy_ci95": [
+      -0.07374,
+      -0.05263
+     ],
+     "expectancy_pct": -25.27,
+     "total_pnl_sol": -1.2637,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "horizon": 20
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor B<=10",
+     "n_trades": 50,
+     "tp_hits": 2,
+     "hit_rate": 0.04,
+     "win_rate": 0.04,
+     "avg_win_sol": 0.28555,
+     "avg_loss_sol": -0.08225,
+     "win_loss_ratio": 3.472,
+     "expectancy_sol": -0.06754,
+     "expectancy_ci95": [
+      -0.0888,
+      -0.04628
+     ],
+     "expectancy_pct": -27.02,
+     "total_pnl_sol": -3.377,
+     "max_losing_streak": 19,
+     "exit_reasons": {
+      "horizon": 48,
+      "tp": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SL30 idle150",
+     "n_trades": 80,
+     "tp_hits": 3,
+     "hit_rate": 0.0375,
+     "win_rate": 0.0625,
+     "avg_win_sol": 0.16411,
+     "avg_loss_sol": -0.08654,
+     "win_loss_ratio": 1.896,
+     "expectancy_sol": -0.07087,
+     "expectancy_ci95": [
+      -0.08731,
+      -0.05443
+     ],
+     "expectancy_pct": -28.35,
+     "total_pnl_sol": -5.6697,
+     "max_losing_streak": 22,
+     "exit_reasons": {
+      "sl": 53,
+      "idle": 23,
+      "tp": 3,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SL30 idle150 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.04861,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.04861,
+     "expectancy_ci95": [
+      -0.06003,
+      -0.03719
+     ],
+     "expectancy_pct": -19.45,
+     "total_pnl_sol": -0.3889,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 8
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SL30 idle150 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06202,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06202,
+     "expectancy_ci95": [
+      -0.07221,
+      -0.05183
+     ],
+     "expectancy_pct": -24.81,
+     "total_pnl_sol": -1.2404,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "idle": 16,
+      "sl": 3,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SL30 idle150 B<=10",
+     "n_trades": 50,
+     "tp_hits": 2,
+     "hit_rate": 0.04,
+     "win_rate": 0.04,
+     "avg_win_sol": 0.28555,
+     "avg_loss_sol": -0.07495,
+     "win_loss_ratio": 3.81,
+     "expectancy_sol": -0.06053,
+     "expectancy_ci95": [
+      -0.08111,
+      -0.03994
+     ],
+     "expectancy_pct": -24.21,
+     "total_pnl_sol": -3.0263,
+     "max_losing_streak": 19,
+     "exit_reasons": {
+      "sl": 24,
+      "idle": 23,
+      "horizon": 1,
+      "tp": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SL30",
+     "n_trades": 80,
+     "tp_hits": 3,
+     "hit_rate": 0.0375,
+     "win_rate": 0.0625,
+     "avg_win_sol": 0.16411,
+     "avg_loss_sol": -0.0868,
+     "win_loss_ratio": 1.891,
+     "expectancy_sol": -0.07112,
+     "expectancy_ci95": [
+      -0.08756,
+      -0.05469
+     ],
+     "expectancy_pct": -28.45,
+     "total_pnl_sol": -5.6896,
+     "max_losing_streak": 22,
+     "exit_reasons": {
+      "sl": 54,
+      "horizon": 23,
+      "tp": 3
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SL30 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.04996,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.04996,
+     "expectancy_ci95": [
+      -0.06182,
+      -0.0381
+     ],
+     "expectancy_pct": -19.98,
+     "total_pnl_sol": -0.3997,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "horizon": 8
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SL30 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06257,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06257,
+     "expectancy_ci95": [
+      -0.07269,
+      -0.05244
+     ],
+     "expectancy_pct": -25.03,
+     "total_pnl_sol": -1.2513,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "horizon": 17,
+      "sl": 3
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SL30 B<=10",
+     "n_trades": 50,
+     "tp_hits": 2,
+     "hit_rate": 0.04,
+     "win_rate": 0.04,
+     "avg_win_sol": 0.28555,
+     "avg_loss_sol": -0.07536,
+     "win_loss_ratio": 3.789,
+     "expectancy_sol": -0.06092,
+     "expectancy_ci95": [
+      -0.08152,
+      -0.04033
+     ],
+     "expectancy_pct": -24.37,
+     "total_pnl_sol": -3.0462,
+     "max_losing_streak": 19,
+     "exit_reasons": {
+      "sl": 25,
+      "horizon": 23,
+      "tp": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SL50 idle150",
+     "n_trades": 80,
+     "tp_hits": 5,
+     "hit_rate": 0.0625,
+     "win_rate": 0.0625,
+     "avg_win_sol": 0.26739,
+     "avg_loss_sol": -0.10111,
+     "win_loss_ratio": 2.645,
+     "expectancy_sol": -0.07808,
+     "expectancy_ci95": [
+      -0.09927,
+      -0.05688
+     ],
+     "expectancy_pct": -31.23,
+     "total_pnl_sol": -6.2461,
+     "max_losing_streak": 22,
+     "exit_reasons": {
+      "idle": 59,
+      "sl": 14,
+      "tp": 5,
+      "horizon": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SL50 idle150 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.04861,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.04861,
+     "expectancy_ci95": [
+      -0.06003,
+      -0.03719
+     ],
+     "expectancy_pct": -19.45,
+     "total_pnl_sol": -0.3889,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 8
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SL50 idle150 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.0624,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.0624,
+     "expectancy_ci95": [
+      -0.07283,
+      -0.05198
+     ],
+     "expectancy_pct": -24.96,
+     "total_pnl_sol": -1.2481,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "idle": 19,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SL50 idle150 B<=10",
+     "n_trades": 50,
+     "tp_hits": 2,
+     "hit_rate": 0.04,
+     "win_rate": 0.04,
+     "avg_win_sol": 0.28555,
+     "avg_loss_sol": -0.08118,
+     "win_loss_ratio": 3.517,
+     "expectancy_sol": -0.06651,
+     "expectancy_ci95": [
+      -0.08771,
+      -0.04532
+     ],
+     "expectancy_pct": -26.61,
+     "total_pnl_sol": -3.3257,
+     "max_losing_streak": 19,
+     "exit_reasons": {
+      "idle": 47,
+      "horizon": 1,
+      "tp": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SL50",
+     "n_trades": 80,
+     "tp_hits": 5,
+     "hit_rate": 0.0625,
+     "win_rate": 0.0625,
+     "avg_win_sol": 0.26739,
+     "avg_loss_sol": -0.10242,
+     "win_loss_ratio": 2.611,
+     "expectancy_sol": -0.0793,
+     "expectancy_ci95": [
+      -0.10057,
+      -0.05804
+     ],
+     "expectancy_pct": -31.72,
+     "total_pnl_sol": -6.3444,
+     "max_losing_streak": 22,
+     "exit_reasons": {
+      "horizon": 59,
+      "sl": 16,
+      "tp": 5
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SL50 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.04996,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.04996,
+     "expectancy_ci95": [
+      -0.06182,
+      -0.0381
+     ],
+     "expectancy_pct": -19.98,
+     "total_pnl_sol": -0.3997,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "horizon": 8
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SL50 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06319,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06319,
+     "expectancy_ci95": [
+      -0.07374,
+      -0.05263
+     ],
+     "expectancy_pct": -25.27,
+     "total_pnl_sol": -1.2637,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "horizon": 20
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SL50 B<=10",
+     "n_trades": 50,
+     "tp_hits": 2,
+     "hit_rate": 0.04,
+     "win_rate": 0.04,
+     "avg_win_sol": 0.28555,
+     "avg_loss_sol": -0.08225,
+     "win_loss_ratio": 3.472,
+     "expectancy_sol": -0.06754,
+     "expectancy_ci95": [
+      -0.0888,
+      -0.04628
+     ],
+     "expectancy_pct": -27.02,
+     "total_pnl_sol": -3.377,
+     "max_losing_streak": 19,
+     "exit_reasons": {
+      "horizon": 48,
+      "tp": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SLfloor idle150",
+     "n_trades": 80,
+     "tp_hits": 4,
+     "hit_rate": 0.05,
+     "win_rate": 0.05,
+     "avg_win_sol": 0.36148,
+     "avg_loss_sol": -0.10077,
+     "win_loss_ratio": 3.587,
+     "expectancy_sol": -0.07766,
+     "expectancy_ci95": [
+      -0.10132,
+      -0.054
+     ],
+     "expectancy_pct": -31.06,
+     "total_pnl_sol": -6.2128,
+     "max_losing_streak": 31,
+     "exit_reasons": {
+      "idle": 73,
+      "tp": 4,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SLfloor idle150 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.04861,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.04861,
+     "expectancy_ci95": [
+      -0.06003,
+      -0.03719
+     ],
+     "expectancy_pct": -19.45,
+     "total_pnl_sol": -0.3889,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 8
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SLfloor idle150 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.0624,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.0624,
+     "expectancy_ci95": [
+      -0.07283,
+      -0.05198
+     ],
+     "expectancy_pct": -24.96,
+     "total_pnl_sol": -1.2481,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "idle": 19,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SLfloor idle150 B<=10",
+     "n_trades": 50,
+     "tp_hits": 1,
+     "hit_rate": 0.02,
+     "win_rate": 0.02,
+     "avg_win_sol": 0.35391,
+     "avg_loss_sol": -0.08137,
+     "win_loss_ratio": 4.349,
+     "expectancy_sol": -0.07267,
+     "expectancy_ci95": [
+      -0.09099,
+      -0.05434
+     ],
+     "expectancy_pct": -29.07,
+     "total_pnl_sol": -3.6333,
+     "max_losing_streak": 32,
+     "exit_reasons": {
+      "idle": 48,
+      "horizon": 1,
+      "tp": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SLfloor",
+     "n_trades": 80,
+     "tp_hits": 4,
+     "hit_rate": 0.05,
+     "win_rate": 0.05,
+     "avg_win_sol": 0.36148,
+     "avg_loss_sol": -0.10221,
+     "win_loss_ratio": 3.536,
+     "expectancy_sol": -0.07903,
+     "expectancy_ci95": [
+      -0.10276,
+      -0.0553
+     ],
+     "expectancy_pct": -31.61,
+     "total_pnl_sol": -6.3224,
+     "max_losing_streak": 31,
+     "exit_reasons": {
+      "horizon": 76,
+      "tp": 4
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SLfloor B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.04996,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.04996,
+     "expectancy_ci95": [
+      -0.06182,
+      -0.0381
+     ],
+     "expectancy_pct": -19.98,
+     "total_pnl_sol": -0.3997,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "horizon": 8
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SLfloor B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06319,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06319,
+     "expectancy_ci95": [
+      -0.07374,
+      -0.05263
+     ],
+     "expectancy_pct": -25.27,
+     "total_pnl_sol": -1.2637,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "horizon": 20
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SLfloor B<=10",
+     "n_trades": 50,
+     "tp_hits": 1,
+     "hit_rate": 0.02,
+     "win_rate": 0.02,
+     "avg_win_sol": 0.35391,
+     "avg_loss_sol": -0.08255,
+     "win_loss_ratio": 4.287,
+     "expectancy_sol": -0.07382,
+     "expectancy_ci95": [
+      -0.09221,
+      -0.05544
+     ],
+     "expectancy_pct": -29.53,
+     "total_pnl_sol": -3.6912,
+     "max_losing_streak": 32,
+     "exit_reasons": {
+      "horizon": 49,
+      "tp": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SL30 idle150",
+     "n_trades": 80,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "win_rate": 0.05,
+     "avg_win_sol": 0.1899,
+     "avg_loss_sol": -0.0865,
+     "win_loss_ratio": 2.195,
+     "expectancy_sol": -0.07268,
+     "expectancy_ci95": [
+      -0.08983,
+      -0.05553
+     ],
+     "expectancy_pct": -29.07,
+     "total_pnl_sol": -5.8147,
+     "max_losing_streak": 31,
+     "exit_reasons": {
+      "sl": 54,
+      "idle": 23,
+      "tp": 2,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SL30 idle150 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.04861,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.04861,
+     "expectancy_ci95": [
+      -0.06003,
+      -0.03719
+     ],
+     "expectancy_pct": -19.45,
+     "total_pnl_sol": -0.3889,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 8
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SL30 idle150 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06202,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06202,
+     "expectancy_ci95": [
+      -0.07221,
+      -0.05183
+     ],
+     "expectancy_pct": -24.81,
+     "total_pnl_sol": -1.2404,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "idle": 16,
+      "sl": 3,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SL30 idle150 B<=10",
+     "n_trades": 50,
+     "tp_hits": 1,
+     "hit_rate": 0.02,
+     "win_rate": 0.02,
+     "avg_win_sol": 0.35391,
+     "avg_loss_sol": -0.07513,
+     "win_loss_ratio": 4.711,
+     "expectancy_sol": -0.06655,
+     "expectancy_ci95": [
+      -0.08431,
+      -0.04879
+     ],
+     "expectancy_pct": -26.62,
+     "total_pnl_sol": -3.3275,
+     "max_losing_streak": 32,
+     "exit_reasons": {
+      "sl": 25,
+      "idle": 23,
+      "horizon": 1,
+      "tp": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SL30",
+     "n_trades": 80,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "win_rate": 0.05,
+     "avg_win_sol": 0.1899,
+     "avg_loss_sol": -0.08677,
+     "win_loss_ratio": 2.189,
+     "expectancy_sol": -0.07293,
+     "expectancy_ci95": [
+      -0.09008,
+      -0.05579
+     ],
+     "expectancy_pct": -29.17,
+     "total_pnl_sol": -5.8347,
+     "max_losing_streak": 31,
+     "exit_reasons": {
+      "sl": 55,
+      "horizon": 23,
+      "tp": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SL30 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.04996,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.04996,
+     "expectancy_ci95": [
+      -0.06182,
+      -0.0381
+     ],
+     "expectancy_pct": -19.98,
+     "total_pnl_sol": -0.3997,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "horizon": 8
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SL30 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06257,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06257,
+     "expectancy_ci95": [
+      -0.07269,
+      -0.05244
+     ],
+     "expectancy_pct": -25.03,
+     "total_pnl_sol": -1.2513,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "horizon": 17,
+      "sl": 3
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SL30 B<=10",
+     "n_trades": 50,
+     "tp_hits": 1,
+     "hit_rate": 0.02,
+     "win_rate": 0.02,
+     "avg_win_sol": 0.35391,
+     "avg_loss_sol": -0.07554,
+     "win_loss_ratio": 4.685,
+     "expectancy_sol": -0.06695,
+     "expectancy_ci95": [
+      -0.08471,
+      -0.04918
+     ],
+     "expectancy_pct": -26.78,
+     "total_pnl_sol": -3.3475,
+     "max_losing_streak": 32,
+     "exit_reasons": {
+      "sl": 26,
+      "horizon": 23,
+      "tp": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SL50 idle150",
+     "n_trades": 80,
+     "tp_hits": 4,
+     "hit_rate": 0.05,
+     "win_rate": 0.05,
+     "avg_win_sol": 0.36148,
+     "avg_loss_sol": -0.10097,
+     "win_loss_ratio": 3.58,
+     "expectancy_sol": -0.07784,
+     "expectancy_ci95": [
+      -0.10138,
+      -0.05431
+     ],
+     "expectancy_pct": -31.14,
+     "total_pnl_sol": -6.2275,
+     "max_losing_streak": 31,
+     "exit_reasons": {
+      "idle": 60,
+      "sl": 14,
+      "tp": 4,
+      "horizon": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SL50 idle150 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.04861,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.04861,
+     "expectancy_ci95": [
+      -0.06003,
+      -0.03719
+     ],
+     "expectancy_pct": -19.45,
+     "total_pnl_sol": -0.3889,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 8
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SL50 idle150 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.0624,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.0624,
+     "expectancy_ci95": [
+      -0.07283,
+      -0.05198
+     ],
+     "expectancy_pct": -24.96,
+     "total_pnl_sol": -1.2481,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "idle": 19,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SL50 idle150 B<=10",
+     "n_trades": 50,
+     "tp_hits": 1,
+     "hit_rate": 0.02,
+     "win_rate": 0.02,
+     "avg_win_sol": 0.35391,
+     "avg_loss_sol": -0.08137,
+     "win_loss_ratio": 4.349,
+     "expectancy_sol": -0.07267,
+     "expectancy_ci95": [
+      -0.09099,
+      -0.05434
+     ],
+     "expectancy_pct": -29.07,
+     "total_pnl_sol": -3.6333,
+     "max_losing_streak": 32,
+     "exit_reasons": {
+      "idle": 48,
+      "horizon": 1,
+      "tp": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SL50",
+     "n_trades": 80,
+     "tp_hits": 4,
+     "hit_rate": 0.05,
+     "win_rate": 0.05,
+     "avg_win_sol": 0.36148,
+     "avg_loss_sol": -0.10235,
+     "win_loss_ratio": 3.532,
+     "expectancy_sol": -0.07915,
+     "expectancy_ci95": [
+      -0.10276,
+      -0.05555
+     ],
+     "expectancy_pct": -31.66,
+     "total_pnl_sol": -6.3324,
+     "max_losing_streak": 31,
+     "exit_reasons": {
+      "horizon": 60,
+      "sl": 16,
+      "tp": 4
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SL50 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.04996,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.04996,
+     "expectancy_ci95": [
+      -0.06182,
+      -0.0381
+     ],
+     "expectancy_pct": -19.98,
+     "total_pnl_sol": -0.3997,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "horizon": 8
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SL50 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06319,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06319,
+     "expectancy_ci95": [
+      -0.07374,
+      -0.05263
+     ],
+     "expectancy_pct": -25.27,
+     "total_pnl_sol": -1.2637,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "horizon": 20
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SL50 B<=10",
+     "n_trades": 50,
+     "tp_hits": 1,
+     "hit_rate": 0.02,
+     "win_rate": 0.02,
+     "avg_win_sol": 0.35391,
+     "avg_loss_sol": -0.08255,
+     "win_loss_ratio": 4.287,
+     "expectancy_sol": -0.07382,
+     "expectancy_ci95": [
+      -0.09221,
+      -0.05544
+     ],
+     "expectancy_pct": -29.53,
+     "total_pnl_sol": -3.6912,
+     "max_losing_streak": 32,
+     "exit_reasons": {
+      "horizon": 49,
+      "tp": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SLfloor idle150",
+     "n_trades": 80,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "win_rate": 0.025,
+     "avg_win_sol": 0.48535,
+     "avg_loss_sol": -0.10196,
+     "win_loss_ratio": 4.76,
+     "expectancy_sol": -0.08728,
+     "expectancy_ci95": [
+      -0.10917,
+      -0.06539
+     ],
+     "expectancy_pct": -34.91,
+     "total_pnl_sol": -6.9823,
+     "max_losing_streak": 46,
+     "exit_reasons": {
+      "idle": 75,
+      "tp": 2,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SLfloor idle150 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.04861,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.04861,
+     "expectancy_ci95": [
+      -0.06003,
+      -0.03719
+     ],
+     "expectancy_pct": -19.45,
+     "total_pnl_sol": -0.3889,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 8
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SLfloor idle150 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.0624,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.0624,
+     "expectancy_ci95": [
+      -0.07283,
+      -0.05198
+     ],
+     "expectancy_pct": -24.96,
+     "total_pnl_sol": -1.2481,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "idle": 19,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SLfloor idle150 B<=10",
+     "n_trades": 50,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.08195,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.08195,
+     "expectancy_ci95": [
+      -0.08872,
+      -0.07518
+     ],
+     "expectancy_pct": -32.78,
+     "total_pnl_sol": -4.0973,
+     "max_losing_streak": 50,
+     "exit_reasons": {
+      "idle": 49,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SLfloor",
+     "n_trades": 80,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "win_rate": 0.025,
+     "avg_win_sol": 0.48535,
+     "avg_loss_sol": -0.10337,
+     "win_loss_ratio": 4.695,
+     "expectancy_sol": -0.08865,
+     "expectancy_ci95": [
+      -0.11059,
+      -0.06671
+     ],
+     "expectancy_pct": -35.46,
+     "total_pnl_sol": -7.092,
+     "max_losing_streak": 46,
+     "exit_reasons": {
+      "horizon": 78,
+      "tp": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SLfloor B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.04996,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.04996,
+     "expectancy_ci95": [
+      -0.06182,
+      -0.0381
+     ],
+     "expectancy_pct": -19.98,
+     "total_pnl_sol": -0.3997,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "horizon": 8
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SLfloor B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06319,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06319,
+     "expectancy_ci95": [
+      -0.07374,
+      -0.05263
+     ],
+     "expectancy_pct": -25.27,
+     "total_pnl_sol": -1.2637,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "horizon": 20
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SLfloor B<=10",
+     "n_trades": 50,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.0831,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.0831,
+     "expectancy_ci95": [
+      -0.08991,
+      -0.0763
+     ],
+     "expectancy_pct": -33.24,
+     "total_pnl_sol": -4.1552,
+     "max_losing_streak": 50,
+     "exit_reasons": {
+      "horizon": 50
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SL30 idle150",
+     "n_trades": 80,
+     "tp_hits": 1,
+     "hit_rate": 0.0125,
+     "win_rate": 0.0375,
+     "avg_win_sol": 0.17776,
+     "avg_loss_sol": -0.08658,
+     "win_loss_ratio": 2.053,
+     "expectancy_sol": -0.07667,
+     "expectancy_ci95": [
+      -0.09284,
+      -0.0605
+     ],
+     "expectancy_pct": -30.67,
+     "total_pnl_sol": -6.1333,
+     "max_losing_streak": 46,
+     "exit_reasons": {
+      "sl": 55,
+      "idle": 23,
+      "tp": 1,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SL30 idle150 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.04861,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.04861,
+     "expectancy_ci95": [
+      -0.06003,
+      -0.03719
+     ],
+     "expectancy_pct": -19.45,
+     "total_pnl_sol": -0.3889,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 8
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SL30 idle150 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06202,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06202,
+     "expectancy_ci95": [
+      -0.07221,
+      -0.05183
+     ],
+     "expectancy_pct": -24.81,
+     "total_pnl_sol": -1.2404,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "idle": 16,
+      "sl": 3,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SL30 idle150 B<=10",
+     "n_trades": 50,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.07547,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.07547,
+     "expectancy_ci95": [
+      -0.08123,
+      -0.06972
+     ],
+     "expectancy_pct": -30.19,
+     "total_pnl_sol": -3.7737,
+     "max_losing_streak": 50,
+     "exit_reasons": {
+      "sl": 26,
+      "idle": 23,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SL30",
+     "n_trades": 80,
+     "tp_hits": 1,
+     "hit_rate": 0.0125,
+     "win_rate": 0.0375,
+     "avg_win_sol": 0.17776,
+     "avg_loss_sol": -0.08684,
+     "win_loss_ratio": 2.047,
+     "expectancy_sol": -0.07692,
+     "expectancy_ci95": [
+      -0.09308,
+      -0.06075
+     ],
+     "expectancy_pct": -30.77,
+     "total_pnl_sol": -6.1532,
+     "max_losing_streak": 46,
+     "exit_reasons": {
+      "sl": 56,
+      "horizon": 23,
+      "tp": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SL30 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.04996,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.04996,
+     "expectancy_ci95": [
+      -0.06182,
+      -0.0381
+     ],
+     "expectancy_pct": -19.98,
+     "total_pnl_sol": -0.3997,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "horizon": 8
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SL30 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06257,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06257,
+     "expectancy_ci95": [
+      -0.07269,
+      -0.05244
+     ],
+     "expectancy_pct": -25.03,
+     "total_pnl_sol": -1.2513,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "horizon": 17,
+      "sl": 3
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SL30 B<=10",
+     "n_trades": 50,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.07587,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.07587,
+     "expectancy_ci95": [
+      -0.08158,
+      -0.07016
+     ],
+     "expectancy_pct": -30.35,
+     "total_pnl_sol": -3.7936,
+     "max_losing_streak": 50,
+     "exit_reasons": {
+      "sl": 27,
+      "horizon": 23
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SL50 idle150",
+     "n_trades": 80,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "win_rate": 0.025,
+     "avg_win_sol": 0.48535,
+     "avg_loss_sol": -0.10193,
+     "win_loss_ratio": 4.762,
+     "expectancy_sol": -0.08725,
+     "expectancy_ci95": [
+      -0.10896,
+      -0.06553
+     ],
+     "expectancy_pct": -34.9,
+     "total_pnl_sol": -6.9796,
+     "max_losing_streak": 46,
+     "exit_reasons": {
+      "idle": 61,
+      "sl": 15,
+      "tp": 2,
+      "horizon": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SL50 idle150 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.04861,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.04861,
+     "expectancy_ci95": [
+      -0.06003,
+      -0.03719
+     ],
+     "expectancy_pct": -19.45,
+     "total_pnl_sol": -0.3889,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 8
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SL50 idle150 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.0624,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.0624,
+     "expectancy_ci95": [
+      -0.07283,
+      -0.05198
+     ],
+     "expectancy_pct": -24.96,
+     "total_pnl_sol": -1.2481,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "idle": 19,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SL50 idle150 B<=10",
+     "n_trades": 50,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.08195,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.08195,
+     "expectancy_ci95": [
+      -0.08872,
+      -0.07518
+     ],
+     "expectancy_pct": -32.78,
+     "total_pnl_sol": -4.0973,
+     "max_losing_streak": 50,
+     "exit_reasons": {
+      "idle": 49,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SL50",
+     "n_trades": 80,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "win_rate": 0.025,
+     "avg_win_sol": 0.48535,
+     "avg_loss_sol": -0.10327,
+     "win_loss_ratio": 4.7,
+     "expectancy_sol": -0.08856,
+     "expectancy_ci95": [
+      -0.11031,
+      -0.0668
+     ],
+     "expectancy_pct": -35.42,
+     "total_pnl_sol": -7.0845,
+     "max_losing_streak": 46,
+     "exit_reasons": {
+      "horizon": 61,
+      "sl": 17,
+      "tp": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SL50 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.04996,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.04996,
+     "expectancy_ci95": [
+      -0.06182,
+      -0.0381
+     ],
+     "expectancy_pct": -19.98,
+     "total_pnl_sol": -0.3997,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "horizon": 8
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SL50 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06319,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06319,
+     "expectancy_ci95": [
+      -0.07374,
+      -0.05263
+     ],
+     "expectancy_pct": -25.27,
+     "total_pnl_sol": -1.2637,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "horizon": 20
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP200 SL50 B<=10",
+     "n_trades": 50,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.0831,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.0831,
+     "expectancy_ci95": [
+      -0.08991,
+      -0.0763
+     ],
+     "expectancy_pct": -33.24,
+     "total_pnl_sol": -4.1552,
+     "max_losing_streak": 50,
+     "exit_reasons": {
+      "horizon": 50
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SLfloor idle150",
+     "n_trades": 80,
+     "tp_hits": 4,
+     "hit_rate": 0.05,
+     "win_rate": 0.05,
+     "avg_win_sol": 0.26237,
+     "avg_loss_sol": -0.10232,
+     "win_loss_ratio": 2.564,
+     "expectancy_sol": -0.08408,
+     "expectancy_ci95": [
+      -0.10394,
+      -0.06422
+     ],
+     "expectancy_pct": -33.63,
+     "total_pnl_sol": -6.7266,
+     "max_losing_streak": 37,
+     "exit_reasons": {
+      "idle": 73,
+      "tp": 4,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SLfloor idle150 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.05212,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.05212,
+     "expectancy_ci95": [
+      -0.06757,
+      -0.03667
+     ],
+     "expectancy_pct": -20.85,
+     "total_pnl_sol": -0.4169,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 8
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SLfloor idle150 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06193,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06193,
+     "expectancy_ci95": [
+      -0.07403,
+      -0.04983
+     ],
+     "expectancy_pct": -24.77,
+     "total_pnl_sol": -1.2386,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "idle": 19,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SLfloor idle150 B<=10",
+     "n_trades": 50,
+     "tp_hits": 1,
+     "hit_rate": 0.02,
+     "win_rate": 0.02,
+     "avg_win_sol": 0.28363,
+     "avg_loss_sol": -0.084,
+     "win_loss_ratio": 3.377,
+     "expectancy_sol": -0.07665,
+     "expectancy_ci95": [
+      -0.0937,
+      -0.0596
+     ],
+     "expectancy_pct": -30.66,
+     "total_pnl_sol": -3.8324,
+     "max_losing_streak": 30,
+     "exit_reasons": {
+      "idle": 48,
+      "horizon": 1,
+      "tp": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SLfloor",
+     "n_trades": 80,
+     "tp_hits": 4,
+     "hit_rate": 0.05,
+     "win_rate": 0.05,
+     "avg_win_sol": 0.26237,
+     "avg_loss_sol": -0.10366,
+     "win_loss_ratio": 2.531,
+     "expectancy_sol": -0.08536,
+     "expectancy_ci95": [
+      -0.10528,
+      -0.06543
+     ],
+     "expectancy_pct": -34.14,
+     "total_pnl_sol": -6.8284,
+     "max_losing_streak": 37,
+     "exit_reasons": {
+      "horizon": 76,
+      "tp": 4
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SLfloor B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.05346,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.05346,
+     "expectancy_ci95": [
+      -0.06908,
+      -0.03785
+     ],
+     "expectancy_pct": -21.39,
+     "total_pnl_sol": -0.4277,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "horizon": 8
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SLfloor B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06271,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06271,
+     "expectancy_ci95": [
+      -0.07493,
+      -0.05049
+     ],
+     "expectancy_pct": -25.08,
+     "total_pnl_sol": -1.2542,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "horizon": 20
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SLfloor B<=10",
+     "n_trades": 50,
+     "tp_hits": 1,
+     "hit_rate": 0.02,
+     "win_rate": 0.02,
+     "avg_win_sol": 0.28363,
+     "avg_loss_sol": -0.08503,
+     "win_loss_ratio": 3.336,
+     "expectancy_sol": -0.07766,
+     "expectancy_ci95": [
+      -0.09475,
+      -0.06056
+     ],
+     "expectancy_pct": -31.06,
+     "total_pnl_sol": -3.8828,
+     "max_losing_streak": 30,
+     "exit_reasons": {
+      "horizon": 49,
+      "tp": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SL30 idle150",
+     "n_trades": 80,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "win_rate": 0.05,
+     "avg_win_sol": 0.13327,
+     "avg_loss_sol": -0.08558,
+     "win_loss_ratio": 1.557,
+     "expectancy_sol": -0.07463,
+     "expectancy_ci95": [
+      -0.08875,
+      -0.06052
+     ],
+     "expectancy_pct": -29.85,
+     "total_pnl_sol": -5.9708,
+     "max_losing_streak": 37,
+     "exit_reasons": {
+      "sl": 55,
+      "idle": 22,
+      "tp": 2,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SL30 idle150 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.05212,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.05212,
+     "expectancy_ci95": [
+      -0.06757,
+      -0.03667
+     ],
+     "expectancy_pct": -20.85,
+     "total_pnl_sol": -0.4169,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 8
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SL30 idle150 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.0613,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.0613,
+     "expectancy_ci95": [
+      -0.07291,
+      -0.04969
+     ],
+     "expectancy_pct": -24.52,
+     "total_pnl_sol": -1.226,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "idle": 16,
+      "sl": 3,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SL30 idle150 B<=10",
+     "n_trades": 50,
+     "tp_hits": 1,
+     "hit_rate": 0.02,
+     "win_rate": 0.02,
+     "avg_win_sol": 0.28363,
+     "avg_loss_sol": -0.07474,
+     "win_loss_ratio": 3.795,
+     "expectancy_sol": -0.06758,
+     "expectancy_ci95": [
+      -0.08328,
+      -0.05187
+     ],
+     "expectancy_pct": -27.03,
+     "total_pnl_sol": -3.3788,
+     "max_losing_streak": 30,
+     "exit_reasons": {
+      "sl": 27,
+      "idle": 21,
+      "horizon": 1,
+      "tp": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SL30",
+     "n_trades": 80,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "win_rate": 0.05,
+     "avg_win_sol": 0.13327,
+     "avg_loss_sol": -0.08584,
+     "win_loss_ratio": 1.553,
+     "expectancy_sol": -0.07488,
+     "expectancy_ci95": [
+      -0.089,
+      -0.06077
+     ],
+     "expectancy_pct": -29.95,
+     "total_pnl_sol": -5.9907,
+     "max_losing_streak": 37,
+     "exit_reasons": {
+      "sl": 56,
+      "horizon": 22,
+      "tp": 2
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SL30 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.05346,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.05346,
+     "expectancy_ci95": [
+      -0.06908,
+      -0.03785
+     ],
+     "expectancy_pct": -21.39,
+     "total_pnl_sol": -0.4277,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "horizon": 8
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SL30 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06184,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06184,
+     "expectancy_ci95": [
+      -0.0734,
+      -0.05029
+     ],
+     "expectancy_pct": -24.74,
+     "total_pnl_sol": -1.2369,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "horizon": 17,
+      "sl": 3
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SL30 B<=10",
+     "n_trades": 50,
+     "tp_hits": 1,
+     "hit_rate": 0.02,
+     "win_rate": 0.02,
+     "avg_win_sol": 0.28363,
+     "avg_loss_sol": -0.07515,
+     "win_loss_ratio": 3.774,
+     "expectancy_sol": -0.06797,
+     "expectancy_ci95": [
+      -0.08368,
+      -0.05227
+     ],
+     "expectancy_pct": -27.19,
+     "total_pnl_sol": -3.3987,
+     "max_losing_streak": 30,
+     "exit_reasons": {
+      "sl": 28,
+      "horizon": 21,
+      "tp": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SL50 idle150",
+     "n_trades": 80,
+     "tp_hits": 4,
+     "hit_rate": 0.05,
+     "win_rate": 0.05,
+     "avg_win_sol": 0.26237,
+     "avg_loss_sol": -0.10129,
+     "win_loss_ratio": 2.59,
+     "expectancy_sol": -0.0831,
+     "expectancy_ci95": [
+      -0.10262,
+      -0.06359
+     ],
+     "expectancy_pct": -33.24,
+     "total_pnl_sol": -6.6483,
+     "max_losing_streak": 37,
+     "exit_reasons": {
+      "idle": 55,
+      "sl": 19,
+      "tp": 4,
+      "horizon": 2
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SL50 idle150 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.05212,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.05212,
+     "expectancy_ci95": [
+      -0.06757,
+      -0.03667
+     ],
+     "expectancy_pct": -20.85,
+     "total_pnl_sol": -0.4169,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 8
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SL50 idle150 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06193,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06193,
+     "expectancy_ci95": [
+      -0.07403,
+      -0.04983
+     ],
+     "expectancy_pct": -24.77,
+     "total_pnl_sol": -1.2386,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "idle": 19,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SL50 idle150 B<=10",
+     "n_trades": 50,
+     "tp_hits": 1,
+     "hit_rate": 0.02,
+     "win_rate": 0.02,
+     "avg_win_sol": 0.28363,
+     "avg_loss_sol": -0.08287,
+     "win_loss_ratio": 3.423,
+     "expectancy_sol": -0.07554,
+     "expectancy_ci95": [
+      -0.09219,
+      -0.05889
+     ],
+     "expectancy_pct": -30.22,
+     "total_pnl_sol": -3.777,
+     "max_losing_streak": 30,
+     "exit_reasons": {
+      "idle": 46,
+      "sl": 2,
+      "horizon": 1,
+      "tp": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SL50",
+     "n_trades": 80,
+     "tp_hits": 4,
+     "hit_rate": 0.05,
+     "win_rate": 0.05,
+     "avg_win_sol": 0.26237,
+     "avg_loss_sol": -0.10239,
+     "win_loss_ratio": 2.562,
+     "expectancy_sol": -0.08416,
+     "expectancy_ci95": [
+      -0.10372,
+      -0.06459
+     ],
+     "expectancy_pct": -33.66,
+     "total_pnl_sol": -6.7324,
+     "max_losing_streak": 37,
+     "exit_reasons": {
+      "horizon": 55,
+      "sl": 21,
+      "tp": 4
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SL50 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.05346,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.05346,
+     "expectancy_ci95": [
+      -0.06908,
+      -0.03785
+     ],
+     "expectancy_pct": -21.39,
+     "total_pnl_sol": -0.4277,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "horizon": 8
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SL50 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06271,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06271,
+     "expectancy_ci95": [
+      -0.07493,
+      -0.05049
+     ],
+     "expectancy_pct": -25.08,
+     "total_pnl_sol": -1.2542,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "horizon": 20
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP100 SL50 B<=10",
+     "n_trades": 50,
+     "tp_hits": 1,
+     "hit_rate": 0.02,
+     "win_rate": 0.02,
+     "avg_win_sol": 0.28363,
+     "avg_loss_sol": -0.08388,
+     "win_loss_ratio": 3.381,
+     "expectancy_sol": -0.07653,
+     "expectancy_ci95": [
+      -0.09323,
+      -0.05984
+     ],
+     "expectancy_pct": -30.61,
+     "total_pnl_sol": -3.8267,
+     "max_losing_streak": 30,
+     "exit_reasons": {
+      "horizon": 47,
+      "sl": 2,
+      "tp": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SLfloor idle150",
+     "n_trades": 80,
+     "tp_hits": 3,
+     "hit_rate": 0.0375,
+     "win_rate": 0.0375,
+     "avg_win_sol": 0.364,
+     "avg_loss_sol": -0.10216,
+     "win_loss_ratio": 3.563,
+     "expectancy_sol": -0.08468,
+     "expectancy_ci95": [
+      -0.10628,
+      -0.06308
+     ],
+     "expectancy_pct": -33.87,
+     "total_pnl_sol": -6.7745,
+     "max_losing_streak": 46,
+     "exit_reasons": {
+      "idle": 74,
+      "tp": 3,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SLfloor idle150 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.05212,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.05212,
+     "expectancy_ci95": [
+      -0.06757,
+      -0.03667
+     ],
+     "expectancy_pct": -20.85,
+     "total_pnl_sol": -0.4169,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 8
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SLfloor idle150 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06193,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06193,
+     "expectancy_ci95": [
+      -0.07403,
+      -0.04983
+     ],
+     "expectancy_pct": -24.77,
+     "total_pnl_sol": -1.2386,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "idle": 19,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SLfloor idle150 B<=10",
+     "n_trades": 50,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.08413,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.08413,
+     "expectancy_ci95": [
+      -0.09325,
+      -0.07501
+     ],
+     "expectancy_pct": -33.65,
+     "total_pnl_sol": -4.2065,
+     "max_losing_streak": 50,
+     "exit_reasons": {
+      "idle": 49,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SLfloor",
+     "n_trades": 80,
+     "tp_hits": 3,
+     "hit_rate": 0.0375,
+     "win_rate": 0.0375,
+     "avg_win_sol": 0.364,
+     "avg_loss_sol": -0.10357,
+     "win_loss_ratio": 3.515,
+     "expectancy_sol": -0.08604,
+     "expectancy_ci95": [
+      -0.10769,
+      -0.06438
+     ],
+     "expectancy_pct": -34.41,
+     "total_pnl_sol": -6.8829,
+     "max_losing_streak": 46,
+     "exit_reasons": {
+      "horizon": 77,
+      "tp": 3
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SLfloor B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.05346,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.05346,
+     "expectancy_ci95": [
+      -0.06908,
+      -0.03785
+     ],
+     "expectancy_pct": -21.39,
+     "total_pnl_sol": -0.4277,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "horizon": 8
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SLfloor B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06271,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06271,
+     "expectancy_ci95": [
+      -0.07493,
+      -0.05049
+     ],
+     "expectancy_pct": -25.08,
+     "total_pnl_sol": -1.2542,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "horizon": 20
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SLfloor B<=10",
+     "n_trades": 50,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.08527,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.08527,
+     "expectancy_ci95": [
+      -0.09441,
+      -0.07612
+     ],
+     "expectancy_pct": -34.11,
+     "total_pnl_sol": -4.2634,
+     "max_losing_streak": 50,
+     "exit_reasons": {
+      "horizon": 50
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SL30 idle150",
+     "n_trades": 80,
+     "tp_hits": 1,
+     "hit_rate": 0.0125,
+     "win_rate": 0.0375,
+     "avg_win_sol": 0.13523,
+     "avg_loss_sol": -0.08556,
+     "win_loss_ratio": 1.581,
+     "expectancy_sol": -0.07728,
+     "expectancy_ci95": [
+      -0.09108,
+      -0.06348
+     ],
+     "expectancy_pct": -30.91,
+     "total_pnl_sol": -6.1822,
+     "max_losing_streak": 46,
+     "exit_reasons": {
+      "sl": 56,
+      "idle": 22,
+      "tp": 1,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SL30 idle150 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.05212,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.05212,
+     "expectancy_ci95": [
+      -0.06757,
+      -0.03667
+     ],
+     "expectancy_pct": -20.85,
+     "total_pnl_sol": -0.4169,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 8
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SL30 idle150 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.0613,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.0613,
+     "expectancy_ci95": [
+      -0.07291,
+      -0.04969
+     ],
+     "expectancy_pct": -24.52,
+     "total_pnl_sol": -1.226,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "idle": 16,
+      "sl": 3,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SL30 idle150 B<=10",
+     "n_trades": 50,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.07493,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.07493,
+     "expectancy_ci95": [
+      -0.08195,
+      -0.06791
+     ],
+     "expectancy_pct": -29.97,
+     "total_pnl_sol": -3.7464,
+     "max_losing_streak": 50,
+     "exit_reasons": {
+      "sl": 28,
+      "idle": 21,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SL30",
+     "n_trades": 80,
+     "tp_hits": 1,
+     "hit_rate": 0.0125,
+     "win_rate": 0.0375,
+     "avg_win_sol": 0.13523,
+     "avg_loss_sol": -0.08582,
+     "win_loss_ratio": 1.576,
+     "expectancy_sol": -0.07753,
+     "expectancy_ci95": [
+      -0.09132,
+      -0.06373
+     ],
+     "expectancy_pct": -31.01,
+     "total_pnl_sol": -6.2022,
+     "max_losing_streak": 46,
+     "exit_reasons": {
+      "sl": 57,
+      "horizon": 22,
+      "tp": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SL30 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.05346,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.05346,
+     "expectancy_ci95": [
+      -0.06908,
+      -0.03785
+     ],
+     "expectancy_pct": -21.39,
+     "total_pnl_sol": -0.4277,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "horizon": 8
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SL30 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06184,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06184,
+     "expectancy_ci95": [
+      -0.0734,
+      -0.05029
+     ],
+     "expectancy_pct": -24.74,
+     "total_pnl_sol": -1.2369,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "horizon": 17,
+      "sl": 3
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SL30 B<=10",
+     "n_trades": 50,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.07533,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.07533,
+     "expectancy_ci95": [
+      -0.08232,
+      -0.06834
+     ],
+     "expectancy_pct": -30.13,
+     "total_pnl_sol": -3.7664,
+     "max_losing_streak": 50,
+     "exit_reasons": {
+      "sl": 29,
+      "horizon": 21
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SL50 idle150",
+     "n_trades": 80,
+     "tp_hits": 3,
+     "hit_rate": 0.0375,
+     "win_rate": 0.0375,
+     "avg_win_sol": 0.364,
+     "avg_loss_sol": -0.10114,
+     "win_loss_ratio": 3.599,
+     "expectancy_sol": -0.0837,
+     "expectancy_ci95": [
+      -0.10499,
+      -0.06242
+     ],
+     "expectancy_pct": -33.48,
+     "total_pnl_sol": -6.6962,
+     "max_losing_streak": 46,
+     "exit_reasons": {
+      "idle": 56,
+      "sl": 19,
+      "tp": 3,
+      "horizon": 2
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SL50 idle150 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.05212,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.05212,
+     "expectancy_ci95": [
+      -0.06757,
+      -0.03667
+     ],
+     "expectancy_pct": -20.85,
+     "total_pnl_sol": -0.4169,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 8
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SL50 idle150 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06193,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06193,
+     "expectancy_ci95": [
+      -0.07403,
+      -0.04983
+     ],
+     "expectancy_pct": -24.77,
+     "total_pnl_sol": -1.2386,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "idle": 19,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SL50 idle150 B<=10",
+     "n_trades": 50,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.08302,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.08302,
+     "expectancy_ci95": [
+      -0.09144,
+      -0.0746
+     ],
+     "expectancy_pct": -33.21,
+     "total_pnl_sol": -4.1511,
+     "max_losing_streak": 50,
+     "exit_reasons": {
+      "idle": 47,
+      "sl": 2,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SL50",
+     "n_trades": 80,
+     "tp_hits": 3,
+     "hit_rate": 0.0375,
+     "win_rate": 0.0375,
+     "avg_win_sol": 0.364,
+     "avg_loss_sol": -0.10232,
+     "win_loss_ratio": 3.557,
+     "expectancy_sol": -0.08484,
+     "expectancy_ci95": [
+      -0.10616,
+      -0.06351
+     ],
+     "expectancy_pct": -33.93,
+     "total_pnl_sol": -6.7869,
+     "max_losing_streak": 46,
+     "exit_reasons": {
+      "horizon": 56,
+      "sl": 21,
+      "tp": 3
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SL50 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.05346,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.05346,
+     "expectancy_ci95": [
+      -0.06908,
+      -0.03785
+     ],
+     "expectancy_pct": -21.39,
+     "total_pnl_sol": -0.4277,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "horizon": 8
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SL50 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06271,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06271,
+     "expectancy_ci95": [
+      -0.07493,
+      -0.05049
+     ],
+     "expectancy_pct": -25.08,
+     "total_pnl_sol": -1.2542,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "horizon": 20
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP150 SL50 B<=10",
+     "n_trades": 50,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.08415,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.08415,
+     "expectancy_ci95": [
+      -0.09259,
+      -0.0757
+     ],
+     "expectancy_pct": -33.66,
+     "total_pnl_sol": -4.2073,
+     "max_losing_streak": 50,
+     "exit_reasons": {
+      "horizon": 48,
+      "sl": 2
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SLfloor idle150",
+     "n_trades": 80,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "win_rate": 0.025,
+     "avg_win_sol": 0.48535,
+     "avg_loss_sol": -0.10321,
+     "win_loss_ratio": 4.702,
+     "expectancy_sol": -0.0885,
+     "expectancy_ci95": [
+      -0.11086,
+      -0.06614
+     ],
+     "expectancy_pct": -35.4,
+     "total_pnl_sol": -7.0801,
+     "max_losing_streak": 46,
+     "exit_reasons": {
+      "idle": 75,
+      "tp": 2,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SLfloor idle150 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.05212,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.05212,
+     "expectancy_ci95": [
+      -0.06757,
+      -0.03667
+     ],
+     "expectancy_pct": -20.85,
+     "total_pnl_sol": -0.4169,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 8
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SLfloor idle150 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06193,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06193,
+     "expectancy_ci95": [
+      -0.07403,
+      -0.04983
+     ],
+     "expectancy_pct": -24.77,
+     "total_pnl_sol": -1.2386,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "idle": 19,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SLfloor idle150 B<=10",
+     "n_trades": 50,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.08413,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.08413,
+     "expectancy_ci95": [
+      -0.09325,
+      -0.07501
+     ],
+     "expectancy_pct": -33.65,
+     "total_pnl_sol": -4.2065,
+     "max_losing_streak": 50,
+     "exit_reasons": {
+      "idle": 49,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SLfloor",
+     "n_trades": 80,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "win_rate": 0.025,
+     "avg_win_sol": 0.48535,
+     "avg_loss_sol": -0.1046,
+     "win_loss_ratio": 4.64,
+     "expectancy_sol": -0.08985,
+     "expectancy_ci95": [
+      -0.11226,
+      -0.06745
+     ],
+     "expectancy_pct": -35.94,
+     "total_pnl_sol": -7.1884,
+     "max_losing_streak": 46,
+     "exit_reasons": {
+      "horizon": 78,
+      "tp": 2
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SLfloor B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.05346,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.05346,
+     "expectancy_ci95": [
+      -0.06908,
+      -0.03785
+     ],
+     "expectancy_pct": -21.39,
+     "total_pnl_sol": -0.4277,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "horizon": 8
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SLfloor B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06271,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06271,
+     "expectancy_ci95": [
+      -0.07493,
+      -0.05049
+     ],
+     "expectancy_pct": -25.08,
+     "total_pnl_sol": -1.2542,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "horizon": 20
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SLfloor B<=10",
+     "n_trades": 50,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.08527,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.08527,
+     "expectancy_ci95": [
+      -0.09441,
+      -0.07612
+     ],
+     "expectancy_pct": -34.11,
+     "total_pnl_sol": -4.2634,
+     "max_losing_streak": 50,
+     "exit_reasons": {
+      "horizon": 50
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SL30 idle150",
+     "n_trades": 80,
+     "tp_hits": 1,
+     "hit_rate": 0.0125,
+     "win_rate": 0.0375,
+     "avg_win_sol": 0.17776,
+     "avg_loss_sol": -0.08556,
+     "win_loss_ratio": 2.078,
+     "expectancy_sol": -0.07568,
+     "expectancy_ci95": [
+      -0.0921,
+      -0.05927
+     ],
+     "expectancy_pct": -30.27,
+     "total_pnl_sol": -6.0546,
+     "max_losing_streak": 46,
+     "exit_reasons": {
+      "sl": 56,
+      "idle": 22,
+      "tp": 1,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SL30 idle150 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.05212,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.05212,
+     "expectancy_ci95": [
+      -0.06757,
+      -0.03667
+     ],
+     "expectancy_pct": -20.85,
+     "total_pnl_sol": -0.4169,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 8
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SL30 idle150 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.0613,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.0613,
+     "expectancy_ci95": [
+      -0.07291,
+      -0.04969
+     ],
+     "expectancy_pct": -24.52,
+     "total_pnl_sol": -1.226,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "idle": 16,
+      "sl": 3,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SL30 idle150 B<=10",
+     "n_trades": 50,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.07493,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.07493,
+     "expectancy_ci95": [
+      -0.08195,
+      -0.06791
+     ],
+     "expectancy_pct": -29.97,
+     "total_pnl_sol": -3.7464,
+     "max_losing_streak": 50,
+     "exit_reasons": {
+      "sl": 28,
+      "idle": 21,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SL30",
+     "n_trades": 80,
+     "tp_hits": 1,
+     "hit_rate": 0.0125,
+     "win_rate": 0.0375,
+     "avg_win_sol": 0.17776,
+     "avg_loss_sol": -0.08582,
+     "win_loss_ratio": 2.071,
+     "expectancy_sol": -0.07593,
+     "expectancy_ci95": [
+      -0.09234,
+      -0.05952
+     ],
+     "expectancy_pct": -30.37,
+     "total_pnl_sol": -6.0746,
+     "max_losing_streak": 46,
+     "exit_reasons": {
+      "sl": 57,
+      "horizon": 22,
+      "tp": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SL30 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.05346,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.05346,
+     "expectancy_ci95": [
+      -0.06908,
+      -0.03785
+     ],
+     "expectancy_pct": -21.39,
+     "total_pnl_sol": -0.4277,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "horizon": 8
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SL30 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06184,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06184,
+     "expectancy_ci95": [
+      -0.0734,
+      -0.05029
+     ],
+     "expectancy_pct": -24.74,
+     "total_pnl_sol": -1.2369,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "horizon": 17,
+      "sl": 3
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SL30 B<=10",
+     "n_trades": 50,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.07533,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.07533,
+     "expectancy_ci95": [
+      -0.08232,
+      -0.06834
+     ],
+     "expectancy_pct": -30.13,
+     "total_pnl_sol": -3.7664,
+     "max_losing_streak": 50,
+     "exit_reasons": {
+      "sl": 29,
+      "horizon": 21
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SL50 idle150",
+     "n_trades": 80,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "win_rate": 0.025,
+     "avg_win_sol": 0.48535,
+     "avg_loss_sol": -0.10199,
+     "win_loss_ratio": 4.759,
+     "expectancy_sol": -0.0873,
+     "expectancy_ci95": [
+      -0.10932,
+      -0.06528
+     ],
+     "expectancy_pct": -34.92,
+     "total_pnl_sol": -6.9843,
+     "max_losing_streak": 46,
+     "exit_reasons": {
+      "idle": 56,
+      "sl": 20,
+      "tp": 2,
+      "horizon": 2
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SL50 idle150 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.05212,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.05212,
+     "expectancy_ci95": [
+      -0.06757,
+      -0.03667
+     ],
+     "expectancy_pct": -20.85,
+     "total_pnl_sol": -0.4169,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 8
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SL50 idle150 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06193,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06193,
+     "expectancy_ci95": [
+      -0.07403,
+      -0.04983
+     ],
+     "expectancy_pct": -24.77,
+     "total_pnl_sol": -1.2386,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "idle": 19,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SL50 idle150 B<=10",
+     "n_trades": 50,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.08302,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.08302,
+     "expectancy_ci95": [
+      -0.09144,
+      -0.0746
+     ],
+     "expectancy_pct": -33.21,
+     "total_pnl_sol": -4.1511,
+     "max_losing_streak": 50,
+     "exit_reasons": {
+      "idle": 47,
+      "sl": 2,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SL50",
+     "n_trades": 80,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "win_rate": 0.025,
+     "avg_win_sol": 0.48535,
+     "avg_loss_sol": -0.10315,
+     "win_loss_ratio": 4.705,
+     "expectancy_sol": -0.08844,
+     "expectancy_ci95": [
+      -0.11049,
+      -0.06638
+     ],
+     "expectancy_pct": -35.37,
+     "total_pnl_sol": -7.075,
+     "max_losing_streak": 46,
+     "exit_reasons": {
+      "horizon": 56,
+      "sl": 22,
+      "tp": 2
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SL50 B<=3",
+     "n_trades": 8,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.05346,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.05346,
+     "expectancy_ci95": [
+      -0.06908,
+      -0.03785
+     ],
+     "expectancy_pct": -21.39,
+     "total_pnl_sol": -0.4277,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "horizon": 8
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SL50 B<=5",
+     "n_trades": 20,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.06271,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.06271,
+     "expectancy_ci95": [
+      -0.07493,
+      -0.05049
+     ],
+     "expectancy_pct": -25.08,
+     "total_pnl_sol": -1.2542,
+     "max_losing_streak": 20,
+     "exit_reasons": {
+      "horizon": 20
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 TP200 SL50 B<=10",
+     "n_trades": 50,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.08415,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.08415,
+     "expectancy_ci95": [
+      -0.09259,
+      -0.0757
+     ],
+     "expectancy_pct": -33.66,
+     "total_pnl_sol": -4.2073,
+     "max_losing_streak": 50,
+     "exit_reasons": {
+      "horizon": 48,
+      "sl": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 SLfloor idle150 trail30/20",
+     "n_trades": 80,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.2375,
+     "avg_win_sol": 0.05919,
+     "avg_loss_sol": -0.09737,
+     "win_loss_ratio": 0.608,
+     "expectancy_sol": -0.06019,
+     "expectancy_ci95": [
+      -0.07805,
+      -0.04233
+     ],
+     "expectancy_pct": -24.08,
+     "total_pnl_sol": -4.8152,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 23,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail30/20",
+     "n_trades": 80,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "win_rate": 0.2375,
+     "avg_win_sol": 0.064,
+     "avg_loss_sol": -0.09737,
+     "win_loss_ratio": 0.657,
+     "expectancy_sol": -0.05905,
+     "expectancy_ci95": [
+      -0.07774,
+      -0.04035
+     ],
+     "expectancy_pct": -23.62,
+     "total_pnl_sol": -4.7237,
+     "max_losing_streak": 8,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 21,
+      "tp": 2,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 SLfloor idle150 trail50/30",
+     "n_trades": 80,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.1,
+     "avg_win_sol": 0.10739,
+     "avg_loss_sol": -0.0958,
+     "win_loss_ratio": 1.121,
+     "expectancy_sol": -0.07549,
+     "expectancy_ci95": [
+      -0.09278,
+      -0.05819
+     ],
+     "expectancy_pct": -30.19,
+     "total_pnl_sol": -6.0389,
+     "max_losing_streak": 21,
+     "exit_reasons": {
+      "idle": 63,
+      "trail": 15,
+      "horizon": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail50/30",
+     "n_trades": 80,
+     "tp_hits": 3,
+     "hit_rate": 0.0375,
+     "win_rate": 0.1,
+     "avg_win_sol": 0.12345,
+     "avg_loss_sol": -0.0958,
+     "win_loss_ratio": 1.289,
+     "expectancy_sol": -0.07388,
+     "expectancy_ci95": [
+      -0.09243,
+      -0.05533
+     ],
+     "expectancy_pct": -29.55,
+     "total_pnl_sol": -5.9103,
+     "max_losing_streak": 21,
+     "exit_reasons": {
+      "idle": 63,
+      "trail": 12,
+      "tp": 3,
+      "horizon": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 SLfloor idle150 trail50/20",
+     "n_trades": 80,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.1375,
+     "avg_win_sol": 0.09115,
+     "avg_loss_sol": -0.09871,
+     "win_loss_ratio": 0.923,
+     "expectancy_sol": -0.0726,
+     "expectancy_ci95": [
+      -0.09008,
+      -0.05512
+     ],
+     "expectancy_pct": -29.04,
+     "total_pnl_sol": -5.8081,
+     "max_losing_streak": 15,
+     "exit_reasons": {
+      "idle": 63,
+      "trail": 15,
+      "horizon": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail50/20",
+     "n_trades": 80,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "win_rate": 0.1375,
+     "avg_win_sol": 0.09947,
+     "avg_loss_sol": -0.09871,
+     "win_loss_ratio": 1.008,
+     "expectancy_sol": -0.07146,
+     "expectancy_ci95": [
+      -0.08983,
+      -0.05309
+     ],
+     "expectancy_pct": -28.58,
+     "total_pnl_sol": -5.7166,
+     "max_losing_streak": 15,
+     "exit_reasons": {
+      "idle": 63,
+      "trail": 13,
+      "tp": 2,
+      "horizon": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 SLfloor idle150 trail100/30",
+     "n_trades": 80,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0625,
+     "avg_win_sol": 0.18317,
+     "avg_loss_sol": -0.10091,
+     "win_loss_ratio": 1.815,
+     "expectancy_sol": -0.08316,
+     "expectancy_ci95": [
+      -0.10061,
+      -0.0657
+     ],
+     "expectancy_pct": -33.26,
+     "total_pnl_sol": -6.6524,
+     "max_losing_streak": 22,
+     "exit_reasons": {
+      "idle": 72,
+      "trail": 5,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail100/30",
+     "n_trades": 80,
+     "tp_hits": 5,
+     "hit_rate": 0.0625,
+     "win_rate": 0.0625,
+     "avg_win_sol": 0.26739,
+     "avg_loss_sol": -0.10091,
+     "win_loss_ratio": 2.65,
+     "expectancy_sol": -0.07789,
+     "expectancy_ci95": [
+      -0.09922,
+      -0.05656
+     ],
+     "expectancy_pct": -31.16,
+     "total_pnl_sol": -6.2313,
+     "max_losing_streak": 22,
+     "exit_reasons": {
+      "idle": 72,
+      "tp": 5,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy2",
+     "n_trades": 80,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.2125,
+     "avg_win_sol": 0.07514,
+     "avg_loss_sol": -0.09199,
+     "win_loss_ratio": 0.817,
+     "expectancy_sol": -0.05648,
+     "expectancy_ci95": [
+      -0.0744,
+      -0.03855
+     ],
+     "expectancy_pct": -22.59,
+     "total_pnl_sol": -4.518,
+     "max_losing_streak": 12,
+     "exit_reasons": {
+      "idle": 55,
+      "big_buy": 24,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy5",
+     "n_trades": 80,
+     "tp_hits": 3,
+     "hit_rate": 0.0375,
+     "win_rate": 0.075,
+     "avg_win_sol": 0.2,
+     "avg_loss_sol": -0.1005,
+     "win_loss_ratio": 1.99,
+     "expectancy_sol": -0.07796,
+     "expectancy_ci95": [
+      -0.09799,
+      -0.05793
+     ],
+     "expectancy_pct": -31.19,
+     "total_pnl_sol": -6.2371,
+     "max_losing_streak": 21,
+     "exit_reasons": {
+      "idle": 71,
+      "big_buy": 4,
+      "tp": 3,
+      "horizon": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy10",
+     "n_trades": 80,
+     "tp_hits": 4,
+     "hit_rate": 0.05,
+     "win_rate": 0.0625,
+     "avg_win_sol": 0.2689,
+     "avg_loss_sol": -0.10091,
+     "win_loss_ratio": 2.665,
+     "expectancy_sol": -0.0778,
+     "expectancy_ci95": [
+      -0.09921,
+      -0.05639
+     ],
+     "expectancy_pct": -31.12,
+     "total_pnl_sol": -6.2238,
+     "max_losing_streak": 22,
+     "exit_reasons": {
+      "idle": 72,
+      "tp": 4,
+      "horizon": 3,
+      "big_buy": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 oracle:max",
+     "n_trades": 80,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.5875,
+     "avg_win_sol": 0.12167,
+     "avg_loss_sol": -0.00848,
+     "win_loss_ratio": 14.352,
+     "expectancy_sol": 0.06799,
+     "expectancy_ci95": [
+      0.0352,
+      0.10077
+     ],
+     "expectancy_pct": 27.19,
+     "total_pnl_sol": 5.4389,
+     "max_losing_streak": 5,
+     "exit_reasons": {
+      "oracle_max": 80
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 oracle:max",
+     "n_trades": 80,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.525,
+     "avg_win_sol": 0.11538,
+     "avg_loss_sol": -0.00909,
+     "win_loss_ratio": 12.693,
+     "expectancy_sol": 0.05626,
+     "expectancy_ci95": [
+      0.02438,
+      0.08814
+     ],
+     "expectancy_pct": 22.5,
+     "total_pnl_sol": 4.5007,
+     "max_losing_streak": 5,
+     "exit_reasons": {
+      "oracle_max": 80
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 oracle:pre_dump",
+     "n_trades": 80,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.3,
+     "avg_win_sol": 0.09783,
+     "avg_loss_sol": -0.03061,
+     "win_loss_ratio": 3.196,
+     "expectancy_sol": 0.00792,
+     "expectancy_ci95": [
+      -0.00929,
+      0.02513
+     ],
+     "expectancy_pct": 3.17,
+     "total_pnl_sol": 0.6337,
+     "max_losing_streak": 7,
+     "exit_reasons": {
+      "pre_dump": 80
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 oracle:pre_dump",
+     "n_trades": 80,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.25,
+     "avg_win_sol": 0.08796,
+     "avg_loss_sol": -0.03258,
+     "win_loss_ratio": 2.7,
+     "expectancy_sol": -0.00245,
+     "expectancy_ci95": [
+      -0.01726,
+      0.01237
+     ],
+     "expectancy_pct": -0.98,
+     "total_pnl_sol": -0.1957,
+     "max_losing_streak": 9,
+     "exit_reasons": {
+      "pre_dump": 80
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 lat0",
+     "n_trades": 80,
+     "tp_hits": 5,
+     "hit_rate": 0.0625,
+     "win_rate": 0.0625,
+     "avg_win_sol": 0.28354,
+     "avg_loss_sol": -0.10091,
+     "win_loss_ratio": 2.81,
+     "expectancy_sol": -0.07688,
+     "expectancy_ci95": [
+      -0.09896,
+      -0.0548
+     ],
+     "expectancy_pct": -30.75,
+     "total_pnl_sol": -6.1506,
+     "max_losing_streak": 22,
+     "exit_reasons": {
+      "idle": 72,
+      "tp": 5,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 lat2",
+     "n_trades": 80,
+     "tp_hits": 5,
+     "hit_rate": 0.0625,
+     "win_rate": 0.0625,
+     "avg_win_sol": 0.2592,
+     "avg_loss_sol": -0.10091,
+     "win_loss_ratio": 2.569,
+     "expectancy_sol": -0.0784,
+     "expectancy_ci95": [
+      -0.0995,
+      -0.05731
+     ],
+     "expectancy_pct": -31.36,
+     "total_pnl_sol": -6.2722,
+     "max_losing_streak": 22,
+     "exit_reasons": {
+      "idle": 72,
+      "tp": 5,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 prem5",
+     "n_trades": 80,
+     "tp_hits": 5,
+     "hit_rate": 0.0625,
+     "win_rate": 0.0625,
+     "avg_win_sol": 0.24275,
+     "avg_loss_sol": -0.10816,
+     "win_loss_ratio": 2.244,
+     "expectancy_sol": -0.08623,
+     "expectancy_ci95": [
+      -0.10656,
+      -0.06591
+     ],
+     "expectancy_pct": -34.49,
+     "total_pnl_sol": -6.8985,
+     "max_losing_streak": 22,
+     "exit_reasons": {
+      "idle": 72,
+      "tp": 5,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 prem15",
+     "n_trades": 80,
+     "tp_hits": 4,
+     "hit_rate": 0.05,
+     "win_rate": 0.05,
+     "avg_win_sol": 0.23031,
+     "avg_loss_sol": -0.12067,
+     "win_loss_ratio": 1.909,
+     "expectancy_sol": -0.10312,
+     "expectancy_ci95": [
+      -0.12149,
+      -0.08474
+     ],
+     "expectancy_pct": -41.25,
+     "total_pnl_sol": -8.2494,
+     "max_losing_streak": 31,
+     "exit_reasons": {
+      "idle": 73,
+      "tp": 4,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 prem30",
+     "n_trades": 80,
+     "tp_hits": 3,
+     "hit_rate": 0.0375,
+     "win_rate": 0.0375,
+     "avg_win_sol": 0.22458,
+     "avg_loss_sol": -0.13682,
+     "win_loss_ratio": 1.641,
+     "expectancy_sol": -0.12327,
+     "expectancy_ci95": [
+      -0.1398,
+      -0.10675
+     ],
+     "expectancy_pct": -49.31,
+     "total_pnl_sol": -9.8616,
+     "max_losing_streak": 31,
+     "exit_reasons": {
+      "idle": 74,
+      "tp": 3,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 nomayhem",
+     "n_trades": 80,
+     "tp_hits": 5,
+     "hit_rate": 0.0625,
+     "win_rate": 0.0625,
+     "avg_win_sol": 0.26739,
+     "avg_loss_sol": -0.10091,
+     "win_loss_ratio": 2.65,
+     "expectancy_sol": -0.07789,
+     "expectancy_ci95": [
+      -0.09922,
+      -0.05656
+     ],
+     "expectancy_pct": -31.16,
+     "total_pnl_sol": -6.2313,
+     "max_losing_streak": 22,
+     "exit_reasons": {
+      "idle": 72,
+      "tp": 5,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=35",
+     "n_trades": 6,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "win_rate": 0.0,
+     "avg_win_sol": 0.0,
+     "avg_loss_sol": -0.04185,
+     "win_loss_ratio": 0.0,
+     "expectancy_sol": -0.04185,
+     "expectancy_ci95": [
+      -0.04964,
+      -0.03406
+     ],
+     "expectancy_pct": -16.74,
+     "total_pnl_sol": -0.2511,
+     "max_losing_streak": 6,
+     "exit_reasons": {
+      "idle": 6
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=45",
+     "n_trades": 38,
+     "tp_hits": 1,
+     "hit_rate": 0.0263,
+     "win_rate": 0.0263,
+     "avg_win_sol": 0.28363,
+     "avg_loss_sol": -0.07282,
+     "win_loss_ratio": 3.895,
+     "expectancy_sol": -0.06344,
+     "expectancy_ci95": [
+      -0.08297,
+      -0.04391
+     ],
+     "expectancy_pct": -25.38,
+     "total_pnl_sol": -2.4108,
+     "max_losing_streak": 22,
+     "exit_reasons": {
+      "idle": 36,
+      "horizon": 1,
+      "tp": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=60",
+     "n_trades": 69,
+     "tp_hits": 3,
+     "hit_rate": 0.0435,
+     "win_rate": 0.0435,
+     "avg_win_sol": 0.27734,
+     "avg_loss_sol": -0.09297,
+     "win_loss_ratio": 2.983,
+     "expectancy_sol": -0.07687,
+     "expectancy_ci95": [
+      -0.09603,
+      -0.05771
+     ],
+     "expectancy_pct": -30.75,
+     "total_pnl_sol": -5.3043,
+     "max_losing_streak": 26,
+     "exit_reasons": {
+      "idle": 64,
+      "horizon": 2,
+      "tp": 3
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=140",
+     "n_trades": 77,
+     "tp_hits": 5,
+     "hit_rate": 0.0649,
+     "win_rate": 0.0649,
+     "avg_win_sol": 0.26739,
+     "avg_loss_sol": -0.0986,
+     "win_loss_ratio": 2.712,
+     "expectancy_sol": -0.07484,
+     "expectancy_ci95": [
+      -0.09646,
+      -0.05322
+     ],
+     "expectancy_pct": -29.94,
+     "total_pnl_sol": -5.7626,
+     "max_losing_streak": 21,
+     "exit_reasons": {
+      "idle": 70,
+      "tp": 5,
+      "horizon": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 B>=3",
+     "n_trades": 72,
+     "tp_hits": 5,
+     "hit_rate": 0.0694,
+     "win_rate": 0.0694,
+     "avg_win_sol": 0.26739,
+     "avg_loss_sol": -0.10715,
+     "win_loss_ratio": 2.495,
+     "expectancy_sol": -0.08114,
+     "expectancy_ci95": [
+      -0.10471,
+      -0.05758
+     ],
+     "expectancy_pct": -32.46,
+     "total_pnl_sol": -5.8424,
+     "max_losing_streak": 21,
+     "exit_reasons": {
+      "idle": 64,
+      "tp": 5,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 B>=5",
+     "n_trades": 63,
+     "tp_hits": 5,
+     "hit_rate": 0.0794,
+     "win_rate": 0.0794,
+     "avg_win_sol": 0.26739,
+     "avg_loss_sol": -0.11348,
+     "win_loss_ratio": 2.356,
+     "expectancy_sol": -0.08325,
+     "expectancy_ci95": [
+      -0.11009,
+      -0.05641
+     ],
+     "expectancy_pct": -33.3,
+     "total_pnl_sol": -5.2446,
+     "max_losing_streak": 18,
+     "exit_reasons": {
+      "idle": 56,
+      "tp": 5,
+      "horizon": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 B>=10",
+     "n_trades": 30,
+     "tp_hits": 3,
+     "hit_rate": 0.1,
+     "win_rate": 0.1,
+     "avg_win_sol": 0.25528,
+     "avg_loss_sol": -0.13598,
+     "win_loss_ratio": 1.877,
+     "expectancy_sol": -0.09685,
+     "expectancy_ci95": [
+      -0.14117,
+      -0.05254
+     ],
+     "expectancy_pct": -38.74,
+     "total_pnl_sol": -2.9056,
+     "max_losing_streak": 14,
+     "exit_reasons": {
+      "idle": 25,
+      "tp": 3,
+      "horizon": 2
+     }
+    }
+   ],
+   "top": [
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy2",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": 2.0,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy2"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.2125,
+     "avg_win_sol": 0.07514,
+     "avg_loss_sol": -0.09199,
+     "win_loss_ratio": 0.817,
+     "breakeven_win_rate": 0.5504,
+     "expectancy_sol": -0.05648,
+     "expectancy_ci95": [
+      -0.0744,
+      -0.03855
+     ],
+     "expectancy_pct": -22.59,
+     "total_pnl_sol": -4.518,
+     "max_losing_streak": 12,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 55,
+      "big_buy": 24,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail30/20",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": 0.3,
+      "trail_drop": 0.2,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail30/20"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "hit_ci95": [
+      0.0069,
+      0.0866
+     ],
+     "win_rate": 0.2375,
+     "avg_win_sol": 0.064,
+     "avg_loss_sol": -0.09737,
+     "win_loss_ratio": 0.657,
+     "breakeven_win_rate": 0.6034,
+     "expectancy_sol": -0.05905,
+     "expectancy_ci95": [
+      -0.07774,
+      -0.04035
+     ],
+     "expectancy_pct": -23.62,
+     "total_pnl_sol": -4.7237,
+     "max_losing_streak": 8,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 21,
+      "tp": 2,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 SLfloor idle150 trail30/20",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": null,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": 0.3,
+      "trail_drop": 0.2,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.002 SLfloor idle150 trail30/20"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.2375,
+     "avg_win_sol": 0.05919,
+     "avg_loss_sol": -0.09737,
+     "win_loss_ratio": 0.608,
+     "breakeven_win_rate": 0.6219,
+     "expectancy_sol": -0.06019,
+     "expectancy_ci95": [
+      -0.07805,
+      -0.04233
+     ],
+     "expectancy_pct": -24.08,
+     "total_pnl_sol": -4.8152,
+     "max_losing_streak": 8,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 23,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SL30 idle150 B<=10",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": 10.0,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": 0.3,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.002 TP100 SL30 idle150 B<=10"
+     },
+     "n_trades": 50,
+     "n_skipped": 312,
+     "tp_hits": 2,
+     "hit_rate": 0.04,
+     "hit_ci95": [
+      0.011,
+      0.1346
+     ],
+     "win_rate": 0.04,
+     "avg_win_sol": 0.28555,
+     "avg_loss_sol": -0.07495,
+     "win_loss_ratio": 3.81,
+     "breakeven_win_rate": 0.2079,
+     "expectancy_sol": -0.06053,
+     "expectancy_ci95": [
+      -0.08111,
+      -0.03994
+     ],
+     "expectancy_pct": -24.21,
+     "total_pnl_sol": -3.0263,
+     "max_losing_streak": 19,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": true,
+     "exit_reasons": {
+      "sl": 24,
+      "idle": 23,
+      "horizon": 1,
+      "tp": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SL30 B<=10",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": 10.0,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": 0.3,
+      "idle_s": null,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.002 TP100 SL30 B<=10"
+     },
+     "n_trades": 50,
+     "n_skipped": 312,
+     "tp_hits": 2,
+     "hit_rate": 0.04,
+     "hit_ci95": [
+      0.011,
+      0.1346
+     ],
+     "win_rate": 0.04,
+     "avg_win_sol": 0.28555,
+     "avg_loss_sol": -0.07536,
+     "win_loss_ratio": 3.789,
+     "breakeven_win_rate": 0.2088,
+     "expectancy_sol": -0.06092,
+     "expectancy_ci95": [
+      -0.08152,
+      -0.04033
+     ],
+     "expectancy_pct": -24.37,
+     "total_pnl_sol": -3.0462,
+     "max_losing_streak": 19,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": true,
+     "exit_reasons": {
+      "sl": 25,
+      "horizon": 23,
+      "tp": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=45",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": 45.0,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=45"
+     },
+     "n_trades": 38,
+     "n_skipped": 324,
+     "tp_hits": 1,
+     "hit_rate": 0.0263,
+     "hit_ci95": [
+      0.0047,
+      0.135
+     ],
+     "win_rate": 0.0263,
+     "avg_win_sol": 0.28363,
+     "avg_loss_sol": -0.07282,
+     "win_loss_ratio": 3.895,
+     "breakeven_win_rate": 0.2043,
+     "expectancy_sol": -0.06344,
+     "expectancy_ci95": [
+      -0.08297,
+      -0.04391
+     ],
+     "expectancy_pct": -25.38,
+     "total_pnl_sol": -2.4108,
+     "max_losing_streak": 22,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": true,
+     "exit_reasons": {
+      "idle": 36,
+      "horizon": 1,
+      "tp": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 B<=10",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": 10.0,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 B<=10"
+     },
+     "n_trades": 50,
+     "n_skipped": 312,
+     "tp_hits": 2,
+     "hit_rate": 0.04,
+     "hit_ci95": [
+      0.011,
+      0.1346
+     ],
+     "win_rate": 0.04,
+     "avg_win_sol": 0.28555,
+     "avg_loss_sol": -0.08118,
+     "win_loss_ratio": 3.517,
+     "breakeven_win_rate": 0.2214,
+     "expectancy_sol": -0.06651,
+     "expectancy_ci95": [
+      -0.08771,
+      -0.04532
+     ],
+     "expectancy_pct": -26.61,
+     "total_pnl_sol": -3.3257,
+     "max_losing_streak": 19,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": true,
+     "exit_reasons": {
+      "idle": 47,
+      "horizon": 1,
+      "tp": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SL50 idle150 B<=10",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": 10.0,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": 0.5,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.002 TP100 SL50 idle150 B<=10"
+     },
+     "n_trades": 50,
+     "n_skipped": 312,
+     "tp_hits": 2,
+     "hit_rate": 0.04,
+     "hit_ci95": [
+      0.011,
+      0.1346
+     ],
+     "win_rate": 0.04,
+     "avg_win_sol": 0.28555,
+     "avg_loss_sol": -0.08118,
+     "win_loss_ratio": 3.517,
+     "breakeven_win_rate": 0.2214,
+     "expectancy_sol": -0.06651,
+     "expectancy_ci95": [
+      -0.08771,
+      -0.04532
+     ],
+     "expectancy_pct": -26.61,
+     "total_pnl_sol": -3.3257,
+     "max_losing_streak": 19,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": true,
+     "exit_reasons": {
+      "idle": 47,
+      "horizon": 1,
+      "tp": 2
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SL30 idle150 B<=10",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": 10.0,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.5,
+      "sl": 0.3,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.002 TP150 SL30 idle150 B<=10"
+     },
+     "n_trades": 50,
+     "n_skipped": 312,
+     "tp_hits": 1,
+     "hit_rate": 0.02,
+     "hit_ci95": [
+      0.0035,
+      0.105
+     ],
+     "win_rate": 0.02,
+     "avg_win_sol": 0.35391,
+     "avg_loss_sol": -0.07513,
+     "win_loss_ratio": 4.711,
+     "breakeven_win_rate": 0.1751,
+     "expectancy_sol": -0.06655,
+     "expectancy_ci95": [
+      -0.08431,
+      -0.04879
+     ],
+     "expectancy_pct": -26.62,
+     "total_pnl_sol": -3.3275,
+     "max_losing_streak": 32,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": true,
+     "exit_reasons": {
+      "sl": 25,
+      "idle": 23,
+      "horizon": 1,
+      "tp": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP150 SL30 B<=10",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": 10.0,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.5,
+      "sl": 0.3,
+      "idle_s": null,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.002 TP150 SL30 B<=10"
+     },
+     "n_trades": 50,
+     "n_skipped": 312,
+     "tp_hits": 1,
+     "hit_rate": 0.02,
+     "hit_ci95": [
+      0.0035,
+      0.105
+     ],
+     "win_rate": 0.02,
+     "avg_win_sol": 0.35391,
+     "avg_loss_sol": -0.07554,
+     "win_loss_ratio": 4.685,
+     "breakeven_win_rate": 0.1759,
+     "expectancy_sol": -0.06695,
+     "expectancy_ci95": [
+      -0.08471,
+      -0.04918
+     ],
+     "expectancy_pct": -26.78,
+     "total_pnl_sol": -3.3475,
+     "max_losing_streak": 32,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": true,
+     "exit_reasons": {
+      "sl": 26,
+      "horizon": 23,
+      "tp": 1
+     }
+    }
+   ],
+   "oracles": [
+    {
+     "label": "eos0 0.25SOL c0.002 oracle:max",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": null,
+      "oracle": "max",
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.002 oracle:max"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.5875,
+     "avg_win_sol": 0.12167,
+     "avg_loss_sol": -0.00848,
+     "win_loss_ratio": 14.352,
+     "breakeven_win_rate": 0.0651,
+     "expectancy_sol": 0.06799,
+     "expectancy_ci95": [
+      0.0352,
+      0.10077
+     ],
+     "expectancy_pct": 27.19,
+     "total_pnl_sol": 5.4389,
+     "max_losing_streak": 5,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": true,
+     "exit_reasons": {
+      "oracle_max": 80
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 oracle:max",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos1",
+      "size_sol": 0.25,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": null,
+      "oracle": "max",
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos1 0.25SOL c0.002 oracle:max"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.525,
+     "avg_win_sol": 0.11538,
+     "avg_loss_sol": -0.00909,
+     "win_loss_ratio": 12.693,
+     "breakeven_win_rate": 0.073,
+     "expectancy_sol": 0.05626,
+     "expectancy_ci95": [
+      0.02438,
+      0.08814
+     ],
+     "expectancy_pct": 22.5,
+     "total_pnl_sol": 4.5007,
+     "max_losing_streak": 5,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": true,
+     "exit_reasons": {
+      "oracle_max": 80
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 oracle:pre_dump",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": null,
+      "oracle": "pre_dump",
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.002 oracle:pre_dump"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.3,
+     "avg_win_sol": 0.09783,
+     "avg_loss_sol": -0.03061,
+     "win_loss_ratio": 3.196,
+     "breakeven_win_rate": 0.2383,
+     "expectancy_sol": 0.00792,
+     "expectancy_ci95": [
+      -0.00929,
+      0.02513
+     ],
+     "expectancy_pct": 3.17,
+     "total_pnl_sol": 0.6337,
+     "max_losing_streak": 7,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": true,
+     "exit_reasons": {
+      "pre_dump": 80
+     }
+    },
+    {
+     "label": "eos1 0.25SOL c0.002 oracle:pre_dump",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos1",
+      "size_sol": 0.25,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": null,
+      "oracle": "pre_dump",
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos1 0.25SOL c0.002 oracle:pre_dump"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.25,
+     "avg_win_sol": 0.08796,
+     "avg_loss_sol": -0.03258,
+     "win_loss_ratio": 2.7,
+     "breakeven_win_rate": 0.2703,
+     "expectancy_sol": -0.00245,
+     "expectancy_ci95": [
+      -0.01726,
+      0.01237
+     ],
+     "expectancy_pct": -0.98,
+     "total_pnl_sol": -0.1957,
+     "max_losing_streak": 9,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "pre_dump": 80
+     }
+    }
+   ],
+   "sensitivity": [
+    {
+     "label": "eos0 0.1SOL c0.002 TP100 SLfloor idle150",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.1,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.1SOL c0.002 TP100 SLfloor idle150"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 5,
+     "hit_rate": 0.0625,
+     "hit_ci95": [
+      0.027,
+      0.1381
+     ],
+     "win_rate": 0.0625,
+     "avg_win_sol": 0.10533,
+     "avg_loss_sol": -0.04292,
+     "win_loss_ratio": 2.454,
+     "breakeven_win_rate": 0.2895,
+     "expectancy_sol": -0.03365,
+     "expectancy_ci95": [
+      -0.04223,
+      -0.02507
+     ],
+     "expectancy_pct": -33.65,
+     "total_pnl_sol": -2.6923,
+     "max_losing_streak": 22,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 72,
+      "tp": 5,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 0.1SOL c0.01 TP100 SLfloor idle150",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.1,
+      "attempt_cost": 0.01,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.1SOL c0.01 TP100 SLfloor idle150"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 5,
+     "hit_rate": 0.0625,
+     "hit_ci95": [
+      0.027,
+      0.1381
+     ],
+     "win_rate": 0.0625,
+     "avg_win_sol": 0.08933,
+     "avg_loss_sol": -0.05892,
+     "win_loss_ratio": 1.516,
+     "breakeven_win_rate": 0.3974,
+     "expectancy_sol": -0.04965,
+     "expectancy_ci95": [
+      -0.05823,
+      -0.04107
+     ],
+     "expectancy_pct": -49.65,
+     "total_pnl_sol": -3.9723,
+     "max_losing_streak": 22,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 72,
+      "tp": 5,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 5,
+     "hit_rate": 0.0625,
+     "hit_ci95": [
+      0.027,
+      0.1381
+     ],
+     "win_rate": 0.0625,
+     "avg_win_sol": 0.26739,
+     "avg_loss_sol": -0.10091,
+     "win_loss_ratio": 2.65,
+     "breakeven_win_rate": 0.274,
+     "expectancy_sol": -0.07789,
+     "expectancy_ci95": [
+      -0.09922,
+      -0.05656
+     ],
+     "expectancy_pct": -31.16,
+     "total_pnl_sol": -6.2313,
+     "max_losing_streak": 22,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 72,
+      "tp": 5,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.01 TP100 SLfloor idle150",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.01,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.01 TP100 SLfloor idle150"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 5,
+     "hit_rate": 0.0625,
+     "hit_ci95": [
+      0.027,
+      0.1381
+     ],
+     "win_rate": 0.0625,
+     "avg_win_sol": 0.25139,
+     "avg_loss_sol": -0.11691,
+     "win_loss_ratio": 2.15,
+     "breakeven_win_rate": 0.3174,
+     "expectancy_sol": -0.09389,
+     "expectancy_ci95": [
+      -0.11522,
+      -0.07256
+     ],
+     "expectancy_pct": -37.56,
+     "total_pnl_sol": -7.5113,
+     "max_losing_streak": 22,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 72,
+      "tp": 5,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 0.5SOL c0.002 TP100 SLfloor idle150",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.5,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.5SOL c0.002 TP100 SLfloor idle150"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 5,
+     "hit_rate": 0.0625,
+     "hit_ci95": [
+      0.027,
+      0.1381
+     ],
+     "win_rate": 0.0625,
+     "avg_win_sol": 0.5324,
+     "avg_loss_sol": -0.19654,
+     "win_loss_ratio": 2.709,
+     "breakeven_win_rate": 0.2696,
+     "expectancy_sol": -0.15098,
+     "expectancy_ci95": [
+      -0.19325,
+      -0.10872
+     ],
+     "expectancy_pct": -30.2,
+     "total_pnl_sol": -12.0786,
+     "max_losing_streak": 22,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 72,
+      "tp": 5,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 0.5SOL c0.01 TP100 SLfloor idle150",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.5,
+      "attempt_cost": 0.01,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.5SOL c0.01 TP100 SLfloor idle150"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 5,
+     "hit_rate": 0.0625,
+     "hit_ci95": [
+      0.027,
+      0.1381
+     ],
+     "win_rate": 0.0625,
+     "avg_win_sol": 0.5164,
+     "avg_loss_sol": -0.21254,
+     "win_loss_ratio": 2.43,
+     "breakeven_win_rate": 0.2916,
+     "expectancy_sol": -0.16698,
+     "expectancy_ci95": [
+      -0.20925,
+      -0.12472
+     ],
+     "expectancy_pct": -33.4,
+     "total_pnl_sol": -13.3586,
+     "max_losing_streak": 22,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 72,
+      "tp": 5,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 1SOL c0.002 TP100 SLfloor idle150",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 1.0,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 1SOL c0.002 TP100 SLfloor idle150"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 5,
+     "hit_rate": 0.0625,
+     "hit_ci95": [
+      0.027,
+      0.1381
+     ],
+     "win_rate": 0.0625,
+     "avg_win_sol": 1.04417,
+     "avg_loss_sol": -0.38406,
+     "win_loss_ratio": 2.719,
+     "breakeven_win_rate": 0.2689,
+     "expectancy_sol": -0.2948,
+     "expectancy_ci95": [
+      -0.37779,
+      -0.2118
+     ],
+     "expectancy_pct": -29.48,
+     "total_pnl_sol": -23.5836,
+     "max_losing_streak": 22,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 72,
+      "tp": 5,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 1SOL c0.01 TP100 SLfloor idle150",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 1.0,
+      "attempt_cost": 0.01,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 1SOL c0.01 TP100 SLfloor idle150"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 5,
+     "hit_rate": 0.0625,
+     "hit_ci95": [
+      0.027,
+      0.1381
+     ],
+     "win_rate": 0.0625,
+     "avg_win_sol": 1.02817,
+     "avg_loss_sol": -0.40006,
+     "win_loss_ratio": 2.57,
+     "breakeven_win_rate": 0.2801,
+     "expectancy_sol": -0.3108,
+     "expectancy_ci95": [
+      -0.39379,
+      -0.2278
+     ],
+     "expectancy_pct": -31.08,
+     "total_pnl_sol": -24.8636,
+     "max_losing_streak": 22,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 72,
+      "tp": 5,
+      "horizon": 3
+     }
+    },
+    {
+     "label": "eos0 0.1SOL c0.002 TP100 SLfloor idle150 bigbuy2",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.1,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": 2.0,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.1SOL c0.002 TP100 SLfloor idle150 bigbuy2"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.2,
+     "avg_win_sol": 0.0297,
+     "avg_loss_sol": -0.03875,
+     "win_loss_ratio": 0.767,
+     "breakeven_win_rate": 0.5661,
+     "expectancy_sol": -0.02506,
+     "expectancy_ci95": [
+      -0.03227,
+      -0.01785
+     ],
+     "expectancy_pct": -25.06,
+     "total_pnl_sol": -2.0047,
+     "max_losing_streak": 12,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 55,
+      "big_buy": 24,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.1SOL c0.01 TP100 SLfloor idle150 bigbuy2",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.1,
+      "attempt_cost": 0.01,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": 2.0,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.1SOL c0.01 TP100 SLfloor idle150 bigbuy2"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.15,
+     "avg_win_sol": 0.0199,
+     "avg_loss_sol": -0.05182,
+     "win_loss_ratio": 0.384,
+     "breakeven_win_rate": 0.7225,
+     "expectancy_sol": -0.04106,
+     "expectancy_ci95": [
+      -0.04827,
+      -0.03385
+     ],
+     "expectancy_pct": -41.06,
+     "total_pnl_sol": -3.2847,
+     "max_losing_streak": 14,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 55,
+      "big_buy": 24,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy2",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": 2.0,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy2"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.2125,
+     "avg_win_sol": 0.07514,
+     "avg_loss_sol": -0.09199,
+     "win_loss_ratio": 0.817,
+     "breakeven_win_rate": 0.5504,
+     "expectancy_sol": -0.05648,
+     "expectancy_ci95": [
+      -0.0744,
+      -0.03855
+     ],
+     "expectancy_pct": -22.59,
+     "total_pnl_sol": -4.518,
+     "max_losing_streak": 12,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 55,
+      "big_buy": 24,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.01 TP100 SLfloor idle150 bigbuy2",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.01,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": 2.0,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.01 TP100 SLfloor idle150 bigbuy2"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.2,
+     "avg_win_sol": 0.06367,
+     "avg_loss_sol": -0.10651,
+     "win_loss_ratio": 0.598,
+     "breakeven_win_rate": 0.6259,
+     "expectancy_sol": -0.07248,
+     "expectancy_ci95": [
+      -0.0904,
+      -0.05455
+     ],
+     "expectancy_pct": -28.99,
+     "total_pnl_sol": -5.798,
+     "max_losing_streak": 12,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 55,
+      "big_buy": 24,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.5SOL c0.002 TP100 SLfloor idle150 bigbuy2",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.5,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": 2.0,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.5SOL c0.002 TP100 SLfloor idle150 bigbuy2"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.2125,
+     "avg_win_sol": 0.15246,
+     "avg_loss_sol": -0.17877,
+     "win_loss_ratio": 0.853,
+     "breakeven_win_rate": 0.5397,
+     "expectancy_sol": -0.10838,
+     "expectancy_ci95": [
+      -0.14392,
+      -0.07284
+     ],
+     "expectancy_pct": -21.68,
+     "total_pnl_sol": -8.6705,
+     "max_losing_streak": 12,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 55,
+      "big_buy": 24,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.5SOL c0.01 TP100 SLfloor idle150 bigbuy2",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.5,
+      "attempt_cost": 0.01,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": 2.0,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.5SOL c0.01 TP100 SLfloor idle150 bigbuy2"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.2,
+     "avg_win_sol": 0.14543,
+     "avg_loss_sol": -0.19183,
+     "win_loss_ratio": 0.758,
+     "breakeven_win_rate": 0.5688,
+     "expectancy_sol": -0.12438,
+     "expectancy_ci95": [
+      -0.15992,
+      -0.08884
+     ],
+     "expectancy_pct": -24.88,
+     "total_pnl_sol": -9.9505,
+     "max_losing_streak": 12,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 55,
+      "big_buy": 24,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 1SOL c0.002 TP100 SLfloor idle150 bigbuy2",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 1.0,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": 2.0,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 1SOL c0.002 TP100 SLfloor idle150 bigbuy2"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.2125,
+     "avg_win_sol": 0.3019,
+     "avg_loss_sol": -0.34878,
+     "win_loss_ratio": 0.866,
+     "breakeven_win_rate": 0.536,
+     "expectancy_sol": -0.21051,
+     "expectancy_ci95": [
+      -0.28035,
+      -0.14068
+     ],
+     "expectancy_pct": -21.05,
+     "total_pnl_sol": -16.8409,
+     "max_losing_streak": 12,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 55,
+      "big_buy": 24,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 1SOL c0.01 TP100 SLfloor idle150 bigbuy2",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 1.0,
+      "attempt_cost": 0.01,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": null,
+      "trail_drop": null,
+      "big_buy_sol": 2.0,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 1SOL c0.01 TP100 SLfloor idle150 bigbuy2"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.2125,
+     "avg_win_sol": 0.2859,
+     "avg_loss_sol": -0.36478,
+     "win_loss_ratio": 0.784,
+     "breakeven_win_rate": 0.5606,
+     "expectancy_sol": -0.22651,
+     "expectancy_ci95": [
+      -0.29635,
+      -0.15668
+     ],
+     "expectancy_pct": -22.65,
+     "total_pnl_sol": -18.1209,
+     "max_losing_streak": 12,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 55,
+      "big_buy": 24,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.1SOL c0.002 TP100 SLfloor idle150 trail30/20",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.1,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": 0.3,
+      "trail_drop": 0.2,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.1SOL c0.002 TP100 SLfloor idle150 trail30/20"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "hit_ci95": [
+      0.0069,
+      0.0866
+     ],
+     "win_rate": 0.2375,
+     "avg_win_sol": 0.02339,
+     "avg_loss_sol": -0.0415,
+     "win_loss_ratio": 0.564,
+     "breakeven_win_rate": 0.6395,
+     "expectancy_sol": -0.02609,
+     "expectancy_ci95": [
+      -0.03361,
+      -0.01857
+     ],
+     "expectancy_pct": -26.09,
+     "total_pnl_sol": -2.0871,
+     "max_losing_streak": 8,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 21,
+      "tp": 2,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.1SOL c0.01 TP100 SLfloor idle150 trail30/20",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.1,
+      "attempt_cost": 0.01,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": 0.3,
+      "trail_drop": 0.2,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.1SOL c0.01 TP100 SLfloor idle150 trail30/20"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "hit_ci95": [
+      0.0069,
+      0.0866
+     ],
+     "win_rate": 0.0875,
+     "avg_win_sol": 0.03724,
+     "avg_loss_sol": -0.0497,
+     "win_loss_ratio": 0.749,
+     "breakeven_win_rate": 0.5716,
+     "expectancy_sol": -0.04209,
+     "expectancy_ci95": [
+      -0.04961,
+      -0.03457
+     ],
+     "expectancy_pct": -42.09,
+     "total_pnl_sol": -3.3671,
+     "max_losing_streak": 26,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 21,
+      "tp": 2,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail30/20",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": 0.3,
+      "trail_drop": 0.2,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail30/20"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "hit_ci95": [
+      0.0069,
+      0.0866
+     ],
+     "win_rate": 0.2375,
+     "avg_win_sol": 0.064,
+     "avg_loss_sol": -0.09737,
+     "win_loss_ratio": 0.657,
+     "breakeven_win_rate": 0.6034,
+     "expectancy_sol": -0.05905,
+     "expectancy_ci95": [
+      -0.07774,
+      -0.04035
+     ],
+     "expectancy_pct": -23.62,
+     "total_pnl_sol": -4.7237,
+     "max_losing_streak": 8,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 21,
+      "tp": 2,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.01 TP100 SLfloor idle150 trail30/20",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.01,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": 0.3,
+      "trail_drop": 0.2,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.01 TP100 SLfloor idle150 trail30/20"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "hit_ci95": [
+      0.0069,
+      0.0866
+     ],
+     "win_rate": 0.175,
+     "avg_win_sol": 0.06709,
+     "avg_loss_sol": -0.1052,
+     "win_loss_ratio": 0.638,
+     "breakeven_win_rate": 0.6106,
+     "expectancy_sol": -0.07505,
+     "expectancy_ci95": [
+      -0.09374,
+      -0.05635
+     ],
+     "expectancy_pct": -30.02,
+     "total_pnl_sol": -6.0037,
+     "max_losing_streak": 13,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 21,
+      "tp": 2,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.5SOL c0.002 TP100 SLfloor idle150 trail30/20",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.5,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": 0.3,
+      "trail_drop": 0.2,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.5SOL c0.002 TP100 SLfloor idle150 trail30/20"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "hit_ci95": [
+      0.0069,
+      0.0866
+     ],
+     "win_rate": 0.2375,
+     "avg_win_sol": 0.13046,
+     "avg_loss_sol": -0.1895,
+     "win_loss_ratio": 0.688,
+     "breakeven_win_rate": 0.5923,
+     "expectancy_sol": -0.11351,
+     "expectancy_ci95": [
+      -0.15059,
+      -0.07643
+     ],
+     "expectancy_pct": -22.7,
+     "total_pnl_sol": -9.0807,
+     "max_losing_streak": 8,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 21,
+      "tp": 2,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.5SOL c0.01 TP100 SLfloor idle150 trail30/20",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.5,
+      "attempt_cost": 0.01,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": 0.3,
+      "trail_drop": 0.2,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.5SOL c0.01 TP100 SLfloor idle150 trail30/20"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "hit_ci95": [
+      0.0069,
+      0.0866
+     ],
+     "win_rate": 0.2375,
+     "avg_win_sol": 0.11446,
+     "avg_loss_sol": -0.2055,
+     "win_loss_ratio": 0.557,
+     "breakeven_win_rate": 0.6423,
+     "expectancy_sol": -0.12951,
+     "expectancy_ci95": [
+      -0.16659,
+      -0.09243
+     ],
+     "expectancy_pct": -25.9,
+     "total_pnl_sol": -10.3607,
+     "max_losing_streak": 8,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 21,
+      "tp": 2,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 1SOL c0.002 TP100 SLfloor idle150 trail30/20",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 1.0,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": 0.3,
+      "trail_drop": 0.2,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 1SOL c0.002 TP100 SLfloor idle150 trail30/20"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "hit_ci95": [
+      0.0069,
+      0.0866
+     ],
+     "win_rate": 0.2375,
+     "avg_win_sol": 0.2557,
+     "avg_loss_sol": -0.3701,
+     "win_loss_ratio": 0.691,
+     "breakeven_win_rate": 0.5914,
+     "expectancy_sol": -0.22147,
+     "expectancy_ci95": [
+      -0.29418,
+      -0.14877
+     ],
+     "expectancy_pct": -22.15,
+     "total_pnl_sol": -17.7178,
+     "max_losing_streak": 8,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 21,
+      "tp": 2,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 1SOL c0.01 TP100 SLfloor idle150 trail30/20",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 1.0,
+      "attempt_cost": 0.01,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": 1.0,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": 0.3,
+      "trail_drop": 0.2,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 1SOL c0.01 TP100 SLfloor idle150 trail30/20"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 2,
+     "hit_rate": 0.025,
+     "hit_ci95": [
+      0.0069,
+      0.0866
+     ],
+     "win_rate": 0.2375,
+     "avg_win_sol": 0.2397,
+     "avg_loss_sol": -0.3861,
+     "win_loss_ratio": 0.621,
+     "breakeven_win_rate": 0.617,
+     "expectancy_sol": -0.23747,
+     "expectancy_ci95": [
+      -0.31018,
+      -0.16477
+     ],
+     "expectancy_pct": -23.75,
+     "total_pnl_sol": -18.9978,
+     "max_losing_streak": 8,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 21,
+      "tp": 2,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.1SOL c0.002 SLfloor idle150 trail30/20",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.1,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": null,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": 0.3,
+      "trail_drop": 0.2,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.1SOL c0.002 SLfloor idle150 trail30/20"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.2375,
+     "avg_win_sol": 0.02145,
+     "avg_loss_sol": -0.0415,
+     "win_loss_ratio": 0.517,
+     "breakeven_win_rate": 0.6593,
+     "expectancy_sol": -0.02655,
+     "expectancy_ci95": [
+      -0.03373,
+      -0.01937
+     ],
+     "expectancy_pct": -26.55,
+     "total_pnl_sol": -2.124,
+     "max_losing_streak": 8,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 23,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.1SOL c0.01 SLfloor idle150 trail30/20",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.1,
+      "attempt_cost": 0.01,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": null,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": 0.3,
+      "trail_drop": 0.2,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.1SOL c0.01 SLfloor idle150 trail30/20"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.0875,
+     "avg_win_sol": 0.03197,
+     "avg_loss_sol": -0.0497,
+     "win_loss_ratio": 0.643,
+     "breakeven_win_rate": 0.6085,
+     "expectancy_sol": -0.04255,
+     "expectancy_ci95": [
+      -0.04973,
+      -0.03537
+     ],
+     "expectancy_pct": -42.55,
+     "total_pnl_sol": -3.404,
+     "max_losing_streak": 26,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 23,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.002 SLfloor idle150 trail30/20",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": null,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": 0.3,
+      "trail_drop": 0.2,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.002 SLfloor idle150 trail30/20"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.2375,
+     "avg_win_sol": 0.05919,
+     "avg_loss_sol": -0.09737,
+     "win_loss_ratio": 0.608,
+     "breakeven_win_rate": 0.6219,
+     "expectancy_sol": -0.06019,
+     "expectancy_ci95": [
+      -0.07805,
+      -0.04233
+     ],
+     "expectancy_pct": -24.08,
+     "total_pnl_sol": -4.8152,
+     "max_losing_streak": 8,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 23,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.25SOL c0.01 SLfloor idle150 trail30/20",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.25,
+      "attempt_cost": 0.01,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": null,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": 0.3,
+      "trail_drop": 0.2,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.25SOL c0.01 SLfloor idle150 trail30/20"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.175,
+     "avg_win_sol": 0.06055,
+     "avg_loss_sol": -0.1052,
+     "win_loss_ratio": 0.576,
+     "breakeven_win_rate": 0.6347,
+     "expectancy_sol": -0.07619,
+     "expectancy_ci95": [
+      -0.09405,
+      -0.05833
+     ],
+     "expectancy_pct": -30.48,
+     "total_pnl_sol": -6.0952,
+     "max_losing_streak": 13,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 23,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.5SOL c0.002 SLfloor idle150 trail30/20",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.5,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": null,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": 0.3,
+      "trail_drop": 0.2,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.5SOL c0.002 SLfloor idle150 trail30/20"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.2375,
+     "avg_win_sol": 0.12095,
+     "avg_loss_sol": -0.1895,
+     "win_loss_ratio": 0.638,
+     "breakeven_win_rate": 0.6104,
+     "expectancy_sol": -0.11577,
+     "expectancy_ci95": [
+      -0.1512,
+      -0.08034
+     ],
+     "expectancy_pct": -23.15,
+     "total_pnl_sol": -9.2613,
+     "max_losing_streak": 8,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 23,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 0.5SOL c0.01 SLfloor idle150 trail30/20",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 0.5,
+      "attempt_cost": 0.01,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": null,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": 0.3,
+      "trail_drop": 0.2,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 0.5SOL c0.01 SLfloor idle150 trail30/20"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.2375,
+     "avg_win_sol": 0.10495,
+     "avg_loss_sol": -0.2055,
+     "win_loss_ratio": 0.511,
+     "breakeven_win_rate": 0.6619,
+     "expectancy_sol": -0.13177,
+     "expectancy_ci95": [
+      -0.1672,
+      -0.09634
+     ],
+     "expectancy_pct": -26.35,
+     "total_pnl_sol": -10.5413,
+     "max_losing_streak": 8,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 23,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 1SOL c0.002 SLfloor idle150 trail30/20",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 1.0,
+      "attempt_cost": 0.002,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": null,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": 0.3,
+      "trail_drop": 0.2,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 1SOL c0.002 SLfloor idle150 trail30/20"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.2375,
+     "avg_win_sol": 0.23717,
+     "avg_loss_sol": -0.3701,
+     "win_loss_ratio": 0.641,
+     "breakeven_win_rate": 0.6095,
+     "expectancy_sol": -0.22587,
+     "expectancy_ci95": [
+      -0.29536,
+      -0.15639
+     ],
+     "expectancy_pct": -22.59,
+     "total_pnl_sol": -18.0699,
+     "max_losing_streak": 8,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 23,
+      "horizon": 1
+     }
+    },
+    {
+     "label": "eos0 1SOL c0.01 SLfloor idle150 trail30/20",
+     "strategy": {
+      "name": "guru",
+      "entry": "eos0",
+      "size_sol": 1.0,
+      "attempt_cost": 0.01,
+      "fee_bps": 125,
+      "entry_premium": 0.0,
+      "require_bundle": true,
+      "max_bundle_sol": null,
+      "min_bundle_sol": null,
+      "max_entry_mcap": null,
+      "skip_mayhem": false,
+      "tp": null,
+      "sl": null,
+      "idle_s": 150,
+      "trail_arm": 0.3,
+      "trail_drop": 0.2,
+      "big_buy_sol": null,
+      "oracle": null,
+      "exit_latency_slots": 1,
+      "horizon_s": 900,
+      "label": "eos0 1SOL c0.01 SLfloor idle150 trail30/20"
+     },
+     "n_trades": 80,
+     "n_skipped": 282,
+     "tp_hits": 0,
+     "hit_rate": 0.0,
+     "hit_ci95": [
+      0.0,
+      0.0458
+     ],
+     "win_rate": 0.2375,
+     "avg_win_sol": 0.22117,
+     "avg_loss_sol": -0.3861,
+     "win_loss_ratio": 0.573,
+     "breakeven_win_rate": 0.6358,
+     "expectancy_sol": -0.24187,
+     "expectancy_ci95": [
+      -0.31136,
+      -0.17239
+     ],
+     "expectancy_pct": -24.19,
+     "total_pnl_sol": -19.3499,
+     "max_losing_streak": 8,
+     "guru_hit_ge_33": false,
+     "guru_wl_ge_3": false,
+     "exit_reasons": {
+      "idle": 56,
+      "trail": 23,
+      "horizon": 1
+     }
+    }
+   ],
+   "split_half": {
+    "n_first": 181,
+    "n_second": 181,
+    "chosen": "eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail30/20",
+    "first_half": {
+     "n_trades": 38,
+     "hit_rate": 0.0526,
+     "expectancy_sol": -0.04502,
+     "expectancy_pct": -18.01
+    },
+    "second_half": {
+     "n_trades": 42,
+     "hit_rate": 0.0,
+     "expectancy_sol": -0.07173,
+     "expectancy_pct": -28.69,
+     "expectancy_ci95": [
+      -0.09231,
+      -0.05116
+     ]
+    }
+   }
+  }
+ }
+}

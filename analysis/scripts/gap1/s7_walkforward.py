@@ -29,6 +29,13 @@ cre = {r["sig"]: r for r in cre if r["rank"] < R}
 kinds = Counter(r["kind"] for r in cre.values())
 outc = {json.loads(l)["mint"]: json.loads(l) for l in open(OUT / "outcomes.jsonl")}
 fund = {json.loads(l)["sig"]: json.loads(l) for l in open(OUT / "funding.jsonl")}
+try:
+    fill = {json.loads(l)["mint"]: json.loads(l) for l in open(OUT / "outcomes_fill.jsonl")}
+except FileNotFoundError:
+    fill = {}
+for m, o in list(outc.items()):
+    if o.get("skip") == "low_ath" and m in fill:
+        outc[m] = {**fill[m], "skip": "low_ath", "filled": True}
 L = []
 miss = Counter()
 for s, r in cre.items():
@@ -61,7 +68,7 @@ for r in L:
     r["fresh"] = r["f"]["n_pre"] <= 10
     r["serial"] = r["f"]["n_pre"] >= 1000
     o = r["o"]
-    r["bundled"] = None if o.get("skip") else (o.get("bundle_wallets", 0) >= 1)
+    r["bundled"] = (o.get("bundle_wallets", 0) >= 1) if "bundle_wallets" in o else None
 
 
 def rates(rows):
@@ -84,12 +91,12 @@ print("\n== base rates, NON-MAYHEM SOL-quoted (uniform sample, entry after bundl
 base = {}
 groups = [("all", L), ("fresh signer (<=10 prior txs)", [r for r in L if r["fresh"]]),
           ("serial signer (>=1000 prior txs)", [r for r in L if r["serial"]]),
-          ("bundled: >=1 wallet adjacent to create (rank%5 subsample)", [r for r in L if r["rank"] % 5 == 0 and r["bundled"]]),
-          ("not bundled (rank%5 subsample)", [r for r in L if r["rank"] % 5 == 0 and r["bundled"] is False]),
-          ("bundle >=3 wallets (rank%5 subsample)", [r for r in L if r["rank"] % 5 == 0 and r["o"].get("bundle_wallets", 0) >= 3]),
-          ("fresh + bundled + exchange-funded (rank%5)", [r for r in L if r["rank"] % 5 == 0 and r["bundled"] and r["fresh"] and r["f"]["chain"] and any(h.get("cat") in ("cex","swap_service","onramp") for h in r["f"]["chain"])]),
-          ("no third-party slot-0 buyer (rank%5)", [r for r in L if r["rank"] % 5 == 0 and r["o"].get("third_n") == 0]),
-          (">=1 third-party slot-0 buyer (rank%5)", [r for r in L if r["rank"] % 5 == 0 and (r["o"].get("third_n") or 0) >= 1])]
+          ("bundled: >=1 wallet adjacent to create ", [r for r in L if "bundle_wallets" in r["o"] and r["bundled"]]),
+          ("not bundled ", [r for r in L if "bundle_wallets" in r["o"] and r["bundled"] is False]),
+          ("bundle >=3 wallets ", [r for r in L if "bundle_wallets" in r["o"] and r["o"].get("bundle_wallets", 0) >= 3]),
+          ("fresh + bundled + exchange-funded ", [r for r in L if r["bundled"] and r["fresh"] and r["f"]["chain"] and any(h.get("cat") in ("cex","swap_service","onramp") for h in r["f"]["chain"])]),
+          ("no third-party slot-0 buyer ", [r for r in L if "bundle_wallets" in r["o"] and r["o"].get("third_n") == 0]),
+          (">=1 third-party slot-0 buyer ", [r for r in L if "bundle_wallets" in r["o"] and (r["o"].get("third_n") or 0) >= 1])]
 for name, g in groups:
     base[name] = rates(g)
     print(f"  {name:55s} {fmt(base[name])}")
@@ -97,8 +104,10 @@ mh = [{"hits": r["hits_any"]} for r in L if r.get("mayhem")]
 base["MAYHEM (separate mechanism, no floor)"] = rates(mh)
 print(f"  {'MAYHEM (agent-traded, floor not guaranteed)':55s} {fmt(base['MAYHEM (separate mechanism, no floor)'])}")
 rep["base"] = base
+rep["structure_coverage"] = sum(1 for r in L if "bundle_wallets" in r["o"]) / len(L)
+print("slot-0 structure coverage:", round(rep["structure_coverage"], 3))
 # entry stats among traded launches
-tr = [r["o"] for r in L if r["rank"] % 5 == 0 and not r.get("mayhem") and r["o"].get("entry_mcap") and not r["o"].get("skip")]
+tr = [r["o"] for r in L if not r.get("mayhem") and r["o"].get("entry_mcap") and "third_n" in r["o"]]
 if tr:
     rep["entry_stats"] = {
         "n": len(tr),
@@ -108,7 +117,7 @@ if tr:
         "third_n_p90": sorted(o["third_n"] for o in tr)[int(0.9 * len(tr))],
         "bundled_share": sum(o["bundle_wallets"] >= 1 for o in tr) / len(tr),
     }
-    print("entry stats (rank%5 unbiased subsample, non-mayhem):", rep["entry_stats"])
+    print("entry stats (non-mayhem launches with slot-0 structure):", rep["entry_stats"])
 
 # ---------------------------------------------------------------- wallet operators
 wc = json.load(open(OUT / "wallet_counts.json"))
@@ -238,6 +247,33 @@ for k, v in xmulti.items():
     rows = [{"d": r["d"], "hits": r["hits"], "w": 1 / f} for r in v]
     units["X:" + str(k)] = {"type": "exchange-band", "rows": rows, "verified5": True,
                             "daily": Counter({d: q / f for d, q in Counter(r["d"] for r in rows).items()})}
+bk = defaultdict(list)
+for r in L:
+    o = r["o"]
+    if not r.get("bundled"):
+        continue
+    dev = sum(b[1] for b in r.get("dev_buys", []))
+    bk[(o["bundle_wallets"] if o["bundle_wallets"] < 5 else 5, round(dev, 2), round(o.get("bundle_sol", 0)))].append(r)
+bmulti = {k: v for k, v in bk.items() if len({r["user"] for r in v}) >= 2}
+for k, v in bmulti.items():
+    rows = [{"d": r["d"], "hits": r["hits"], "w": 1 / f} for r in v]
+    units["B:" + str(k)] = {"type": "bundle-shape", "rows": rows, "verified5": True,
+                            "daily": Counter({d: q / f for d, q in Counter(r["d"] for r in rows).items()})}
+rep["bundle_shape_clusters"] = {"n_keys": len(bk), "n_multi_wallet": len(bmulti),
+                                "top": [(str(k), len(v)) for k, v in sorted(bmulti.items(), key=lambda kv: -len(kv[1]))[:10]]}
+print("bundle-shape clusters (bundle wallets, dev buy 0.01, bundle SOL 1), >=2 signers:", rep["bundle_shape_clusters"])
+# bundled-only operator units: wallets / funder components restricted to their bundled launches
+for key_fn, name in ((lambda r: "W:" + r["user"], "bundled-wallet"), (lambda r: find("W:" + r["user"]), "bundled-component")):
+    grp = defaultdict(list)
+    for r in L:
+        if r.get("bundled"):
+            grp[key_fn(r)].append(r)
+    for k, v in grp.items():
+        if len(v) < 2:
+            continue
+        rows = [{"d": r["d"], "hits": r["hits"], "w": 1 / f} for r in v]
+        units[name[0:2] + ":" + k] = {"type": name, "rows": rows, "verified5": True,
+                                      "daily": Counter({d: q / f for d, q in Counter(r["d"] for r in rows).items()})}
 print("\n== operator units:", Counter(u["type"] for u in units.values()))
 
 
@@ -275,7 +311,8 @@ def wrate(rows, i):
 rep["walkforward"] = {}
 print("\n== walk-forward: discover on days 0..t-1, score launches on days t..t+6 (non-mayhem, SOL-quoted)")
 print("   R0 = every discovered operator; R1 = guru rule (>=3 of last 10 pre-t launches hit +100%); R2 = >=43% of last >=8")
-for utype in ("wallet-sample", "wallet-expanded", "funder-component", "exchange-band"):
+for utype in ("wallet-sample", "wallet-expanded", "funder-component", "exchange-band", "bundle-shape",
+              "bundled-wallet", "bundled-component"):
     for rule in ("R0", "R1", "R2"):
         for t in (5, 7, 9):
             sel, tr_, perday = wf(utype, t, rule)
@@ -302,4 +339,28 @@ rep["n_units_lo_ge_43"] = sum(1 for x in tab if x[4][0]["lo"] >= 0.43)
 rep["n_units_p_ge_43"] = sum(1 for x in tab if x[4][0]["p"] >= 0.43)
 print("units with >=15 scored:", len(tab), " point>=43%:", rep["n_units_p_ge_43"], " lower CI>=43%:", rep["n_units_lo_ge_43"])
 (ROOT / "data" / "reports").mkdir(exist_ok=True)
+json.dump(rep, open(ROOT / "data" / "reports" / "gap1_operators.json", "w"), indent=1, default=str)
+
+# ---------------------------------------------------------------- persistence test (expanded wallets)
+print("\n== persistence: expanded wallets ranked by pre-t +100% rate; test-window rates by tercile")
+rep["persistence"] = {}
+for t in (6, 8):
+    sc = []
+    for k, u in units.items():
+        if u["type"] != "wallet-expanded":
+            continue
+        pre = [x for x in u["rows"] if x["d"] < t and x["hits"] is not None]
+        post = [x for x in u["rows"] if t <= x["d"] < t + 7 and x["hits"] is not None]
+        if len(pre) >= 5 and len(post) >= 3:
+            sc.append((sum(x["hits"][0] for x in pre) / len(pre), len(pre), post))
+    sc.sort(key=lambda x: -x[0])
+    n = len(sc)
+    out = {}
+    for name, part in (("top third", sc[: n // 3]), ("middle", sc[n // 3: 2 * n // 3]), ("bottom", sc[2 * n // 3:])):
+        rows = [x for _, _, p in part for x in p]
+        rt = rates(rows)
+        pre_mean = statistics.mean(p for p, _, _ in part) if part else float("nan")
+        out[name] = {"wallets": len(part), "pre_rate_mean": pre_mean, "test": rt}
+        print(f"  t={t} {name:9s} wallets={len(part):3d} pre-t mean +100%={pre_mean:.1%}  test {fmt(rt)}")
+    rep["persistence"][t] = out
 json.dump(rep, open(ROOT / "data" / "reports" / "gap1_operators.json", "w"), indent=1, default=str)

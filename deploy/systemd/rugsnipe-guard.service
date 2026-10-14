@@ -1,0 +1,70 @@
+# rugsnipe-guard -- hot role (fra1). Holds the exit lease as standby: if rugsnipe-hot stops
+# renewing lease('exits') for > 5 s with a position open, guard takes over by compare-and-set
+# and sells on a >= 30% drop from peak, on MaxHold, or after grace_s (docs/06 section 8).
+# Independent of rugsnipe-hot on purpose (no BindsTo/PartOf hot): it must survive a hot crash.
+[Unit]
+Description=rugsnipe guard (exit lease takeover)
+Documentation=file:/opt/rugsnipe/src/docs/06-architecture.md file:/opt/rugsnipe/src/docs/07-deploy.md
+PartOf=rugsnipe.target
+Wants=network-online.target
+After=network-online.target time-sync.target chrony.service
+ConditionPathExists=/etc/rugsnipe/rugsnipe.toml
+StartLimitIntervalSec=120
+StartLimitBurst=30
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=rugsnipe
+Group=rugsnipe
+WorkingDirectory=/var/lib/rugsnipe
+Environment=RUGSNIPE_CONFIG=/etc/rugsnipe/rugsnipe.toml RUST_BACKTRACE=1
+ExecStart=/opt/rugsnipe/bin/rugsnipe-guard --config /etc/rugsnipe/rugsnipe.toml
+WatchdogSec=5
+TimeoutStartSec=120
+TimeoutStopSec=15
+Restart=always
+RestartSec=1
+OOMScoreAdjust=-900
+LimitMEMLOCK=infinity
+UMask=0027
+# housekeeping cores; install.sh rewrites this in 20-cpus.conf
+CPUAffinity=0-1
+# Credentials: copied by PID 1 from /etc/rugsnipe/keys (root 0700, files 0400) into
+# $CREDENTIALS_DIRECTORY; the service user never reads /etc/rugsnipe/keys itself. The
+# SetCredential=...:ABSENT is the fallback when the file is missing (paper mode): the binary sees
+# the literal "ABSENT", treats it as no key, and config validation refuses probe/live (docs/06 s6).
+LoadCredential=hot-keypair:/etc/rugsnipe/keys/hot-keypair.json
+SetCredential=hot-keypair:ABSENT
+LoadCredential=api-keys:/etc/rugsnipe/keys/api-keys.toml
+SetCredential=api-keys:ABSENT
+
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictRealtime=yes
+# hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/rugsnipe /run/rugsnipe
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=rugsnipe.target

@@ -708,6 +708,8 @@ impl FeeConfig {
 
     /// Curve fee bps for a SOL-paired coin at `market_cap_lamports`
     /// (`fee_tiers`; USDC uses `stable_fee_tiers`, other quotes the exotic/flat fees).
+    /// Schedule only: use [`Self::curve_fees_for_coin`] to apply a coin's own
+    /// creator rate (custom pairs).
     pub fn curve_fees(&self, quote_mint: &Pubkey, market_cap_lamports: u128) -> Option<FeeBps> {
         let fees = if crate::constants::is_sol_like_quote_mint(quote_mint) {
             Self::tier_for(&self.fee_tiers, market_cap_lamports)?
@@ -722,6 +724,26 @@ impl FeeConfig {
             protocol: fees.protocol_fee_bps,
             creator: fees.creator_fee_bps,
         })
+    }
+
+    /// [`Self::curve_fees`] plus the program's per-coin creator rate: while
+    /// `Global.creator_fee_configurable` is on, a nonzero
+    /// `BondingCurve.creator_fee_bps` replaces the schedule's creator rate
+    /// (custom-pair coins, e.g. 300 bps). Matches `pump-rust-client` 0.4.1
+    /// `compute_bonding_curve_fee_bps`. The creator fee is still 0 on a curve
+    /// whose `creator` is the zero key (the quote functions apply that).
+    pub fn curve_fees_for_coin(
+        &self,
+        quote_mint: &Pubkey,
+        market_cap_lamports: u128,
+        coin_creator_fee_bps: u64,
+        creator_fee_configurable: bool,
+    ) -> Option<FeeBps> {
+        let mut fees = self.curve_fees(quote_mint, market_cap_lamports)?;
+        if creator_fee_configurable && coin_creator_fee_bps != 0 {
+            fees.creator = coin_creator_fee_bps;
+        }
+        Some(fees)
     }
 }
 

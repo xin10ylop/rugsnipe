@@ -395,3 +395,71 @@ def describe_cluster(c: Cluster, rows: list[dict]) -> dict[str, Any]:
         "first": rows[0]["create_time"], "last": rows[-1]["create_time"],
         "mints": [r["mint"] for r in rows],
     }
+
+
+# --------------------------------------------------------------------------- signal diagnostics
+def amount_pairs(rows: list[dict], tol: float = AMOUNT_TOL) -> int:
+    """#pairs of launches (different signers) with the same funder and amount within tol."""
+    by = defaultdict(list)
+    for r in rows:
+        by[r["funder"]].append((r["fund_amount"], r["signer"]))
+    n = 0
+    for lst in by.values():
+        lst.sort()
+        for i, (a, s) in enumerate(lst):
+            for b, s2 in lst[i + 1:]:
+                if b - a > tol + 1e-12:
+                    break
+                n += s != s2
+    return n
+
+
+def amount_chance_test(rows: list[dict], kind: str, n_perm: int = 200, seed: int = 1) -> dict[str, Any]:
+    """Is 'same funder + amount within 0.02 SOL' more frequent than chance?
+
+    Permutes funding amounts across fresh launches of the given funder kind
+    (keeping which funder paid whom) and compares the number of matching pairs.
+    """
+    import random
+    sel = [r for r in rows if r.get("fresh") and r.get("funder_kind") == kind and r.get("fund_amount")]
+    obs = amount_pairs(sel)
+    rng = random.Random(seed)
+    amts = [r["fund_amount"] for r in sel]
+    perm = []
+    for _ in range(n_perm):
+        rng.shuffle(amts)
+        perm.append(amount_pairs([{**r, "fund_amount": a} for r, a in zip(sel, amts)]))
+    mean = sum(perm) / len(perm) if perm else 0.0
+    p = (sum(1 for x in perm if x >= obs) + 1) / (len(perm) + 1)
+    top = Counter(round(r["fund_amount"], 3) for r in sel).most_common(8)
+    return {"kind": kind, "n_launches": len(sel), "n_funders": len({r["funder"] for r in sel}),
+            "observed_pairs": obs, "chance_pairs_mean": round(mean, 2), "p_value": round(p, 4),
+            "top_amounts": top}
+
+
+def scheme_stats(rows: list[dict]) -> dict[str, Any]:
+    """Outcome-free description of the population (for the discovery summary)."""
+    sol = [r for r in rows if r.get("sol_quoted")]
+    fresh = [r for r in sol if r.get("fresh")]
+    traced = [r for r in sol if r.get("fund_status")]
+    bundled = [r for r in sol if r.get("bundled")]
+    dt = sorted(r["fund_to_create_s"] for r in fresh if r.get("fund_to_create_s") is not None)
+    fl = Counter(r.get("funder_label") or r.get("funder_kind") for r in fresh)
+    return {
+        "n_traced": len(traced), "n_fresh": len(fresh),
+        "fresh_share_of_traced": round(len(fresh) / len(traced), 4) if traced else None,
+        "fresh_funding_to_create_s_median": dt[len(dt) // 2] if dt else None,
+        "fresh_top_funders": fl.most_common(12),
+        "bundled_fresh_share": round(sum(1 for r in bundled if r.get("fresh")) / len(bundled), 4) if bundled else None,
+        "bundle_wallet_count_dist": dict(Counter(len(r["bundle_sizes"]) for r in bundled)),
+        "bundle_sol_quantiles": _q([r["bundle_sol"] for r in bundled]),
+        "eos0_mcap_quantiles": _q([r["eos0_mcap"] for r in bundled if r.get("eos0_mcap")]),
+    }
+
+
+def _q(xs: list[float]) -> dict[str, float] | None:
+    xs = sorted(xs)
+    if not xs:
+        return None
+    f = lambda p: round(xs[min(len(xs) - 1, int(p * len(xs)))], 3)  # noqa: E731
+    return {"p10": f(0.1), "p50": f(0.5), "p90": f(0.9), "n": len(xs)}

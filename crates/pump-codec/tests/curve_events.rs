@@ -158,7 +158,8 @@ fn every_sol_trade_event_is_reproduced_exactly() {
             checked += 1;
         }
     }
-    assert!(checked >= 15, "checked {checked}");
+    // 17 original + 16 fresh (2026-10-14 second pass) SOL trades
+    assert!(checked >= 33, "checked {checked}");
 }
 
 #[test]

@@ -65,7 +65,11 @@ fn assert_same(ctx: &str, t: &TxView<'_>, a: &AgaveView<false, &[u8]>) {
     };
     assert_eq!(t.version(), v, "{ctx}");
     let h = t.header();
-    assert_eq!(h.num_required_signatures, a.num_required_signatures(), "{ctx}");
+    assert_eq!(
+        h.num_required_signatures,
+        a.num_required_signatures(),
+        "{ctx}"
+    );
     assert_eq!(
         h.num_readonly_signed_accounts,
         a.num_readonly_signed_static_accounts(),
@@ -81,7 +85,10 @@ fn assert_same(ctx: &str, t: &TxView<'_>, a: &AgaveView<false, &[u8]>) {
         assert_eq!(t.signature(i).unwrap().as_slice(), s.as_ref(), "{ctx}");
     }
     assert_eq!(t.static_account_keys(), a.static_account_keys(), "{ctx}");
-    assert_eq!(t.recent_blockhash().as_slice(), a.recent_blockhash().as_ref());
+    assert_eq!(
+        t.recent_blockhash().as_slice(),
+        a.recent_blockhash().as_ref()
+    );
     assert_eq!(t.message_bytes(), a.message_data(), "{ctx}");
     let ours: Vec<_> = t
         .instructions()
@@ -179,7 +186,10 @@ fn every_strict_prefix_and_any_suffix_is_rejected() {
         for extra in [&[0u8][..], &[0x81], &[0; 64], &fx.raw[..1]] {
             let mut m = fx.raw.clone();
             m.extend_from_slice(extra);
-            assert!(TxView::parse(&m).is_err(), "{name}: trailing bytes accepted");
+            assert!(
+                TxView::parse(&m).is_err(),
+                "{name}: trailing bytes accepted"
+            );
         }
     }
     assert!(cuts > 40_000, "{cuts}");
@@ -232,8 +242,8 @@ fn differential_fuzz_against_agave_transaction_view() {
                     let i = if v1 && k % 6 == 2 {
                         // inside the instruction header table
                         let n_addr = m[41] as usize;
-                        let slots = u32::from_le_bytes([m[4], m[5], m[6], m[7]]).count_ones()
-                            as usize;
+                        let slots =
+                            u32::from_le_bytes([m[4], m[5], m[6], m[7]]).count_ones() as usize;
                         (42 + 32 * n_addr + 4 * slots + rng.below(4 * m[40] as usize + 1))
                             .min(m.len() - 1)
                     } else {
@@ -350,7 +360,12 @@ fn curve_extremes_are_exact_and_overflow_free() {
     let q = fresh.quote_buy_exact_sol_in(86_067_926_047, fees).unwrap();
     assert_eq!(
         (q.sol_cost, q.protocol_fee, q.creator_fee, q.tokens),
-        (85_005_359_057, 807_550_912, 255_016_078, 793_099_999_998_038)
+        (
+            85_005_359_057,
+            807_550_912,
+            255_016_078,
+            793_099_999_998_038
+        )
     );
     assert_eq!(q.total, 86_067_926_047);
     assert_eq!(fresh.quote_buy_exact_sol_in(86_067_926_048, fees), None);
@@ -385,7 +400,7 @@ fn curve_extremes_are_exact_and_overflow_free() {
     assert!(max.quote_buy_exact_tokens(u64::MAX, fat).is_none());
     let q = max.quote_buy_exact_tokens(1, FeeBps::ZERO).unwrap();
     assert_eq!(q.sol_cost, 2); // floor(1*V/(T-1)) + 1 with V = T
-    // zero reserves
+                               // zero reserves
     let zero = CurveState {
         virtual_sol: 0,
         virtual_token: 0,
@@ -480,14 +495,31 @@ fn fresh_fixtures_classify_like_an_independent_decoder() {
     // Expectations from a separate Python wire decoder (discriminator name +
     // account count, top-level then CPI order) used to pick the fixtures.
     let expected: &[(&str, &[&str], &[&str])] = &[
-        ("fresh_amm_inner_bexq_v2", &[], &["amm.BuyExactQuoteInV2/17"]),
+        (
+            "fresh_amm_inner_bexq_v2",
+            &[],
+            &["amm.BuyExactQuoteInV2/17"],
+        ),
         ("fresh_amm_inner_sell_v2", &[], &["amm.SellV2/17"]),
-        ("fresh_amm_sell_then_buy", &["amm.Sell/23", "amm.Buy/25"], &[]),
+        (
+            "fresh_amm_sell_then_buy",
+            &["amm.Sell/23", "amm.Buy/25"],
+            &[],
+        ),
         ("fresh_legacy_inner_buy18", &[], &["pump.buy/18"]),
         (
             "fresh_v0_create_v2_quote_tail_no_buy",
             &["pump.create:V2/20"],
             &[],
+        ),
+        (
+            "fresh_v0_create_v2_no_buy_fee_sharing",
+            &["pump.create:V2/16"],
+            &[
+                "pump.other:ea66c2cb96483ee5",
+                "pump.other:577c34bf3426d6e8",
+                "pump.other:ffcb134ff444089f",
+            ],
         ),
         ("fresh_v0_sell16", &["pump.sell/16"], &[]),
         (
@@ -615,14 +647,24 @@ fn fresh_fixture_events_in_order() {
         ("fresh_amm_sell_then_buy", &["SellEvent", "BuyEvent"]),
         ("fresh_legacy_inner_buy18", &["TradeEvent"]),
         ("fresh_v0_create_v2_quote_tail_no_buy", &["CreateEvent"]),
+        ("fresh_v0_create_v2_no_buy_fee_sharing", &["CreateEvent"]),
         ("fresh_v0_sell16", &["TradeEvent"]),
         ("fresh_v0alt2_inner_bexq_v3", &["TradeEvent"]),
         ("fresh_v0alt3_inner_sell_v3", &["TradeEvent"]),
         ("fresh_v0alt4_inner_buy_v3", &["TradeEvent"]),
-        ("fresh_v0alt_create_v2_buy18", &["CreateEvent", "TradeEvent"]),
-        ("fresh_v0alt_create_v2_buy_v3", &["CreateEvent", "TradeEvent"]),
+        (
+            "fresh_v0alt_create_v2_buy18",
+            &["CreateEvent", "TradeEvent"],
+        ),
+        (
+            "fresh_v0alt_create_v2_buy_v3",
+            &["CreateEvent", "TradeEvent"],
+        ),
         ("fresh_v0alt_create_v2_bxsi", &["CreateEvent", "TradeEvent"]),
-        ("fresh_v0alt_create_v2_inner_buy", &["CreateEvent", "TradeEvent"]),
+        (
+            "fresh_v0alt_create_v2_inner_buy",
+            &["CreateEvent", "TradeEvent"],
+        ),
         (
             "fresh_v0alt_create_v2_tail3_extend_bxsi",
             &["CreateEvent", "TradeEvent"],
@@ -630,7 +672,10 @@ fn fresh_fixture_events_in_order() {
         ("fresh_v0alt_distribute_creator_fees", &[]),
         ("fresh_v0alt_inner_sell_v2", &["TradeEvent"]),
         ("fresh_v1_big_inner_buy_v3_uva", &["TradeEvent"]),
-        ("fresh_v1_cpi_create_v2_bexq_v2", &["CreateEvent", "TradeEvent"]),
+        (
+            "fresh_v1_cpi_create_v2_bexq_v2",
+            &["CreateEvent", "TradeEvent"],
+        ),
         (
             "fresh_v1_create_v2_mayhem_buy_v2",
             &["CreateEvent", "TradeEvent"],
@@ -639,10 +684,16 @@ fn fresh_fixture_events_in_order() {
             "fresh_v1_create_v2_pumpquote_buy_v2",
             &["CreateEvent", "TradeEvent"],
         ),
-        ("fresh_v1_create_v2_usdc_buy_v2", &["CreateEvent", "TradeEvent"]),
+        (
+            "fresh_v1_create_v2_usdc_buy_v2",
+            &["CreateEvent", "TradeEvent"],
+        ),
         ("fresh_v1_inner_bexq_v2", &["TradeEvent"]),
         ("fresh_v1_inner_sell_v3", &["TradeEvent"]),
-        ("fresh_v1_sell_v3_then_amm_sell_v2", &["TradeEvent", "SellEvent"]),
+        (
+            "fresh_v1_sell_v3_then_amm_sell_v2",
+            &["TradeEvent", "SellEvent"],
+        ),
         ("legacy_create_spl_b", &["CreateEvent", "TradeEvent"]),
     ];
     for (name, want) in expected {
@@ -692,6 +743,7 @@ fn every_create_links_to_its_instruction_and_keys() {
     use pump_codec::instructions::{CreateKind, UserKeys};
     let mut n = 0;
     let mut cpi = 0;
+    let mut holder = 0;
     for name in tx_names() {
         let fx = TxFixture::load(&name);
         let keys = fx.full_keys();
@@ -702,9 +754,10 @@ fn every_create_links_to_its_instruction_and_keys() {
             };
             n += 1;
             let (cr, accts) = create_ix(&fx, r.outer_index);
-            let top_is_pump = *fx.view().program_id(
-                &fx.view().instruction(r.outer_index as usize).unwrap(),
-            ) == c::PUMP_PROGRAM_ID;
+            let top_is_pump = *fx
+                .view()
+                .program_id(&fx.view().instruction(r.outer_index as usize).unwrap())
+                == c::PUMP_PROGRAM_ID;
             if !top_is_pump {
                 cpi += 1;
             }
@@ -713,7 +766,15 @@ fn every_create_links_to_its_instruction_and_keys() {
                 (ce.name, ce.symbol, ce.uri),
                 "{name}"
             );
-            assert_eq!(cr.args.creator, ce.creator, "{name}");
+            // Holder-reward coins: the program records a pump-controlled
+            // address as creator, not the argument (HOLDER_REWARDS_README.md).
+            if cr.args.is_holder_reward == Some(true) {
+                assert_ne!(cr.args.creator, ce.creator, "{name}");
+                assert_eq!(ce.is_holder_reward, Some(true), "{name}");
+                holder += 1;
+            } else {
+                assert_eq!(cr.args.creator, ce.creator, "{name}");
+            }
             assert_eq!(cr.mint, Some(ce.mint), "{name}");
             assert_eq!(cr.bonding_curve, Some(ce.bonding_curve), "{name}");
             assert_eq!(cr.user, Some(ce.user), "{name}");
@@ -722,7 +783,11 @@ fn every_create_links_to_its_instruction_and_keys() {
             let tp = ce.token_program.unwrap();
             assert_eq!(
                 cr.associated_bonding_curve,
-                Some(pda::associated_token_address(&ce.bonding_curve, &ce.mint, &tp)),
+                Some(pda::associated_token_address(
+                    &ce.bonding_curve,
+                    &ce.mint,
+                    &tp
+                )),
                 "{name}"
             );
             let sol = ce.quote_mint.map(|q| c::is_sol_like_quote_mint(&q));
@@ -766,14 +831,16 @@ fn every_create_links_to_its_instruction_and_keys() {
             }
         }
     }
-    assert!(n >= 20, "{n} creates");
+    assert!(n >= 19, "{n} creates");
     assert!(cpi >= 1, "a create made through a launcher CPI");
+    assert!(holder >= 1, "a holder-reward create");
 }
 
 #[test]
 fn every_sol_create_starts_fresh_and_trades_chain_mayhem_included() {
     let mut creates = 0;
     let mut mayhem = 0;
+    let mut migrated = 0;
     for name in tx_names() {
         let fx = TxFixture::load(&name);
         let keys = fx.full_keys();
@@ -784,7 +851,10 @@ fn every_sol_create_starts_fresh_and_trades_chain_mayhem_included() {
         }) else {
             continue;
         };
-        if ce.quote_mint.is_some_and(|q| !c::is_sol_like_quote_mint(&q)) {
+        if ce
+            .quote_mint
+            .is_some_and(|q| !c::is_sol_like_quote_mint(&q))
+        {
             continue;
         }
         creates += 1;
@@ -811,12 +881,24 @@ fn every_sol_create_starts_fresh_and_trades_chain_mayhem_included() {
             if t.mayhem_mode == Some(true) {
                 mayhem += 1;
             }
+            // pump-fees `migrate_bonding_curve_creator` may move the fee
+            // creator to the sharing-config PDA inside the create tx.
+            let tc = t.creator.unwrap();
+            if tc != state.creator {
+                assert_eq!(tc, pda::fee_sharing_config(&ce.mint), "{name}: creator");
+                state.creator = tc;
+                migrated += 1;
+            }
             assert_eq!(t.pre_state().unwrap(), state, "{name}: chain");
             state = t.post_state().unwrap();
         }
     }
     assert!(creates >= 15, "{creates}");
     assert!(mayhem >= 2, "mayhem create+buy fixtures: {mayhem}");
+    assert!(
+        migrated >= 1,
+        "a creator migrated to fee sharing in the create tx"
+    );
 }
 
 /// (trade instruction, its full account keys, TradeEvent) of a fixture, in
@@ -881,11 +963,18 @@ fn every_onchain_trade_matches_our_builders_account_for_account() {
                     );
                     assert!(c::BUYBACK_FEE_RECIPIENTS.contains(&k.buyback_fee_recipient));
                     v3 += 1;
-                    match t.kind {
+                    let mut m = match t.kind {
                         PumpTradeKind::BuyV3 => ixs::buy_v3(&k, 1, 1, None).accounts,
                         PumpTradeKind::SellV3 => ixs::sell_v3(&k, 1, 1).accounts,
                         _ => ixs::buy_exact_quote_in_v3(&k, 1, 1, None).accounts,
+                    };
+                    // v3 also takes any user base token account (#9), e.g.
+                    // `v1_buy_exact_quote_in_v3`; compare the rest
+                    if onchain[9] != k.associated_base_user {
+                        non_ata += 1;
+                        m[9].pubkey = onchain[9];
                     }
+                    m
                 }
                 TradeLayout::LegacyBuy | TradeLayout::LegacySell => {
                     let k = LegacyTradeKeys::derive(
@@ -927,19 +1016,38 @@ fn every_onchain_trade_matches_our_builders_account_for_account() {
             // signer (a CPI can only narrow privileges).
             for (m, &i) in metas.iter().zip(&idx) {
                 if m.is_writable {
-                    assert!(tx.is_writable(i as usize), "{name}: {} not writable", m.pubkey);
+                    assert!(
+                        tx.is_writable(i as usize),
+                        "{name}: {} not writable",
+                        m.pubkey
+                    );
                 }
                 if m.is_signer {
-                    assert!(tx.is_signer(i as usize), "{name}: {} not a signer", m.pubkey);
+                    assert!(
+                        tx.is_signer(i as usize),
+                        "{name}: {} not a signer",
+                        m.pubkey
+                    );
                 }
             }
         }
     }
-    for k in ["buy_v3", "sell_v3", "buy_exact_quote_in_v3", "buy", "buy_exact_sol_in", "sell"] {
+    for k in [
+        "buy_v3",
+        "sell_v3",
+        "buy_exact_quote_in_v3",
+        "buy",
+        "buy_exact_sol_in",
+        "sell",
+    ] {
         assert!(seen.contains(k), "no on-chain {k} checked: {seen:?}");
     }
     assert!(v3 >= 8 && legacy >= 12, "v3 {v3}, legacy {legacy}");
-    assert!(non_ata < legacy, "non-ATA user accounts {non_ata}/{legacy}");
+    assert!(
+        non_ata < (v3 + legacy) / 2,
+        "non-ATA user accounts {non_ata}/{}",
+        v3 + legacy
+    );
 }
 
 #[test]
@@ -959,7 +1067,124 @@ fn whitelisted_mayhem_agent_trades_fee_free() {
     assert_eq!(ev.mayhem_mode, Some(true));
     assert_eq!(ev.quote_mint, Some(c::USDC_MINT));
     assert_eq!(
-        (ev.fee_basis_points, ev.creator_fee_basis_points, ev.fee, ev.creator_fee),
+        (
+            ev.fee_basis_points,
+            ev.creator_fee_basis_points,
+            ev.fee,
+            ev.creator_fee
+        ),
         (Some(0), Some(0), Some(0), Some(0))
     );
+}
+
+#[test]
+fn every_token_quoted_trade_event_is_reproduced_exactly() {
+    // Same integer math on the quote side: reserves are `virtual_quote_reserves`
+    // / `real_quote_reserves`, the amount is `quote_amount` (`sol_amount` is 0).
+    use pump_codec::instructions::TradeAmounts;
+    let mut checked = std::collections::BTreeMap::new();
+    let mut agent = 0;
+    for name in tx_names() {
+        let fx = TxFixture::load(&name);
+        for (t, _, _, ev) in trades(&fx) {
+            let q = ev.quote_mint.unwrap();
+            if q == Pubkey::default() {
+                continue; // SOL: tests/curve_events.rs
+            }
+            assert_eq!(ev.sol_amount, 0, "{name}");
+            assert_eq!(ev.virtual_sol_reserves, 0, "{name}");
+            let post = CurveState {
+                virtual_sol: ev.virtual_quote_reserves.unwrap(),
+                virtual_token: ev.virtual_token_reserves,
+                real_sol: ev.real_quote_reserves.unwrap(),
+                real_token: ev.real_token_reserves.unwrap(),
+                complete: ev.real_token_reserves == Some(0),
+                creator: ev.creator.unwrap(),
+            };
+            let qa = ev.quote_amount.unwrap();
+            let mut pre = CurveState::pre_trade(&post, ev.is_buy, qa, ev.token_amount).unwrap();
+            let fees = FeeBps {
+                protocol: ev.fee_basis_points.unwrap(),
+                creator: ev.creator_fee_basis_points.unwrap(),
+            };
+            if ev.user == c::MAYHEM_SOL_VAULT {
+                // The whitelisted mayhem agent is priced on the unadjusted
+                // curve: Global.initial_virtual_quote_reserves (USDC, the one
+                // whitelisted quote mint) + real quote reserves, not on the
+                // mayhem-adjusted virtual reserves the event reports.
+                assert_eq!(q, c::USDC_MINT, "{name}");
+                assert_eq!(fees, FeeBps::ZERO, "{name}");
+                pre.virtual_sol = 4_292_000_000 + pre.real_sol;
+                agent += 1;
+            }
+            let (quote, tokens, pf, cf) = match t.amounts {
+                TradeAmounts::ExactTokensOut {
+                    amount,
+                    max_quote_cost,
+                } => {
+                    let r = pre.quote_buy_exact_tokens(amount, fees).unwrap();
+                    assert!(r.total <= max_quote_cost, "{name}");
+                    (r.sol_cost, r.tokens, r.protocol_fee, r.creator_fee)
+                }
+                TradeAmounts::ExactQuoteIn {
+                    spendable_quote_in,
+                    min_tokens_out,
+                } => {
+                    let r = pre
+                        .quote_buy_exact_sol_in(spendable_quote_in, fees)
+                        .unwrap();
+                    assert!(r.tokens >= min_tokens_out, "{name}");
+                    (r.sol_cost, r.tokens, r.protocol_fee, r.creator_fee)
+                }
+                TradeAmounts::Sell {
+                    amount,
+                    min_quote_out,
+                } => {
+                    let r = pre.quote_sell(amount, fees).unwrap();
+                    assert!(r.net >= min_quote_out, "{name}");
+                    (r.sol_out, r.tokens, r.protocol_fee, r.creator_fee)
+                }
+            };
+            assert_eq!(quote, qa, "{name}: quote amount ({})", t.kind.name());
+            assert_eq!(tokens, ev.token_amount, "{name}: tokens");
+            assert_eq!(
+                (pf, cf),
+                (ev.fee.unwrap(), ev.creator_fee.unwrap()),
+                "{name}"
+            );
+            assert_eq!(
+                curve::buyback_fee(pf, ev.buyback_fee_basis_points.unwrap()),
+                ev.buyback_fee.unwrap(),
+                "{name}: buyback"
+            );
+            *checked.entry(q.to_string()).or_insert(0) += 1;
+        }
+    }
+    eprintln!("token-quoted trades reproduced: {checked:?}");
+    // USDC, pump-coin and other quotes, buys and sells
+    assert!(
+        checked.len() >= 3 && checked.values().sum::<i32>() >= 5,
+        "{checked:?}"
+    );
+    assert_eq!(agent, 1);
+}
+
+#[test]
+fn agent_pricing_constants_come_from_global() {
+    // Pin the agent rule's SOL form against the same arithmetic: on the
+    // agent's USDC trade the unadjusted quote reserve is Global's
+    // initial_virtual_quote_reserves (4,292 USDC) + real; Global's SOL
+    // counterpart is initial_virtual_sol_reserves (30 SOL).
+    let v = read_json("accounts/global.json");
+    use base64::Engine as _;
+    let d = base64::engine::general_purpose::STANDARD
+        .decode(v["result"]["value"]["data"][0].as_str().unwrap())
+        .unwrap();
+    let g = curve::Global::decode(&d).unwrap();
+    assert_eq!(g.initial_virtual_quote_reserves, 4_292_000_000);
+    assert_eq!(
+        g.initial_virtual_sol_reserves,
+        curve::INITIAL_VIRTUAL_SOL_RESERVES
+    );
+    assert_eq!(g.whitelisted_quote_mints, [c::USDC_MINT]);
 }

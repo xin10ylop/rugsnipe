@@ -1,0 +1,61 @@
+# rugsnipe-discover -- analytics role (ohio1), started every 6 h by rugsnipe-discover.timer.
+#
+# PLACEHOLDER: today it only runs the offline selftest (proves the venv and package work).
+# When M2 lands, replace ExecStart (systemctl edit --full rugsnipe-discover) with the cycle
+# from docs/06-architecture.md section 9.4 (analysis/scripts/discover_ruggers.py is the
+# current prototype; run it by hand with `rugsnipe-pyrun --script discover_ruggers`):
+#   op_assign (PIT) -> outcome (E0/E1/E2) -> prequential -> arming
+#   -> armset-<ver>-<sha>.json + ed25519 .sig  (key: credential armset-signing-key)
+#   -> push to fra1:/var/lib/rugsnipe/armsets over wg0
+# The ArmSet signing key lives ONLY on this box (install.sh refuses it on a hot box).
+[Unit]
+Description=rugsnipe discovery cycle (placeholder: selftest)
+Documentation=file:/opt/rugsnipe/src/docs/07-deploy.md
+Wants=network-online.target
+After=network-online.target time-sync.target
+ConditionPathExists=/etc/rugsnipe/rugsnipe.toml
+
+[Service]
+Type=oneshot
+User=rugsnipe
+Group=rugsnipe
+WorkingDirectory=/var/lib/rugsnipe
+Environment=RUGSNIPE_CONFIG=/etc/rugsnipe/rugsnipe.toml RUGSNIPE_STATE_DIR=/var/lib/rugsnipe
+Environment=RUGSNIPE_RUN_DIR=/run/rugsnipe RUGSNIPE_DB=/var/lib/rugsnipe/analytics.db
+Environment=PYTHONUNBUFFERED=1 RUGSNIPE_VENV=/opt/rugsnipe/venv RUGSNIPE_SRC=/opt/rugsnipe/src
+ExecStart=/opt/rugsnipe/bin/rugsnipe-pyrun selftest
+# a cycle must finish before the next one starts
+TimeoutStartSec=5h
+Nice=10
+IOSchedulingClass=idle
+LoadCredential=armset-signing-key:/etc/rugsnipe/keys/armset-signing.key
+SetCredential=armset-signing-key:ABSENT
+LoadCredential=api-keys:/etc/rugsnipe/keys/api-keys.toml
+SetCredential=api-keys:ABSENT
+UMask=0027
+
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/rugsnipe /run/rugsnipe
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RemoveIPC=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM

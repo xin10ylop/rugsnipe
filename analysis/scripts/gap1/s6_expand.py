@@ -16,7 +16,7 @@ from common import OUT, PumpApi, log
 from rugsnipe_analysis.pumpapi import FRONTEND, normalize_trade
 
 api = PumpApi(max_rps=0.9)
-api_sw = PumpApi(max_rps=4.0)
+api_sw = PumpApi(max_rps=7.0)
 meta = json.load(open(OUT / "index.json"))
 ANCHOR = meta["anchor"]
 T0, T1 = ANCHOR - 16 * 86400, ANCHOR - 6 * 3600

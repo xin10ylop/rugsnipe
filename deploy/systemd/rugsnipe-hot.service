@@ -1,0 +1,83 @@
+# rugsnipe-hot -- hot role (fra1). Feed core: dedup -> decode -> match -> gates -> nonce ->
+# patch -> sign -> send; sender cores; exit core; cold runtime (docs/06 sections 2, 7, 12).
+#
+# READY=1 only after chain recovery; WATCHDOG=1 only while the feed AND exit loops advance,
+# so a stalled loop is killed and restarted within ~3 s and rugsnipe-guard takes the exits
+# over after 5 s (lease). Kill latch: touch /run/rugsnipe/KILL or
+#   systemctl kill -s USR1 rugsnipe-hot     (buys stop, exits continue; unkill is local only)
+#
+# CPUAffinity below is a placeholder: install.sh writes
+# /etc/systemd/system/rugsnipe-hot.service.d/20-cpus.conf from
+# /sys/devices/system/cpu/isolated (isolcpus=, see deploy/tune-hot.sh) or --hot-cpus.
+[Unit]
+Description=rugsnipe hot path (feed, decide, sign, send, exits)
+Documentation=file:/opt/rugsnipe/src/docs/06-architecture.md file:/opt/rugsnipe/src/docs/07-deploy.md
+PartOf=rugsnipe.target
+Wants=network-online.target rugsnipe-guard.service rugsnipe-keeper.service
+After=network-online.target time-sync.target chrony.service rugsnipe-tune.service rugsnipe-keeper.service
+ConditionPathExists=/etc/rugsnipe/rugsnipe.toml
+StartLimitIntervalSec=120
+StartLimitBurst=30
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=rugsnipe
+Group=rugsnipe
+WorkingDirectory=/var/lib/rugsnipe
+Environment=RUGSNIPE_CONFIG=/etc/rugsnipe/rugsnipe.toml RUST_BACKTRACE=1
+ExecStart=/opt/rugsnipe/bin/rugsnipe-hot --config /etc/rugsnipe/rugsnipe.toml
+WatchdogSec=3
+TimeoutStartSec=180
+TimeoutStopSec=15
+Restart=always
+RestartSec=1
+KillMode=mixed
+OOMScoreAdjust=-900
+LimitMEMLOCK=infinity
+LimitNOFILE=1048576
+UMask=0027
+CPUAffinity=2-5
+# Credentials: copied by PID 1 from /etc/rugsnipe/keys (root 0700, files 0400) into
+# $CREDENTIALS_DIRECTORY; the service user never reads /etc/rugsnipe/keys itself. The
+# SetCredential=...:ABSENT is the fallback when the file is missing (paper mode): the binary sees
+# the literal "ABSENT", treats it as no key, and config validation refuses probe/live (docs/06 s6).
+LoadCredential=hot-keypair:/etc/rugsnipe/keys/hot-keypair.json
+SetCredential=hot-keypair:ABSENT
+LoadCredential=api-keys:/etc/rugsnipe/keys/api-keys.toml
+SetCredential=api-keys:ABSENT
+LoadCredential=probe-keypair:/etc/rugsnipe/keys/probe-keypair.json
+SetCredential=probe-keypair:ABSENT
+
+# CAP_SYS_NICE only: SCHED_FIFO / affinity for the pinned run-to-completion threads.
+CapabilityBoundingSet=CAP_SYS_NICE
+AmbientCapabilities=CAP_SYS_NICE
+RestrictRealtime=no
+# A future XDP shred path (DZ Edge GRE strip) needs AF_XDP + CAP_BPF/CAP_NET_ADMIN: add them in a
+# drop-in only on the box that runs it.
+# hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/rugsnipe /run/rugsnipe
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=rugsnipe.target

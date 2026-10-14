@@ -78,7 +78,9 @@ impl<'a> Shareholders<'a> {
 /// pump `TradeEvent`. Reserves are **post-trade**. On v3 trades
 /// `fee_recipient` is the zero key (the fee stays on the curve). Trades by
 /// `Global.whitelist_pda` (the mayhem agent, = `MAYHEM_SOL_VAULT`) report
-/// 0 bps and 0 fees; quote them with `FeeBps::ZERO`.
+/// 0 bps and 0 fees and are priced on the unadjusted curve (initial virtual
+/// quote reserves + real quote reserves), not on the mayhem-adjusted virtual
+/// reserves the event reports (verified exactly on a USDC `sell_v2`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TradeEvent<'a> {
     pub mint: Pubkey,
@@ -103,10 +105,11 @@ pub struct TradeEvent<'a> {
     pub total_claimed_tokens: Option<u64>,
     pub current_sol_volume: Option<u64>,
     pub last_update_timestamp: Option<i64>,
-    /// Instruction that produced the trade. Observed on-chain 2026-10-14:
-    /// `buy_v3` reports `"buy"` and `buy_exact_quote_in_v3` reports
-    /// `"buy_exact_quote_in"` (TRADE_V3.md says `"buy_v3"` etc.); `sell_v3`
-    /// was not observed. Do not rely on a `_v3` suffix.
+    /// Instruction that produced the trade, without the version suffix
+    /// (observed on-chain 2026-10-14): `buy`/`buy_v2`/`buy_v3` report `"buy"`,
+    /// `buy_exact_quote_in_v2`/`_v3` report `"buy_exact_quote_in"`, and
+    /// `sell`/`sell_v2`/`sell_v3` report `"sell"` (TRADE_V3.md says `"buy_v3"`
+    /// etc.). Do not rely on a version suffix.
     pub ix_name: Option<&'a str>,
     pub mayhem_mode: Option<bool>,
     pub cashback_fee_basis_points: Option<u64>,

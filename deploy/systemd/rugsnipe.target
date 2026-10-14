@@ -1,0 +1,15 @@
+# rugsnipe.target -- groups every rugsnipe service of this box's role.
+# install.sh installs only the units of the box's role; `systemctl enable <unit>` hooks a
+# unit into this target (each unit has WantedBy=rugsnipe.target).
+#
+# WARNING: `systemctl stop rugsnipe.target` also stops rugsnipe-guard. To stop BUYING use
+# the kill latch (touch /run/rugsnipe/KILL, or systemctl kill -s USR1 rugsnipe-hot);
+# exits keep running. See docs/07-deploy.md "Kill and alert procedures".
+[Unit]
+Description=rugsnipe services for this box's role
+Documentation=file:/opt/rugsnipe/src/docs/07-deploy.md
+Wants=network-online.target time-sync.target
+After=network-online.target time-sync.target
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+# /etc/tmpfiles.d/rugsnipe.conf (rendered by deploy/install.sh; "rugsnipe" = service user).
+# /run/rugsnipe is sticky (1770 root:rugsnipe): the services can create their own sockets
+# (pp.sock) but cannot delete root's kill file /run/rugsnipe/KILL ("unkill is local only").
+d /run/rugsnipe                 1770 root     rugsnipe -
+d /var/lib/rugsnipe             0750 rugsnipe rugsnipe -
+d /var/lib/rugsnipe/rslog       0750 rugsnipe rugsnipe -
+d /var/lib/rugsnipe/state       0750 rugsnipe rugsnipe -
+d /var/lib/rugsnipe/armsets     0750 rugsnipe rugsnipe -

@@ -1,0 +1,19 @@
+# rugsnipe-tune -- hot role, optional. Re-applies the runtime part of deploy/tune-hot.sh at
+# boot (governor, THP, sysctls, irqbalance off, NIC IRQ pinning). Kernel cmdline items
+# (isolcpus, nohz_full, rcu_nocbs, C-state cap) are only printed by tune-hot.sh, never applied.
+# Enable after reviewing `tune-hot.sh --check`:  systemctl enable rugsnipe-tune.service
+[Unit]
+Description=rugsnipe hot-box OS tuning (runtime part)
+Documentation=file:/opt/rugsnipe/src/docs/07-deploy.md
+DefaultDependencies=no
+After=sysinit.target network-pre.target
+Before=network-online.target rugsnipe-hot.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=-/etc/rugsnipe/tune-hot.env
+ExecStart=/opt/rugsnipe/bin/tune-hot.sh --apply
+
+[Install]
+WantedBy=rugsnipe.target

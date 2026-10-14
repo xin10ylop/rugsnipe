@@ -5,6 +5,7 @@ import base64
 
 from . import curve, events, firstslot, pumpapi
 from .selftest_funding import *  # noqa: F401,F403  (Task B: labels/funding tests)
+from .selftest_taskc import *  # noqa: F401,F403  (Task C: discovery/backtest tests)
 
 # Real mainnet events (tx 52R8EpW9...pR2R7, slot 456764189, 2026-10-14): a mayhem-mode
 # create_v2 issued through a third-party launcher, followed by a buy_exact_quote_in dev buy.

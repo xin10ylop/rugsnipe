@@ -107,3 +107,23 @@ RPC facts we found while building this (also documented in `rpc.py`):
 * `frontend-api-v3 /coins?creator=<wallet>` works (newest 50 coins of a creator).
 
 Results: `docs/research/onchain-funding-patterns.md`.
+
+## Rugger discovery and backtest (Task C)
+
+| piece | what it does |
+|---|---|
+| `rugsnipe_analysis/window.py` | dense-window acquisition: decode **every** create in a contiguous window (Task A's 1.6 % sample almost never shows an operator twice), coin snapshots, a cheap-first swap-api pull (`staged_trades`: one page of the 15-min window, else the first 60 s to read slot 0, and the full path only for bundled launches), and `creator_funding` (fresh test + first funder/amount, 1 sigs page + <= 3 txs). `could_be_bundled` skips launches whose ATH proves slot 0 held < 1 SOL of buys. |
+| `rugsnipe_analysis/discovery.py` | `slot0_structure` (dev / bundle / third-party roles in the creation slot, from slot-0 trades only), typed edges for the four signals (a: same funder + amount +/- 0.02 SOL + fresh creator, split into mother vs exchange; b: identical bundle signature; c: shared bundle wallets minus sniper bots; d: same signer, launch services keyed by `creator`), union-find clusters over strong edges, cluster score, chance test for signal (a). |
+| `rugsnipe_analysis/expand.py` | grows top clusters across 72 h: d via `/coins?creator=`, a via the mother wallet's own transfers -> fresh recipients -> creates in the 48 h create index, c via the bundle wallet's signatures in create slots. |
+| `rugsnipe_analysis/backtest.py` | trade-path simulator: constant-product overlay of our buy (impact, 1.25 % fee per side, fixed cost per tx), entries eos0/eos1, exits TP / SL / idle 150 s / trailing / big-buy / oracle max / oracle pre-dump, exit latency in slots, entry premium for competition, filters (bundle size, mayhem, entry mcap); `summarize` (hit rate + Wilson CI, avg win/loss, expectancy + CI, guru's 33 % and 3:1 tests); `check_no_lookahead`. |
+| `rugsnipe_analysis/report.py` | renders `docs/research/onchain-backtest.md` (hand-written verdict in `docs/research/onchain-backtest.narrative.json`). |
+| `scripts/discover_ruggers.py` | stages decode, coins, trades, funding, cluster, expand -> `data/window_tokens.jsonl`, `data/rugger_clusters.json`, `data/reports/discovery_summary.json`. `--max-minutes` stops network stages; re-run to resume. |
+| `scripts/backtest.py` | variant grid over the window, cluster members (+ walk-forward "follow the good rugger") and Task A's random arm -> `data/reports/backtest_results.json`, `data/backtest_trades.csv`, `docs/research/onchain-backtest.md`. Reads trades from the cache only unless `--allow-fetch`. |
+
+```bash
+.venv/bin/python -I analysis/scripts/discover_ruggers.py --hours 6 --stages decode,coins
+.venv/bin/python -I analysis/scripts/discover_ruggers.py --stages trades &      # swap-api bound
+.venv/bin/python -I analysis/scripts/discover_ruggers.py --stages funding; wait  # RPC bound
+.venv/bin/python -I analysis/scripts/discover_ruggers.py --stages cluster,expand
+.venv/bin/python -I analysis/scripts/backtest.py            # seconds, cache only
+```

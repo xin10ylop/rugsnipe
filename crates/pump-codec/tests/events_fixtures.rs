@@ -510,7 +510,10 @@ fn mayhem_trades_pay_no_buyback_and_use_reserved_recipients() {
             };
             if t.user == c::MAYHEM_SOL_VAULT {
                 // the fee-free mayhem agent: every fee component is 0
-                assert_eq!((t.fee, t.creator_fee, t.buyback_fee), (Some(0), Some(0), Some(0)));
+                assert_eq!(
+                    (t.fee, t.creator_fee, t.buyback_fee),
+                    (Some(0), Some(0), Some(0))
+                );
                 agent += 1;
                 continue;
             }

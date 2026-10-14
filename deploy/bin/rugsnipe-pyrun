@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# rugsnipe-pyrun MODULE [ARGS...]           python -I -m rugsnipe_analysis.MODULE ARGS...
+# rugsnipe-pyrun --script NAME [ARGS...]    python -I $SRC/analysis/scripts/NAME.py ARGS...
+#
+# ExecStart wrapper for the Python systemd units (collector, discover), so the units stay
+# stable while the analysis modules and scripts land one by one.
+#
+# Exit codes: the program's own, or 78 (EX_CONFIG) when the venv, module or script is
+# missing. The units set RestartPreventExitStatus=78, so a not-yet-deployed program is
+# reported once in the journal instead of a restart loop.
+#
+# Environment: RUGSNIPE_VENV (default /opt/rugsnipe/venv), RUGSNIPE_SRC (default
+# /opt/rugsnipe/src). RUGSNIPE_CONFIG, RUGSNIPE_STATE_DIR, RUGSNIPE_RUN_DIR and RUGSNIPE_DB
+# come from the unit and are passed through untouched.
+set -euo pipefail
+
+VENV=${RUGSNIPE_VENV:-/opt/rugsnipe/venv}
+SRC=${RUGSNIPE_SRC:-/opt/rugsnipe/src}
+PY="$VENV/bin/python"
+
+usage() { echo "usage: rugsnipe-pyrun MODULE [ARGS...] | --script NAME [ARGS...]" >&2; exit 64; }
+[ $# -ge 1 ] || usage
+script=0
+if [ "$1" = --script ]; then script=1; shift; [ $# -ge 1 ] || usage; fi
+name=$1
+shift
+case "$name" in
+  ''|*[!a-z0-9_]*) echo "rugsnipe-pyrun: invalid name '$name'" >&2; exit 64 ;;
+esac
+
+if [ ! -x "$PY" ]; then
+  echo "rugsnipe-pyrun: no python at $PY (run deploy/install.sh)" >&2
+  exit 78
+fi
+if [ "$script" = 1 ]; then
+  path="$SRC/analysis/scripts/$name.py"
+  if [ ! -f "$path" ]; then
+    echo "rugsnipe-pyrun: $path is not deployed yet; nothing to run" >&2
+    exit 78
+  fi
+  exec "$PY" -I "$path" "$@"
+fi
+if ! "$PY" -I -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('rugsnipe_analysis.$name') else 1)"; then
+  echo "rugsnipe-pyrun: module rugsnipe_analysis.$name is not deployed yet; nothing to run" >&2
+  exit 78
+fi
+exec "$PY" -I -m "rugsnipe_analysis.$name" "$@"
