@@ -373,7 +373,7 @@ I3 is chaos-tested with two boxes on divergent feeds. Partial sells use the same
 | **F** | the forward collector |
 
 - **Excluded:** D2, s6 rows, mayhem (22.3% of D1; the curve breaks the floor [J2]), non-SOL quote, legacy SPL creates.
-- **Regimes:** before Sep 15 (no v1); before Oct 9 (400 ms slots: E2 only, never landing); after Oct 21 (re-measure landing).
+- **Regimes:** before Sep 15 (no v1); before Oct 9 (about 268 ms mean slot time, not the nominal 400 ms; see research/gap-6: E2 only, never landing); after Oct 21 (re-measure landing).
 
 ### 9.2 Point-in-time operators
 
