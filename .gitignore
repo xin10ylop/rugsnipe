@@ -24,3 +24,4 @@ node_modules/
 secrets/
 target/
 wg0.conf
+*.log

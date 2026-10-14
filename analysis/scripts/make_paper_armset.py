@@ -31,11 +31,13 @@ Usage::
     python -I analysis/scripts/make_paper_armset.py --kind operators --ver 1 --out /tmp/x/ops.json
     python -I analysis/scripts/make_paper_armset.py --kind cex-broad --ver 2 --out /tmp/x/cex.json
     python -I analysis/scripts/make_paper_armset.py --kind class --ver 3 --out /tmp/x/class.json
-    python -I analysis/scripts/make_paper_armset.py --kind class --ver 4 --probe-allowed --out /tmp/x/probe.json
+    python -I analysis/scripts/make_paper_armset.py --kind class --ver 4 --probe-allowed --probe-stage a --out /tmp/x/probe-a.json
 
 ``--probe-allowed`` (class kind only) writes the probe ArmSet of docs/04 section 7 step 2 and
-docs/08 step 8: ``probe_allowed = true``, the class operator in state ``probe`` at 0.25 SOL.
-It never sets ``gate_passed``. A probe also needs every risk cap, keys, a post-execution feed
+docs/08 section 9: ``probe_allowed = true``, ``probe_stage`` ``a`` (default; 0.02 SOL measurement) or
+``b`` (0.25 SOL), the class operator in state ``probe`` at the stage's size. The hot box refuses a
+probe whose ArmSet names a stage other than ``[probe] stage`` in its config, and stage ``b`` with an ArmSet
+that names no stage, so moving to B takes a signed ArmSet and the local config. It never sets ``gate_passed``. A probe also needs every risk cap, keys, a post-execution feed
 and a build with real senders (docs/06 section 6, docs/08).
 """
 from __future__ import annotations
@@ -57,7 +59,7 @@ SIZE = 100_000_000  # 0.1 SOL
 V_MAX = 40 * LAMPORTS
 CLASS_SIZE = 500_000_000  # 0.5 SOL (docs/04 section 4 cap)
 CLASS_V_MAX = 115 * LAMPORTS  # no entry cap beyond slot-0 graduation (gap-3)
-PROBE_SIZE = 250_000_000  # 0.25 SOL (docs/04 section 7 step 2)
+PROBE_SIZE = {"a": 20_000_000, "b": 250_000_000}  # 0.02 / 0.25 SOL per stage (docs/04 section 7)
 
 
 def op_entry(op_id: int, family: str, stats: dict) -> dict:
@@ -176,7 +178,9 @@ def main() -> int:
     ap.add_argument("--n", type=int, default=20, help="operators (operators) or funders (cex-broad)")
     ap.add_argument("--out", required=True)
     ap.add_argument("--probe-allowed", action="store_true",
-                    help="class kind: probe_allowed = true, operator state probe, 0.25 SOL (docs/04 section 7)")
+                    help="class kind: probe_allowed = true, operator state probe at the --probe-stage size (docs/04 section 7)")
+    ap.add_argument("--probe-stage", choices=["a", "b"], default="a",
+                    help="with --probe-allowed: a = 0.02 SOL measurement, b = 0.25 SOL (docs/04 section 7)")
     ap.add_argument("--regime", default="paper", help="ArmSet regime (rugsnipe-hot --regime must match)")
     a = ap.parse_args()
     if a.probe_allowed and a.kind != "class":
@@ -206,8 +210,9 @@ def main() -> int:
         armset["match_all"] = ops[0]["op_id"]
     if a.probe_allowed:
         armset["probe_allowed"] = True
+        armset["probe_stage"] = a.probe_stage
         ops[0]["state"] = "probe"
-        ops[0]["size_lamports"] = PROBE_SIZE
+        ops[0]["size_lamports"] = PROBE_SIZE[a.probe_stage]
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     Path(a.out).write_text(json.dumps(armset, indent=1, sort_keys=True) + "\n")
     print(f"{a.out}: {len(ops)} operator(s), {len(watch)} watch key(s), {len(rules)} funding rule(s)")

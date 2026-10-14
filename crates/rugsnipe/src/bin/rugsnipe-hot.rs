@@ -80,19 +80,19 @@ fn run(args: &[String]) -> Result<(), String> {
     };
     // Real modes are refused before any network connection is opened.
     if mode.is_real() {
-        let gate = match &armset {
+        let (gate, stage) = match &armset {
             ArmChoice::File(p) => {
-                rugsnipe::setup::load_armset_file(
+                let r = rugsnipe::setup::load_armset_file(
                     p,
                     &cfg,
                     rugsnipe::now_unix(),
                     opt(args, "--regime"),
-                )
-                .gate
+                );
+                (r.gate, r.armset.as_ref().and_then(|a| a.probe_stage))
             }
-            _ => rugsnipe_core::config::ArmSetGate::Missing,
+            _ => (rugsnipe_core::config::ArmSetGate::Missing, None),
         };
-        app::real_mode_gate(&cfg, gate, live_flag)
+        app::real_mode_gate(&cfg, gate, stage, live_flag)
             .map_err(|r| format!("mode {mode} refused:\n{r}"))?;
         return Err(format!(
             "mode {mode}: this build has no real key loading or real senders; refusing"

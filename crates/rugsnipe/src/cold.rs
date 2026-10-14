@@ -142,6 +142,12 @@ pub struct PaperReport {
     pub mean_premium_bps_attempts: f64,
     /// Priority fees of the failed attempts.
     pub failed_cost_lamports: u64,
+    /// failed_cost_lamports / failed_attempts: the measured failed-attempt
+    /// cost the probe kill rule's break-even landing rate is computed from.
+    pub failed_cost_lamports_mean: f64,
+    /// Median premium of the fills over the post-bundle price (bps): the
+    /// probe kill rule's "median realised premium".
+    pub median_premium_bps_fills: f64,
     pub closed: u64,
     pub exits_by_reason: BTreeMap<String, u64>,
     /// Realized P&L of the closed positions (proceeds - cost, before fixed costs).
@@ -159,6 +165,13 @@ pub struct PaperReport {
     /// EV per attempt: net / (closed + failed attempts), as a fraction of the
     /// mean stake.
     pub ev_per_attempt: f64,
+    /// Standard error of the EV per attempt (per-attempt returns, failed
+    /// attempts included) and its 90% normal interval: the probe kill rule
+    /// reads the upper bound (docs/04 section 7).
+    pub ev_per_attempt_se: f64,
+    pub ev_per_attempt_90ci: [f64; 2],
+    /// Attempts scored for the EV (closed fills + failed attempts).
+    pub attempts_scored: u64,
     /// The entry filter: scores, tertiles, EV per attempt by tertile, the
     /// outcome store.
     pub filter: crate::filter::FilterReport,
@@ -170,6 +183,11 @@ pub struct PaperReport {
     spend_of: HashMap<Pubkey, u64>,
     #[serde(skip)]
     spend_sum_attempts: u64,
+    /// (P&L before the round trip, stake, landed) of every scored attempt.
+    #[serde(skip)]
+    scored: Vec<(i64, u64, bool)>,
+    #[serde(skip)]
+    fill_premiums: Vec<u32>,
 }
 
 impl PaperReport {
@@ -189,6 +207,7 @@ impl PaperReport {
         if outcome == ShadowOutcome::Filled {
             self.fills += 1;
             self.premium_sum_fills += premium_bps as u64;
+            self.fill_premiums.push(premium_bps);
             self.spend_of.insert(mint, spend);
         }
         if outcome == ShadowOutcome::Filled || outcome.is_failed_attempt() {
@@ -199,6 +218,7 @@ impl PaperReport {
             self.failed_attempts += 1;
             self.failed_cost_lamports += cost;
             self.spend_sum_attempts += spend;
+            self.scored.push((-(cost as i64), spend, false));
         }
     }
 
@@ -212,6 +232,7 @@ impl PaperReport {
             self.realized_lamports += pnl;
             self.closed_spend_lamports += spend;
             self.spend_sum_attempts += spend;
+            self.scored.push((pnl, spend, true));
         }
     }
 
@@ -234,6 +255,35 @@ impl PaperReport {
         let n = (self.closed + self.failed_attempts) as f64;
         let mean_stake = f(self.spend_sum_attempts as f64, n);
         self.ev_per_attempt = f(f(self.net_lamports as f64, n), mean_stake);
+        self.failed_cost_lamports_mean = f(
+            self.failed_cost_lamports as f64,
+            self.failed_attempts as f64,
+        );
+        let mut p = self.fill_premiums.clone();
+        p.sort_unstable();
+        self.median_premium_bps_fills = match p.len() {
+            0 => 0.0,
+            k if k % 2 == 1 => p[k / 2] as f64,
+            k => (p[k / 2 - 1] as f64 + p[k / 2] as f64) / 2.0,
+        };
+        // per-attempt returns (fraction of their own stake), failed attempts included
+        let rt = round_trip_lamports as i64;
+        let xs: Vec<f64> = self
+            .scored
+            .iter()
+            .filter(|(_, s, _)| *s > 0)
+            .map(|(pnl, s, landed)| (pnl - if *landed { rt } else { 0 }) as f64 / *s as f64)
+            .collect();
+        self.attempts_scored = xs.len() as u64;
+        self.ev_per_attempt_se = if xs.len() > 1 {
+            let m = xs.iter().sum::<f64>() / xs.len() as f64;
+            let var = xs.iter().map(|x| (x - m) * (x - m)).sum::<f64>() / (xs.len() - 1) as f64;
+            (var / xs.len() as f64).sqrt()
+        } else {
+            0.0
+        };
+        let h = 1.645 * self.ev_per_attempt_se;
+        self.ev_per_attempt_90ci = [self.ev_per_attempt - h, self.ev_per_attempt + h];
     }
 }
 
@@ -1440,5 +1490,18 @@ mod tests {
         assert!((p.return_per_fill_net - 0.092).abs() < 1e-12);
         assert!((p.ev_per_attempt - 43_000_000.0 / 2.0 / 500_000_000.0).abs() < 1e-12);
         assert_eq!(p.exits_by_reason.get("tp0"), Some(&1));
+        // the probe kill rule's inputs (docs/04 section 7)
+        assert_eq!(p.attempts_scored, 2);
+        assert_eq!(p.failed_cost_lamports_mean, 3_000_000.0);
+        assert_eq!(p.median_premium_bps_fills, 130.0);
+        // returns +0.092 and -0.006: sd = 0.098 / sqrt 2, se = sd / sqrt 2 = 0.049
+        assert!(
+            (p.ev_per_attempt_se - 0.049).abs() < 1e-12,
+            "{}",
+            p.ev_per_attempt_se
+        );
+        let [lo, hi] = p.ev_per_attempt_90ci;
+        assert!((hi - lo - 2.0 * 1.645 * 0.049).abs() < 1e-12);
+        assert!(((lo + hi) / 2.0 - p.ev_per_attempt).abs() < 1e-12);
     }
 }

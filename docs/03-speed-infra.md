@@ -248,21 +248,34 @@ rank-1 landing rate of the 0.5 SOL LEAD from **12.1% at 0.003 SOL per failed att
   transfer (`rugsnipe-tx/tests/templates.rs`, `tip_is_the_last_instruction_after_the_buy_or_sell`).
   Atomicity, not the position, is what makes the tip revert; "last" is the invariant that keeps the
   buy as the instruction that can fail first and matches the decoded winners.
-- **Tip-ordered classes carry the bid in the tip** (Jito-Agave through the block engine, BAM through
-  its auction, both via the Jito tip accounts): `split = [0.0, 1.0]`, header priority fee at the
-  scheduling floor `min_priority_lamports = 10,000` (slot-0 winners: p10 1,000, p25 45,000
-  lamports). A failure there costs 15,000 lamports (one signature) or nothing if the bundle drops.
-- **Priority-ordered classes** (Harmonic, Firedancer, other) bid with the priority fee, which is
-  at risk: `split = [1.0, 0.0]`, clamped so that base fee + priority never exceeds
+- **Tip-ordered class carries the bid in the tip** (Jito-Agave, through the block engine and the
+  Jito tip accounts): `split = [0.0, 1.0]`, header priority fee at the scheduling floor
+  `min_priority_lamports = 10,000` (slot-0 winners: p10 1,000, p25 45,000 lamports). A failure
+  there costs 15,000 lamports (one signature) or nothing if the bundle drops.
+- **Priority-ordered classes** (BAM, Harmonic, Firedancer, other) bid with the priority fee, which
+  is at risk: `split = [1.0, 0.0]`, clamped so that base fee + priority never exceeds
   **`failed_attempt_lamports_max` (default 1,000,000 lamports = 0.001 SOL)**. The cap is validated
   (at least 2 × 5,000 + the floor) and the hot path enforces it on every variant
-  (`templates.rs`, `bid_plans_keep_a_failed_attempt_within_the_cap`).
+  (`templates.rs`, `bid_plans_keep_a_failed_attempt_within_the_cap`). **BAM is in this group by
+  default** (added 2026-10-14, final review): BAM's own rule for tips versus priority fee is not
+  documented, and our measurement (§6) saw the earlier transaction inside a BAM round carry the
+  higher compute-unit price 86-89% of the time, i.e. CU-price ordering like Harmonic. It stays
+  priority-ordered until the probe measures which variant lands per leader class.
 - **Leader unknown** (today: the hot path has no leader schedule yet): the primary variant is the
   pay-on-success one and the secondary the clamped priority one, on one durable nonce, so at most
   one lands. Paper charges the expected cost over `paper.leader_mix` (the §6 stake shares):
-  0.651 × 15,000 + 0.349 × 1,000,000 ≈ **359,000 lamports (0.00036 SOL) per failed attempt** at
-  the default bid, against docs/04's 0.003. In the P&L model that is a break-even landing rate of
-  **1.6%** (+18.7 SOL/day at 20%); a 0.001 SOL failure everywhere gives 4.4%.
+  0.272 × 15,000 + 0.728 × 1,000,000 ≈ **732,000 lamports (0.00073 SOL) per failed attempt** at
+  the default bid, against docs/04's 0.003. **Modelled range: 0.00036 SOL** (if BAM honoured a
+  pay-on-success tip: 0.651 × 15,000 + 0.349 × 1,000,000) **to 0.001 SOL** (every leader
+  priority-ordered, the cap). In the P&L model (docs/04 §4) the break-even landing rate of the
+  0.5 SOL LEAD is **1.6% / 3.3% / 4.4%** over 0.00036 / 0.00073 / 0.001 SOL (+18.7 / +17.4 / +16.4
+  SOL/day at 20%), and of the 0.25 SOL LEAD 4.1% / 8.1% / 10.7%.
+- **Sells use the same split** (`BidPolicy::plan_sell`): the exit engine's sell bid goes into the
+  tip with the priority fee at the floor on a tip-ordered leader, and into the priority fee with no
+  tip elsewhere (an unknown leader is planned as priority-ordered). It is paid once, never as both
+  fee and tip, and it is not clamped by the buy cap: a sell that does not land leaves the position
+  open, and `risk.max_sell_spend_lamports` bounds the spend (`rugsnipe/tests/pipeline.rs`,
+  `bid.rs` `sells_pay_the_bid_once_through_the_class_split`).
 - **Recorded:** paper writes the modelled cost to `fills.fail_cost` and the summary's
   `paper.failed_cost_lamports`; real mode must write `meta.fee` of our own failed transaction
   (`rugsnipe::e1::failed_tx_fee`), which the real fill lane (task #12) has to call.
@@ -271,9 +284,11 @@ rank-1 landing rate of the 0.5 SOL LEAD from **12.1% at 0.003 SOL per failed att
 and priority fee; a tip there buys position only through the block engine, and bundle senders
 landed *later* than direct senders on every class (the 50 ms auction tick, above). BAM's own
 ordering rule for tips versus priority fee is not publicly documented; our measurement saw CU price
-order inside BAM rounds (86-89%). Pay-on-success can therefore cost landing rate. The probe must log
-the landing rate per variant and leader class; if the floor-priority variant loses rank 1 where a
-priority bid would have won, raise `min_priority_lamports` for that class rather than drop the cap.
+order inside BAM rounds (86-89%), which is why BAM bids with the priority fee by default.
+Pay-on-success can therefore cost landing rate, and a priority bid costs more per failure. Probe-A
+(docs/04 §7) logs the landing rate per variant and leader class; if the floor-priority variant loses
+rank 1 where a priority bid would have won, raise `min_priority_lamports` for that class rather than
+drop the cap, and if BAM turns out to honour the tip, set `bid.split.bam = [0.0, 1.0]` again.
 
 ## 7. OS tuning on the hot box
 

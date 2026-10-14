@@ -9,6 +9,7 @@ Outputs: data/cache/strategy_copy/*, data/reports/strategy/copytrade_*.json
 from __future__ import annotations
 
 import collections
+import gzip
 import json
 import math
 import pickle
@@ -503,7 +504,7 @@ def sim():
             "launches_with_wave": int(sum(1 for v in info.values() if v["n_wave"] > 0))}
     pickle.dump({"events": [{k: v for k, v in e.items() if k != "evs"} for e in events]}, open(CACHE / "events_meta.pkl", "wb"))
     pickle.dump(events, open(CACHE / "events.pkl", "wb"))
-    json.dump({"meta": meta, "res": res}, open(REPORTS / "copytrade_sweep.json", "w"))
+    json.dump({"meta": meta, "res": res}, gzip.open(REPORTS / "copytrade_sweep.json.gz", "wt"))
     print(json.dumps(meta, indent=1, default=str)[:3000])
 
 
@@ -563,7 +564,7 @@ def report():
     cut_bt = int(np.quantile(bts, 0.60))
     W, _ = pop_weights(T, cut_bt)
     events = pickle.load(open(CACHE / "events.pkl", "rb"))
-    d = json.load(open(REPORTS / "copytrade_sweep.json"))
+    d = json.load(gzip.open(REPORTS / "copytrade_sweep.json.gz", "rt"))
     R = d["res"]
 
     def series(r, split, popn):

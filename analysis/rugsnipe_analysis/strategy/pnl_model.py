@@ -161,3 +161,24 @@ def sensitivity(pol: Policy, mk: Market, ex: Execution, L1s=(0.05, 0.10, 0.15, 0
                 row[f"L{int(round(L * 100))}"] = daily(pol, mk, replace(e2, L1=L))["sol_day"]
             rows.append(row)
     return rows
+
+
+def lead_policy(report: dict, size: float) -> Policy:
+    """The LEAD at `size` SOL (0.25 or 0.5) from the measured pooled out-of-sample inputs of
+    data/reports/strategy/pnl_model.json (`pnl_run.py`): EV and SE per landed trade at +1.1% / 0.004 SOL,
+    per-trade SD and the EV slope per premium point."""
+    m = report["measured"]
+    P = m[f"pooled_S{size}_p0.011"]
+    return Policy(f"LEAD {size} SOL, pooled OOS", size,
+                  [ActivityClass("all", 1.0, P["ev"], (P["hi"] - P["lo"]) / (2 * 1.645))],
+                  m[f"sd_pooled_S{size}_p0.011"], m[f"slope_pooled_S{size}"])
+
+
+def break_even_landing(pol: Policy, c_fail: float, prem: float = 0.011, c_rt: float = 0.004,
+                       f_pay: float = 0.8) -> float:
+    """Rank-1 landing rate at which SOL per attempt is zero for a failed-attempt cost `c_fail` (SOL), a
+    landed premium `prem` and a fixed cost `c_rt` per landed round trip. `f_pay` is the share of lost
+    attempts that land and pay `c_fail` (0.8 in the model; 1.0 when `c_fail` is a measured mean over every
+    failed attempt, drops included at their cost)."""
+    return break_even_L1(pol, Execution(L1=0.2, prem=prem, prem_range=(prem, prem), c_rt=c_rt,
+                                        c_fail=c_fail, c_fail_range=(c_fail, c_fail), f_pay=f_pay))

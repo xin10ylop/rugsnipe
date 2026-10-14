@@ -30,13 +30,13 @@ armset_pubkey = "<base58>"
 cold_wallet = "<base58>"
 [risk]
 max_snipe_lamports = 250_000_000
-max_probe_lamports = 20_000_000
-max_probes_per_day = 20
+max_probe_lamports = 250_000_000                  # ceiling: [probe] stage a (0.02 SOL) or b (0.25 SOL) narrows it
+max_probes_per_day = 300                           # ceiling, attempts; stage a 50, b 300
 max_open_positions = 4
 max_daily_loss_lamports = 1_000_000_000            # chain-derived, marked to the sell quote
 max_consec_losses_per_op = 5
-max_buys_per_op_per_day = 10
-max_buys_per_hour = 20
+max_buys_per_op_per_day = 300   # ceiling; the class arm counts as one operator, so this must not bind below the probe stage caps (50/day A, 300/day B)
+max_buys_per_hour = 40    # ceiling; probe-B averages 12.5/h with bursts
 max_bid_lamports = 25_000_000
 max_sell_spend_lamports = 20_000_000
 max_entry_vsol_lamports = 40_000_000_000
@@ -87,11 +87,21 @@ partial_fill = false
 quantile = 0.75
 # [priority, tip] per leader class. The tip is a transfer AFTER the buy in the same transaction: a failed
 # (slippage-capped) buy reverts it, while the base fee and the priority fee are charged on failure too.
-# Tip-ordered classes (Jito-Agave via the block engine, BAM via its auction) bid with the tip and keep the
-# priority fee at the floor; Harmonic and other clients order by priority fee, so there the bid is at risk.
-split = { jito_agave = [0.0, 1.0], bam = [0.0, 1.0], harmonic = [1.0, 0.0], other = [1.0, 0.0] }
+# Jito-Agave (tip-ordered through the block engine) bids with the tip and keeps the priority fee at the floor.
+# BAM, Harmonic and other clients order by priority fee (BAM: the earlier tx in a round had the higher CU price
+# 86-89% of the time, docs/03 section 6), so there the bid is the priority fee, at risk and capped below.
+# BAM stays priority-ordered until the probe measures which variant lands per leader class.
+split = { jito_agave = [0.0, 1.0], bam = [1.0, 0.0], harmonic = [1.0, 0.0], other = [1.0, 0.0] }
 min_priority_lamports = 10_000                     # header priority fee floor (gap-2: winners p10 1k, p25 45k lamports)
 failed_attempt_lamports_max = 1_000_000            # most a failed attempt may cost (base + priority); priority is clamped to it
+[probe]                                            # docs/04 section 7, docs/08 section 9; read in mode = "probe" only
+stage = "a"                                        # a | b; a signed ArmSet that names probe_stage must name the same one (b: must name b)
+# each cap narrows the [risk] cap of the same name (the smaller non-zero value binds)
+a = { max_probe_lamports = 20_000_000, max_probes_per_day = 50, max_open_positions = 1, max_daily_loss_lamports = 200_000_000 }     # measurement: 300 attempts or 3 days
+b = { max_probe_lamports = 250_000_000, max_probes_per_day = 300, max_open_positions = 2, max_daily_loss_lamports = 1_000_000_000 } # ~200 landed trades
+# kill: EV per attempt (failures included) 90% upper bound < 0 after min_landed landed or min_attempts attempts,
+# median realised premium > max_median_premium, or landing below break-even over landing_attempts (shadow_gate.py --probe)
+kill = { min_landed = 100, min_attempts = 400, max_median_premium = 0.03, landing_attempts = 200 }
 [exit.default]
 tp = [[2.0, 0.5], [3.0, 1.0]]
 tp_slip_bps = 1500

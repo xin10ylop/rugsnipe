@@ -83,17 +83,21 @@ The system stays **paper-only unless the go/no-go gate passes** (docs/06 section
 |---|---|---|---|---|
 | **paper** | ohio1 or this container; `logsSubscribe` + PumpPortal (free) | decode coverage, decisions, internal latency, E2 P&L. Nothing about block 0 | now | $0 extra (Ohio already paid) |
 | **shadow** | fra1 + SVS Yellowstone gRPC; still `mode = "paper"` | detection lead vs rivals' landing slots per leader class | M4 paper run clean (decode-miss < 1%) | box ~$400-425 + SVS $150 |
-| **probe** | fra1 + paid post-exec feed (LaserStream fra or SVS); lock probes, then 0.01-0.02 SOL buys, ≤ 20/day | true `buyers_ahead`, landing per sender × leader class, exit fills; replaces the guessed k̂ | `cu_limit` set by `ctl sim`, keys 0400, all caps non-zero, clock offset ≤ 5 ms, healthy post-exec feed, `max_probe_lamports` 0.02 SOL; ≤ 0.5 SOL in total (M7) | + LaserStream $499-999 (if replacing SVS) + ~0.004 SOL overhead per probe |
+| **probe-A** | fra1 + paid post-exec feed (LaserStream fra or SVS); lock probes, then `[probe] stage = "a"`: 0.02 SOL buys, ≤ 50 attempts/day, 1 open position, 0.2 SOL daily loss cap, until 300 attempts or 3 days | landing rank, premium, failed-attempt cost per leader class, which bid variant lands; true `buyers_ahead` replaces the guessed k̂. EV is negative at this size (fixed costs) and is not a kill reason | shadow `GO on (a)`; `cu_limit` set by `ctl sim`, keys 0400, all caps non-zero, clock offset ≤ 5 ms, healthy post-exec feed, a signed ArmSet with `probe_allowed` (and `probe_stage = "a"` if it names one) | + LaserStream $499-999 (if replacing SVS); ≤ 0.6 SOL at risk (3 days × 0.2 SOL cap) |
+| **probe-B** | same box and feed, `[probe] stage = "b"`: 0.25 SOL buys, ≤ 300 attempts/day, 2 open positions, 1 SOL daily loss cap, about 200 landed trades | EV per attempt with failures at our real rank, premium and cost; the inputs of gate (b) | probe-A's landing rate above the break-even for its measured failed-attempt cost (`pnl_model`) and median premium ≤ +2% (`shadow_gate.py --probe`: `ENTER PROBE-B`); a signed ArmSet with `probe_stage = "b"` | ≤ 1 SOL/day at risk under the kill rule (docs/04 §7) |
 | **live** | fra1; after the gate add DZ Edge + Helius shreds | money | **gate (below)** + `mode = "live"` in TOML + CLI flag + local `rugsnipe-ctl arm-live` token for that gate run (valid 7 days) | + DZ $1,500 + Helius shreds $800-1,000 + tips |
 
-**Conflict to settle before the probe.** This table predates docs/04 §7 and docs/08: those run shadow on `logsSubscribe` (the hot binary has no gRPC feed yet) and plan a probe of about 200 trades at 0.25 SOL (docs/08 §9: up to 300 attempts a day, 1 SOL daily loss cap), not 0.01-0.02 SOL buys at ≤ 20 a day and ≤ 0.5 SOL in total. docs/06 §9.5/§10 still say 0.01-0.02 SOL. Pick one and align docs/06, docs/07 and the probe caps.
+**Settled (2026-10-14):** the probe runs in two stages, A (measurement at 0.02 SOL) then B (0.25 SOL), as above; docs/04 §7, docs/06 §9.5/§10, docs/08 §9 and the `[probe]` section of the example configs say the same. Shadow currently runs on `logsSubscribe` (the hot binary has no gRPC feed yet).
 
-**The gate** (docs/06 section 9.5), signed into the ArmSet as `gate_passed`. All of these must hold:
-- ≥ 300 out-of-sample snipes from ≥ 15 operators, and no operator above 40% of P&L;
-- the 95% operator×day cluster-bootstrap lower bound of EV(selected) − EV(matched control) is > 0 at E1, base costs and the **measured** k̂;
-- EV ≥ 0 at high costs;
-- vault EV > 0;
-- landing holds after Alpenglow (Oct 21 2026).
+**Probe kill rule** (docs/04 §7, `[probe] kill`, `shadow_gate.py --probe`): kill when the EV per attempt including failed attempts has a 90% upper bound below 0 after 100 landed trades or 400 attempts, whichever comes first (probe-B); or the median realised premium exceeds +3%; or the landing rate stays below the break-even for the measured failed-attempt cost over 200 attempts; or the stage's daily loss cap is hit.
+
+**The gate** (docs/06 section 9.5) for the class-arm LEAD, signed into the ArmSet as `gate_passed`. All of these must hold:
+- (a) shadow: ≥ 1,000 qualifying launches over at least one full day, shadow EV per attempt at the measured rank, premium and cost with a 90% lower bound above 0 (bootstrap by hour clusters);
+- (b) probe-B complete: ≥ 200 landed trades, EV per attempt including failures with a 90% lower bound above 0, no single hour above 40% of the P&L, ahead of the first follower on at least one hot launch in three at a premium of +2% or less;
+- (c) every cost measured, not modelled;
+- (d) all of it re-verified after Alpenglow (Oct 21 2026) before any live start.
+
+The per-operator risk latches stay; operator counts, matched controls and vault EV are no longer gate criteria (the LEAD is a class arm).
 
 Until probes measure landing, farming and exit fills, every EV is an upper bound and no ArmSet can carry `gate_passed = true`.
 The hot box runs **exits only** if the ArmSet is unsigned, older than `armset_max_age_s` (6 h) or from the wrong regime.
@@ -122,7 +126,7 @@ Re-run the feed and decoder tests that week. Unfreezing needs decode-miss < 1% f
 Totals:
 - paper: **$0** extra;
 - shadow: **~$575/mo**;
-- probe: **~$575-1,425/mo** + ≤ 0.5 SOL;
+- probe: **~$575-1,425/mo** + probe-A ≤ 0.6 SOL at risk (0.2 SOL/day cap, 3 days) + probe-B ≤ 1 SOL/day under the kill rule;
 - live: box + DZ + Helius shreds + the post-exec gRPC feed that probe/live require (SVS $150 or LaserStream $499-999) ≈ **$2,850-3,925/mo** + tips.
 
 ## 5. Install and update

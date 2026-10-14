@@ -55,7 +55,7 @@ use pump_codec::create_hit::CreateHit;
 use pump_codec::curve::{CurveState, FeeBps};
 use pump_codec::{pda, Pubkey};
 use rugsnipe_core::bid::{BidPlan, BidPolicy, LeaderClass};
-use rugsnipe_core::config::{Config, FillModel, FilterMode, LeaderMix};
+use rugsnipe_core::config::{Config, FillModel, FilterMode, LeaderMix, ProbeStage};
 use rugsnipe_core::risk::{DecideInput, Decision, RiskGate};
 use rugsnipe_core::rslog::{CreateHitRec, Rec, RslogProducer, ShadowOutcome};
 use rugsnipe_core::watchlist::{Match, Via, Watchlist};
@@ -156,6 +156,8 @@ pub struct HotCfg {
     /// on the hot thread, before the position opens.
     pub filter: Option<Arc<Model>>,
     pub filter_mode: FilterMode,
+    /// `probe.stage`: a probe buy needs the ArmSet to name no stage or this one.
+    pub probe_stage: ProbeStage,
 }
 
 impl HotCfg {
@@ -190,7 +192,17 @@ impl HotCfg {
             leader_mix: cfg.paper.leader_mix.clone(),
             filter: None,
             filter_mode: cfg.entry.filter_mode,
+            probe_stage: cfg.probe.stage,
         }
+    }
+
+    /// The variant of a sell: the exit engine's sell bid split by the
+    /// leader's class (`None`: planned as priority-ordered), so a
+    /// tip-ordered class pays the priority floor plus the bid as a tip and a
+    /// priority-ordered class the bid as the priority fee, never both
+    /// (docs/03 section 6.1).
+    pub fn sell_plan(&self, bid: u64, n_sigs: u8) -> BidPlan {
+        self.bid_policy.plan_sell(self.leader_class, bid, n_sigs)
     }
 
     /// The variants of one snipe: the primary for the leader's class (or a
@@ -631,7 +643,9 @@ impl HotLoop {
             armset_ok: arm.verified
                 && match mode {
                     Mode::Live => arm.gate_passed,
-                    Mode::Probe => arm.probe_allowed,
+                    Mode::Probe => {
+                        arm.probe_allowed && self.cfg.probe_stage.admitted_by(arm.probe_stage)
+                    }
                     Mode::Paper => true,
                 },
             frozen: self.cfg.frozen(slot),
@@ -1775,13 +1789,20 @@ impl HotLoop {
             } else {
                 &mut self.tmpl.sell_partial
             };
+            // the sell bid goes through the bid policy: priority floor + tip on
+            // a tip-ordered class, the bid as the priority fee elsewhere; never
+            // the same bid as both (docs/03 section 6.1)
+            let plan = self
+                .cfg
+                .sell_plan(order.tip_lamports, t.table.n_sigs.clamp(1, 2) as u8);
+            let (prio, tip) = (plan.priority_lamports, plan.tip_lamports);
             t.patch(&Patch {
                 keys: &s.keys,
                 lifetime: &PAPER_BLOCKHASH,
                 amount: order.tokens,
                 limit: order.min_sol_output,
-                priority_lamports: order.tip_lamports,
-                tip_lamports: order.tip_lamports,
+                priority_lamports: prio,
+                tip_lamports: tip,
                 cu_limit: None,
             });
             t.sign(&self.signer, None);
@@ -1790,8 +1811,8 @@ impl HotLoop {
                 s.intent,
                 0x80 | (order.try_no.min(127) as u8),
                 VariantKind::Sell,
-                order.tip_lamports,
-                order.tip_lamports,
+                prio,
+                tip,
                 Some(self.tmpl.tip_account),
             );
             sig = v.sig;
@@ -1803,8 +1824,8 @@ impl HotLoop {
                     tmpl: t.clone(),
                     intent: s.intent,
                     idx: v.idx,
-                    prio: order.tip_lamports,
-                    tip: order.tip_lamports,
+                    prio,
+                    tip,
                     tip_account: self.tmpl.tip_account,
                     real: true,
                 };

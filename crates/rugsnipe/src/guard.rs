@@ -68,6 +68,9 @@ pub struct PaperSell {
     pub signer: Arc<HotSigner>,
     pub paper: Arc<Paper>,
     pub tip_account: Pubkey,
+    /// `[bid]`: the dump bid is split by leader class like every sell
+    /// (the guard knows no leader: planned as priority-ordered).
+    pub bid: rugsnipe_core::bid::BidPolicy,
 }
 
 impl core::fmt::Debug for PaperSell {
@@ -201,13 +204,19 @@ impl Guard {
                 fees: FeeBps::DEFAULT,
             };
             let min_out = dump_min_out(&self.policy, &market, p.tokens);
+            // the bid once, through the bid policy (never as both fee and tip)
+            let plan = s.bid.plan_sell(
+                None,
+                self.policy.dump_tip_lamports,
+                s.template.table.n_sigs.clamp(1, 2) as u8,
+            );
             s.template.patch(&Patch {
                 keys: &keys,
                 lifetime: &[0x22; 32],
                 amount: p.tokens,
                 limit: min_out,
-                priority_lamports: self.policy.dump_tip_lamports,
-                tip_lamports: self.policy.dump_tip_lamports,
+                priority_lamports: plan.priority_lamports,
+                tip_lamports: plan.tip_lamports,
                 cu_limit: None,
             });
             s.template.sign(&s.signer, None);
@@ -216,8 +225,8 @@ impl Guard {
                 p.intent_id as u64,
                 0xC0,
                 VariantKind::Sell,
-                self.policy.dump_tip_lamports,
-                self.policy.dump_tip_lamports,
+                plan.priority_lamports,
+                plan.tip_lamports,
                 Some(s.tip_account),
             );
             let _ = s.paper.send(&var);

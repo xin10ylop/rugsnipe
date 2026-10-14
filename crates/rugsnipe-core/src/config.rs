@@ -53,6 +53,8 @@ pub struct Config {
     pub entry: EntryCfg,
     /// Paper (shadow) fill model and cost accounting (docs/04 section 7).
     pub paper: PaperCfg,
+    /// The two probe stages and the probe kill rule (docs/04 section 7).
+    pub probe: ProbeCfg,
     /// Python collector knobs (`analysis/rugsnipe_analysis/collector.py`);
     /// unused by the Rust binaries.
     pub collector: CollectorCfg,
@@ -492,7 +494,10 @@ pub struct BidSplit {
     pub jito_agave: [f64; 2],
     /// Harmonic: priority-fee ordered batches (tip accounts buy nothing).
     pub harmonic: [f64; 2],
-    /// BAM: the BAM node's auction, tips to the Jito tip accounts.
+    /// BAM: the BAM node's auction. Priority-fee ordered by default: inside
+    /// a BAM round the earlier transaction had the higher compute-unit price
+    /// 86-89% of the time (docs/03 section 6), until the probe measures
+    /// which variant lands.
     pub bam: [f64; 2],
     /// Firedancer / Frankendancer / plain Agave / unknown: priority fee.
     pub other: [f64; 2],
@@ -502,7 +507,7 @@ impl Default for BidSplit {
         Self {
             jito_agave: [0.0, 1.0],
             harmonic: [1.0, 0.0],
-            bam: [0.0, 1.0],
+            bam: [1.0, 0.0],
             other: [1.0, 0.0],
         }
     }
@@ -721,6 +726,132 @@ impl FillModel {
     }
 }
 
+/// Probe stage (docs/04 section 7, docs/08 section 9): `a` measures (0.02
+/// SOL buys), `b` is the capped trading probe (0.25 SOL buys), entered only
+/// if stage A's measurements clear the entry rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ProbeStage {
+    #[default]
+    A,
+    B,
+}
+impl ProbeStage {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::A => "a",
+            Self::B => "b",
+        }
+    }
+    /// The verified ArmSet's `probe_stage` admits this config stage: it
+    /// names the same stage, or names none and this is stage `a`. Stage `b`
+    /// needs a signed ArmSet that names `b` (moving to B takes both keys).
+    pub fn admitted_by(self, armset: Option<ProbeStage>) -> bool {
+        armset.map_or(self == Self::A, |a| a == self)
+    }
+}
+
+/// The caps of one probe stage. In `mode = "probe"` each one narrows the
+/// `[risk]` cap of the same name (the smaller non-zero value binds).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProbeProfile {
+    pub max_probe_lamports: u64,
+    /// Attempts (sends), not fills.
+    pub max_probes_per_day: u64,
+    pub max_open_positions: u64,
+    pub max_daily_loss_lamports: u64,
+}
+impl ProbeProfile {
+    /// Probe-A, measurement: 0.02 SOL, <= 50 attempts a day, 1 open
+    /// position, 0.2 SOL daily loss cap.
+    pub fn stage_a() -> Self {
+        Self {
+            max_probe_lamports: 20_000_000,
+            max_probes_per_day: 50,
+            max_open_positions: 1,
+            max_daily_loss_lamports: 200_000_000,
+        }
+    }
+    /// Probe-B: 0.25 SOL, <= 300 attempts a day, 2 open positions, 1 SOL
+    /// daily loss cap.
+    pub fn stage_b() -> Self {
+        Self {
+            max_probe_lamports: 250_000_000,
+            max_probes_per_day: 300,
+            max_open_positions: 2,
+            max_daily_loss_lamports: 1_000_000_000,
+        }
+    }
+    fn caps(&self) -> [(&'static str, u64); 4] {
+        [
+            ("max_probe_lamports", self.max_probe_lamports),
+            ("max_probes_per_day", self.max_probes_per_day),
+            ("max_open_positions", self.max_open_positions),
+            ("max_daily_loss_lamports", self.max_daily_loss_lamports),
+        ]
+    }
+}
+
+/// The probe kill rule (docs/04 section 7), read by
+/// `analysis/scripts/shadow_gate.py --probe` from the inputs the hot
+/// binary's end-of-run summary and `state.db` expose. Kill when the EV per
+/// attempt (failed attempts included) has a 90% upper bound below 0 after
+/// `min_landed` landed trades or `min_attempts` attempts, whichever comes
+/// first; or the median realised premium exceeds `max_median_premium`; or
+/// the landing rate stays below the break-even for the measured
+/// failed-attempt cost over `landing_attempts` attempts; plus the stage's
+/// daily loss cap (enforced by the risk gate).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ProbeKillCfg {
+    pub min_landed: u64,
+    pub min_attempts: u64,
+    pub max_median_premium: f64,
+    pub landing_attempts: u64,
+}
+impl Default for ProbeKillCfg {
+    fn default() -> Self {
+        Self {
+            min_landed: 100,
+            min_attempts: 400,
+            max_median_premium: 0.03,
+            landing_attempts: 200,
+        }
+    }
+}
+
+/// `[probe]` (docs/04 section 7): two named stages and the kill rule.
+/// `stage` selects the profile; a signed ArmSet that carries `probe_stage`
+/// must name the same stage, and stage `b` needs one that names `b` (moving
+/// to B takes both keys).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ProbeCfg {
+    pub stage: ProbeStage,
+    pub a: ProbeProfile,
+    pub b: ProbeProfile,
+    pub kill: ProbeKillCfg,
+}
+impl Default for ProbeCfg {
+    fn default() -> Self {
+        Self {
+            stage: ProbeStage::A,
+            a: ProbeProfile::stage_a(),
+            b: ProbeProfile::stage_b(),
+            kill: ProbeKillCfg::default(),
+        }
+    }
+}
+impl ProbeCfg {
+    pub fn profile(&self, s: ProbeStage) -> &ProbeProfile {
+        match s {
+            ProbeStage::A => &self.a,
+            ProbeStage::B => &self.b,
+        }
+    }
+}
+
 /// `[paper]`: how paper buys and sells are filled and costed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
@@ -815,6 +946,8 @@ pub struct ValidateEnv {
     pub live_cli_flag: bool,
     /// A valid local `ctl arm-live` token for the gate run exists.
     pub arm_live_token: bool,
+    /// `probe_stage` of the verified ArmSet, when it carries one.
+    pub armset_probe_stage: Option<ProbeStage>,
 }
 
 /// One reason the configuration (or the environment) is refused.
@@ -915,6 +1048,26 @@ impl Config {
         Ok(cfg)
     }
 
+    /// The risk caps the gate enforces in `self.mode.mode`: `[risk]`, and in
+    /// probe mode each cap of the selected `[probe]` stage narrows the
+    /// `[risk]` cap of the same name (the smaller non-zero value binds).
+    pub fn effective_risk(&self) -> RiskCfg {
+        let mut r = self.risk.clone();
+        if self.mode.mode != Mode::Probe {
+            return r;
+        }
+        let p = self.probe.profile(self.probe.stage);
+        let narrow = |a: u64, b: u64| match (a, b) {
+            (0, x) | (x, 0) => x,
+            (x, y) => x.min(y),
+        };
+        r.max_probe_lamports = narrow(r.max_probe_lamports, p.max_probe_lamports);
+        r.max_probes_per_day = narrow(r.max_probes_per_day, p.max_probes_per_day);
+        r.max_open_positions = narrow(r.max_open_positions, p.max_open_positions);
+        r.max_daily_loss_lamports = narrow(r.max_daily_loss_lamports, p.max_daily_loss_lamports);
+        r
+    }
+
     /// Every refusal reason for running in `self.mode.mode` given `env`.
     pub fn validate(&self, env: &ValidateEnv) -> Validation {
         let mode = self.mode.mode;
@@ -990,6 +1143,17 @@ impl Config {
                     ));
                 }
             }
+        }
+        let k = &self.probe.kill;
+        if !(k.max_median_premium > 0.0 && k.max_median_premium < 1.0) {
+            inv(&mut r, "probe.kill.max_median_premium", "must be in (0, 1)");
+        }
+        if k.min_landed == 0 || k.min_attempts == 0 || k.landing_attempts == 0 {
+            inv(
+                &mut r,
+                "probe.kill",
+                "min_landed, min_attempts and landing_attempts must be >= 1",
+            );
         }
         let m = &self.paper.leader_mix;
         if [m.jito_agave, m.bam, m.harmonic, m.other]
@@ -1160,6 +1324,45 @@ impl Config {
         for (name, v) in self.risk.caps() {
             if v == 0 {
                 r.push(Refusal::CapMissing(name));
+            }
+        }
+        if mode == Mode::Probe {
+            // the selected stage: every cap set, the ArmSet agrees, and a
+            // [risk] cap tighter than the stage's is worth a warning
+            let st = self.probe.stage;
+            let prof = self.probe.profile(st);
+            for (name, v) in prof.caps() {
+                if v == 0 {
+                    inv(
+                        &mut r,
+                        "probe",
+                        &format!("probe.{}.{name} is 0", st.as_str()),
+                    );
+                }
+            }
+            if !st.admitted_by(env.armset_probe_stage) {
+                let why = match env.armset_probe_stage {
+                    Some(a) => format!(
+                        "the ArmSet names probe stage {}, the config {}",
+                        a.as_str(),
+                        st.as_str()
+                    ),
+                    None => "probe stage b needs a signed ArmSet that names probe_stage = b".into(),
+                };
+                inv(&mut r, "probe.stage", &why);
+            }
+            let risk_caps = self.risk.caps();
+            for (name, stage) in prof.caps() {
+                let risk = risk_caps
+                    .iter()
+                    .find(|(n, _)| *n == name)
+                    .map_or(0, |(_, v)| *v);
+                if risk > 0 && stage > 0 && risk < stage {
+                    w.push(format!(
+                        "risk.{name} = {risk} binds tighter than probe.{}.{name} = {stage}",
+                        st.as_str()
+                    ));
+                }
             }
         }
         for (name, v) in [

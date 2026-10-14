@@ -34,7 +34,9 @@ fn drive(
 fn paper_create_to_fill_to_dump_exit_is_recorded_everywhere() {
     let dir = tmpdir("pipeline");
     let dev = Pubkey::new_unique();
-    let mut app = build(paper_cfg(&dir), armset(&[dev], &[]), &dir, 3, true);
+    let cfg = paper_cfg(&dir);
+    let floor = cfg.bid.min_priority_lamports;
+    let mut app = build(cfg, armset(&[dev], &[]), &dir, 3, true);
     assert!(app.senders.real().is_empty(), "paper builds no real sender");
     let (a, b, c_, e) = (
         Pubkey::new_unique(),
@@ -83,6 +85,29 @@ fn paper_create_to_fill_to_dump_exit_is_recorded_everywhere() {
     assert!(c.sells >= 1 && c.sell_fills >= 1, "{c:?}");
     let records = app.senders.paper.records();
     assert!(!records.is_empty());
+    // sells go through the bid policy (docs/03 section 6.1): the leader is
+    // unknown, so the sell bid is the priority fee and no tip; it is never
+    // paid as both (the earlier path put it in the fee and the tip)
+    let sells: Vec<_> = records
+        .iter()
+        .map(|r| &r.variant)
+        .filter(|v| v.kind == rugsnipe_tx::senders::VariantKind::Sell)
+        .collect();
+    assert!(!sells.is_empty(), "{records:?}");
+    for v in &sells {
+        assert_eq!(v.tip_lamports, 0, "{v:?}");
+        assert!(v.priority_lamports >= floor, "{v:?}");
+        // the header carries the planned priority fee (legacy rounds the CU
+        // price down, so at most the plan)
+        let cb = pump_codec::tx::TxView::parse(v.bytes())
+            .unwrap()
+            .compute_budget();
+        let charged = cb.priority_fee_lamports_total().unwrap();
+        assert!(
+            charged <= v.priority_lamports && charged + 1_000 >= v.priority_lamports,
+            "{charged} vs {v:?}"
+        );
+    }
     // the recorded primary variant is a valid signed transaction of the paper wallet
     let v = &records[0].variant;
     let bytes = v.bytes();

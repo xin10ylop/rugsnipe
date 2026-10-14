@@ -164,7 +164,7 @@ landing(intent_id, box, sender, leader_class, slot_offset, buyers_ahead, rival_s
 - Records: `FeedSeen`, `CreateHit`, `Matched`, `Decision`, `Sent`, `PosEvent`, `ExitFired`, `Risk`, `FeedHealth`, `Lease`, `Upgrade`, `NonceEvt`, and for shadow mode `Shadow` (13: create index, block size, bundle trades/wallets, our would-be index, third-party buyers ahead/behind, premium, post-bundle state) and `FailedBuy` (14: reason and cost of a buy that would have failed).
 - `schema/rslog.toml` generates both decoders. A golden file is checked in CI.
 
-**ArmSet:** P2's JSON plus `regime`, `min_hot_version`, `gate_passed`, `probe_allowed` (default false), `prereg_sha` and `shared_fee_payers`. File `armset-<ver>-<sha256>.json` with a detached ed25519 `.sig`. If it is unsigned, stale or from the wrong regime, the hot box runs exits only. `probe_allowed` unlocks probe buys, `gate_passed` unlocks live buys (§6).
+**ArmSet:** P2's JSON plus `regime`, `min_hot_version`, `gate_passed`, `probe_allowed` (default false), `probe_stage` (optional `"a"` / `"b"`, must equal `[probe] stage`; required for stage `"b"`), `prereg_sha` and `shared_fee_payers`. File `armset-<ver>-<sha256>.json` with a detached ed25519 `.sig`. If it is unsigned, stale or from the wrong regime, the hot box runs exits only. `probe_allowed` unlocks probe buys, `gate_passed` unlocks live buys (§6).
 
 ## 6. Configuration (`config/rugsnipe.example.toml` in git; real file `/etc/rugsnipe/rugsnipe.toml`, 0640, gitignored)
 
@@ -185,8 +185,8 @@ armset_pubkey = "<base58>"
 cold_wallet = "<base58>"
 [risk]
 max_snipe_lamports = 250_000_000
-max_probe_lamports = 20_000_000
-max_probes_per_day = 20
+max_probe_lamports = 250_000_000                   # ceiling; the [probe] stage narrows it (a: 0.02 SOL, b: 0.25 SOL)
+max_probes_per_day = 300                           # ceiling, attempts (a: 50, b: 300)
 max_open_positions = 4
 max_daily_loss_lamports = 1_000_000_000            # chain-derived, marked to the sell quote
 max_consec_losses_per_op = 5
@@ -235,9 +235,14 @@ burn_after_slots = 3
 partial_fill = false
 [bid]                                              # docs/03 section 6.1 (pay on success)
 quantile = 0.75
-split = { jito_agave = [0.0, 1.0], bam = [0.0, 1.0], harmonic = [1.0, 0.0], other = [1.0, 0.0] }   # [priority, tip]
+split = { jito_agave = [0.0, 1.0], bam = [1.0, 0.0], harmonic = [1.0, 0.0], other = [1.0, 0.0] }   # [priority, tip]; BAM priority-ordered (measured)
 min_priority_lamports = 10_000                     # header priority fee floor of every variant
 failed_attempt_lamports_max = 1_000_000            # base + priority of a failed attempt; priority clamped to it
+[probe]                                            # docs/04 section 7; read in mode = "probe" only
+stage = "a"                                        # a | b; an ArmSet naming probe_stage must agree (b: must name b)
+a = { max_probe_lamports = 20_000_000, max_probes_per_day = 50, max_open_positions = 1, max_daily_loss_lamports = 200_000_000 }
+b = { max_probe_lamports = 250_000_000, max_probes_per_day = 300, max_open_positions = 2, max_daily_loss_lamports = 1_000_000_000 }
+kill = { min_landed = 100, min_attempts = 400, max_median_premium = 0.03, landing_attempts = 200 }
 [exit.default]
 tp = [[2.0, 0.5], [3.0, 1.0]]
 tp_slip_bps = 1500
@@ -290,20 +295,28 @@ min_replay_slots = 7                               # tape must cover s+7 (exits 
 **Bid and the cost of a failed attempt** (docs/03 §6.1, `rugsnipe-core::bid`). A lost race still
 lands and fails (or drops). The base fee (5,000 lamports per signature) and the priority fee are
 charged on failure; the tip is a transfer **after** the buy in the same transaction and reverts with
-it; a failed bundle is not committed. So the bid of a tip-ordered leader class (Jito-Agave, BAM) goes
+it; a failed bundle is not committed. So the bid of a tip-ordered leader class (Jito-Agave) goes
 into the tip with the priority fee at `min_priority_lamports`, and the bid of a priority-ordered class
-(Harmonic, other) goes into the priority fee, clamped so that base fee + priority never exceeds
-`failed_attempt_lamports_max`. Validation refuses a cap below `2 × 5,000 + min_priority_lamports`
+(BAM, Harmonic, other) goes into the priority fee, clamped so that base fee + priority never exceeds
+`failed_attempt_lamports_max`. BAM is priority-ordered by default because our own measurement
+(docs/03 §6) found CU-price order inside BAM rounds 86-89% of the time; the probe measures which
+variant lands per leader class before that changes. Sells take the same split
+(`BidPolicy::plan_sell`): floor priority + the sell bid as a tip on a tip-ordered class, the sell bid
+as the priority fee elsewhere (and for an unknown leader), never both; the buy cap does not clamp a
+sell (`risk.max_sell_spend_lamports` bounds it). Validation refuses a cap below `2 × 5,000 + min_priority_lamports`
 in every mode and warns when a tip class puts part of the bid into the priority fee. While the
 leader's class is unknown the primary variant is the pay-on-success one and the secondary the
 clamped priority one, on one durable nonce. **Every failed attempt is recorded with its realised
-cost** in `fills.fail_cost` (and `paper.failed_cost_lamports` in the session summary): in paper the
-cost modelled per class (`paper.failed_attempt_lamports = 0`: base + the matching variant's priority
-fee, weighted by `paper.leader_mix`, ≈ 0.00036 SOL at the defaults; a value > 0 overrides it, e.g.
-3,000,000 for docs/04's 0.003 SOL case); in probe/live the `meta.fee` of our own failed transaction
-(`e1::failed_tx_fee`; the real fill lane, §16, must call it). Sensitivity
-(`strategy-pnl-and-screens.md` §1.4): 0.003 vs 0.0005 SOL per failed attempt moves the 0.5 SOL LEAD's
-break-even landing rate from 12.1% to 2.2%; the modelled default gives 1.6%.
+cost** in `fills.fail_cost` (and `paper.failed_cost_lamports` / `failed_cost_lamports_mean` in the
+session summary): in paper the cost modelled per class (`paper.failed_attempt_lamports = 0`: base +
+the matching variant's priority fee, weighted by `paper.leader_mix`, ≈ 0.00073 SOL at the defaults; a
+value > 0 overrides it, e.g. 3,000,000 for docs/04's 0.003 SOL case); in probe/live the `meta.fee` of
+our own failed transaction (`e1::failed_tx_fee`; the real fill lane, §16, must call it). Sensitivity
+(docs/04 §4, `pnl_model.py`): 0.003 SOL per failed attempt puts the 0.5 SOL LEAD's break-even landing
+rate at 12.1%; the modelled range 0.00036 / 0.00073 (default) / 0.001 SOL puts it at 1.6% / 3.3% / 4.4%
+(0.25 SOL: 4.1% / 8.1% / 10.7%). The session summary also carries the probe kill rule's inputs
+(`attempts_scored`, `ev_per_attempt_se`, `ev_per_attempt_90ci`, `median_premium_bps_fills`,
+`failed_cost_lamports_mean`, `landing_rate`; docs/04 §7).
 
 **Lead-policy exit knobs** (all off by default; `config/paper-lead.example.toml` sets docs/04 section 6):
 `tp_basis = "value"` (take-profit on the realised value of the stake after both fees and our own impact),
@@ -323,7 +336,7 @@ Validation **refuses probe or live** if any of these holds:
 - clock offset > 5 ms;
 - no healthy post-exec feed;
 - the ArmSet is unsigned, stale or from the wrong regime;
-- **probe:** the ArmSet does not carry `probe_allowed = true`. Probe does **not** need `gate_passed`: the probe exists to measure landing, premium and k̂, which the gate needs (§9.5, §16);
+- **probe:** the ArmSet does not carry `probe_allowed = true`, or it names a `probe_stage` other than `[probe] stage` (stage b: it must name `"b"`), or a cap of the selected stage is 0. Probe does **not** need `gate_passed`: the probe exists to measure landing, premium and k̂, which the gate needs (§9.5, §16). In probe mode each cap of the selected stage narrows the `[risk]` cap of the same name (`Config::effective_risk`; a tighter `[risk]` cap is warned);
 - **live:** the ArmSet does not carry `gate_passed = true` (plus the `--live` flag and the arm-live token, §10);
 - the RPC budget role sum is > 32.
 
@@ -479,16 +492,17 @@ SUSPENDED→SHADOW   after 24 h;   any→RETIRED after 7 days without a launch
 
 ### 9.5 Go/no-go gate (signed into the ArmSet as `gate_passed`)
 
-The gate unlocks **live** only. **Probe** (≤ 20 buys a day of 0.01-0.02 SOL, §10) comes before it: it needs a signed, fresh ArmSet with `probe_allowed = true` plus every risk cap and credential check of §6, not `gate_passed`, because the landing, premium and k̂ it measures are inputs to this gate.
+The gate unlocks **live** only, for the class-arm LEAD of docs/04 (a class of launches, not a list of operators). The **probe** comes before it in two stages (docs/04 §7, `[probe]`): probe-A, 0.02 SOL buys, ≤ 50 attempts a day, 1 open position, 0.2 SOL daily loss cap, until 300 attempts or 3 days; probe-B, 0.25 SOL, ≤ 300 attempts a day, 2 open positions, 1 SOL daily loss cap, about 200 landed trades, entered only if probe-A's landing rate beats the break-even for its measured failed-attempt cost and its median premium is ≤ +2%. Probe needs a signed, fresh ArmSet with `probe_allowed = true` plus every risk cap and credential check of §6, not `gate_passed`, because the landing, premium and failed-attempt cost it measures are inputs to this gate.
 
 All must hold for `gate_passed`:
-- ≥ 300 OOS snipes from ≥ 15 operators; no operator above 40% of P&L;
-- the 95% **operator×day cluster-bootstrap** lower bound of EV(selected) − EV(control matched on V_e band, hour and leader class) is **> 0** at E1, base costs and the **measured** k̂;
-- EV ≥ 0 at high costs;
-- vault EV > 0;
-- landing holds after Alpenglow.
+- **(a) shadow:** ≥ 1,000 qualifying launches over at least one full day, and the shadow EV per attempt at the **measured** rank, premium and failed-attempt cost has a 90% lower bound above 0, bootstrapped by hour clusters (`shadow_gate.py`);
+- **(b) probe-B complete:** ≥ 200 landed trades; the EV per attempt, failed attempts included, has a 90% lower bound above 0; no single hour carries more than 40% of the P&L; we land ahead of the first follower on at least one hot launch in three at a premium of +2% or less (`shadow_gate.py --probe`);
+- **(c)** every cost is measured, not modelled: the failed-attempt cost, the landed round trip, the premium and the exit fills come from our own transactions;
+- **(d)** all of it is re-verified after Alpenglow (epoch 1064, Oct 21 2026) before any live start: pre-cutover data does not count.
 
-Wilson intervals are labelled iid. Every report is headed: *"EV is an upper bound until landing, farming and exit fills are measured by probes."*
+The operator-count, matched-control and vault-EV criteria of the earlier gate are dropped: the LEAD is a class arm, and per-operator arming failed its fresh holdout (docs/04 §5). The per-operator risk latches stay (`max_consec_losses_per_op`, `max_buys_per_op_per_day`, the §9.4 suspensions).
+
+Every report is headed: *"EV is an upper bound until landing, farming and exit fills are measured by probes."*
 
 ### 9.6 Funding watcher (pre-creation watchlist)
 
@@ -501,7 +515,7 @@ An ArmSet funder sending a fresh recipient (pre-balance 0) an amount in ≤ 5 **
 | `paper` | here / Ohio, free feeds | decode coverage, decisions, internal latency; E1 shadow entries reconstructed from confirmed history (where we would have landed, premium, failed attempts) and their exits, or E2 P&L; never our real landing rank |
 | `shadow` | fra1 + SVS gRPC ($150/mo) | detection lead vs rivals' landing slots; not landing position |
 | lock probe [U] | fra1 | 1-lamport transfer to the curve (takes its write lock) on our nonce, sender and bid; `tx_index` vs rival buys = landing position, no tokens held |
-| `probe` | fra1 + paid post-exec feed | `probe_allowed` ArmSet (no gate needed); 0.01-0.02 SOL buys, ≤ 20/day (~0.004 SOL overhead each); true `buyers_ahead` per sender × class replaces the guessed k̂ |
+| `probe` | fra1 + paid post-exec feed | `probe_allowed` ArmSet (no gate needed), two stages (§9.5, `[probe] stage`): **A** 0.02 SOL buys, ≤ 50 attempts/day, 1 position, 0.2 SOL/day loss cap (landing rank, premium, failed-attempt cost per class and the variant that lands; EV negative by design); **B** 0.25 SOL, ≤ 300/day, 2 positions, 1 SOL/day, ~200 landed trades; kill rule `shadow_gate.py --probe` |
 | `live` | fra1 | `gate_passed` ArmSet + TOML + CLI flag + local `ctl arm-live` token for the gate run |
 
 **Shadow fill model E1** (`paper.fill_model = "e1"`, `rugsnipe::e1`). The free feed sees a create ~1 s late, so the cold lane rebuilds the creation slot from confirmed history inside the RPC budget (`getSignaturesForAddress` on the curve; `getBlock` with `transactionDetails = "signatures"` for the transaction indices; `getTransaction` for the slot-0 transactions), applies the gap-3 bundle definition (create-tx buys, creator-set buys, the contiguous run of slot-0 buys at index ≤ create + 5 with gaps ≤ 2; mirrored from `strategy/tapes.py`), and returns a verdict: **fill** at the post-bundle state with `max(entry_premium, measured)` (a wallet seen sniping another launch's slot 0 this session, found inside the run, is ahead of us and its price impact is the measured premium); **premium** (above `entry.max_premium`), **not_in_slot0** (create in the last `late_block_frac` of its block) and, in the hot loop, **slippage** (the operator's `v_max` bound) are failed attempts that pay `failed_attempt_lamports`; **class** (not multi-bundle under `entry.filter`) is a skip at no cost. A fill replays the next `replay_slots` slots through the exit engine on a slot clock with a tick per slot, on the counterfactual curve that keeps our tokens outstanding (the tape simulator's model), and the sell fills at the end of trigger slot + `exit_latency_slots`. The session summary's `cold.paper` block carries the totals (outcomes, landing rate, mean premium, exits by reason, realized and net P&L, EV per attempt including failures). `analysis/scripts/paper_vs_sim.py` re-derives every closed fill from swap-api tapes with `strategy/sim.py`.
@@ -573,7 +587,7 @@ An ArmSet funder sending a fresh recipient (pre-balance 0) an amount in ≤ 5 **
 | **M4** | `rugsnipe-feed::LogsWs`, `rugsnipe-exit`, `rugsnipe-hot --mode paper`, `rugsnipe-replay` | 1 h paper run here; decode-miss reported; zero allocations, p99 ≤ 100 µs; exit conformance on tapes. |
 | **M5** | `rugsnipe-state` (recovery, reconcile, lease), guard, keeper, `rugsnipe-it`, chaos | SIGKILL recovery; LiteSVM nonce exclusivity and burn; upgrade gate on a faked slot; I1-I7 green. |
 | **M6** | Feature-gated `Grpc`, HTTP/QUIC senders, `rugsnipe-sched` skeleton | `--all-features` builds; mock-sender tests; walker == prost on synthetic frames. |
-| M7 (user) | Rent fra1; SVS shadow; lock probes → probes (≤ 0.5 SOL total); re-measure after Alpenglow | Measured k̂, landing and costs feed the gate. |
+| M7 (user) | Rent fra1; SVS shadow; lock probes → probe-A (0.02 SOL) → probe-B (0.25 SOL) under the kill rule; re-measure after Alpenglow | Measured k̂, landing and costs feed the gate. |
 
 M0-M4 are the session minimum. M2's report is the go/no-go artifact and can answer "no" before any money is spent.
 

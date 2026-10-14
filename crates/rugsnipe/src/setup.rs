@@ -51,6 +51,8 @@ pub struct ArmState {
     pub gate_passed: bool,
     /// Probe may buy (signed `probe_allowed`; the gate is not required).
     pub probe_allowed: bool,
+    /// The probe stage the ArmSet names (must match `probe.stage`).
+    pub probe_stage: Option<rugsnipe_core::config::ProbeStage>,
     pub created_at: u64,
     pub sha: String,
     pub ops: HashMap<u32, OpInfo>,
@@ -83,6 +85,7 @@ impl ArmState {
             verified,
             gate_passed: verified && a.gate_passed,
             probe_allowed: verified && a.probe_allowed,
+            probe_stage: a.probe_stage,
             created_at: a.created_at,
             sha: sha.to_string(),
             ops,

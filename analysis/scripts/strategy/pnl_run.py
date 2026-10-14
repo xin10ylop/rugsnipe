@@ -7,6 +7,8 @@ Fixed inputs (cited): gap-2 attempt outcomes and winning bids, gap-5 failed-buy 
 create profile, window bundled share, critic audit (rank-2 EV, realistic-fill haircut).
 
 Run: .venv/bin/python -I analysis/scripts/strategy/pnl_run.py   -> data/reports/strategy/pnl_model.json
+Needs the research tape caches under data/cache (gap-3, deep, fresh, dense window); without them (a deployed box) it
+says so and leaves pnl_model.json unchanged.
 """
 from __future__ import annotations
 
@@ -82,7 +84,13 @@ def se_of(b):
 
 
 def main():
-    m = measure()
+    try:
+        m = measure()
+    except FileNotFoundError as e:
+        # a deployed box (install.sh does not copy data/cache) has none of the research tapes this measures on
+        print(f"pnl_run: research tape cache missing ({e.filename}); {OUT.relative_to(REPO)} left as it is "
+              "(a fresh box has no data/cache: docs/08 section 12)")
+        return None
     out = {"measured": m, "scenarios": {}, "sensitivity": {}}
     mk = pm.Market()
     print(f"opportunities/day (multi-wallet SOL non-mayhem, window share x 16-day create profile): {mk.opportunities:,.0f}; "

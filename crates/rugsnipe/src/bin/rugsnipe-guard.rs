@@ -84,6 +84,7 @@ fn run(args: &[String]) -> Result<(), String> {
             signer,
             paper: Arc::new(rugsnipe_tx::senders::paper::Paper::new(1_024)),
             tip_account: t.tip_account,
+            bid: rugsnipe_core::bid::BidPolicy::from_cfg(&cfg.bid),
         })
     } else {
         None

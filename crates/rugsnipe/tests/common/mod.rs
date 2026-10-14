@@ -172,6 +172,7 @@ pub fn armset(signers: &[Pubkey], creators: &[Pubkey]) -> ArmSet {
         min_hot_version: String::new(),
         gate_passed: false,
         probe_allowed: false,
+        probe_stage: None,
         shared_fee_payers: vec![],
         operators: vec![OpEntry {
             op_id: 1,

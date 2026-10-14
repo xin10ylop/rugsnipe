@@ -10,9 +10,9 @@ in paper/shadow mode first. No mode that moves money runs until a pre-registered
 
 1. His rule as stated (block-0 entry behind the rugger's bundle, hold for +100%) loses: −10.5% per trade out of sample, −21% on an independent holdout; copy-trading, per-rugger arming and mayhem coins lose too.
 2. One family survives: the **rank-1 micro-scalp**: buy 0.5 SOL right behind a multi-wallet bundle in the creation slot (fill capped at +2% over the post-bundle price) and sell within 1-3 s. +2.5% to +3.7% per trade on holdouts no search touched (+3.2% on the 480 pre-registered fresh launches); +4.6% when skipping the bottom tertile of a frozen P(take-profit) score.
-3. It holds only at rank 1: one sniper ahead of us takes it to about 0; the critic's realistic-fill stack gives −0.4% [−2.0, +1.3]. Our real landing rank is unmeasured.
-4. The business is decided by the landing rate and by what a lost race costs: 0.003 SOL per failed attempt needs a 12% landing rate to break even, 0.0005 SOL needs 2%. So the bid goes into a tip that is paid only on success wherever the leader orders by tip (docs/03 §6.1).
-5. Next: shadow mode on a Frankfurt box against a fixed go/no-go rule, then a capped probe of about 200 trades at 0.25 SOL with a kill switch. The runbook is docs/08.
+3. It holds only at rank 1: one sniper ahead of us takes it to about 0; the critic's realistic-fill stack gives −0.4% [−2.0, +1.3] on the fresh holdout (`data/reports/strategy/critic_realistic.json`, reproduced by `analysis/scripts/strategy/critic_realistic.py`). Our real landing rank is unmeasured.
+4. The business is decided by the landing rate and by what a lost race costs: 0.003 SOL per failed attempt needs a 12% landing rate to break even at 0.5 SOL, the modelled 0.00036-0.001 SOL needs 1.6-4.4%. The bid goes into a tip paid only on success where the leader orders by tip (Jito-Agave), and into a capped priority fee where it orders by fee (BAM, Harmonic, other: 0.00073 SOL per failed attempt at the defaults; docs/03 §6.1).
+5. Next: shadow mode on a Frankfurt box against a fixed go/no-go rule, then a two-stage probe with a kill rule: probe-A measures landing, premium and failed-attempt cost at 0.02 SOL; probe-B (about 200 landed trades at 0.25 SOL) only if A clears the break-even. The runbook is docs/08.
 
 | Doc | Content |
 |---|---|

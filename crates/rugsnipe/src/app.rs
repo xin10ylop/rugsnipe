@@ -147,7 +147,12 @@ impl Quantiles {
 /// The safety gate for real modes (docs/06 section 6): every refusal is
 /// returned. Paper needs nothing. This binary measures neither the clock
 /// offset nor a post-execution feed, so probe/live are refused here.
-pub fn real_mode_gate(cfg: &Config, gate: ArmSetGate, live_flag: bool) -> Result<(), String> {
+pub fn real_mode_gate(
+    cfg: &Config,
+    gate: ArmSetGate,
+    armset_probe_stage: Option<rugsnipe_core::config::ProbeStage>,
+    live_flag: bool,
+) -> Result<(), String> {
     if !cfg.mode.mode.is_real() {
         return Ok(());
     }
@@ -158,6 +163,7 @@ pub fn real_mode_gate(cfg: &Config, gate: ArmSetGate, live_flag: bool) -> Result
         credential_modes: Default::default(),
         live_cli_flag: live_flag,
         arm_live_token: false,
+        armset_probe_stage,
     };
     let v = cfg.validate(&env);
     if v.ok() {
@@ -209,7 +215,9 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         }
     }
     // --- safety gate (refuses probe/live with every reason)
-    real_mode_gate(&cfg, gate, o.live_flag).map_err(|r| format!("mode {mode} refused:\n{r}"))?;
+    let stage = armset.as_ref().and_then(|a| a.probe_stage);
+    real_mode_gate(&cfg, gate, stage, o.live_flag)
+        .map_err(|r| format!("mode {mode} refused:\n{r}"))?;
     let env = ValidateEnv {
         armset: gate,
         ..Default::default()
@@ -237,7 +245,8 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     };
     let arm = Arc::new(ArcSwap::from_pointee(arm_state));
     // --- risk
-    let risk = Arc::new(RiskGate::new(cfg.risk.clone()));
+    // probe: the selected [probe] stage narrows the [risk] caps
+    let risk = Arc::new(RiskGate::new(cfg.effective_risk()));
     // A kill file present at start latches before the hot loop exists: the
     // cold thread's first poll comes ~100 ms later, after the first frames.
     KillFile::new(&cfg.risk.kill_file).poll(&risk);

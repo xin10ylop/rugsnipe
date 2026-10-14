@@ -14,6 +14,7 @@ Caches: data/cache/strategy_holdout_copy/; results: data/reports/strategy/copytr
 from __future__ import annotations
 
 import collections
+import gzip
 import json
 import math
 import pickle
@@ -236,7 +237,7 @@ def audit():
     out = {"cut_bt": cut}
 
     # ---- A1: BH recomputed from the stored sweep
-    d = json.load(open(REPORTS / "copytrade_sweep.json"))
+    d = json.load(gzip.open(REPORTS / "copytrade_sweep.json.gz", "rt"))  # 40 MB plain; gzipped in git
     R = d["res"]
     a1 = {}
     for popn in ("pop", "all"):

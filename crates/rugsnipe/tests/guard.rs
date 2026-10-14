@@ -126,6 +126,7 @@ fn guard_paper_sell_signs_with_the_paper_sender_only() {
             signer: signer.clone(),
             paper: paper.clone(),
             tip_account: t.tip_account,
+            bid: rugsnipe_core::bid::BidPolicy::from_cfg(&cfgt.bid),
         }),
     );
     let acts = g.step(&c, 1_000, &|_| None).unwrap();
@@ -147,6 +148,14 @@ fn guard_paper_sell_signs_with_the_paper_sender_only() {
     let rec = paper.records();
     assert_eq!(rec.len(), 1);
     assert_eq!(rec[0].variant.sig, sig);
+    // the dump bid is paid once, through the bid policy: the leader is
+    // unknown, so it is the priority fee and no tip (docs/03 section 6.1)
+    let v = &rec[0].variant;
+    assert_eq!(v.tip_lamports, 0, "{v:?}");
+    assert!(
+        v.priority_lamports >= cfgt.bid.min_priority_lamports,
+        "{v:?}"
+    );
     assert!(rugsnipe_tx::signer::verify(
         &signer.pubkey(),
         &rec[0].variant.bytes()[65..],

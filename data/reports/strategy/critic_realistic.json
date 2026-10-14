@@ -1,0 +1,110 @@
+{
+ "generated_utc": "2026-10-14 19:30:39 UTC",
+ "spec": {
+  "size_sol": 0.5,
+  "exits": "LEAD (docs/04 section 2)",
+  "real": {
+   "prem": 0.024,
+   "impact": "sol",
+   "cost": 0.01
+  },
+  "p_first_follower_fails": 0.33,
+  "combined": "0.67 x real + 0.33 x real with the first third-party slot-0 follower removed",
+  "hot": "rank-2 entry premium over post-bundle > 2%",
+  "ci": "90% bootstrap over launches, B = 4000, seed 7",
+  "failed_attempts": "not charged (per landed trade)"
+ },
+ "tapes": {
+  "decoded": 6938,
+  "eligible": 3764,
+  "eligible_armed": 164,
+  "eligible_random": 3600,
+  "random_pulled": 409,
+  "drops": {
+   "armed:dev_only": 18,
+   "armed:pulled": 164,
+   "copy:dev_only": 42,
+   "copy:incomplete": 4,
+   "copy:no_trades": 31,
+   "copy:not_in_class": 200,
+   "copy:pulled": 385,
+   "random:dev_only": 63,
+   "random:no_trades": 39,
+   "random:not_in_class": 193,
+   "random:pulled": 409
+  },
+  "calls": 795
+ },
+ "combined_realistic_and_hot_split": {
+  "P1_pooled_random": {
+   "n": 222,
+   "combined_realistic": -0.003864892334383261,
+   "lo": -0.01994915157088542,
+   "hi": 0.012658513824759441,
+   "hot_share": 0.32882882882882886,
+   "ev_hot": 0.09091931998995423,
+   "ev_quiet": 0.0027230453800405198,
+   "n_hot": 73,
+   "ev_base": 0.03172452306708422,
+   "ev_real_no_follower_fail": 0.0034716826617224622,
+   "ev_real_first_follower_never_lands": -0.018760362781022163
+  },
+  "all_clean": {
+   "n": 485,
+   "combined_realistic": -0.011628033262226356,
+   "lo": -0.023434366234532333,
+   "hi": 0.0006312741316213007,
+   "hot_share": 0.30103092783505153,
+   "ev_hot": 0.09651952790643242,
+   "ev_quiet": -0.0054513516779095845,
+   "n_hot": 146,
+   "ev_base": 0.02524503681552121,
+   "ev_real_no_follower_fail": -0.0038229071514477063,
+   "ev_real_first_follower_never_lands": -0.02747480445683756
+  },
+  "P2_EB": {
+   "n": 132,
+   "combined_realistic": -0.004667130302037266,
+   "lo": -0.024975436537149745,
+   "hi": 0.01508475416968804,
+   "hot_share": 0.30303030303030304,
+   "ev_hot": 0.08661929290689001,
+   "ev_quiet": 0.004433392972576997,
+   "n_hot": 40,
+   "ev_base": 0.029338211134490033,
+   "ev_real_no_follower_fail": 0.0015814534261402863,
+   "ev_real_first_follower_never_lands": -0.017353648780458353
+  }
+ },
+ "vs_critic_holdout_json_points": {
+  "P1_pooled_random": {
+   "combined_realistic": 1.734723475976807e-16,
+   "lo": 0.0,
+   "hi": -1.734723475976807e-16,
+   "hot_share": 0.0,
+   "ev_hot": 0.0,
+   "ev_quiet": 0.0,
+   "n": 0
+  },
+  "all_clean": {
+   "combined_realistic": -3.469446951953614e-16,
+   "lo": 0.0,
+   "hi": 1.6263032587282567e-16,
+   "hot_share": 0.0,
+   "ev_hot": 0.0,
+   "ev_quiet": 0.0,
+   "n": 0
+  },
+  "P2_EB": {
+   "combined_realistic": -4.3368086899420177e-16,
+   "lo": 0.0,
+   "hi": -8.673617379884035e-16,
+   "hot_share": 0.0,
+   "ev_hot": 0.0,
+   "ev_quiet": 0.0,
+   "n": 0
+  }
+ },
+ "vs_note": "difference to critic_holdout.json's stored block in percentage points: 0 means the critic's Oct 14 figures are reproduced (same tapes); on a later frame it is the change since Oct 14",
+ "max_abs_diff_points": 8.673617379884035e-16
+}

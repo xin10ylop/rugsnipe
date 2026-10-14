@@ -5,7 +5,8 @@ Stages (run in order; every stage is cached and resumable under data/cache/strat
            The anchor (the time of this call) is stored; the frame is creates with
            anchor - 6 h <= blockTime <= anchor - 60 min.
   decode   every create in the frame via getTransaction + dataset.creation_record (no outcome data).
-           api.mainnet-beta.solana.com at <= 3 req/s.
+           api.mainnet-beta.solana.com at <= 3 req/s. `decode RPS N` stops after N creates of the seeded
+           random order (a small frame: a smoke test or a quick weekly look; resumable to the full frame).
   pull     first seconds of trades (swap-api, <= 1.2 req/s = 72/min, hard cap 800 requests incl.
            retries) for: (1) every launch whose creator is in the PRE-REGISTERED armed list
            (data/reports/strategy/critic_preregistration.json, written before this stage), then
@@ -84,6 +85,8 @@ def decode():
         have = {json.loads(l)["q_sig"] for l in open(cp)}
     todo = [s for s in pool if s["sig"] not in have]
     random.Random(20261014).shuffle(todo)
+    if len(sys.argv) > 3:                       # a small frame: the first N of the seeded order
+        todo = todo[:max(0, int(sys.argv[3]) - len(have))]
     log("frame", len(pool), "to decode", len(todo))
 
     def dec(s):

@@ -15,7 +15,7 @@ Background: `docs/04-strategy.md` (what we trade and the go/no-go rule, §7), `d
 | Shadow mode (paper, no money): every multi-wallet bundled launch gets a would-be entry right behind the bundle, a measured premium, the LEAD exits replayed on the real tape, and failed attempts charged at their modelled cost | **Probe and live.** `rugsnipe-hot` refuses every real mode ("this build has no real key loading or real senders"). Missing (task list #12): real key loading, real senders in the hot binary, the real fill lane (our own TradeEvent, `meta.fee` of our failed transactions), kill-latch persistence, chain-derived daily loss, the TPU sender, nonce seeding from chain, Telegram alerts. **Step 9 is blocked** until these land |
 | Read rule (a) of the go/no-go gate: EV per attempt with a 90% lower bound (`analysis/scripts/shadow_gate.py`) | **Rule (b)** (are we ahead of the first follower?). The shadow lane *assumes* rank 1; our real rank needs real sends or a shred feed. It is decided in the probe |
 | Feeds: `logsSubscribe` over any websocket URL, PumpPortal, the collector relay | Yellowstone gRPC, DoubleZero Edge or Helius shreds: not in the hot binary. Do not buy them yet |
-| Bid policy: tip after the buy (pay on success) where the leader orders by tip, priority fee clamped by `bid.failed_attempt_lamports_max` (docs/03 §6.1) | The leader's class per slot (no leader schedule in the hot path): paper uses the stake-weighted mix |
+| Bid policy: tip after the buy (pay on success) where the leader orders by tip (Jito-Agave), priority fee clamped by `bid.failed_attempt_lamports_max` elsewhere (BAM, Harmonic, other); sells take the same split, the bid paid once (docs/03 §6.1) | The leader's class per slot (no leader schedule in the hot path): paper uses the stake-weighted mix |
 | The P(TP) entry filter (`[entry] filter_model`, `filter_mode = "log"` or `"skip"`, docs/04 §3a) scores every paper intent from the E1 lane's reconstruction and records the score and tertile in `state.db` `filter` | Scoring live from shreds (the bundle run behind the create must be assembled from the slot's entries first) |
 
 Practical consequence: rule (a) does not depend on where the box is (the lane rebuilds each launch from
@@ -132,8 +132,9 @@ sudo install -m 0640 -o root -g rugsnipe ~/rugsnipe/data/reports/strategy/entry_
 Leave everything else as in the example: `[mode] mode = "paper"`, `[entry] filter = "multi_bundle"`,
 `max_premium = 0.02`, the LEAD exits, `[paper] fill_model = "e1"`, `failed_attempt_lamports = 0`
 (failed attempts are charged at the modelled per-class cost: base fee plus the priority fee of the
-variant that matches the leader, tips revert; about 0.00036 SOL at the defaults) and the `[bid]` block
-(pay-on-success split, `failed_attempt_lamports_max = 1_000_000`). Check it:
+variant that matches the leader, tips revert; about 0.00073 SOL at the defaults, where only Jito-Agave
+pays on success and BAM bids with the priority fee) and the `[bid]` block (per-class split,
+`failed_attempt_lamports_max = 1_000_000`). Check it:
 
 ```bash
 /opt/rugsnipe/bin/rugsnipe-ctl config validate /etc/rugsnipe/shadow.toml       # paper: must say OK, no refusals
@@ -195,7 +196,7 @@ tighter cut than the bottom tertile only if its landing rate is at least 0.73× 
 
 > (a) Over **at least 1,000 qualifying launches and at least one full day**, the shadow EV per attempt at
 > our measured rank and premium, failed attempts charged at their cost, must have a **90% lower bound
-> above zero**; and (b) we must be **ahead of the first follower on at least one hot launch in three** at a
+> above zero** (bootstrap by hour clusters); and (b) we must be **ahead of the first follower on at least one hot launch in three** at a
 > premium of +2% or less. Otherwise there is no edge, and we stop.
 
 **Read (a)** after the run:
@@ -210,11 +211,12 @@ cd /opt/rugsnipe/src
 ```
 
 It prints the attempts scored, hours covered, the shadow landing share, the failed-attempt cost, the EV
-per attempt with its 90% CI, the split by "a third-party buyer landed behind us or not", the split by
+per attempt with its 90% CI (normal, and by a bootstrap over UTC-hour clusters, which rule (a) uses), the split by "a third-party buyer landed behind us or not", the split by
 entry-filter tertile (when the `filter` table exists), and the verdict:
 `GO on (a)`, `NO-GO on (a): stop (no edge)` or `NOT ENOUGH DATA`. **Decide on the modelled cost; if (a)
 passes there but not at 0.003 SOL, the probe must confirm the failed-attempt cost before anything else**
-(it is the single biggest lever: break-even landing 1.6% at the modelled 0.00036 SOL, 12.1% at 0.003).
+(it is the single biggest lever: break-even landing of the 0.5 SOL LEAD 3.3% at the modelled 0.00073 SOL,
+1.6-4.4% over the modelled range 0.00036-0.001 SOL, 12.1% at 0.003; docs/04 §4).
 
 The same from the end-of-run summary (`summary.json`, block `cold.paper`):
 
@@ -222,8 +224,10 @@ The same from the end-of-run summary (`summary.json`, block `cold.paper`):
 |---|---|
 | `in_class` | qualifying launches resolved (multi-wallet bundled, not `class`, not `unresolved`) |
 | `attempts`, `fills`, `failed_attempts` | would-be sends; `landing_rate = fills / attempts` (refusals by the +2% cap and the block position only, **not** a measured race) |
-| `failed_cost_lamports` | total cost charged to failed attempts |
+| `failed_cost_lamports`, `failed_cost_lamports_mean` | total cost charged to failed attempts, and per failed attempt |
 | `ev_per_attempt` | net / attempts as a fraction of the mean stake: the point estimate of (a) |
+| `ev_per_attempt_se`, `ev_per_attempt_90ci`, `attempts_scored` | its standard error and normal 90% interval over the scored attempts (the probe kill rule reads the upper bound) |
+| `median_premium_bps_fills` | median premium of the fills (the probe kill rule's "median realised premium") |
 | `outcomes` | `filled`, `premium`, `slippage`, `not_in_slot0`, `class`, `unresolved` |
 
 The SQL behind it (`sudo sqlite3 -readonly /var/lib/rugsnipe/shadow/state.db`):
@@ -260,54 +264,92 @@ SELECT f.tertile, s.outcome, COUNT(*) FROM filter f JOIN shadow s ON s.intent_id
 ```
 
 **Rule (b)** cannot be read from shadow data in this build (the lane places us right behind the bundle
-by assumption). It is decided in the probe: the probe's kill rule "landing rate below 20%" is the
-operational form of it.
+by assumption). It is decided in the probe: probe-A measures our real landing rank, and the gate's (b)
+is read on probe-B (docs/06 §9.5).
 
 ## 9. Moving to probe (blocked in this build)
 
 **When:** only if step 8 says `GO on (a)`, **and** the build has real mode (§0; task #12). Until then,
 stop here and keep shadow running.
 
-**How**, once the build supports it (docs/04 §7 step 2: about 200 landed trades at 0.25 SOL,
-`max_sol_cost` +2%, LEAD exits):
+**What** (docs/04 §7 step 2, `[probe]` in the config): two stages, both with `max_sol_cost` +2% and the
+LEAD exits. `[probe] stage` selects the caps; each narrows the `[risk]` cap of the same name, and a
+signed ArmSet that names `probe_stage` must name the same stage, and stage B needs one that names `"b"`
+(moving to B takes both keys).
 
-1. The probe ArmSet (on ohio1):
+| Stage | Per buy | Attempts/day | Open positions | Daily loss cap | Runs until | Purpose |
+|---|---|---|---|---|---|---|
+| **A** (`stage = "a"`) | 0.02 SOL | 50 | 1 | 0.2 SOL | 300 attempts or 3 days | measure landing rank, premium, failed-attempt cost per leader class, which variant lands. EV is negative at this size (fixed costs): **not** a kill reason |
+| **B** (`stage = "b"`) | 0.25 SOL | 300 | 2 | 1 SOL | about 200 landed trades | the EV per attempt at our real rank and cost; gate (b) |
+
+**Kill** (either stage; `shadow_gate.py --probe` prints the verdict): the EV per **attempt**, failed
+attempts included, has a 90% upper bound below 0 after 100 landed trades or 400 attempts, whichever
+comes first (probe-B only); or the median realised premium exceeds +3%; or the landing rate stays below
+the break-even for the measured failed-attempt cost over 200 attempts; or the stage's daily loss cap is
+hit (the risk gate latches the kill itself). **Enter B** only if probe-A ends with a landing rate above
+that break-even and a median premium at or below +2% (`PROBE-A COMPLETE: ENTER PROBE-B`).
+
+**How**, once the build supports it:
+
+1. The probe ArmSet (on ohio1), stage A first:
    ```bash
-   /opt/rugsnipe/venv/bin/python -I analysis/scripts/make_paper_armset.py --kind class --ver 2 --probe-allowed --out /tmp/probe.json
-   sudo /opt/rugsnipe/bin/rugsnipe-ctl armset sign --key /etc/rugsnipe/keys/armset-signing.key --in /tmp/probe.json --out-dir /tmp/armset
+   /opt/rugsnipe/venv/bin/python -I analysis/scripts/make_paper_armset.py --kind class --ver 2 --probe-allowed --probe-stage a --out /tmp/probe-a.json
+   sudo /opt/rugsnipe/bin/rugsnipe-ctl armset sign --key /etc/rugsnipe/keys/armset-signing.key --in /tmp/probe-a.json --out-dir /tmp/armset
    ```
-   It carries `probe_allowed = true`, the class operator in state `probe` at 0.25 SOL, never `gate_passed`.
-2. `/etc/rugsnipe/rugsnipe.toml` (from `config/rugsnipe.example.toml`): `[mode] mode = "probe"`, and
-   **every** cap non-zero (validation refuses a zero). Suggested values for the probe:
+   It carries `probe_allowed = true`, `probe_stage = "a"`, the class operator in state `probe` at 0.02 SOL,
+   never `gate_passed`. For B: `--probe-stage b` (0.25 SOL) and a new `--ver`.
+2. `/etc/rugsnipe/rugsnipe.toml` (from `config/rugsnipe.example.toml`): `[mode] mode = "probe"`,
+   `[probe] stage = "a"` (the example's `a`/`b` profiles and `kill` table as shipped), and **every** cap
+   non-zero (validation refuses a zero). The `[risk]` values are ceilings for both stages:
 
    | Key | Value | Note |
    |---|---|---|
-   | `risk.max_probe_lamports` | `250_000_000` | 0.25 SOL per buy (docs/04 §7) |
-   | `risk.max_probes_per_day` | `300` | attempts, not fills: at 20% landing about 60 trades/day, 200 in 3-4 days |
-   | `risk.max_open_positions` | `2` | a LEAD position lives about 2 s |
-   | `risk.max_daily_loss_lamports` | `1_000_000_000` | 1 SOL; per-trade SD is 20% of 0.25 SOL |
+   | `risk.max_probe_lamports` | `250_000_000` | ceiling; stage A narrows it to 0.02 SOL, B keeps 0.25 SOL |
+   | `risk.max_probes_per_day` | `300` | attempts, not fills; A narrows to 50 |
+   | `risk.max_open_positions` | `2` (or the example's 4) | A narrows to 1, B to 2; a LEAD position lives about 2 s |
+   | `risk.max_daily_loss_lamports` | `1_000_000_000` | A narrows to 0.2 SOL, B keeps 1 SOL |
    | `risk.max_consec_losses_per_op` | `20` | the class arm is one operator and the median LEAD trade is a small loss; 5 would suspend it constantly |
    | `risk.max_buys_per_op_per_day`, `max_buys_per_hour` | `300`, `40` | |
    | `risk.max_bid_lamports` | `25_000_000` | the bid itself; the failed-attempt part is capped below |
    | `bid.failed_attempt_lamports_max` | `1_000_000` | most a lost race may cost (docs/03 §6.1) |
+   | `bid.split` | as shipped | Jito-Agave pays on success (tip); BAM, Harmonic, other bid with the capped priority fee. Change BAM only when probe-A shows its variant landing better with the tip |
    | `tx.cu_limit`, `tx.lads_bytes` | `88_000`, `12_124_160` | after `cargo run --release -p rugsnipe-ctl --features rpc -- sim --n 3` confirms the fit |
    | `tx.nonce_pool` | `32` | create them with `rugsnipe-ctl nonce init --authority <PROBE_PUBKEY> --count 32` (prints unsigned transactions for review) |
 
-3. Fund the probe wallet with what the caps allow you to lose plus working capital (2-3 SOL), check
-   and start:
+3. Fund the probe wallet with what the caps allow you to lose plus working capital (1 SOL for A,
+   2-3 SOL for B), check and start:
    ```bash
    /opt/rugsnipe/bin/rugsnipe-ctl config validate /etc/rugsnipe/rugsnipe.toml --creds /etc/rugsnipe/keys \
      --clock-offset-ms <from chronyc tracking> --post-exec-healthy --armset /var/lib/rugsnipe/armsets/armset-2-<sha>.json
    sudo systemctl enable --now rugsnipe.target
    ```
-4. **Kill the probe** (docs/04 §7) if, after 100 landed trades, the mean is below 0; if the median
-   realised premium exceeds +3%; or if the landing rate falls below 20%. Record realised rank, premium,
-   exit slot and the share of snipers behind us. Read them from `state.db` (`fills`, `positions`,
-   `exits`; failed attempts carry `fills.fail_cost` = the `meta.fee` of the failed transaction).
+   `config validate` prints the ArmSet's `probe_stage` and refuses a mismatch with `[probe] stage` (and
+   `stage = "b"` with an ArmSet that names no stage).
+4. **Read the kill rule** at least daily, and at the end of each stage:
+   ```bash
+   cd /opt/rugsnipe/src
+   sudo -u rugsnipe /opt/rugsnipe/venv/bin/python -I analysis/scripts/shadow_gate.py --probe \
+     --state /var/lib/rugsnipe/state.db --config /etc/rugsnipe/rugsnipe.toml
+   ```
+   It prints attempts, landed trades, the landing rate and its break-even (`pnl_model.break_even_landing`
+   for the 0.25 SOL LEAD at the measured mean failed-attempt cost and median premium; 5.1-13.1% over the
+   modelled 0.00036-0.001 SOL, 9.9% at the default 0.00073), the failed-attempt cost, the median premium,
+   the EV per attempt with its 90% interval (normal and by hour clusters), the worst day against the cap, the largest hour's share of
+   the P&L, attempts and landings per bid variant, and one verdict: `KILL: <reasons>`, `CONTINUE probe-A|B`,
+   `PROBE-A COMPLETE: ENTER PROBE-B`, `PROBE-A COMPLETE: DO NOT ENTER PROBE-B ...: stop` or
+   `PROBE-B COMPLETE: read the live gate`. On `KILL`, touch the kill file (§10). The end-of-run summary's
+   `cold.paper` block carries the same inputs (`attempts_scored`, `landing_rate`, `failed_cost_lamports_mean`,
+   `median_premium_bps_fills`, `ev_per_attempt`, `ev_per_attempt_se`, `ev_per_attempt_90ci`). Raw rows are
+   in `state.db` (`fills`, `positions`, `exits`, `sends`; failed attempts carry `fills.fail_cost` = the
+   `meta.fee` of the failed transaction). Per leader class needs the leader schedule (task #12); until then
+   the split is per variant.
 
-**Live** needs the docs/06 §9.5 gate (`gate_passed` in a signed ArmSet, ≥ 300 out-of-sample snipes,
-cluster-bootstrap lower bound > 0), `mode = "live"`, the `--live` flag and an arm-live token. None of that
-exists before a probe has passed.
+**Live** needs the docs/06 §9.5 gate for the class-arm LEAD (`gate_passed` in a signed ArmSet): (a) shadow
+over ≥ 1,000 launches and a full day with the hour-cluster 90% lower bound of the EV per attempt above 0;
+(b) probe-B complete with ≥ 200 landed trades, the EV per attempt (failures included) lower bound above 0,
+no single hour above 40% of the P&L, ahead of the first follower on at least one hot launch in three at
+≤ +2%; (c) every cost measured; (d) all of it re-verified after Alpenglow. Then `mode = "live"`, the
+`--live` flag and an arm-live token. None of that exists before probe-B has passed.
 
 ## 10. Kill switch
 
@@ -344,28 +386,59 @@ Slot timing changes (confirmation ~150 ms, several banks per slot, ticks collaps
    If both move away from 217, set `[paper] slot_ms` to the new value in `shadow.toml`.
 4. **Re-run the decoder tests** on the new box build: `cd ~/rugsnipe && cargo test -p pump-codec -p rugsnipe-feed`.
 5. **Leader classes flip during the cutover** (BAM validators fall back to plain Jito-Agave mode). The
-   bid split per class (docs/03 §6.1) does not need changing, but `[paper] leader_mix` should be updated
-   when the stake shares settle.
+   bid split per class (docs/03 §6.1: Jito-Agave tip, BAM/Harmonic/other priority fee) does not need
+   changing, but `[paper] leader_mix` should be updated when the stake shares settle (it moves the
+   modelled failed-attempt cost: more Jito-Agave stake makes it cheaper).
 6. `[mode] regime_freeze_slots = [[459_640_000, 459_869_000]]` already forces any real buy to paper across
    the cutover.
 
 ## 12. Weekly
 
+Run everything as the service user: `/opt/rugsnipe/src` is root-owned, and its `data/` is a symlink to
+`/var/lib/rugsnipe/data` (owned by `rugsnipe`), where the caches and reports land. Running as root or
+`ops` would leave root-owned files there that the services cannot write.
+
+**A fresh box has no research caches.** `install.sh` copies `data/reports` but not `data/cache` (the
+tapes and API caches of the research checkout: gap-3, deep, fresh, the dense window, the copy-trade
+holdout). So on fra1 or ohio1:
+- step 2 scores **this week's frame only**: the armed-creator and random launches it pulls now
+  (`P1_frame_*`, `P1_pooled_random` = the frame's random launches, `P2/P3_*_armed`); the rows that need
+  the research caches (`P1_copy_0612_1045`, `sec_window_late_*`) come out empty (n = 0), and
+  `critic_holdout.json`'s `combined_realistic_and_hot_split` block stays the critic's Oct 14 figure
+  (`critic_holdout_eval.py` never rewrites it). This week's realistic-fill stack and hot/quiet split are
+  `critic_realistic.json`;
+- step 3 (`pnl_run.py`) measures on the research tapes: it prints `research tape cache missing ...` and
+  leaves `pnl_model.json` as committed. Re-run it in the research checkout when the inputs change.
+
 ```bash
 cd /opt/rugsnipe/src
+PY="sudo -u rugsnipe /opt/rugsnipe/venv/bin/python -I"
+D=/var/lib/rugsnipe/data          # = /opt/rugsnipe/src/data
 # 1. the frozen LEAD on the last 7 days of shadow data
-/opt/rugsnipe/venv/bin/python -I analysis/scripts/shadow_gate.py --state /var/lib/rugsnipe/shadow/state.db --last-hours 168
-# 2. the freeze-then-holdout re-check on fresh launches (same protocol as docs/04 §3; on ohio1).
-#    Keep the old frame and report first: the stages resume from their cache.
-mv data/cache/strategy_holdout data/cache/strategy_holdout.$(date +%F)
-cp data/reports/strategy/critic_holdout.json data/reports/strategy/critic_holdout.$(date +%F).json
-/opt/rugsnipe/venv/bin/python -I analysis/scripts/strategy/critic_holdout.py index
-/opt/rugsnipe/venv/bin/python -I analysis/scripts/strategy/critic_holdout.py decode
-/opt/rugsnipe/venv/bin/python -I analysis/scripts/strategy/critic_holdout.py pull
-/opt/rugsnipe/venv/bin/python -I analysis/scripts/strategy/critic_holdout_eval.py      # -> data/reports/strategy/critic_holdout.json
-# 3. the daily P&L model with this week's inputs
-/opt/rugsnipe/venv/bin/python -I analysis/scripts/strategy/pnl_run.py                  # -> data/reports/strategy/pnl_model.json
+$PY analysis/scripts/shadow_gate.py --state /var/lib/rugsnipe/shadow/state.db --last-hours 168
+# 2. the freeze-then-holdout re-check on fresh launches (same protocol as docs/04 §3).
+#    Keep last week's frame and reports: the stages resume from their cache, so the old frame must move.
+W=$(date +%F)
+[ -d $D/cache/strategy_holdout ] && sudo -u rugsnipe mv $D/cache/strategy_holdout $D/cache/strategy_holdout.$W
+for f in critic_holdout critic_realistic; do
+  sudo -u rugsnipe cp $D/reports/strategy/$f.json $D/reports/strategy/$f.$W.json; done
+$PY analysis/scripts/strategy/critic_holdout.py index           # anchor = now: frame = now-6 h .. now-1 h
+$PY analysis/scripts/strategy/critic_holdout.py decode          # every create of the frame (~10k, ~1 h at 3 req/s)
+$PY analysis/scripts/strategy/critic_holdout.py pull            # armed first, then random; cap 800 swap-api requests
+$PY analysis/scripts/strategy/critic_holdout_eval.py            # -> $D/reports/strategy/critic_holdout.json
+$PY analysis/scripts/strategy/critic_realistic.py               # -> $D/reports/strategy/critic_realistic.json
+# 3. the daily P&L model (needs the research caches: on a deployed box it says so and changes nothing)
+$PY analysis/scripts/strategy/pnl_run.py                        # -> $D/reports/strategy/pnl_model.json
 ```
+
+A quick look instead of the full frame: `decode 3.0 300` decodes 300 creates of the seeded order and
+`pull both 50` stops at 50 requests; both resume to the full frame later. **Tested** on 2026-10-14 in a
+scratch fresh-box layout (source tree without `data/cache`, `data` a symlink to a separate directory,
+empty cache): index 15,000 signatures in 9 s, `decode 3.0 300` (379 RPC calls, 2 min; 184 eligible),
+`pull both 50` (45 requests, 36 tapes: 10 multi-wallet launches), then `critic_holdout_eval.py`,
+`critic_realistic.py` and `pnl_run.py` ran to completion as described above; step 1 ran on a 10-minute
+paper shadow `state.db` from this container. That test ran as root (the container has no `rugsnipe`
+user), so the `sudo -u rugsnipe` wrapper and the ownership of `/var/lib/rugsnipe/data` were not exercised.
 
 Write down each week: attempts, EV per attempt and its 90% CI, the failed-attempt cost, and the holdout
 EV of the frozen LEAD. Two consecutive weeks with the 90% lower bound below zero is a stop.
@@ -383,7 +456,7 @@ EV of the frozen LEAD. Two consecutive weeks with the 90% lower bound below zero
 | Helius shred delivery per IP | 800-1,000 | live, after the gate | **no** |
 | NextBlock sender | 249+ | live, if an A/B shows value | sender code only, not in the hot binary |
 | Landed buy, all-in | ~0.004 SOL median per landed buy (p75 0.014) | probe, live | |
-| Failed attempt (modelled, docs/03 §6.1) | ~0.00036 SOL; at most `bid.failed_attempt_lamports_max` | probe, live | |
+| Failed attempt (modelled, docs/03 §6.1) | ~0.00073 SOL at the defaults (range 0.00036-0.001); at most `bid.failed_attempt_lamports_max` | probe, live | |
 
 Totals: **shadow $0-425/mo** (+ an RPC plan if needed); **probe ≈ $425/mo + the probe's SOL**; live per
 docs/07 §4 ≈ $2,850-3,925/mo + tips, only after the gate.

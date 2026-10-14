@@ -27,6 +27,7 @@ fn good_env(cfg: &Config) -> ValidateEnv {
         credential_modes: creds,
         live_cli_flag: true,
         arm_live_token: true,
+        armset_probe_stage: None,
     }
 }
 
@@ -609,10 +610,11 @@ fn entry_and_paper_sections_default_parse_and_validate() {
 #[test]
 fn failed_attempt_cap_and_pay_on_success_split_are_validated() {
     use rugsnipe_core::bid::{BidPolicy, LeaderClass};
-    // defaults: tip classes bid with the tip, priority classes with the fee
+    // defaults: tip classes bid with the tip, priority classes with the fee;
+    // BAM is priority-ordered (docs/03 section 6: CU-price order in BAM rounds)
     let d = Config::default();
     assert_eq!(d.bid.split.jito_agave, [0.0, 1.0]);
-    assert_eq!(d.bid.split.bam, [0.0, 1.0]);
+    assert_eq!(d.bid.split.bam, [1.0, 0.0]);
     assert_eq!(d.bid.split.harmonic, [1.0, 0.0]);
     assert_eq!(d.bid.split.other, [1.0, 0.0]);
     // every example file carries the cap and the pay-on-success split
@@ -650,11 +652,13 @@ fn failed_attempt_cap_and_pay_on_success_split_are_validated() {
     assert!(c.validate(&ValidateEnv::default()).ok());
     // a priority share on a tip-ordered class is paid on failure: warned
     let mut c = example();
-    c.bid.split.bam = [0.5, 0.5];
+    c.bid.split.jito_agave = [0.5, 0.5];
     let v = c.validate(&ValidateEnv::default());
     assert!(v.ok());
     assert!(
-        v.warnings.iter().any(|w| w.starts_with("bid.split.bam")),
+        v.warnings
+            .iter()
+            .any(|w| w.starts_with("bid.split.jito_agave")),
         "{:?}",
         v.warnings
     );
@@ -677,4 +681,123 @@ fn failed_attempt_cap_and_pay_on_success_split_are_validated() {
         .any(|r| matches!(r, Refusal::Invalid { field, .. } if *field == "paper.leader_mix")));
     // unknown keys under [bid] are still refused
     assert!(Config::from_toml_str("[bid]\nfailed_attempt_max = 1\n").is_err());
+}
+
+#[test]
+fn probe_stages_narrow_the_risk_caps_and_the_armset_must_agree() {
+    use rugsnipe_core::config::{ProbeCfg, ProbeProfile, ProbeStage};
+    // every example carries the two named stages of docs/04 section 7
+    for f in ["rugsnipe", "paper", "paper-lead"] {
+        let p = format!(
+            "{}/../../config/{f}.example.toml",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let c = Config::from_toml_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(c.probe, ProbeCfg::default(), "{f}");
+        assert_eq!(c.probe.stage, ProbeStage::A, "{f}");
+    }
+    let a = ProbeProfile::stage_a();
+    let b = ProbeProfile::stage_b();
+    assert_eq!(
+        (
+            a.max_probe_lamports,
+            a.max_probes_per_day,
+            a.max_open_positions,
+            a.max_daily_loss_lamports
+        ),
+        (20_000_000, 50, 1, 200_000_000)
+    );
+    assert_eq!(
+        (
+            b.max_probe_lamports,
+            b.max_probes_per_day,
+            b.max_open_positions,
+            b.max_daily_loss_lamports
+        ),
+        (250_000_000, 300, 2, 1_000_000_000)
+    );
+    // paper and live: [risk] as written
+    let c = armable(example(), Mode::Live);
+    assert_eq!(c.effective_risk(), c.risk);
+    // probe A: the stage narrows every one of its four caps
+    let mut c = armable(example(), Mode::Probe);
+    let r = c.effective_risk();
+    assert_eq!(
+        (
+            r.max_probe_lamports,
+            r.max_probes_per_day,
+            r.max_open_positions,
+            r.max_daily_loss_lamports
+        ),
+        (20_000_000, 50, 1, 200_000_000)
+    );
+    assert_eq!(r.max_snipe_lamports, c.risk.max_snipe_lamports);
+    let v = c.validate(&good_env(&c));
+    assert!(v.ok(), "{:?}", v.refusals);
+    assert!(
+        !v.warnings.iter().any(|w| w.contains("binds tighter")),
+        "{:?}",
+        v.warnings
+    );
+    // probe B
+    c.probe.stage = ProbeStage::B;
+    let r = c.effective_risk();
+    assert_eq!(
+        (
+            r.max_probe_lamports,
+            r.max_probes_per_day,
+            r.max_open_positions,
+            r.max_daily_loss_lamports
+        ),
+        (250_000_000, 300, 2, 1_000_000_000)
+    );
+    // a tighter [risk] cap still binds, and is reported
+    c.risk.max_probe_lamports = 20_000_000;
+    assert_eq!(c.effective_risk().max_probe_lamports, 20_000_000);
+    let v = c.validate(&good_env(&c));
+    assert!(
+        v.warnings
+            .iter()
+            .any(|w| w.starts_with("risk.max_probe_lamports")),
+        "{:?}",
+        v.warnings
+    );
+    // the ArmSet's stage must match the config's (moving to B takes both):
+    // stage b also needs an ArmSet that names it, stage a accepts none
+    let refused_stage = |v: &rugsnipe_core::config::Validation| {
+        v.refusals
+            .iter()
+            .any(|r| matches!(r, Refusal::Invalid { field, .. } if *field == "probe.stage"))
+    };
+    assert!(refused_stage(&c.validate(&good_env(&c))));
+    let mut ca = c.clone();
+    ca.probe.stage = ProbeStage::A;
+    assert!(!refused_stage(&ca.validate(&good_env(&ca))));
+    let mut env = good_env(&c);
+    env.armset_probe_stage = Some(ProbeStage::A);
+    let v = c.validate(&env);
+    assert!(
+        v.refusals
+            .iter()
+            .any(|r| matches!(r, Refusal::Invalid { field, .. } if *field == "probe.stage")),
+        "{:?}",
+        v.refusals
+    );
+    env.armset_probe_stage = Some(ProbeStage::B);
+    assert!(c.validate(&env).ok());
+    // a zero stage cap is refused in probe mode
+    c.probe.b.max_open_positions = 0;
+    assert!(!c.validate(&env).ok());
+    // TOML: the keys parse, an unknown stage or key is refused
+    let c = Config::from_toml_str(
+        "[probe]\nstage = \"b\"\nkill = { min_landed = 100, min_attempts = 400, max_median_premium = 0.03, landing_attempts = 200 }\n",
+    )
+    .unwrap();
+    assert_eq!(c.probe.stage, ProbeStage::B);
+    assert!(Config::from_toml_str("[probe]\nstage = \"c\"\n").is_err());
+    assert!(Config::from_toml_str("[probe]\nmax_probe_lamports = 1\n").is_err());
+    // the kill rule is validated in every mode
+    let mut c = example();
+    c.probe.kill.max_median_premium = 0.0;
+    assert!(!c.validate(&ValidateEnv::default()).ok());
 }

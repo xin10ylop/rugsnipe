@@ -104,6 +104,7 @@ fn good_env(c: &Config) -> ValidateEnv {
         credential_modes: creds,
         live_cli_flag: true,
         arm_live_token: true,
+        armset_probe_stage: None,
     }
 }
 

@@ -143,6 +143,12 @@ pub struct ArmSet {
     /// Ohio allows capped probe buys (docs/06 section 10; default false).
     #[serde(default)]
     pub probe_allowed: bool,
+    /// The probe stage this ArmSet allows (`"a"` measurement, `"b"` the
+    /// 0.25 SOL probe; docs/04 section 7). When present it must equal the
+    /// config's `probe.stage`, so moving to B needs a signed ArmSet and the
+    /// local config.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub probe_stage: Option<crate::config::ProbeStage>,
     #[serde(default, with = "crate::b58::vec")]
     pub shared_fee_payers: Vec<Pubkey>,
     #[serde(default, alias = "ops")]
@@ -472,6 +478,15 @@ mod tests {
                 probe_allowed: true
             }
         );
+        // probe_stage (docs/04 section 7) is optional: absent = None
+        assert_eq!(v.armset.probe_stage, None);
+        j["probe_stage"] = serde_json::Value::String("b".into());
+        let b3 = serde_json::to_vec(&j).unwrap();
+        let v = verify(&b3, Some(&sk.sign(&b3).to_bytes()), &ctx(&pk, None, 1_500)).unwrap();
+        assert_eq!(v.armset.probe_stage, Some(crate::config::ProbeStage::B));
+        j["probe_stage"] = serde_json::Value::String("c".into());
+        let b4 = serde_json::to_vec(&j).unwrap();
+        assert!(verify(&b4, Some(&sk.sign(&b4).to_bytes()), &ctx(&pk, None, 1_500)).is_err());
     }
 
     #[test]

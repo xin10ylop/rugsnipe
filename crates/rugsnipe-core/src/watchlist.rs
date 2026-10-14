@@ -356,6 +356,7 @@ mod tests {
             min_hot_version: String::new(),
             gate_passed: false,
             probe_allowed: false,
+            probe_stage: None,
             shared_fee_payers: shared,
             operators: vec![],
             watch,

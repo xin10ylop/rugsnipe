@@ -431,8 +431,8 @@ fn e1_failed_attempts_cost_is_modelled_per_leader_class() {
     let m = &cfg.paper.leader_mix;
     let tip_side = 5_000 + cfg.bid.min_priority_lamports;
     let prio_side = cfg.bid.failed_attempt_lamports_max.min(5_000 + bid);
-    let want = ((m.jito_agave + m.bam) * tip_side as f64
-        + (m.harmonic + m.other) * prio_side as f64)
+    // BAM is priority-ordered by default (docs/03 section 6)
+    let want = (m.jito_agave * tip_side as f64 + (m.bam + m.harmonic + m.other) * prio_side as f64)
         .round() as u64;
     assert_eq!(hc.failed_attempt_cost(bid, 1), want);
     // the pay-on-success variant: priority at the floor, the whole bid in the tip
@@ -444,10 +444,33 @@ fn e1_failed_attempts_cost_is_modelled_per_leader_class() {
     );
     assert_eq!(secondary.class, LeaderClass::Harmonic);
     assert!(secondary.failed_cost(1) <= cfg.bid.failed_attempt_lamports_max);
+    // sells through the same policy: the bid once, as a tip on the
+    // tip-ordered class and as the priority fee elsewhere (unknown included)
+    let sell_bid = 2_000_000;
+    let mut s = hc.clone();
+    let p = s.sell_plan(sell_bid, 1);
+    assert_eq!((p.priority_lamports, p.tip_lamports), (sell_bid, 0));
+    s.leader_class = Some(LeaderClass::JitoAgave);
+    let p = s.sell_plan(sell_bid, 1);
+    assert_eq!(
+        (p.priority_lamports, p.tip_lamports),
+        (cfg.bid.min_priority_lamports, sell_bid)
+    );
+    for c in [LeaderClass::Bam, LeaderClass::Harmonic, LeaderClass::Other] {
+        s.leader_class = Some(c);
+        let p = s.sell_plan(sell_bid, 1);
+        assert_eq!(
+            (p.priority_lamports, p.tip_lamports),
+            (sell_bid, 0),
+            "{c:?}"
+        );
+    }
     // a known leader class: both variants follow it
     let mut known = hc.clone();
-    known.leader_class = Some(LeaderClass::Bam);
+    known.leader_class = Some(LeaderClass::JitoAgave);
     assert_eq!(known.failed_attempt_cost(bid, 1), tip_side);
+    known.leader_class = Some(LeaderClass::Bam);
+    assert_eq!(known.failed_attempt_cost(bid, 1), prio_side);
     known.leader_class = Some(LeaderClass::Harmonic);
     assert_eq!(known.failed_attempt_cost(bid, 1), prio_side);
 

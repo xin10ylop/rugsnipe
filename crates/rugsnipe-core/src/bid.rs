@@ -22,12 +22,21 @@
 //! failed transaction as "untipped" for exactly that reason.
 //!
 //! So the bid goes into the tip wherever the leader class orders by it
-//! (Jito-Agave via the block engine, BAM via its auction: both through the
-//! Jito tip accounts) and the header priority fee stays at the scheduling
-//! floor `bid.min_priority_lamports`. Harmonic (and Firedancer / other
+//! (Jito-Agave via the block engine, through the Jito tip accounts) and the
+//! header priority fee stays at the scheduling floor
+//! `bid.min_priority_lamports`. BAM, Harmonic (and Firedancer / other
 //! clients) order by priority fee: there the bid is the priority fee and it
 //! is at risk on failure, clamped so that a failed attempt never costs more
-//! than `bid.failed_attempt_lamports_max`.
+//! than `bid.failed_attempt_lamports_max`. BAM is in the priority group
+//! because our own measurement (docs/03 section 6: the earlier transaction
+//! inside a BAM round had the higher compute-unit price 86-89% of the time)
+//! shows CU-price ordering; it stays there until the probe measures which
+//! variant lands per leader class.
+//!
+//! Sells go through the same split ([`BidPolicy::plan_sell`]): a
+//! tip-ordered class pays the priority floor plus the sell bid as a tip, a
+//! priority-ordered class pays the sell bid as the priority fee and no tip.
+//! The bid is never paid twice.
 
 use crate::config::{BidCfg, LeaderMix};
 
@@ -40,7 +49,8 @@ pub const BASE_FEE_PER_SIGNATURE: u64 = 5_000;
 pub enum LeaderClass {
     /// Jito-Agave (`JitoLabs`): arrival order; tips count through the block engine.
     JitoAgave,
-    /// BAM (`AgaveBam`, `FireBAM`): 20-50 ms batch auctions run by the BAM node.
+    /// BAM (`AgaveBam`, `FireBAM`): 20-50 ms batch auctions run by the BAM
+    /// node; measured compute-unit-price order inside a round (86-89%).
     Bam,
     /// Harmonic (`HarmonicAgave`, `HarmonicFiredancer`): priority-fee batches.
     Harmonic,
@@ -75,9 +85,11 @@ impl LeaderClass {
     }
 
     /// The class orders by a tip to the Jito tip accounts, so the bid can be
-    /// paid only on success.
+    /// paid only on success. Only Jito-Agave (through the block engine): BAM
+    /// rounds were measured in compute-unit-price order (docs/03 section 6),
+    /// so BAM bids with the priority fee until the probe measures otherwise.
     pub fn honours_tip(self) -> bool {
-        matches!(self, Self::JitoAgave | Self::Bam)
+        matches!(self, Self::JitoAgave)
     }
 }
 
@@ -156,6 +168,27 @@ impl BidPolicy {
         }
     }
 
+    /// The variant of a **sell** for a leader of class `c` (`None`: unknown,
+    /// planned as a priority-ordered class). `bid` is the exit engine's sell
+    /// bid (`SellOrder::tip_lamports`, escalated on retries and bounded by
+    /// `risk.max_sell_spend_lamports`). It is split like a buy bid, so the
+    /// bid is paid once: a tip-ordered class pays the priority floor and the
+    /// bid as a tip after the sell (reverts if the sell fails), a
+    /// priority-ordered class pays the bid as the priority fee and no tip.
+    /// Unlike a buy, the priority fee is not clamped to
+    /// `failed_attempt_lamports_max`: a sell that does not land leaves the
+    /// position open, and the exit engine already bounds its spend.
+    pub fn plan_sell(&self, c: Option<LeaderClass>, bid: u64, _n_sigs: u8) -> BidPlan {
+        let c = c.unwrap_or(LeaderClass::Other);
+        let [p, t] = self.split_of(c);
+        BidPlan {
+            class: c,
+            priority_lamports: ((bid as f64 * p) as u64).max(self.min_priority_lamports),
+            tip_lamports: (bid as f64 * t) as u64,
+            clamped: false,
+        }
+    }
+
     /// Expected cost of a failed attempt when the leader class is unknown:
     /// the variant matching the leader is the one that lands, weighted by
     /// the classes' shares of leader slots (`paper.leader_mix`).
@@ -185,16 +218,18 @@ mod tests {
         let b = BidCfg::default();
         let pol = BidPolicy::from_cfg(&b);
         let bid = 3_400_000;
-        for c in [LeaderClass::JitoAgave, LeaderClass::Bam] {
-            let p = pol.plan(c, bid, 1);
-            assert!(c.honours_tip());
-            assert_eq!(p.priority_lamports, b.min_priority_lamports, "{c:?}");
-            assert_eq!(p.tip_lamports, bid);
-            assert_eq!(p.failed_cost(1), 5_000 + b.min_priority_lamports);
-            assert_eq!(p.landed_cost(1), 5_000 + b.min_priority_lamports + bid);
-            assert!(!p.clamped);
-        }
-        for c in [LeaderClass::Harmonic, LeaderClass::Other] {
+        // the tip-ordered class: Jito-Agave
+        let c = LeaderClass::JitoAgave;
+        let p = pol.plan(c, bid, 1);
+        assert!(c.honours_tip());
+        assert_eq!(p.priority_lamports, b.min_priority_lamports);
+        assert_eq!(p.tip_lamports, bid);
+        assert_eq!(p.failed_cost(1), 5_000 + b.min_priority_lamports);
+        assert_eq!(p.landed_cost(1), 5_000 + b.min_priority_lamports + bid);
+        assert!(!p.clamped);
+        // BAM is priority-ordered by default (docs/03 section 6: CU-price
+        // order inside BAM rounds), like Harmonic
+        for c in [LeaderClass::Bam, LeaderClass::Harmonic, LeaderClass::Other] {
             let p = pol.plan(c, bid, 1);
             assert!(!c.honours_tip());
             assert_eq!(p.tip_lamports, 0);
@@ -238,10 +273,21 @@ mod tests {
         let mix = LeaderMix::default();
         let tip = 5_000 + b.min_priority_lamports;
         let prio = b.failed_attempt_lamports_max;
-        let want = (mix.share(LeaderClass::JitoAgave) + mix.share(LeaderClass::Bam)) * tip as f64
-            + (mix.share(LeaderClass::Harmonic) + mix.share(LeaderClass::Other)) * prio as f64;
+        let want = mix.share(LeaderClass::JitoAgave) * tip as f64
+            + (mix.share(LeaderClass::Bam)
+                + mix.share(LeaderClass::Harmonic)
+                + mix.share(LeaderClass::Other))
+                * prio as f64;
         let got = pol.expected_failed_cost(&mix, 3_400_000, 1);
         assert!((got as f64 - want).abs() <= 1.0, "{got} vs {want}");
+        // docs/04 section 4: 0.272 x 15,000 + 0.728 x 1,000,000 = 732,080
+        // lamports (0.00073 SOL) at the default stake mix and cap
+        assert_eq!(got, 732_080);
+        // the earlier pay-on-success BAM split gave 0.00036 SOL
+        let mut tipbam = b.clone();
+        tipbam.split.bam = [0.0, 1.0];
+        let pol2 = BidPolicy::from_cfg(&tipbam);
+        assert_eq!(pol2.expected_failed_cost(&mix, 3_400_000, 1), 358_765);
         // all-priority policy at the old 0.003 SOL: every failure pays it
         let mut old = b.clone();
         old.split.jito_agave = [1.0, 0.0];
@@ -249,6 +295,38 @@ mod tests {
         old.failed_attempt_lamports_max = 3_005_000;
         let pol = BidPolicy::from_cfg(&old);
         assert_eq!(pol.expected_failed_cost(&mix, 3_000_000, 1), 3_005_000);
+    }
+
+    #[test]
+    fn sells_pay_the_bid_once_through_the_class_split() {
+        let b = BidCfg::default();
+        let pol = BidPolicy::from_cfg(&b);
+        let floor = b.min_priority_lamports;
+        for bid in [0u64, 1, 5_000, 1_000_000, 3_400_000, 20_000_000] {
+            for c in LeaderClass::ALL.map(Some).into_iter().chain([None]) {
+                let p = pol.plan_sell(c, bid, 1);
+                // never the bid as both priority fee and tip
+                assert!(
+                    p.priority_lamports + p.tip_lamports <= bid.max(floor) + floor,
+                    "{c:?} {bid}: {p:?}"
+                );
+                assert!(p.priority_lamports >= floor);
+                assert!(!p.clamped);
+                if c.is_some_and(|c| c.honours_tip()) {
+                    // tip-ordered: priority at the floor, the bid in the tip
+                    assert_eq!((p.priority_lamports, p.tip_lamports), (floor, bid));
+                } else {
+                    // priority-ordered (BAM, Harmonic, other) or unknown: the
+                    // bid as the priority fee, no tip
+                    assert_eq!((p.priority_lamports, p.tip_lamports), (bid.max(floor), 0));
+                }
+            }
+        }
+        // a sell bid above the buy cap is not clamped: the exit engine
+        // bounds the sell spend (risk.max_sell_spend_lamports)
+        let p = pol.plan_sell(Some(LeaderClass::Harmonic), 5_000_000, 1);
+        assert_eq!(p.priority_lamports, 5_000_000);
+        assert!(p.priority_lamports > b.failed_attempt_lamports_max);
     }
 
     #[test]

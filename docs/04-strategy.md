@@ -19,10 +19,10 @@ price measured in `gap-2.md` (+1.1% median for the first reactive buyer).
 | Copy-trading pump wallets (his method 2)? | **No.** Every realistic copy variant loses 3-6% per trade on 905 fresh launches; the scored wallets add nothing over an unscored control. | VERIFIED |
 | Per-rugger arming (his idea of following operators, with our exit)? | **No.** It looked like +9% per trade on the historical operator sets, but on a fresh holdout pulled after the rules were frozen the armed launches make +2.9% against +3.2% unarmed (lift −0.2 points, p = 0.54). The historical lift came from how those operators were sampled. His own "3 of the last 10 hit +100%" rule: +2.1% [−2.0, +6.0], not significant. Arming stays as logged fields only. | VERIFIED by the critic |
 | Mayhem coins? | **No.** The agent is a fee-free near-random walk that stops after a median 43 s; 87.5% of mayhem coins trade below the standard floor within 15 min; every policy loses out of sample (−11% to −22%). Excluded. | VERIFIED |
-| Does the edge survive realistic fills? | **Only at rank 1, and thinly.** Rank 2 (one sniper ahead of us): +0.0% to +0.8%. All of the money sits on the third of launches where the first follower lifts the price by more than 2% (+11.7%, holdout +9.1%); the rest is −0.5%. Stacking the mean premium, SOL-fixed impact, 0.01 SOL costs and one follower in three failing gives −0.4% [−2.0, +1.3] on the fresh holdout, before failed-attempt costs. | VERIFIED by the critic |
+| Does the edge survive realistic fills? | **Only at rank 1, and thinly.** Rank 2 (one sniper ahead of us): +0.0% to +0.8%. All of the money sits on the third of launches where the first follower lifts the price by more than 2% (+11.7%, holdout +9.1%); the rest is −0.5%. Stacking the mean premium, SOL-fixed impact, 0.01 SOL costs and one follower in three failing gives −0.4% [−2.0, +1.3] on the fresh holdout, before failed-attempt costs (`critic_realistic.json`). | VERIFIED by the critic |
 | Can the per-trade number be raised? | **Yes, by choosing launches, not by changing exits.** A frozen model of P(take-profit) built from the operator's history and the bundle's shape, applied as "skip the bottom tertile", lifts the policy from +3.2% to **+4.6%** per trade on 480 fresh launches (keeps 74% of them; the dropped ones lose −0.8%; BH q = 0.001, positive on each of three sets). Tighter cuts reach +7.9% (keep 30%) and +9.7% (keep 15%) but concentrate on the most contested launches. Every exit, scale-out, runner, re-entry and sizing refinement is at or below the plain policy (q ≥ 0.99). | VERIFIED on a pre-registered holdout |
-| What does it make per day? | At 0.5 SOL and a 20% rank-1 landing rate, about +9 SOL/day [−5, +20] on ~1,150 landed trades; break-even landing rate 12%. At 0.25 SOL it loses at 20% (break-even 26.5%). **The cost of a failed attempt decides the business**: a bid that only pays on success (in-transaction tip) instead of a priority fee paid on failure moves break-even landing from 12% to 2% and doubles SOL/day. | model, not a measurement |
-| What happens next? | Shadow mode on the Frankfurt box, no money: record our would-be landing index against the first follower's real index and the premium, score the policy at that position, split hot/quiet. Go/no-go rule fixed now (§7). Then, only if it passes, a capped probe of about 200 trades at 0.25 SOL with a kill switch. | |
+| What does it make per day? | At 0.5 SOL and a 20% rank-1 landing rate, about +9 SOL/day [−5, +20] on ~1,150 landed trades if every failed attempt costs 0.003 SOL; break-even landing rate 12%. At 0.25 SOL it loses at 20% (break-even 26.5%). **The cost of a failed attempt decides the business**: the per-class bid (tip paid only on success where the leader orders by tip, a capped priority fee elsewhere) models 0.00036-0.001 SOL per failed attempt (0.00073 at the defaults), which moves break-even landing to 1.6-4.4% at 0.5 SOL (4.1-10.7% at 0.25 SOL) and SOL/day at 20% to +16 to +19 (§4). | model, not a measurement |
+| What happens next? | Shadow mode on the Frankfurt box, no money: record our would-be landing index against the first follower's real index and the premium, score the policy at that position, split hot/quiet. Go/no-go rule fixed now (§7). Then, only if it passes, a probe in two stages with a kill rule (§7): probe-A measures landing, premium and failed-attempt cost at 0.02 SOL; probe-B trades about 200 landed trades at 0.25 SOL, only if A's landing rate clears the break-even for the measured failed-attempt cost. Live only through the gate of docs/06 §9.5. | |
 
 ## 1. His method versus ours, on the same tapes
 
@@ -156,7 +156,10 @@ that is a conservative bias.
 without the bundle-sell and phantom legs) are positive pooled out of sample (+2.3% to +4.2%).
 Pre-Oct-9 (268 ms slots) +4.8%, post-Oct-9 (200 ms) +3.6%. Positive on 16 of 17 days.
 
-**Realistic fills (the critic's stress stack, fresh holdout, n = 222).**
+**Realistic fills (the critic's stress stack, fresh holdout, n = 222).** The combined row and the
+hot/quiet split below are regenerated from the cached holdout tapes by
+`analysis/scripts/strategy/critic_realistic.py` into `data/reports/strategy/critic_realistic.json`
+(it reproduces the critic's stored block in `critic_holdout.json` to 0.000 points).
 
 | Scenario | EV per trade |
 |---|---|
@@ -170,8 +173,8 @@ Pre-Oct-9 (268 ms slots) +4.8%, post-Oct-9 (200 ms) +3.6%. Positive on 16 of 17 
 | **Combined realistic** (mean premium, buyers keep SOL not tokens, 0.01 SOL, first follower fails 1 in 3) | **−0.4% [−2.0, +1.3]**; all clean launches −1.2% [−2.3, +0.1] |
 
 **Where the money is.** On the 32% of launches where the first third-party buyer after the bundle
-lifts the curve by more than 2% ("hot"), rank-1 EV is **+11.7%** (holdout +9.1%); on the other 68%
-it is **−0.5%** (holdout +0.3%). The sweep's simple filters (post-bundle cap, bundle wallets, dev
+lifts the curve by more than 2% ("hot"), rank-1 EV is **+11.7%** (holdout +9.1%, `critic_realistic.json`);
+on the other 68% it is **−0.5%** (holdout +0.3%). The sweep's simple filters (post-bundle cap, bundle wallets, dev
 buy) did not separate the two; the learned entry filter of §3a does, partly. The hot launches are where rival bots bid hardest (gap-2: the first slot-0
 winner's median bid 0.0034 SOL, p90 0.068, and the earlier winner had the higher bid in 73% of
 contested pairs). The policy is therefore a bet on being directly in front of a big sniper.
@@ -189,7 +192,8 @@ full day is noise.
 - *Failed attempts.* When we lose the race, the slippage-capped buy fails and still pays its
   priority fee (not a Jito tip: a failed bundle is dropped). At 0.003 SOL per failure and a 50%
   landing rate the effective round-trip cost is about 0.007-0.013 SOL (EV ≈ +2.4% at 0.01); at a
-  20% landing rate it is 0.016-0.022 SOL and the edge is gone. **The landing rate is the whole
+  20% landing rate it is 0.016-0.022 SOL and the edge is gone. The per-class bid (docs/03 §6.1)
+  models 0.00036-0.001 SOL per failure (§4); probe-A measures it. **The landing rate is the whole
   business case.**
 - *One regime.* The holdouts all fall in Oct 12-14. Alpenglow (epoch 1064, about Oct 21) changes
   slot timing and must be re-measured.
@@ -206,7 +210,8 @@ full day is noise.
 | Exit latency | 0 / 1 / 2 / 4 slots: +4.2 / +3.7 / +2.8 / +1.2% on the fresh holdout. A shred feed and a pre-signed exit matter. |
 | Fees | 1.25% per side is in the model; any fee change moves EV one for one. |
 | Capacity | The in-class multi-wallet share is time-varying: 12.5% of creates in the 02-08 UTC window (≈5,300/day in class) and 18% in a 15:20-16:00 block (≈11,000/day at that rate); earlier estimates used 3,750/day. |
-| SOL per day (strategy-pnl-and-screens, `pnl_model.py`) | 0.5 SOL, 20% landing: +9.0 SOL/day [−5.0, +20.3], ≈1,150 landed trades; break-even landing 12.1%. 0.25 SOL: −3.4 SOL/day at 20%, break-even 26.5%. Skip-bottom-tertile filter: +11.5 SOL/day at 20% (+8.2 with a competition haircut). The critic's "combined realistic" fills: −17 SOL/day. A failed attempt at 0.003 SOL (priority fee paid on failure) versus 0.0005 SOL (tip paid only on success) moves break-even landing from 12% to 2%. |
+| SOL per day (strategy-pnl-and-screens, `pnl_model.py`) | 0.5 SOL, 20% landing: +9.0 SOL/day [−5.0, +20.3], ≈1,150 landed trades; break-even landing 12.1%. 0.25 SOL: −3.4 SOL/day at 20%, break-even 26.5%. Skip-bottom-tertile filter: +11.5 SOL/day at 20% (+8.2 with a competition haircut). The critic's "combined realistic" fills: −17 SOL/day. These rows charge every failed attempt 0.003 SOL (the all-priority bid). |
+| Failed-attempt cost (`pnl_model.py`, recomputed for the per-class bid of docs/03 §6.1) | Modelled range **0.00036 to 0.001 SOL** per failed attempt: 0.00036 if BAM honoured a pay-on-success tip (0.651 × 15,000 + 0.349 × 1,000,000 lamports), **0.00073 at the defaults** (BAM priority-ordered, our own measurement in docs/03 §6: 0.272 × 15,000 + 0.728 × 1,000,000), 0.001 if every leader is priority-ordered (the cap). Break-even landing at 0.5 SOL: **1.6% / 3.3% / 4.4%** (+18.7 / +17.4 / +16.4 SOL/day at 20%); at 0.25 SOL: **4.1% / 8.1% / 10.7%** (+6.3 / +5.0 / +4.0 SOL/day). Against 12.1% (0.5 SOL) and 26.5% (0.25 SOL) at 0.003 SOL. The probe replaces the model with the measured cost. |
 
 ## 5. What else was tried, and lost
 
@@ -260,7 +265,8 @@ Config (docs/06 §6 names): `exit.default.tp = [[1.15, 1.0]]`, `exit.default.ins
 `exit.default.no_activity_ms = 1000`, `exit.default.phantom_sl = {after_ms = 1000, drop = 0.15}`,
 `exit.default.max_hold_slots = 5`, `entry.max_premium = 0.02`, `entry.filter = "multi_bundle"`,
 `entry.filter_model = "data/reports/strategy/entry_filter_v1.json"`, `entry.filter_mode = "log"` in
-shadow mode (`"skip"` for the probe: skip if score < t1), `risk.max_snipe_lamports = 500_000_000`.
+shadow mode (`"skip"` for the probe: skip if score < t1), `risk.max_snipe_lamports = 500_000_000`,
+`bid.split.bam = [1.0, 0.0]` (priority-ordered, docs/03 §6.1), `probe.stage = "a"` then `"b"` (§7).
 
 ## 7. Operating plan (nothing else moves money)
 
@@ -270,9 +276,9 @@ shadow mode (`"skip"` for the probe: skip if score < t1), `risk.max_snipe_lampor
    post-bundle price and the premium we would have paid, and the simulated exit at that position,
    split hot/quiet. **Go/no-go rule, fixed now:** over at least 1,000 qualifying launches and at
    least one full day (the hourly swings demand it), the shadow EV per attempt at our measured rank
-   and premium must have a 90% lower bound above zero, and we must be ahead of the first follower
-   on at least one hot launch in three at a premium of +2% or less. Otherwise the answer is no
-   edge, and we stop. Failed attempts are charged at their priority fee.
+   and premium must have a 90% lower bound above zero (bootstrap by hour clusters), and we must be
+   ahead of the first follower on at least one hot launch in three at a premium of +2% or less.
+   Otherwise the answer is no edge, and we stop. Failed attempts are charged at their priority fee.
    *Status:* the shadow lane exists in paper mode (`paper.fill_model = "e1"`, `config/paper-lead.example.toml`).
    It reconstructs the creation slot, applies the gap-3 bundle definition, records our would-be
    index, buyers ahead and behind, premium and the exit at that position, and charges failed
@@ -286,16 +292,37 @@ shadow mode (`"skip"` for the probe: skip if score < t1), `risk.max_snipe_lampor
    (bottom tertile) for the probe; shadow mode must measure the landing rate separately on
    selected and unselected launches (adopt the top-tertile cut only if its landing rate is at least
    0.73× the all-launch rate).
-   *Bid path:* put the bid in a tip that only pays on success wherever the leader class honours
-   it, and keep the priority fee at the scheduling minimum; log the realised cost of every failed
-   attempt.
-2. **Probe (capped live).** About 200 trades at 0.25 SOL, `max_sol_cost` +2%, exits as in §2.
-   Standard error at 200 trades is 1.4%. **Kill** if the mean is below 0 after 100 trades
-   (about 4% false-kill probability if the true EV is +3.5%), if the median realised premium
-   exceeds +3%, or if the landing rate falls below 20%. Record realised rank, premium, exit slot and
-   the share of snipers behind us.
-3. **Live** only after the probe passes and the go/no-go gate of docs/06 §9.5 (≥300 out-of-sample
-   snipes, cluster-bootstrap lower bound > 0).
+   *Bid path:* put the bid in a tip that only pays on success where the leader class orders by tip
+   (Jito-Agave), with the priority fee at the scheduling minimum; bid with a capped priority fee
+   where it orders by fee (Harmonic, other, and BAM, whose rounds we measured in CU-price order,
+   docs/03 §6) until the probe measures which variant lands per leader class; sells go through the
+   same split, so the bid is never paid twice; log the realised cost of every failed attempt.
+2. **Probe, in two stages** (`[probe]` in the config; `stage` selects the caps, a signed ArmSet that
+   names `probe_stage` must name the same one, and stage B needs one that names `"b"`; `max_sol_cost` +2%,
+   exits as in §2).
+   - **Probe-A (measurement):** 0.02 SOL per buy, at most 50 attempts a day, 1 open position,
+     0.2 SOL daily loss cap. Its purpose is to measure our landing rank, the premium, the
+     failed-attempt cost per leader class and which bid variant lands. At 0.02 SOL the fixed
+     costs make the EV negative by construction; that is **not** a kill reason. It runs until
+     300 attempts or 3 days, whichever comes first.
+   - **Probe-B:** 0.25 SOL per buy, at most 300 attempts a day, 2 open positions, 1 SOL daily
+     loss cap, about 200 landed trades. **Entered only if** probe-A measured a landing rate above
+     the break-even for the measured failed-attempt cost (`pnl_model.break_even_landing` for the
+     0.25 SOL LEAD at that cost and premium, every failed attempt paying the measured mean: 5.1-13.1%
+     over the modelled 0.00036-0.001 SOL, 9.9% at the default 0.00073; §4's 4.1-10.7% lets one lost
+     attempt in five drop free) **and** a median premium at or below +2%.
+   - **Kill** (`analysis/scripts/shadow_gate.py --probe`, from `state.db` and the end-of-run
+     summary): the EV per **attempt**, failed attempts included, has a 90% upper bound below 0
+     after 100 landed trades or 400 attempts, whichever comes first (probe-B; probe-A's EV is
+     negative by design); or the median realised premium exceeds +3%; or the landing rate stays
+     below the break-even for the measured failed-attempt cost over 200 attempts; or the stage's
+     daily loss cap is hit (the risk gate latches it). Record realised rank, premium, exit slot,
+     the variant that landed and the share of snipers behind us.
+3. **Live** only after probe-B completes and the gate of docs/06 §9.5 passes: shadow EV per
+   attempt with a 90% hour-cluster lower bound above 0 over ≥ 1,000 launches and a full day;
+   probe-B's EV per attempt lower bound above 0 over ≥ 200 landed trades, no hour above 40% of the
+   P&L, ahead of the first follower on ≥ 1 hot launch in 3 at ≤ +2%; every cost measured; and
+   all of it re-verified after Alpenglow (Oct 21).
 4. **Re-run the sweep weekly** on fresh tapes from the collector, with the same freeze-then-holdout
    protocol. Re-measure everything after Alpenglow (Oct 21).
 
@@ -308,5 +335,6 @@ shadow mode (`"skip"` for the probe: skip if score < t1), `risk.max_snipe_lampor
   failed attempt (§4).
 - Resolved: a "first in slot+1" entry loses on every set (§5), so creates that sit in the last
   5-15% of a block are skipped, not chased.
-- Failed-attempt costs are modelled here by hand (§3); the hot path must log them so the probe
-  measures them.
+- Failed-attempt costs are modelled (§4: 0.00036-0.001 SOL); the hot path logs every one
+  (`fills.fail_cost`; summary `failed_cost_lamports_mean`) so probe-A measures them. Per leader
+  class needs the leader schedule in the hot path (task #12); until then they are split by variant.

@@ -3,7 +3,7 @@
 Why Frankfurt: it produces 32-35% of leader slots and is the home of almost every low-latency vendor, all in
 TeraSwitch (AS20326). P(same slot) is 0.78 from Frankfurt and 0.51 from Ohio (docs/03-speed-infra.md
 sections 2-4). fra1 runs `rugsnipe-hot`, `rugsnipe-guard` and `rugsnipe-keeper` (docs/06 section 12). Phase 1 is fra1
-alone until the gate passes. A second box comes in phase 2 (docs/03 section 4: Tokyo TYO2 first; docs/06 section 11 still says ams1).
+alone until the gate passes. A second box comes in phase 2 (docs/03 section 4, docs/06 section 11: Tokyo TYO2 first, then Amsterdam AMS3).
 
 ## 1. Choose the provider
 
@@ -98,7 +98,7 @@ fra1# sudo bash ~/rugsnipe/deploy/install.sh --role hot     # re-checks: refuses
 ```
 
 - Put the pubkeys of the ArmSet signing key (which lives on ohio1) and of your cold wallet into `[secrets]` in `/etc/rugsnipe/rugsnipe.toml`.
-- Fund the wallets only for probe: ≤ 0.5 SOL in total for M7.
+- Fund the wallets only for probe, one stage at a time (docs/08 section 9): about 1 SOL for probe-A (0.2 SOL/day loss cap), 2-3 SOL for probe-B (1 SOL/day).
 - Paper mode needs no keys. The units then load the literal `ABSENT`.
 
 ## 5. Feeds (in this order)

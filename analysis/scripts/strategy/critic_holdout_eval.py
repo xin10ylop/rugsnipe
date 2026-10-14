@@ -6,7 +6,9 @@ Inputs: data/reports/strategy/critic_preregistration.json (frozen before any hol
 data/cache/strategy_holdout/{creates,tapes}.jsonl (frame 08:43-13:43 UTC, every create decoded; tapes for
 every armed-creator launch + a seeded random sample of the rest), and the copytrade critic's random
 holdout tapes (data/cache/strategy_holdout_copy/trades.jsonl, 06:12-10:45 UTC, never used by S1/S3).
-Output: data/reports/strategy/critic_holdout.json
+Output: data/reports/strategy/critic_holdout.json. The critic's `combined_realistic_and_hot_split` block in that
+file is not written here: critic_realistic.py regenerates it into data/reports/strategy/critic_realistic.json, and
+this script carries an existing block over untouched (it is the critic's Oct 14 figure, cited by docs/04 and README).
 """
 from __future__ import annotations
 
@@ -25,6 +27,8 @@ from rugsnipe_analysis.strategy.tapes import build_tape  # noqa: E402
 
 HD = REPO / "data" / "cache" / "strategy_holdout"
 OUT = REPO / "data" / "reports" / "strategy" / "critic_holdout.json"
+# blocks other scripts own: carried over from an existing OUT, never written or deleted here
+KEEP = ("combined_realistic_and_hot_split",)
 PRE = json.load(open(REPO / "data" / "reports" / "strategy" / "critic_preregistration.json"))
 ARM = {k: set(v) for k, v in PRE["armed"].items()}
 ALLARM = set().union(*ARM.values())
@@ -203,6 +207,11 @@ def main():
     res["tapes_with_gaps"] = int(sum(t.gaps > 0 for t in tapes))
     res["armed_creators_seen"] = {k: len({t.user for t in tapes if is_armed(t, k)}) for k in ARM}
     res["armed_by_creator"] = Counter(t.user[:10] for t in tapes if is_armed(t, "EB")).most_common(30)
+    try:
+        old = json.load(open(OUT)) if OUT.exists() else {}
+    except ValueError:
+        old = {}
+    res.update({k: old[k] for k in KEEP if k in old})
     json.dump(res, open(OUT, "w"), indent=1, default=float)
     show = {k: {kk: (round(v[kk], 4) if isinstance(v.get(kk), float) else v.get(kk)) for kk in ("n", "ev", "lo", "hi", "p", "k", "lo_cl", "hi_cl", "p_cl")}
             for k, v in res["base"].items()}

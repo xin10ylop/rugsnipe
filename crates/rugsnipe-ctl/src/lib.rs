@@ -112,9 +112,20 @@ fn mode_of(p: &Path) -> Option<u32> {
     }
 }
 
-fn armset_gate(cfg: &Config, args: &[String]) -> Result<(ArmSetGate, String), String> {
+#[allow(clippy::type_complexity)]
+fn armset_gate(
+    cfg: &Config,
+    args: &[String],
+) -> Result<
+    (
+        ArmSetGate,
+        String,
+        Option<rugsnipe_core::config::ProbeStage>,
+    ),
+    String,
+> {
     let Some(file) = opt(args, "--armset") else {
-        return Ok((ArmSetGate::Missing, "no --armset given".into()));
+        return Ok((ArmSetGate::Missing, "no --armset given".into(), None));
     };
     let bytes = std::fs::read(file).map_err(|e| format!("{file}: {e}"))?;
     let sig_path = opt(args, "--sig")
@@ -125,6 +136,7 @@ fn armset_gate(cfg: &Config, args: &[String]) -> Result<(ArmSetGate, String), St
         return Ok((
             ArmSetGate::BadSignature,
             "secrets.armset_pubkey is not a pubkey".into(),
+            None,
         ));
     };
     let expected = armset::parse_filename(file).map(|(_, s)| s);
@@ -140,11 +152,16 @@ fn armset_gate(cfg: &Config, args: &[String]) -> Result<(ArmSetGate, String), St
         Ok(v) => (
             v.gate(),
             format!(
-                "ArmSet ver {} sha {} gate_passed={} probe_allowed={}",
-                v.armset.ver, v.sha256, v.armset.gate_passed, v.armset.probe_allowed
+                "ArmSet ver {} sha {} gate_passed={} probe_allowed={} probe_stage={}",
+                v.armset.ver,
+                v.sha256,
+                v.armset.gate_passed,
+                v.armset.probe_allowed,
+                v.armset.probe_stage.map_or("-", |s| s.as_str())
             ),
+            v.armset.probe_stage,
         ),
-        Err(e) => (e.gate(), format!("ArmSet rejected: {e}")),
+        Err(e) => (e.gate(), format!("ArmSet rejected: {e}"), None),
     })
 }
 
@@ -173,8 +190,9 @@ pub fn config_validate(file: &str, args: &[String]) -> Result<Out, String> {
                 .insert(name.clone(), mode_of(&Path::new(&creds_dir).join(name)));
         }
     }
-    let (gate, note) = armset_gate(&cfg, args)?;
+    let (gate, note, stage) = armset_gate(&cfg, args)?;
     env.armset = gate;
+    env.armset_probe_stage = stage;
     let mut v = cfg.validate(&env);
     // `[exit.default]` is passed raw to the exit engine, which refuses
     // unknown keys when the hot binary starts: refuse them here too
