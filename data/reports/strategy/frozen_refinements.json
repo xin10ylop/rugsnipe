@@ -1,0 +1,463 @@
+{
+ "frozen_at": "2026-10-14 15:16:03 UTC",
+ "rule": "E1 rank-1 entry, 0.5 SOL, base scenario prem +1.1%, 0.004 SOL/round trip, 0.002 SOL per extra sell tx, 1-slot exit latency. Score = weighted mean paired improvement over the LEAD minus 1.645 SE on gap-3 TRAIN (first 60% by create time, multi-wallet, n=288) only. Frozen: best score per family.",
+ "revision": "v2: v1 (frozen_refinements_v1_degenerate.json) picked a re-entry that never fires (diff 0, SE 0) and the flat 1.0 SOL stake as the 'ladder'. Before any out-of-sample number: require >= 20 train launches whose outcome differs from the LEAD; ladders exclude flat maps and are scored by the gain over a flat stake of the same train-mean size; the 2nd ladder feature is the bundle wallet count (mcap is set by bundle SOL); the gate grid adds pass-regime cap 5 / TP 20% and fail-branch TP 8% / 10%.",
+ "configs_tried": 18772,
+ "n_train": 288,
+ "ladder_thresholds": {
+  "me": [
+   40.26095060577812,
+   48.1544073532175
+  ],
+  "nB": [
+   1.0,
+   3.0
+  ]
+ },
+ "lead_train": {
+  "ev": 0.052970819502076695,
+  "diff": 0.0,
+  "se": 0.0,
+  "lb": 0.0,
+  "p": 0.5,
+  "q": null
+ },
+ "frozen": [
+  {
+   "i": 217,
+   "fam": "scaleout",
+   "name": "scale x0.75 trail10@0 idle2 cap10",
+   "active": 76,
+   "ev": 0.048469141666825505,
+   "diff": -0.004501677835251194,
+   "se": 0.0019008937279200036,
+   "lb": -0.007628648017679599,
+   "p": 0.9910623273205633,
+   "q": 0.9998421481833957,
+   "cfg": {
+    "fam": "scaleout",
+    "name": "scale x0.75 trail10@0 idle2 cap10",
+    "p": {
+     "x": 0.75,
+     "trail": [
+      0.1,
+      0.0
+     ],
+     "idle2": 2.0,
+     "cap2": 10
+    }
+   }
+  },
+  {
+   "i": 3040,
+   "fam": "gate",
+   "name": "gate s+0 p>=5% k>=5 pass:tp50+trail15+idle2+cap5 fail:scalp",
+   "active": 20,
+   "ev": 0.052568880772271266,
+   "diff": -0.00040193872980541446,
+   "se": 0.0011787758229040532,
+   "lb": -0.002341024958482582,
+   "p": 0.6334406010028055,
+   "q": 0.9998421481833957,
+   "cfg": {
+    "fam": "gate",
+    "name": "gate s+0 p>=5% k>=5 pass:tp50+trail15+idle2+cap5 fail:scalp",
+    "p": {
+     "g": 0,
+     "pmin": 0.05,
+     "kmin": 5,
+     "loose": {
+      "tp": 0.5,
+      "trail": [
+       0.15,
+       0.0
+      ],
+      "idle": 2.0,
+      "cap": 5
+     },
+     "fail": "scalp"
+    }
+   }
+  },
+  {
+   "i": 18638,
+   "fam": "flow",
+   "name": "flow tp20 cap5 +snipersell",
+   "active": 29,
+   "ev": 0.05367040651656161,
+   "diff": 0.000699587014484932,
+   "se": 0.0020692731051285634,
+   "lb": -0.0027043672434515545,
+   "p": 0.3676501466044114,
+   "q": 0.9998421481833957,
+   "cfg": {
+    "fam": "flow",
+    "name": "flow tp20 cap5 +snipersell",
+    "p": {
+     "tp": 0.2,
+     "cap": 5,
+     "extra": [
+      "snipersell"
+     ]
+    }
+   }
+  },
+  {
+   "i": 18669,
+   "fam": "reentry",
+   "name": "reenter dip10% from exit within 3s after any non-insider exit re-tp10",
+   "active": 26,
+   "ev": 0.054486995934677165,
+   "diff": 0.0015161764326004563,
+   "se": 0.0019824120085353146,
+   "lb": -0.0017448913214401362,
+   "p": 0.22219115878480955,
+   "q": 0.9998421481833957,
+   "cfg": {
+    "fam": "reentry",
+    "name": "reenter dip10% from exit within 3s after any non-insider exit re-tp10",
+    "p": {
+     "d": 0.1,
+     "ref": "exit",
+     "W": 3.0,
+     "only_tp": false,
+     "re_tp": 0.1
+    }
+   }
+  },
+  {
+   "i": 18727,
+   "fam": "ladder",
+   "name": "ladder me terciles -> 0.25/0.5/0.25 SOL",
+   "active": 192,
+   "ev": 0.053637842869834154,
+   "diff": 0.0006670233677574591,
+   "se": 0.004249722138459603,
+   "lb": -0.006323769550008588,
+   "p": 0.4376393935320363,
+   "q": 0.9998421481833957,
+   "flat_S": 0.3175,
+   "gain": 0.005550869148185311,
+   "gain_se": 0.004236465992646178,
+   "gain_lb": -0.0014181174097176513,
+   "gain_p": 0.09505405821739793,
+   "gain_q": 0.7737954176827856,
+   "cfg": {
+    "fam": "ladder",
+    "name": "ladder me terciles -> 0.25/0.5/0.25 SOL",
+    "p": {
+     "feat": "me",
+     "sizes": [
+      0.25,
+      0.5,
+      0.25
+     ]
+    }
+   }
+  }
+ ],
+ "families": {
+  "scaleout": {
+   "n_configs": 288,
+   "share_diff_gt0": 0.0,
+   "median_diff": -0.010359871475818131,
+   "max_diff": -0.0029427094093980297,
+   "min_q": 0.9998421481833957,
+   "n_q_lt_10": 0,
+   "n_active_ge20": 288
+  },
+  "gate": {
+   "n_configs": 18330,
+   "share_diff_gt0": 0.03382433169667212,
+   "median_diff": -0.009696602656338127,
+   "max_diff": 0.007140656245539123,
+   "min_q": 0.9998421481833957,
+   "n_q_lt_10": 0,
+   "n_active_ge20": 17607
+  },
+  "flow": {
+   "n_configs": 42,
+   "share_diff_gt0": 0.11904761904761904,
+   "median_diff": -0.0019963250293082314,
+   "max_diff": 0.0009227861110564417,
+   "min_q": 0.9998421481833957,
+   "n_q_lt_10": 0,
+   "n_active_ge20": 38
+  },
+  "reentry": {
+   "n_configs": 64,
+   "share_diff_gt0": 0.125,
+   "median_diff": -0.0002485980336794033,
+   "max_diff": 0.0015161764326004563,
+   "min_q": 0.9998421481833957,
+   "n_q_lt_10": 0,
+   "n_active_ge20": 20
+  },
+  "ladder": {
+   "n_configs": 48,
+   "share_diff_gt0": 0.625,
+   "median_diff": 0.0011319555530203002,
+   "max_diff": 0.00984202071124906,
+   "min_q": 0.9998421481833957,
+   "n_q_lt_10": 0,
+   "n_active_ge20": 48,
+   "share_gain_gt0": 0.5625,
+   "max_gain": 0.010756171540954484,
+   "min_gain_q": 0.7737954176827856
+  }
+ },
+ "top20_train": [
+  {
+   "i": 18748,
+   "fam": "ladder",
+   "name": "ladder me terciles -> 1/1/0.5 SOL",
+   "active": 192,
+   "ev": 0.060091439131305775,
+   "diff": 0.00712061962922908,
+   "se": 0.0036647893325833544,
+   "lb": 0.0010920411771294623,
+   "p": 0.02600916788010863,
+   "q": 0.9998421481833957,
+   "flat_S": 0.88,
+   "gain": 0.0035295320147504666,
+   "gain_se": 0.0036817880426279473,
+   "gain_lb": -0.002527009315372507,
+   "gain_p": 0.16886851189486435,
+   "gain_q": 0.7737954176827856
+  },
+  {
+   "i": 18709,
+   "fam": "reentry",
+   "name": "reenter dip30% from peak within 3s after any non-insider exit re-tp10",
+   "active": 0,
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 0.9998421481833957
+  },
+  {
+   "i": 18710,
+   "fam": "reentry",
+   "name": "reenter dip30% from peak within 3s after any non-insider exit re-tp15",
+   "active": 0,
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 0.9998421481833957
+  },
+  {
+   "i": 18711,
+   "fam": "reentry",
+   "name": "reenter dip30% from peak within 3s after TP only re-tp10",
+   "active": 0,
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 0.9998421481833957
+  },
+  {
+   "i": 18712,
+   "fam": "reentry",
+   "name": "reenter dip30% from peak within 3s after TP only re-tp15",
+   "active": 0,
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 0.9998421481833957
+  },
+  {
+   "i": 18713,
+   "fam": "reentry",
+   "name": "reenter dip30% from peak within 5s after any non-insider exit re-tp10",
+   "active": 0,
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 0.9998421481833957
+  },
+  {
+   "i": 18714,
+   "fam": "reentry",
+   "name": "reenter dip30% from peak within 5s after any non-insider exit re-tp15",
+   "active": 0,
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 0.9998421481833957
+  },
+  {
+   "i": 18715,
+   "fam": "reentry",
+   "name": "reenter dip30% from peak within 5s after TP only re-tp10",
+   "active": 0,
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 0.9998421481833957
+  },
+  {
+   "i": 18716,
+   "fam": "reentry",
+   "name": "reenter dip30% from peak within 5s after TP only re-tp15",
+   "active": 0,
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 0.9998421481833957
+  },
+  {
+   "i": 18717,
+   "fam": "reentry",
+   "name": "reenter dip30% from exit within 3s after any non-insider exit re-tp10",
+   "active": 0,
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 0.9998421481833957
+  },
+  {
+   "i": 18718,
+   "fam": "reentry",
+   "name": "reenter dip30% from exit within 3s after any non-insider exit re-tp15",
+   "active": 0,
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 0.9998421481833957
+  },
+  {
+   "i": 18719,
+   "fam": "reentry",
+   "name": "reenter dip30% from exit within 3s after TP only re-tp10",
+   "active": 0,
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 0.9998421481833957
+  },
+  {
+   "i": 18720,
+   "fam": "reentry",
+   "name": "reenter dip30% from exit within 3s after TP only re-tp15",
+   "active": 0,
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 0.9998421481833957
+  },
+  {
+   "i": 18721,
+   "fam": "reentry",
+   "name": "reenter dip30% from exit within 5s after any non-insider exit re-tp10",
+   "active": 0,
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 0.9998421481833957
+  },
+  {
+   "i": 18722,
+   "fam": "reentry",
+   "name": "reenter dip30% from exit within 5s after any non-insider exit re-tp15",
+   "active": 0,
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 0.9998421481833957
+  },
+  {
+   "i": 18723,
+   "fam": "reentry",
+   "name": "reenter dip30% from exit within 5s after TP only re-tp10",
+   "active": 0,
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 0.9998421481833957
+  },
+  {
+   "i": 18724,
+   "fam": "reentry",
+   "name": "reenter dip30% from exit within 5s after TP only re-tp15",
+   "active": 0,
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 0.9998421481833957
+  },
+  {
+   "i": 18739,
+   "fam": "ladder",
+   "name": "ladder me terciles -> 0.5/1/0.5 SOL",
+   "active": 96,
+   "ev": 0.05965071627778881,
+   "diff": 0.006679896775712117,
+   "se": 0.004289462425670737,
+   "lb": -0.00037626891451624563,
+   "p": 0.05970193535664588,
+   "q": 0.9998421481833957,
+   "flat_S": 0.635,
+   "gain": 0.00522605494701657,
+   "gain_se": 0.004283372670972769,
+   "gain_lb": -0.001820093096733635,
+   "gain_p": 0.11121738010332174,
+   "gain_q": 0.7737954176827856
+  },
+  {
+   "i": 6426,
+   "fam": "gate",
+   "name": "gate s+0 p>=20% k>=0 pass:tp20+idle2+cap20 fail:scalp",
+   "active": 6,
+   "ev": 0.0538632472963514,
+   "diff": 0.0008924277942747133,
+   "se": 0.0008610517511704296,
+   "lb": -0.0005240023364006435,
+   "p": 0.1499986435728521,
+   "q": 0.9998421481833957
+  },
+  {
+   "i": 6430,
+   "fam": "gate",
+   "name": "gate s+0 p>=20% k>=0 pass:tp20+idle2+cap60 fail:scalp",
+   "active": 6,
+   "ev": 0.0538632472963514,
+   "diff": 0.0008924277942747133,
+   "se": 0.0008610517511704296,
+   "lb": -0.0005240023364006435,
+   "p": 0.1499986435728521,
+   "q": 0.9998421481833957
+  }
+ ]
+}

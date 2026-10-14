@@ -11,7 +11,8 @@
 //! 2. no other successful slot-0 transaction: the bundle is the create's own
 //!    in-tx buys (all by the creator set), so the launch is not
 //!    multi-bundle (`class` under `entry.filter = "multi_bundle"`) and the
-//!    lane stops after one call;
+//!    lane stops after one call. A create without a buy of its own is
+//!    `class` too (gap-3 tapes start at the create's trade);
 //! 3. `getBlock(slot, transactionDetails = "signatures")`: the transaction
 //!    index of every slot-0 signature (the create's position in its block);
 //! 4. `getTransaction` for the slot-0 transactions on the curve: TradeEvents
@@ -548,7 +549,7 @@ pub async fn resolve(
     for attempt in 0..3 {
         match resolve_inner(cfg, &mut res, &snipers).await {
             Ok(()) => break,
-            Err(e) if e.starts_with(NOT_YET) && attempt < 2 => {
+            Err(e) if (e.starts_with(NOT_YET) || e.starts_with(NOT_READABLE)) && attempt < 2 => {
                 tokio::time::sleep(Duration::from_millis(cfg.retry_ms)).await;
             }
             Err(e) => {
@@ -562,6 +563,7 @@ pub async fn resolve(
 }
 
 const NOT_YET: &str = "create signature not in the curve's history";
+const NOT_READABLE: &str = "slot-0 transaction not readable yet";
 
 async fn resolve_inner(
     cfg: &E1Cfg,
@@ -636,8 +638,16 @@ async fn resolve_inner(
     let mut txs = vec![];
     let mut fetched = 0usize;
     for (sig, ix) in &s0_sigs {
+        // every successful slot-0 transaction is read, or the intent is
+        // unresolved: a missing one could be a bundle buy (the run would
+        // break early: a smaller bundle, a cheaper fill) or a trade of the
+        // replay tape
         if fetched >= cfg.max_tx {
-            break;
+            res.calls = calls;
+            return Err(format!(
+                "creation slot has more than max_tx = {} transactions",
+                cfg.max_tx
+            ));
         }
         fetched += 1;
         let r = call(
@@ -648,14 +658,18 @@ async fn resolve_inner(
             backoff,
         )
         .await;
-        if let Ok(r) = r {
-            if let Some(mut t) = tx_obs(&r, &req.mint, sig, s0) {
+        res.calls = calls;
+        let r = r.map_err(|e| format!("slot-0 getTransaction {sig}: {e}"))?;
+        match tx_obs(&r, &req.mint, sig, s0) {
+            Some(mut t) => {
                 t.index = Some(*ix);
                 txs.push(t);
             }
+            // listed by getSignaturesForAddress, not served yet (another node)
+            None if r.is_null() => return Err(format!("{NOT_READABLE} ({sig})")),
+            None => {}
         }
     }
-    res.calls = calls;
     let Some(create_tx) = txs.iter().find(|t| t.sig == create) else {
         return Err("create transaction not fetched".into());
     };
@@ -666,9 +680,19 @@ async fn resolve_inner(
         cset.insert(fp);
     }
     cset.remove(&req.mint); // the mint keypair signs every create
+
+    // gap-3 tapes start at the create's own buy (tapes.py `_raw_bundle`
+    // needs the create among the slot-0 trades): a create without one, or a
+    // creation slot without any bundle buy, is outside the backtest universe
+    if create_tx.trades.is_empty() {
+        res.outcome = ShadowOutcome::Class;
+        return Ok(());
+    }
     let known: HashSet<Pubkey> = snipers.lock().map(|s| s.clone()).unwrap_or_default();
-    let slot0 = analyze_slot0(&create, &txs, order.len() as u32, &cset, &known)
-        .ok_or("no bundle trade in the creation slot")?;
+    let Some(slot0) = analyze_slot0(&create, &txs, order.len() as u32, &cset, &known) else {
+        res.outcome = ShadowOutcome::Class;
+        return Ok(());
+    };
     if let Ok(mut s) = snipers.lock() {
         s.extend(slot0.third_party.iter().copied());
     }

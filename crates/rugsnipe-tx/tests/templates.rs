@@ -153,9 +153,10 @@ fn patched_buy_equals_scratch_build_for_1000_mints() {
         let floor = p.cu_limit;
         // per-mint limit from the bumps recovered from the keys (hot path) ==
         // from a from-scratch derivation of the four PDAs
-        let s = pda::SnipeBumps::derive(&mint, &p.user, &p.base_token_program).missing();
+        let w = rugsnipe_tx::cu::wallet_missing_bumps(&p.user);
+        let s = pda::SnipeBumps::derive(&mint, &p.user, &p.base_token_program).missing() + w;
         let cu = k
-            .snipe_cu_limit(&p.user, &p.base_token_program, floor)
+            .snipe_cu_limit(&p.user, &p.base_token_program, w, floor)
             .unwrap();
         assert_eq!(cu, rugsnipe_tx::cu::snipe_cu_limit(s, floor));
         assert_eq!(cu, (65_000 + 1_500 * s).clamp(floor, 1_400_000));

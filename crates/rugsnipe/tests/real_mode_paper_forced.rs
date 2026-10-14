@@ -145,7 +145,7 @@ fn rig(cfg: &Config, set: &ArmSet, verified: bool, dir: &std::path::Path) -> Rig
     let senders = Arc::new(
         SenderSet::build(cfg, &good_env(cfg), &ApiKeys::default()).expect("live sender set"),
     );
-    assert_eq!(senders.mode, Mode::Live);
+    assert_eq!(senders.mode, cfg.mode.mode);
     assert_eq!(
         senders.real().len(),
         cfg!(feature = "real-senders") as usize,
@@ -308,18 +308,94 @@ fn live_mode_paper_decisions_never_reach_a_real_sender() {
             true,
         ),
     ];
-    for (case, src, verified, frozen, op_state, fires) in cases {
+    // live needs a gate-passed ArmSet: only the case's own reason may hold it back
+    let cases = cases.map(|(case, src, verified, frozen, op_state, fires)| {
+        (
+            case,
+            src,
+            Mode::Live,
+            verified,
+            frozen,
+            op_state,
+            (true, false),
+            fires,
+        )
+    });
+    run_cases(&cases);
+}
+
+/// The signed ArmSet flags at run time (F3): live without `gate_passed` and
+/// probe without `probe_allowed` are forced to paper in the hot loop itself
+/// (not only by startup validation, e.g. after an ArmSet reload); probe with
+/// `probe_allowed` fires without `gate_passed`.
+#[test]
+fn armset_flags_gate_probe_and_live_in_the_hot_loop() {
+    let cases = [
+        // (case, src, mode, verified, frozen, op state, (gate_passed, probe_allowed), fires)
+        (
+            "live_without_gate_passed",
+            FeedSrc::Grpc,
+            Mode::Live,
+            true,
+            false,
+            OpState::Armed,
+            (false, true),
+            false,
+        ),
+        (
+            "probe_without_probe_allowed",
+            FeedSrc::Grpc,
+            Mode::Probe,
+            true,
+            false,
+            OpState::Armed,
+            (true, false),
+            false,
+        ),
+        (
+            "probe_allowed_fires_without_the_gate",
+            FeedSrc::Grpc,
+            Mode::Probe,
+            true,
+            false,
+            OpState::Armed,
+            (false, true),
+            true,
+        ),
+    ];
+    run_cases(&cases);
+}
+
+type Case = (
+    &'static str,
+    FeedSrc,
+    Mode,
+    bool,
+    bool,
+    OpState,
+    (bool, bool),
+    bool,
+);
+
+fn run_cases(cases: &[Case]) {
+    for &(case, src, mode, verified, frozen, op_state, (gate_passed, probe_allowed), fires) in cases
+    {
         let mock = Mock::start();
         let dir = tmpdir(&format!("rmpf-{case}"));
         let mut cfg = live_cfg(&dir, mock.port);
+        cfg.mode.mode = mode;
         if frozen {
             cfg.mode.regime_freeze_slots = vec![[900, 2_000]];
         }
         let dev = Pubkey::new_unique();
         let mut set = armset(&[dev], &[]);
-        // live needs a gate-passed ArmSet: only the case's own reason may hold it back
-        set.gate_passed = true;
+        set.gate_passed = gate_passed;
+        set.probe_allowed = probe_allowed;
         set.operators[0].state = op_state;
+        if mode == Mode::Probe {
+            // within max_probe_lamports
+            set.operators[0].size_lamports = cfg.risk.max_probe_lamports;
+        }
         let mut r = rig(&cfg, &set, verified, &dir);
         // create (1 SOL dev buy) -> trades -> deadline fill -> the dev dumps -> sell + close
         let a = Pubkey::new_unique();

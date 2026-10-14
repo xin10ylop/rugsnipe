@@ -1,0 +1,411 @@
+{
+ "frozen_at": "2026-10-14 15:13:51 UTC",
+ "rule": "E1 rank-1 entry, 0.5 SOL, base scenario prem +1.1%, 0.004 SOL/round trip, 0.002 SOL per extra sell tx, 1-slot exit latency. Score = weighted mean paired improvement over the LEAD minus 1.645 SE on gap-3 TRAIN (first 60% by create time, multi-wallet, n=288) only. Frozen: best score per family.",
+ "configs_tried": 5878,
+ "n_train": 288,
+ "ladder_thresholds": {
+  "me": [
+   40.26095060577812,
+   48.1544073532175
+  ],
+  "btot": [
+   6.0,
+   9.371180403999999
+  ]
+ },
+ "lead_train": {
+  "ev": 0.052970819502076695,
+  "diff": 0.0,
+  "se": 0.0,
+  "lb": 0.0,
+  "p": 0.5,
+  "q": null
+ },
+ "frozen": [
+  {
+   "i": 217,
+   "fam": "scaleout",
+   "name": "scale x0.75 trail10@0 idle2 cap10",
+   "ev": 0.048469141666825505,
+   "diff": -0.004501677835251194,
+   "se": 0.0019008937279200036,
+   "lb": -0.007628648017679599,
+   "p": 0.9910623273205633,
+   "q": 1.0,
+   "cfg": {
+    "fam": "scaleout",
+    "name": "scale x0.75 trail10@0 idle2 cap10",
+    "p": {
+     "x": 0.75,
+     "trail": [
+      0.1,
+      0.0
+     ],
+     "idle2": 2.0,
+     "cap2": 10
+    }
+   }
+  },
+  {
+   "i": 2132,
+   "fam": "gate",
+   "name": "gate s+0 p>=20% k>=0 pass:tp30+trail20+idle2+cap20 fail:scalp",
+   "ev": 0.060000283962805746,
+   "diff": 0.0070294644607290626,
+   "se": 0.005792510427878416,
+   "lb": -0.0024992151931309313,
+   "p": 0.11246101111699189,
+   "q": 1.0,
+   "cfg": {
+    "fam": "gate",
+    "name": "gate s+0 p>=20% k>=0 pass:tp30+trail20+idle2+cap20 fail:scalp",
+    "p": {
+     "g": 0,
+     "pmin": 0.2,
+     "kmin": 0,
+     "loose": {
+      "tp": 0.3,
+      "trail": [
+       0.2,
+       0.0
+      ],
+      "idle": 2.0,
+      "cap": 20
+     },
+     "fail": "scalp"
+    }
+   }
+  },
+  {
+   "i": 5737,
+   "fam": "flow",
+   "name": "flow tp20 cap5 +anysell1.0",
+   "ev": 0.05309792027825827,
+   "diff": 0.00012710077618157761,
+   "se": 0.0010500511238864558,
+   "lb": -0.0016002333226116422,
+   "p": 0.45182870020775967,
+   "q": 1.0,
+   "cfg": {
+    "fam": "flow",
+    "name": "flow tp20 cap5 +anysell1.0",
+    "p": {
+     "tp": 0.2,
+     "cap": 5,
+     "extra": [
+      "anysell1.0"
+     ]
+    }
+   }
+  },
+  {
+   "i": 5809,
+   "fam": "reentry",
+   "name": "reenter dip30% from peak within 3s after any non-insider exit re-tp10",
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 1.0,
+   "cfg": {
+    "fam": "reentry",
+    "name": "reenter dip30% from peak within 3s after any non-insider exit re-tp10",
+    "p": {
+     "d": 0.3,
+     "ref": "peak",
+     "W": 3.0,
+     "only_tp": false,
+     "re_tp": 0.1
+    }
+   }
+  },
+  {
+   "i": 5851,
+   "fam": "ladder",
+   "name": "ladder me terciles -> 1/1/1 SOL",
+   "ev": 0.057191267714935365,
+   "diff": 0.00422044821285867,
+   "se": 0.000494140129956776,
+   "lb": 0.0034075876990797734,
+   "p": 6.653568054719045e-18,
+   "q": 1.9554836512819273e-14,
+   "cfg": {
+    "fam": "ladder",
+    "name": "ladder me terciles -> 1/1/1 SOL",
+    "p": {
+     "feat": "me",
+     "sizes": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  }
+ ],
+ "families": {
+  "scaleout": {
+   "n_configs": 288,
+   "share_diff_gt0": 0.0,
+   "median_diff": -0.010359871475818131,
+   "max_diff": -0.0029427094093980297,
+   "min_q": 1.0,
+   "n_q_lt_10": 0
+  },
+  "gate": {
+   "n_configs": 5430,
+   "share_diff_gt0": 0.043462246777163906,
+   "median_diff": -0.012418394643131523,
+   "max_diff": 0.007140656245539123,
+   "min_q": 1.0,
+   "n_q_lt_10": 0
+  },
+  "flow": {
+   "n_configs": 42,
+   "share_diff_gt0": 0.11904761904761904,
+   "median_diff": -0.0019963250293082314,
+   "max_diff": 0.0009227861110564417,
+   "min_q": 1.0,
+   "n_q_lt_10": 0
+  },
+  "reentry": {
+   "n_configs": 64,
+   "share_diff_gt0": 0.125,
+   "median_diff": -0.0002485980336794033,
+   "max_diff": 0.0015161764326004563,
+   "min_q": 1.0,
+   "n_q_lt_10": 0
+  },
+  "ladder": {
+   "n_configs": 54,
+   "share_diff_gt0": 0.5370370370370371,
+   "median_diff": 0.0006061919733379093,
+   "max_diff": 0.00984202071124906,
+   "min_q": 1.9554836512819273e-14,
+   "n_q_lt_10": 2
+  }
+ },
+ "top20_train": [
+  {
+   "i": 5851,
+   "fam": "ladder",
+   "name": "ladder me terciles -> 1/1/1 SOL",
+   "ev": 0.057191267714935365,
+   "diff": 0.00422044821285867,
+   "se": 0.000494140129956776,
+   "lb": 0.0034075876990797734,
+   "p": 6.653568054719045e-18,
+   "q": 1.9554836512819273e-14
+  },
+  {
+   "i": 5878,
+   "fam": "ladder",
+   "name": "ladder btot terciles -> 1/1/1 SOL",
+   "ev": 0.057191267714935365,
+   "diff": 0.00422044821285867,
+   "se": 0.000494140129956776,
+   "lb": 0.0034075876990797734,
+   "p": 6.653568054719045e-18,
+   "q": 1.9554836512819273e-14
+  },
+  {
+   "i": 5850,
+   "fam": "ladder",
+   "name": "ladder me terciles -> 1/1/0.5 SOL",
+   "ev": 0.060091439131305775,
+   "diff": 0.00712061962922908,
+   "se": 0.0036647893325833544,
+   "lb": 0.0010920411771294623,
+   "p": 0.02600916788010863,
+   "q": 1.0
+  },
+  {
+   "i": 5877,
+   "fam": "ladder",
+   "name": "ladder btot terciles -> 1/1/0.5 SOL",
+   "ev": 0.060091439131305775,
+   "diff": 0.00712061962922908,
+   "se": 0.0036647893325833544,
+   "lb": 0.0010920411771294623,
+   "p": 0.02600916788010863,
+   "q": 1.0
+  },
+  {
+   "i": 5809,
+   "fam": "reentry",
+   "name": "reenter dip30% from peak within 3s after any non-insider exit re-tp10",
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 1.0
+  },
+  {
+   "i": 5810,
+   "fam": "reentry",
+   "name": "reenter dip30% from peak within 3s after any non-insider exit re-tp15",
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 1.0
+  },
+  {
+   "i": 5811,
+   "fam": "reentry",
+   "name": "reenter dip30% from peak within 3s after TP only re-tp10",
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 1.0
+  },
+  {
+   "i": 5812,
+   "fam": "reentry",
+   "name": "reenter dip30% from peak within 3s after TP only re-tp15",
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 1.0
+  },
+  {
+   "i": 5813,
+   "fam": "reentry",
+   "name": "reenter dip30% from peak within 5s after any non-insider exit re-tp10",
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 1.0
+  },
+  {
+   "i": 5814,
+   "fam": "reentry",
+   "name": "reenter dip30% from peak within 5s after any non-insider exit re-tp15",
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 1.0
+  },
+  {
+   "i": 5815,
+   "fam": "reentry",
+   "name": "reenter dip30% from peak within 5s after TP only re-tp10",
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 1.0
+  },
+  {
+   "i": 5816,
+   "fam": "reentry",
+   "name": "reenter dip30% from peak within 5s after TP only re-tp15",
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 1.0
+  },
+  {
+   "i": 5817,
+   "fam": "reentry",
+   "name": "reenter dip30% from exit within 3s after any non-insider exit re-tp10",
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 1.0
+  },
+  {
+   "i": 5818,
+   "fam": "reentry",
+   "name": "reenter dip30% from exit within 3s after any non-insider exit re-tp15",
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 1.0
+  },
+  {
+   "i": 5819,
+   "fam": "reentry",
+   "name": "reenter dip30% from exit within 3s after TP only re-tp10",
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 1.0
+  },
+  {
+   "i": 5820,
+   "fam": "reentry",
+   "name": "reenter dip30% from exit within 3s after TP only re-tp15",
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 1.0
+  },
+  {
+   "i": 5821,
+   "fam": "reentry",
+   "name": "reenter dip30% from exit within 5s after any non-insider exit re-tp10",
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 1.0
+  },
+  {
+   "i": 5822,
+   "fam": "reentry",
+   "name": "reenter dip30% from exit within 5s after any non-insider exit re-tp15",
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 1.0
+  },
+  {
+   "i": 5823,
+   "fam": "reentry",
+   "name": "reenter dip30% from exit within 5s after TP only re-tp10",
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 1.0
+  },
+  {
+   "i": 5824,
+   "fam": "reentry",
+   "name": "reenter dip30% from exit within 5s after TP only re-tp15",
+   "ev": 0.052970819502076695,
+   "diff": 0.0,
+   "se": 0.0,
+   "lb": 0.0,
+   "p": 0.5,
+   "q": 1.0
+  }
+ ]
+}

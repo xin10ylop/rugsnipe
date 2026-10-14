@@ -56,6 +56,37 @@ fn config_validate_paper_ok_live_refused() {
 }
 
 #[test]
+fn config_validate_refuses_exit_typos() {
+    // the hot binary refuses unknown `[exit.default]` keys at startup; the
+    // pre-flight must too (F3: `max_hold_slot` passed `config validate`)
+    let lead = format!(
+        "{}/../../config/paper-lead.example.toml",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let text = std::fs::read_to_string(&lead).unwrap();
+    assert_eq!(run(&s(&["config", "validate", &lead])).code, 0);
+    let d = tmpdir();
+    let p = d.path().join("typo.toml");
+    std::fs::write(&p, text.replace("max_hold_slots", "max_hold_slot")).unwrap();
+    let out = run(&s(&["config", "validate", p.to_str().unwrap()]));
+    assert_eq!(out.code, 1, "{}", out.text);
+    assert!(
+        out.text
+            .contains("REFUSED: exit: [exit.default]: unknown field `max_hold_slot`"),
+        "{}",
+        out.text
+    );
+    std::fs::write(&p, text.replace("[exit.default]", "[exit.lead]")).unwrap();
+    let out = run(&s(&["config", "validate", p.to_str().unwrap()]));
+    assert_ne!(out.code, 0, "{}", out.text);
+    assert!(
+        out.text.contains("unknown table [exit.lead]"),
+        "{}",
+        out.text
+    );
+}
+
+#[test]
 fn template_dump_v1_and_legacy() {
     let mint = "8xWodG9Q37nvqeefeHKqxrgQMdRaVSQvSeiudxispump";
     let wallet = "DXatZCLiwrHKsREZ4z3ej8rCdFCuwRTUD24VWtBPFvVX";
@@ -71,11 +102,13 @@ fn template_dump_v1_and_legacy() {
         &wallet.parse().unwrap(),
         &pump_codec::constants::TOKEN_2022_PROGRAM_ID,
     );
-    let s_missing = bumps.missing();
+    // the mint's S plus the wallet's UVA term W, as the hot path adds it
+    let s_missing =
+        bumps.missing() + rugsnipe_tx::cu::wallet_missing_bumps(&wallet.parse().unwrap());
     let want = (65_000 + 1_500 * s_missing).max(88_000);
     assert!(
         out.text
-            .contains(&format!("cu_limit {want} (per-mint; S = {s_missing}")),
+            .contains(&format!("cu_limit {want} (per-mint; S + W = {s_missing}")),
         "{}",
         out.text
     );

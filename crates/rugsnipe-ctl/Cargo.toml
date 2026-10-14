@@ -17,6 +17,7 @@ pump-codec = { workspace = true }
 rugsnipe-sim = { path = "../rugsnipe-sim" }
 rugsnipe-core = { path = "../rugsnipe-core" }
 rugsnipe-tx = { path = "../rugsnipe-tx" }
+rugsnipe-exit = { path = "../rugsnipe-exit" }
 base64 = { workspace = true }
 bs58 = { workspace = true }
 serde_json = { workspace = true }

@@ -82,15 +82,18 @@ impl MintKeys {
         pda::SnipeBumps::of_keys(mint, bc, abc, aqbc, user, ua, base_token_program)
     }
     /// Bonding-curve keys only: the per-mint CU limit
-    /// ([`crate::cu::snipe_cu_limit`]) for these keys over `floor`.
+    /// ([`crate::cu::snipe_cu_limit`]) for these keys over `floor`, with the
+    /// wallet's own term `wallet_missing` ([`crate::cu::wallet_missing_bumps`]
+    /// of `user`, computed once per process) added to the mint's S.
     pub fn snipe_cu_limit(
         &self,
         user: &Pubkey,
         base_token_program: &Pubkey,
+        wallet_missing: u32,
         floor: u32,
     ) -> Option<u32> {
         self.snipe_bumps(user, base_token_program)
-            .map(|b| crate::cu::snipe_cu_limit(b.missing(), floor))
+            .map(|b| crate::cu::snipe_cu_limit(b.missing() + wallet_missing, floor))
     }
     /// PumpSwap canonical pool: `pool, mint, user_base_ata, pool_base_ata, pool_quote_ata`.
     pub fn amm(

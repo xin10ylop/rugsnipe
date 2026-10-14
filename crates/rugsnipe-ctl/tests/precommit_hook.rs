@@ -107,6 +107,37 @@ fn pre_commit_hook_refuses_key_material() {
                 format!("[w]\nkeypair = {}\n", bytes_array(64, ", ")),
             )],
         ),
+        // F3: keypairs that are neither the whole file nor under a key-like
+        // name passed the hook before
+        (
+            "keypair as a Rust const",
+            vec![(
+                "k.rs",
+                format!("pub const HOT: [u8; 64] = {};\n", bytes_array(64, ", ")),
+            )],
+        ),
+        (
+            "keypair under a short name",
+            vec![("kp.json", format!("{{\"kp\": {}}}", bytes_array(64, ",")))],
+        ),
+        (
+            "keypair after a comment line",
+            vec![(
+                "dev.txt",
+                format!("// dev wallet\n{}\n", bytes_array(64, ",")),
+            )],
+        ),
+        (
+            "keypair in Python bytes()",
+            vec![("s.py", format!("S = bytes({})\n", bytes_array(64, ", ")))],
+        ),
+        (
+            "keypair in Uint8Array.from()",
+            vec![(
+                "s.ts",
+                format!("const sk = Uint8Array.from({});\n", bytes_array(64, ",")),
+            )],
+        ),
         ("PEM private key", vec![("id.pem.txt", pem)]),
         ("EC PEM private key", vec![("notes.md", ec_pem)]),
     ];
@@ -120,6 +151,17 @@ fn pre_commit_hook_refuses_key_material() {
                     "{{\"instructions\": [{{\"accounts\": {}}}]}}",
                     bytes_array(64, ",")
                 ),
+            )],
+        ),
+        (
+            "the tracked fixture with a 64-entry accounts list",
+            vec![(
+                "fx.json",
+                std::fs::read_to_string(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../pump-codec/fixtures/tx_json/fresh_v1_sell_v3_then_amm_sell_v2.json"
+                ))
+                .unwrap(),
             )],
         ),
         ("63-byte array", vec![("a.json", bytes_array(63, ","))]),

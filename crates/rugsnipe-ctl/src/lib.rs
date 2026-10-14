@@ -175,7 +175,13 @@ pub fn config_validate(file: &str, args: &[String]) -> Result<Out, String> {
     }
     let (gate, note) = armset_gate(&cfg, args)?;
     env.armset = gate;
-    let v = cfg.validate(&env);
+    let mut v = cfg.validate(&env);
+    // `[exit.default]` is passed raw to the exit engine, which refuses
+    // unknown keys when the hot binary starts: refuse them here too
+    if let Err(why) = exit_check(&cfg) {
+        v.refusals
+            .push(rugsnipe_core::config::Refusal::Invalid { field: "exit", why });
+    }
     let mut s = String::new();
     let _ = writeln!(s, "config {file}: mode = {}", v.mode);
     let _ = writeln!(s, "armset: {note}");
@@ -190,6 +196,24 @@ pub fn config_validate(file: &str, args: &[String]) -> Result<Out, String> {
         text: s,
         code: if v.ok() { 0 } else { 1 },
     })
+}
+
+/// `[exit.default]` as the hot binary reads it (`rugsnipe::setup::exit_policy`).
+fn exit_check(cfg: &Config) -> Result<(), String> {
+    let ec: rugsnipe_exit::ExitConfig = match cfg.exit.get("default") {
+        Some(v) => v
+            .clone()
+            .try_into()
+            .map_err(|e| format!("[exit.default]: {e}"))?,
+        None => rugsnipe_exit::ExitConfig::default(),
+    };
+    let spend = match cfg.risk.max_sell_spend_lamports {
+        0 => 20_000_000,
+        n => n,
+    };
+    ec.to_policy(spend)
+        .map(|_| ())
+        .map_err(|e| format!("[exit.default]: {e:?}"))
 }
 
 fn describe(raw: &[u8]) -> String {
@@ -271,9 +295,10 @@ pub fn template_dump(args: &[String]) -> Result<Out, String> {
     ));
     // the hot path's per-mint limit (gap-5) unless --cu pins one
     let floor: u32 = num(args, "--cu-floor", RECOMMENDED_CU_FLOOR)?;
+    // the mint's four bumps plus the wallet's UVA term (as the hot path)
     let s_missing = keys
         .snipe_bumps(&wallet, &c::TOKEN_2022_PROGRAM_ID)
-        .map(|b| b.missing())
+        .map(|b| b.missing() + rugsnipe_tx::cu::wallet_missing_bumps(&wallet))
         .ok_or("derived keys are not canonical PDAs (cannot happen)")?;
     let explicit_cu: Option<u32> = opt(args, "--cu")
         .map(|_| num(args, "--cu", 0))
@@ -316,7 +341,7 @@ pub fn template_dump(args: &[String]) -> Result<Out, String> {
     );
     let _ = writeln!(
         s,
-        "cu_limit {} ({}; S = {s_missing}, per-mint 65,000 + 1,500*S = {}, floor {floor})",
+        "cu_limit {} ({}; S + W = {s_missing} (W = wallet UVA term), per-mint 65,000 + 1,500*(S + W) = {}, floor {floor})",
         t.cu_limit(),
         if explicit_cu.is_some() {
             "--cu"
@@ -388,7 +413,7 @@ fn sim_report(wallet: &Pubkey, mints: &[rugsnipe_sim::live::MintFit], skipped: &
     let mut s = String::new();
     let _ = writeln!(
         s,
-        "ctl sim (read-only, sigVerify false): wallet {wallet}; limit = 65,000 + 1,500*S, model = 62,310 + 1,500*S + 1,185 (v1+nonce; -150 without nonce, +450 legacy)"
+        "ctl sim (read-only, sigVerify false): wallet {wallet}; S includes the wallet UVA term W; limit = 65,000 + 1,500*S, model = 62,310 + 1,500*S + 1,185 (v1+nonce; -150 without nonce, +450 legacy)"
     );
     let mut fits = vec![];
     let mut failures = vec![];

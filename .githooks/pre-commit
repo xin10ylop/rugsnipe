@@ -3,10 +3,10 @@
 #
 #   * any file under a keys/ directory (keys/ is gitignored; `git add -f` would bypass that);
 #   * a Solana keypair: an array of exactly 64 integers 0-255 (whitespace and newlines
-#     ignored) that is the whole file (or the first of a list of them), as written by
-#     `solana-keygen` and `rugsnipe-ctl armset keygen`, or that is assigned to a key-like
-#     name (`"secret_key": [...]`, `keypair = [...]`, ...: key, secret, seed, priv, wallet,
-#     signer). Other 64-element lists (e.g. instruction account indexes in tx fixtures) pass;
+#     ignored) anywhere in the file: a `solana-keygen` / `rugsnipe-ctl armset keygen` file,
+#     `"kp": [...]`, `const K: [u8; 64] = [...]`, `bytes([...])`, `Uint8Array.from([...])`.
+#     The one exception is an instruction's account-index list (`"accounts": [...]`, as in
+#     the tx fixtures), which is removed before the scan;
 #   * a PEM private key (`-----BEGIN ... PRIVATE KEY-----`, incl. RSA/EC/OPENSSH/ENCRYPTED).
 #
 # Enable once per clone:   git config core.hooksPath .githooks
@@ -16,8 +16,8 @@ set -uo pipefail
 
 BYTE='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
 KEYPAIR="\[($BYTE,){63}$BYTE\]"
-KP_WHOLE="^\[?$KEYPAIR"
-KP_NAMED="(key|secret|seed|priv|wallet|signer)[A-Za-z0-9_.-]*[\"']?[:=]\[?$KEYPAIR"
+# instruction account-index lists of tx fixtures (`"accounts":[0,0,28,...]`)
+ACCOUNTS='"?accounts"?[:=]\[[0-9,]*\]'
 PEM='-----BEGIN ([A-Z0-9]+ )*PRIVATE KEY-----'
 
 if [ "${1:-}" = "--all" ]; then
@@ -42,7 +42,8 @@ while IFS= read -r -d '' f; do
         echo "pre-commit: REFUSED $f: contains a PEM private key" >&2
         bad=1
     # 64-byte keypair arrays, whitespace/newlines removed so pretty-printed JSON matches too
-    elif show "$f" | LC_ALL=C tr -d ' \t\r\n' | LC_ALL=C grep -aEiq -- "$KP_WHOLE|$KP_NAMED"; then
+    elif show "$f" | LC_ALL=C tr -d ' \t\r\n' | LC_ALL=C sed -E "s/$ACCOUNTS//g" \
+        | LC_ALL=C grep -aEq -- "$KEYPAIR"; then
         echo "pre-commit: REFUSED $f: contains a 64-byte keypair array (Solana keypair JSON)" >&2
         bad=1
     fi

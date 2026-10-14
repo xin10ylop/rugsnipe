@@ -1,0 +1,217 @@
+{
+  "armset_gate": "Verified { gate_passed: false, probe_allowed: false }",
+  "cold": {
+    "armset_reloads": 0,
+    "e1_errors": [
+      "no bundle trade in the creation slot",
+      "no bundle trade in the creation slot",
+      "no bundle trade in the creation slot",
+      "create signature not in the curve's history (yet)",
+      "create signature not in the curve's history (yet)",
+      "create signature not in the curve's history (yet)",
+      "create signature not in the curve's history (yet)",
+      "create signature not in the curve's history (yet)"
+    ],
+    "e1_requested": 342,
+    "e1_resolved": 320,
+    "e1_rpc_calls": 2889,
+    "e2_errors": [],
+    "e2_failed": 0,
+    "e2_requested": 0,
+    "e2_resolved": 0,
+    "exits": 52,
+    "fills": 52,
+    "funded_entries": 0,
+    "funding_events": 0,
+    "intents": 342,
+    "kill_reason": null,
+    "killed": false,
+    "lease_held": true,
+    "lease_lost": 0,
+    "metrics_listening": [],
+    "nonce_burns": 342,
+    "paper": {
+      "attempts": 69,
+      "closed": 52,
+      "closed_spend_lamports": 26000000000,
+      "ev_per_attempt": -0.04020175373913044,
+      "exits_by_reason": {
+        "bundle_sell": 12,
+        "max_hold": 17,
+        "no_activity": 20,
+        "tp0": 3
+      },
+      "failed_attempts": 17,
+      "failed_cost_lamports": 51000000,
+      "fills": 52,
+      "in_class": 69,
+      "landing_rate": 0.7536231884057971,
+      "mean_premium_bps_attempts": 110.0,
+      "mean_premium_bps_fills": 110.0,
+      "net_lamports": -1386960504,
+      "outcomes": {
+        "class": 228,
+        "filled": 52,
+        "not_in_slot0": 17,
+        "unresolved": 36
+      },
+      "realized_lamports": -1127960504,
+      "return_per_fill_gross": -0.043383096307692305,
+      "return_per_fill_net": -0.051383096307692305,
+      "round_trip_cost_lamports": 208000000
+    },
+    "positions_closed": 52,
+    "positions_opened": 52,
+    "realized_lamports": -1127960504,
+    "sends": 684,
+    "unfilled": 245,
+    "unwatch_mint": 333,
+    "watch_mint": 342
+  },
+  "counters": {
+    "closed": 52,
+    "creates": 560,
+    "decisions": 560,
+    "e1_failed": 281,
+    "e1_replayed_trades": 229,
+    "events": 11235,
+    "fills": 52,
+    "intents": 342,
+    "ring_full": 0,
+    "sell_fills": 52,
+    "sells": 108,
+    "trades": 10675,
+    "unfilled": 281
+  },
+  "decision_latency_ns": {
+    "max": 5705727,
+    "n": 342,
+    "p50": 771583,
+    "p90": 1050623,
+    "p99": 1668095
+  },
+  "decisions": [
+    [
+      "paper",
+      342
+    ],
+    [
+      "paper_would_skip",
+      1
+    ],
+    [
+      "skip_class",
+      215
+    ],
+    [
+      "no_nonce",
+      2
+    ]
+  ],
+  "elapsed_s": 1200.000472451,
+  "event_latency_ns": {
+    "max": 6000639,
+    "n": 11235,
+    "p50": 6199,
+    "p90": 11791,
+    "p99": 965119
+  },
+  "feeds": [
+    {
+      "connected": true,
+      "creates": 560,
+      "decode_errors": 0,
+      "decode_miss": 0,
+      "decode_success_rate": 1.0,
+      "events": 11236,
+      "failed_tx": 137336,
+      "frames": 191837,
+      "last_slot": 456882548,
+      "reconnects": 1,
+      "ring_drops": 0,
+      "rpc_calls": 0,
+      "rpc_errors": 0,
+      "src": "logsws",
+      "stale_reconnects": 0,
+      "truncated": 0
+    }
+  ],
+  "mode": "paper",
+  "open_positions_at_exit": 9,
+  "owner": "7trhLb2JWzv3p4cZf8sn2orDbN4uBtWD3TRodd8FsNjT",
+  "paper_variants_recorded": 792,
+  "rslog_dropped": 0,
+  "rslog_records": [
+    [
+      "hot",
+      3175
+    ],
+    [
+      "send",
+      342
+    ],
+    [
+      "cold",
+      1783
+    ]
+  ],
+  "sender_thread_sends": 342,
+  "state_errors": 0,
+  "state_rows": [
+    [
+      "intents",
+      342
+    ],
+    [
+      "sends",
+      684
+    ],
+    [
+      "fills",
+      297
+    ],
+    [
+      "positions",
+      52
+    ],
+    [
+      "exits",
+      52
+    ],
+    [
+      "nonces",
+      32
+    ],
+    [
+      "watch_dyn",
+      0
+    ],
+    [
+      "risk",
+      1
+    ],
+    [
+      "op_risk",
+      0
+    ],
+    [
+      "lease",
+      1
+    ],
+    [
+      "kv",
+      6
+    ],
+    [
+      "shadow",
+      333
+    ]
+  ],
+  "wire_latency_ns": {
+    "max": 6418431,
+    "n": 342,
+    "p50": 1805311,
+    "p90": 2355199,
+    "p99": 4763647
+  }
+}

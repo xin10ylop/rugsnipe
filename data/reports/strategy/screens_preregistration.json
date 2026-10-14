@@ -1,0 +1,70 @@
+{
+ "written_at_utc": "2026-10-14 15:28:02",
+ "author": "task G3 quick screens; rules fixed before any out-of-sample number for (b) and (c) was computed, and before the graduation tapes for (a) finished downloading",
+ "common": {
+  "size_sol": 0.5,
+  "entry_premium": 0.011,
+  "fixed_cost_sol_per_round_trip": 0.004,
+  "exit_latency_slots": 1,
+  "fee_per_side": 0.0125,
+  "lead_exit_spec": [
+   [
+    "tp",
+    0.15
+   ],
+   [
+    "ins",
+    "bundle"
+   ],
+   [
+    "idle",
+    1
+   ],
+   [
+    "psl",
+    1,
+    0.15
+   ],
+   [
+    "slotexit",
+    5
+   ]
+  ],
+  "statistics": "weighted mean EV per trade, 90% bootstrap CI by launch (2,000 resamples), one-sided bootstrap p for EV>0 (or for a difference>0), Benjamini-Hochberg over every configuration listed in the screen"
+ },
+ "a_graduation_momentum": {
+  "universe": "the 81 graduations of data/cache/graduated_window.json (Oct 13 12:11 - Oct 14 07:21 UTC) with a known migrate/complete block time from analysis/scripts/gap5/grad.json; mayhem completions (comp.mayhem == 1) excluded",
+  "data": "swap-api trades, cursor at migrate time + 120 s, up to 3 pages per coin (<= 300 requests in total, <= 36/min)",
+  "entries": {
+   "G_MIG": "react to the migrate transaction (CreatePoolEvent) seen in slot m: land first in slot m+1; entry state = after every trade of slots <= m",
+   "G_FIRST": "react to the first PumpSwap trade (slot f): land first in slot f+1; entry state = after every trade of slots <= f"
+  },
+  "pool_model": "constant product with K = 84.99 SOL x 206.9M tokens (gap-5: fresh pool opens at 410.8 SOL mcap); state recovered from the post-trade priceSol; validated against each trade's own (sol, tokens); 1.25% fee per side",
+  "primary_exit": "first of: realised +15%, 1 s with no trade, price -15% after 1 s, landing slot + 5 (fills one slot later); there is no bundle-wallet leg on a graduated pool",
+  "secondary_grid": "TP in {10, 15, 30}% x cap in {slot+5, 10 s, 60 s} x entry in {G_MIG, G_FIRST} = 18 configurations, BH over 18",
+  "split": "first half by completion time = look, second half = test; report both and pooled; n is tiny so this is a screen",
+  "pass_rule": "primary config EV > 0 on the test half AND pooled lower 90% bound > 0"
+ },
+ "b_second_wave": {
+  "universe": "LEAD trades (multi-wallet bundled launches) whose LEAD exit reason is the +15% take-profit",
+  "trigger": "after our TP fill, the first slot end within W s of the TP fill slot where end-of-slot mcap <= (1 - d) x running max of mcap since our entry, provided no bundle wallet and no creator/signer has sold before that slot end",
+  "entry": "land first in the slot after the trigger slot (entry state = end of trigger slot), +1.1% premium, 0.5 SOL, 0.004 SOL",
+  "exit": "LEAD exit spec from the re-entry landing slot",
+  "primary": {
+   "d": 0.1,
+   "W_s": 30
+  },
+  "grid": "d in {0.05, 0.10, 0.15, 0.20} x W in {10, 30} s = 8 configurations, BH over 8 x 4 out-of-sample sets",
+  "split": "look = gap-3 train (first 60% by time); out of sample = gap-3 test, deep, fresh, window",
+  "metric": "EV per second-wave trade; also the added SOL per LEAD trade",
+  "stress": "re-entry behind every trade of slot trigger+1 (one slot slower); premium +3.6%",
+  "pass_rule": "primary EV > 0 on pooled OOS with lower 90% bound > 0 and BH q <= 0.10, and not negative on the window"
+ },
+ "c_hour_and_create_rate": {
+  "claim_under_test": "the LEAD makes about +15% per trade at 18-21 UTC (seen on gap-3 test + fresh, i.e. formed on those sets)",
+  "H1_hour": "EV(launch hour in 18,19,20 UTC) - EV(other hours) > 0, tested on sets that did not form the claim: gap-3 train and the deep sample (the window has no 18-21 UTC launches)",
+  "H2_create_rate": "creates per hour in the 60 min before the launch (full gap-1 create index, every successful mint-authority signature); threshold = the gap-3-train median over multi-wallet launches; EV(rate >= threshold) - EV(rate < threshold) > 0 on gap-3 test, deep, fresh and window; for the window also a within-window median split (its rates are all low)",
+  "H3_rate_10min": "the same with the 10-minute create count (shorter memory)",
+  "pass_rule": "difference > 0 with BH q <= 0.10 over all H1-H3 tests, and same sign on the window where testable"
+ }
+}

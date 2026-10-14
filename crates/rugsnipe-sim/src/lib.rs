@@ -39,9 +39,12 @@ pub const TEMPLATE_CU_OVER_GAP5: u32 = 1_185;
 /// A legacy compute-budget instruction (3 in the legacy prelude) [L].
 pub const LEGACY_CB_IX_CU: u32 = 150;
 
-/// `S = Σ (255 - bump)` of the snipe's four PDAs for `wallet` on `mint`.
+/// `S = Σ (255 - bump)` of the snipe's four PDAs for `wallet` on `mint`,
+/// plus the wallet's UVA term ([`rugsnipe_tx::cu::wallet_missing_bumps`]),
+/// as the hot path computes it.
 pub fn snipe_s(wallet: &Pubkey, mint: &Pubkey, base_token_program: &Pubkey) -> u32 {
     pda::SnipeBumps::derive(mint, wallet, base_token_program).missing()
+        + rugsnipe_tx::cu::wallet_missing_bumps(wallet)
 }
 
 /// The hot path's per-mint limit for `S`, without the config floor.

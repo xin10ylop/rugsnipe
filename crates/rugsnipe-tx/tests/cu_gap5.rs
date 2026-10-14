@@ -30,6 +30,8 @@ fn records() -> Vec<Value> {
 #[test]
 fn formula_reproduces_361_gap5_simulations() {
     let user: Pubkey = USER.parse().unwrap();
+    // the gap-5 wallet's UVA bump is 255: no wallet term in this fit
+    assert_eq!(rugsnipe_tx::cu::wallet_missing_bumps(&user), 0);
     let mut n = 0;
     let (mut lo, mut hi) = (i64::MAX, i64::MIN);
     let mut max_s = 0;
@@ -77,7 +79,7 @@ fn formula_reproduces_361_gap5_simulations() {
         // the limit covers this mint's cost on our template (+1,185)
         let limit = snipe_cu_limit(s, 0);
         assert_eq!(limit, 65_000 + 1_500 * s);
-        assert_eq!(keys.snipe_cu_limit(&user, &tp, 0), Some(limit));
+        assert_eq!(keys.snipe_cu_limit(&user, &tp, 0, 0), Some(limit));
         assert!(snipe_cu_expected(s) as u64 >= units + 1_185);
         min_headroom = min_headroom.min(limit as i64 - (units as i64 + 1_185));
         n += 1;

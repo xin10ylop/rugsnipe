@@ -812,9 +812,18 @@ impl Validation {
 }
 
 impl Config {
-    /// Parse TOML (unknown keys are an error).
+    /// Parse TOML (unknown keys are an error). `[exit]` is kept raw for the
+    /// exit engine (which refuses unknown keys inside `[exit.default]`), so
+    /// an unknown table name under it (`[exit.defualt]`, which the hot path
+    /// would silently replace with the default exits) is refused here.
     pub fn from_toml_str(s: &str) -> Result<Self, String> {
-        toml::from_str(s).map_err(|e| e.to_string())
+        let cfg: Self = toml::from_str(s).map_err(|e| e.to_string())?;
+        if let Some(k) = cfg.exit.keys().find(|k| k.as_str() != "default") {
+            return Err(format!(
+                "unknown table [exit.{k}]: only [exit.default] is read"
+            ));
+        }
+        Ok(cfg)
     }
 
     /// Every refusal reason for running in `self.mode.mode` given `env`.

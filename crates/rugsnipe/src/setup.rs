@@ -213,6 +213,10 @@ pub struct Templates {
     /// `tx.cu_limit` (or [`PAPER_CU_LIMIT`]): the floor of the per-mint CU
     /// limit, and the static limit of the sells.
     pub cu_floor: u32,
+    /// The owner's wallet term W of the per-mint CU limit
+    /// ([`rugsnipe_tx::cu::wallet_missing_bumps`]: `255 -` its UVA bump),
+    /// added to every mint's S.
+    pub cu_wallet_missing: u32,
 }
 
 /// Build the templates. `cu_limit` (the per-mint limit's floor) and
@@ -263,6 +267,7 @@ pub fn templates(cfg: &Config, owner: Pubkey, pool: &NoncePool) -> Result<Templa
         sell_partial: Template::sell(&sell, false).map_err(|e| format!("sell template: {e}"))?,
         tip_account,
         cu_floor: cu,
+        cu_wallet_missing: rugsnipe_tx::cu::wallet_missing_bumps(&owner),
     })
 }
 

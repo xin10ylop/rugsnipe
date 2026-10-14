@@ -285,6 +285,68 @@ fn lane_reconstructs_the_creation_slot_and_the_replay_tape() {
     assert!(snipers.lock().unwrap().contains(&sn));
 }
 
+/// F3: a slot-0 transaction that cannot be read (rate limited past the
+/// retries) used to be dropped silently; a dropped bundle buy breaks the
+/// run early (here: the bundle shrinks to the create and the launch reads
+/// as `class`). Every slot-0 transaction is read, or the intent is
+/// unresolved; so is a creation slot above `max_tx`.
+#[test]
+fn unreadable_or_truncated_creation_slot_is_unresolved() {
+    let (mint, dev, b1, b2) = (
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+    );
+    let create = bs58::encode([1u8; 64]).into_string();
+    let chain = || {
+        let mut ch = Chain::new(mint);
+        ch.tx(&create, S, dev, &[1_000_000_000], true); // 10
+        ch.tx("b1", S, b1, &[1_000_000_000], true); // 11
+        ch.filler(1);
+        ch.tx("b2", S, b2, &[1_000_000_000], true); // 13
+        ch.filler(200);
+        for k in 1..=8 {
+            ch.tx(
+                &format!("l{k}"),
+                S + k,
+                Pubkey::new_unique(),
+                &[50_000_000],
+                true,
+            );
+        }
+        ch
+    };
+    let none = Arc::new(Mutex::new(HashSet::new()));
+    // control: all readable -> filled behind b2
+    let (url, _, _) = serve(chain());
+    let r = run(
+        &cfg(&url, EntryFilter::MultiBundle),
+        req(mint, dev),
+        none.clone(),
+    );
+    assert_eq!(r.outcome, ShadowOutcome::Filled, "{r:?}");
+    assert_eq!(r.slot0.as_ref().unwrap().our_index, 14);
+    // b1 rate limited past the four retries
+    let ch = chain();
+    ch.flaky.lock().unwrap().insert("b1".into(), 100);
+    let (url, _, _) = serve(ch);
+    let r = run(
+        &cfg(&url, EntryFilter::MultiBundle),
+        req(mint, dev),
+        none.clone(),
+    );
+    assert_eq!(r.outcome, ShadowOutcome::Unresolved, "{r:?}");
+    assert!(r.error.as_deref().unwrap_or("").contains("b1"), "{r:?}");
+    // more slot-0 transactions than max_tx
+    let (url, _, _) = serve(chain());
+    let mut c = cfg(&url, EntryFilter::MultiBundle);
+    c.max_tx = 2;
+    let r = run(&c, req(mint, dev), none);
+    assert_eq!(r.outcome, ShadowOutcome::Unresolved, "{r:?}");
+    assert!(r.error.as_deref().unwrap_or("").contains("max_tx"), "{r:?}");
+}
+
 #[test]
 fn lane_verdicts_class_premium_and_unresolved() {
     let (mint, dev, b1, sn) = (
@@ -307,6 +369,18 @@ fn lane_verdicts_class_premium_and_unresolved() {
     );
     assert_eq!((r.outcome, r.calls), (ShadowOutcome::Class, 1));
     assert_eq!(calls.load(Ordering::Relaxed), 1);
+    // a create without its own buy is not a gap-3 tape: class
+    let mut ch = Chain::new(mint);
+    ch.tx(&create, S, dev, &[], true);
+    ch.tx("b1", S, b1, &[500_000_000], true);
+    ch.filler(200);
+    let (url, _, _) = serve(ch);
+    let r = run(
+        &cfg(&url, EntryFilter::MultiBundle),
+        req(mint, dev),
+        none.clone(),
+    );
+    assert_eq!(r.outcome, ShadowOutcome::Class, "{r:?}");
     // a known sniper inside the run: ahead of us, its impact is the premium
     let mut ch = Chain::new(mint);
     ch.tx(&create, S, dev, &[1_000_000_000], true);

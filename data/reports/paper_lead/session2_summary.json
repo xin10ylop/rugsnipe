@@ -1,0 +1,213 @@
+{
+  "armset_gate": "Verified { gate_passed: false, probe_allowed: false }",
+  "cold": {
+    "armset_reloads": 0,
+    "e1_errors": [
+      "http 429:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429,\"message\":\"Too many requests for a specific RPC call\"}, \"id\": 1 } \r\n",
+      "http 429:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429,\"message\":\"Too many requests for a specific RPC call\"}, \"id\": 1 } \r\n",
+      "create signature not in the curve's history (yet)",
+      "no bundle trade in the creation slot",
+      "create signature not in the curve's history (yet)",
+      "create signature not in the curve's history (yet)",
+      "http 413:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 413,\"message\":\"You have used your data allowance\"}, \"id\": 1 } \r\n",
+      "http 429:  {\"jsonrpc\":\"2.0\",\"error\":{\"code\": 429,\"message\":\"Too many requests for a specific RPC call\"}, \"id\": 1 } \r\n"
+    ],
+    "e1_requested": 355,
+    "e1_resolved": 350,
+    "e1_rpc_calls": 1925,
+    "e2_errors": [],
+    "e2_failed": 0,
+    "e2_requested": 0,
+    "e2_resolved": 0,
+    "exits": 83,
+    "fills": 83,
+    "funded_entries": 0,
+    "funding_events": 0,
+    "intents": 355,
+    "kill_reason": null,
+    "killed": false,
+    "lease_held": true,
+    "lease_lost": 0,
+    "metrics_listening": [],
+    "nonce_burns": 352,
+    "paper": {
+      "attempts": 92,
+      "closed": 83,
+      "closed_spend_lamports": 41500000000,
+      "ev_per_attempt": 0.013975405369565217,
+      "exits_by_reason": {
+        "bundle_sell": 12,
+        "max_hold": 25,
+        "no_activity": 33,
+        "tp0": 13
+      },
+      "failed_attempts": 9,
+      "failed_cost_lamports": 27000000,
+      "fills": 83,
+      "in_class": 92,
+      "landing_rate": 0.9021739130434783,
+      "mean_premium_bps_attempts": 110.0,
+      "mean_premium_bps_fills": 110.0,
+      "net_lamports": 642868647,
+      "outcomes": {
+        "class": 232,
+        "filled": 83,
+        "not_in_slot0": 9,
+        "unresolved": 26
+      },
+      "realized_lamports": 1001868647,
+      "return_per_fill_gross": 0.024141413180722892,
+      "return_per_fill_net": 0.016141413180722892,
+      "round_trip_cost_lamports": 332000000
+    },
+    "positions_closed": 83,
+    "positions_opened": 83,
+    "realized_lamports": 1001868647,
+    "sends": 710,
+    "unfilled": 241,
+    "unwatch_mint": 350,
+    "watch_mint": 355
+  },
+  "counters": {
+    "closed": 83,
+    "creates": 546,
+    "decisions": 546,
+    "e1_failed": 267,
+    "e1_replayed_trades": 250,
+    "events": 6597,
+    "fills": 83,
+    "intents": 355,
+    "ring_full": 0,
+    "sell_fills": 83,
+    "sells": 174,
+    "trades": 6051,
+    "unfilled": 267
+  },
+  "decision_latency_ns": {
+    "max": 2865151,
+    "n": 355,
+    "p50": 758271,
+    "p90": 1070079,
+    "p99": 1662975
+  },
+  "decisions": [
+    [
+      "paper",
+      355
+    ],
+    [
+      "skip_class",
+      187
+    ],
+    [
+      "no_nonce",
+      4
+    ]
+  ],
+  "elapsed_s": 1200.000446414,
+  "event_latency_ns": {
+    "max": 2936831,
+    "n": 6597,
+    "p50": 6367,
+    "p90": 13583,
+    "p99": 1044479
+  },
+  "feeds": [
+    {
+      "connected": true,
+      "creates": 546,
+      "decode_errors": 0,
+      "decode_miss": 0,
+      "decode_success_rate": 1.0,
+      "events": 6597,
+      "failed_tx": 84327,
+      "frames": 128087,
+      "last_slot": 456875154,
+      "reconnects": 1,
+      "ring_drops": 0,
+      "rpc_calls": 0,
+      "rpc_errors": 0,
+      "src": "logsws",
+      "stale_reconnects": 0,
+      "truncated": 0
+    }
+  ],
+  "mode": "paper",
+  "open_positions_at_exit": 5,
+  "owner": "FEW5sWYkDCw8oZPjk49DfNxZwxJUQpFi5STdQdPptGvd",
+  "paper_variants_recorded": 884,
+  "rslog_dropped": 0,
+  "rslog_records": [
+    [
+      "hot",
+      3307
+    ],
+    [
+      "send",
+      355
+    ],
+    [
+      "cold",
+      1793
+    ]
+  ],
+  "sender_thread_sends": 355,
+  "state_errors": 0,
+  "state_rows": [
+    [
+      "intents",
+      355
+    ],
+    [
+      "sends",
+      710
+    ],
+    [
+      "fills",
+      324
+    ],
+    [
+      "positions",
+      83
+    ],
+    [
+      "exits",
+      83
+    ],
+    [
+      "nonces",
+      32
+    ],
+    [
+      "watch_dyn",
+      0
+    ],
+    [
+      "risk",
+      1
+    ],
+    [
+      "op_risk",
+      0
+    ],
+    [
+      "lease",
+      1
+    ],
+    [
+      "kv",
+      6
+    ],
+    [
+      "shadow",
+      350
+    ]
+  ],
+  "wire_latency_ns": {
+    "max": 7983103,
+    "n": 355,
+    "p50": 1802239,
+    "p90": 2336767,
+    "p99": 3616767
+  }
+}

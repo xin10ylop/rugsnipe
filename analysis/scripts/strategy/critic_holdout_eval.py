@@ -50,8 +50,11 @@ def load():
     n_rnd_pulled = sum(1 for r in rows if r["group"] == "random")
     for r in rows + copy:
         drops[(r["group"], "pulled")] += 1
-        if not r["complete"] or not r["trades"]:
-            drops[(r["group"], "incomplete")] += 1
+        if not r["complete"]:
+            drops[(r["group"], "incomplete")] += 1      # paging never reached the create (hot launch)
+            continue
+        if not r["trades"]:
+            drops[(r["group"], "no_trades")] += 1       # no trade at all in the window (no dev buy)
             continue
         t = build_tape(r["mint"], r["group"], 1.0, r["slot"], r["bt"], r["sig"], {r["creator"], r["user"], r["fee_payer"]},
                        r["trades"], r["hor"], True)
@@ -66,6 +69,28 @@ def load():
         t.gaps = C.tape_gaps(t)
         # design weight within the 08:43-13:43 frame: armed creators were enumerated (p = 1), the rest sampled
         t.dw = 1.0 if r["group"] == "armed" else (n_rnd_elig / max(1, n_rnd_pulled) if r["group"] == "random" else 1.0)
+        tapes.append(t)
+    # secondary (not pre-registered): the orchestrator's dense window after the S1/S3 history cut
+    # (Oct 14 05:54:34 -> 08:05 UTC), every complete multi-wallet bundled tape, cache only
+    sys.path.insert(0, str(REPO / "analysis" / "scripts" / "strategy"))
+    import critic_audit as CA
+    cut = json.load(open(REPO / "data/reports/strategy/critic_preregistration.json"))["history"]["last_create"]
+    import calendar, time as _t
+    cut_s = calendar.timegm(_t.strptime(cut, "%Y-%m-%d %H:%M:%S UTC"))
+    wcre = {}
+    for line in open(REPO / "data/cache/window/creates.jsonl"):
+        x = json.loads(line)
+        wcre[x["mint"]] = x
+    have = {t.mint for t in tapes}
+    win, _ = CA.load_window()
+    for t in win:
+        if t.bt <= cut_s or t.nB < 1 or t.mint in have:
+            continue
+        t.src = "window_late"
+        t.user = wcre[t.mint]["create_user"]
+        t.creator_key = wcre[t.mint]["creator"]
+        t.gaps = C.tape_gaps(t)
+        t.dw = 1.0
         tapes.append(t)
     meta = dict(decoded=len(recs), eligible=len(elig), eligible_armed=n_arm_elig, eligible_random=n_rnd_elig,
                 random_pulled=n_rnd_pulled, drops={f"{a}:{b}": v for (a, b), v in sorted(drops.items())},
@@ -118,17 +143,23 @@ def main():
         ("P1_frame_random_only", lambda t: t.src == "random", lambda t: 1.0),
         ("P1_copy_0612_1045", lambda t: t.src == "copy", lambda t: 1.0),
         ("P1_pooled_random", lambda t: t.src in ("random", "copy"), lambda t: 1.0),
-        ("P2_EB_armed", lambda t: is_armed(t, "EB"), lambda t: 1.0),
-        ("P3_G100_armed", lambda t: is_armed(t, "G100"), lambda t: 1.0),
-        ("P2b_GTP_armed", lambda t: is_armed(t, "GTP"), lambda t: 1.0),
+        ("P2_EB_armed", lambda t: is_armed(t, "EB") and t.src != "window_late", lambda t: 1.0),
+        ("P3_G100_armed", lambda t: is_armed(t, "G100") and t.src != "window_late", lambda t: 1.0),
+        ("P2b_GTP_armed", lambda t: is_armed(t, "GTP") and t.src != "window_late", lambda t: 1.0),
         ("unarmed_frame_random", lambda t: t.src == "random" and not any(is_armed(t, k) for k in ARM), lambda t: 1.0),
         ("P2_EB_armed_frame_only", lambda t: is_armed(t, "EB") and frame(t), lambda t: 1.0),
+        ("sec_window_late_P1", lambda t: t.src == "window_late", lambda t: 1.0),
+        ("sec_window_late_EB", lambda t: t.src == "window_late" and is_armed(t, "EB"), lambda t: 1.0),
+        ("sec_window_late_G100", lambda t: t.src == "window_late" and is_armed(t, "G100"), lambda t: 1.0),
+        ("sec_all_clean_P1", lambda t: t.src in ("random", "copy", "window_late"), lambda t: 1.0),
+        ("sec_all_clean_EB", lambda t: is_armed(t, "EB"), lambda t: 1.0),
+        ("sec_all_clean_unarmed", lambda t: t.src in ("random", "copy", "window_late") and not any(is_armed(t, k) for k in ARM), lambda t: 1.0),
     ]
     res = dict(meta=meta, preregistration_frozen_at=PRE["frozen_at"])
     res["base"] = evaluate(tapes, groups)
     # lift: EB-armed minus pooled random (two-sample bootstrap)
     rng = np.random.default_rng(3)
-    a = np.array([C.lead_trade(t)["r"] for t in tapes if is_armed(t, "EB")])
+    a = np.array([C.lead_trade(t)["r"] for t in tapes if is_armed(t, "EB") and t.src != "window_late"])
     u = np.array([C.lead_trade(t)["r"] for t in tapes if t.src in ("random", "copy") and not is_armed(t, "EB")])
     d = np.array([a[rng.integers(0, len(a), len(a))].mean() - u[rng.integers(0, len(u), len(u))].mean() for _ in range(B)])
     res["lift_EB_minus_unarmed_random"] = dict(mean=float(a.mean() - u.mean()), lo=float(np.quantile(d, 0.05)),
@@ -149,6 +180,21 @@ def main():
         t2.user, t2.creator_key, t2.dw = t.user, t.creator_key, t.dw
     rr = evaluate(ff, [g for g in groups if g[0] in ("P1_pooled_random", "P2_EB_armed")])
     res["stress"]["first_follower_never_lands"] = {g: {kk: v[kk] for kk in ("n", "ev", "lo", "hi") if kk in v} for g, v in rr.items()}
+    # time variation: P1 on every clean random launch, by UTC hour
+    hours = {}
+    for t in tapes:
+        if t.src not in ("random", "copy", "window_late"):
+            continue
+        x = C.lead_trade(t)
+        if x is None:
+            continue
+        hours.setdefault(int(t.bt // 3600 % 24), []).append(x["r"])
+    res["P1_by_hour"] = {h: dict(n=len(v), ev=float(np.mean(v))) for h, v in sorted(hours.items())}
+    eb = {}
+    for t in tapes:
+        if is_armed(t, "EB") and t.src != "window_late":
+            eb.setdefault(t.user[:10], []).append(C.lead_trade(t)["r"])
+    res["EB_by_creator"] = {k: dict(n=len(v), ev=float(np.mean(v))) for k, v in sorted(eb.items(), key=lambda kv: -len(kv[1]))}
     # gaps and armed operators seen
     res["tapes_with_gaps"] = int(sum(t.gaps > 0 for t in tapes))
     res["armed_creators_seen"] = {k: len({t.user for t in tapes if is_armed(t, k)}) for k in ARM}

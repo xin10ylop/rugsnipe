@@ -16,12 +16,23 @@
 //!   63,500` (rounded up);
 //! * the limit adds a [`SNIPE_CU_MARGIN`] of 1,500: `65,000 + 1,500·S`,
 //!   clamped to `[floor, 1,400,000]` where the floor is `tx.cu_limit`.
+//! * **wallet term** W ([`wallet_missing_bumps`]): pump also re-derives the
+//!   buyer's `user_volume_accumulator` on every buy, 1,500 CU per missing
+//!   bump. gap-5's wallet (`EW4dq…`) has UVA bump 255 (W = 0), so its
+//!   constant hides the term; a wallet with UVA bump 254 costs 1,500 more on
+//!   every mint, 252 costs 4,500 more (simulated 2026-10-14 on live mints:
+//!   `LfEca…` +1,496..+1,499, `C9fus…` +4,498; the wallet's wSOL-ATA bump
+//!   has no effect: `sssss…` with bump 251 fit exactly). The hot path adds
+//!   the wallet's W (constant per process) to the mint's S. Grinding the hot
+//!   wallet's key to a UVA bump of 255 (one key in two) makes W = 0.
 //!
 //! S is roughly NegBin(4, ½): median mint ~ S = 4 (71,000), S = 14 was the
 //! max in 361 simulations. In v1 the priority fee is a fixed total, and on
 //! legacy the CU price is derived from the same total and the per-mint
 //! limit, so a tighter limit never changes what we pay, only the
 //! scheduler's priority rank (`reward / (cost + 1)`).
+
+use pump_codec::Pubkey;
 
 /// gap-5 `buy_v3` envelope base with a nonce advance (v1, ATA create, tip).
 pub const BUY_V3_CU_BASE_NONCE: u32 = 62_310;
@@ -62,8 +73,17 @@ pub fn snipe_cu_expected(s: u32) -> u32 {
     SNIPE_CU_BASE.saturating_add(CU_PER_MISSING_BUMP.saturating_mul(s))
 }
 
+/// The wallet's own missing bumps W: `255 -` the bump of the buyer's pump
+/// `user_volume_accumulator`, which pump re-derives on every buy (1,500 CU
+/// per missing bump). Constant per wallet: compute it once at startup (one
+/// full PDA search) and add it to the mint's S.
+pub fn wallet_missing_bumps(user: &Pubkey) -> u32 {
+    255 - u32::from(pump_codec::pda::user_volume_accumulator_with_bump(user).1)
+}
+
 /// The per-mint limit: `65,000 + 1,500·S` clamped to `[floor, 1,400,000]`
-/// (`floor` = `tx.cu_limit`; a floor above the maximum is capped).
+/// (`floor` = `tx.cu_limit`; a floor above the maximum is capped). `s` is
+/// the mint's four bumps plus the wallet term ([`wallet_missing_bumps`]).
 pub fn snipe_cu_limit(s: u32, floor: u32) -> u32 {
     snipe_cu_expected(s)
         .saturating_add(SNIPE_CU_MARGIN)
@@ -92,5 +112,44 @@ mod tests {
             snipe_cu_expected(7) - buy_v3_cu_model(7, true, false),
             1_190
         );
+    }
+
+    /// Regression (F3, 2026-10-14): live `simulateTransaction` of the hot
+    /// path's v1 + nonce buy template at the per-mint limit. Wallets whose
+    /// UVA bump is below 255 consumed `1,500·W` more than `63,500 + 1,500·S`
+    /// and failed a limit without the wallet term (legacy:
+    /// `ComputationalBudgetExceeded` / `ProgramFailedToComplete`).
+    #[test]
+    fn wallet_term_from_uva_bump() {
+        let w = |k: &str| wallet_missing_bumps(&k.parse().unwrap());
+        // gap-5's wallet: the 361-record fit has W = 0
+        assert_eq!(w("EW4dqBdFKBjjfTkdX1XeR9BnfrL1sUivVNaTJVJ18Tk2"), 0);
+        // wSOL-ATA bump 251, UVA bump 255: measured exactly on the formula
+        assert_eq!(w("ssssswdk4RR8HqkE3uwUWzDbd6mXFTTPjcXBKNzQ57E"), 0);
+        // (wallet, W, S, measured unitsConsumed on v1 + nonce)
+        for (k, wt, s, units) in [
+            (
+                "LfEcaUf77iEhnz6gFpLqYgDb5Uk6Ekc5n69wu7Qa9Uw",
+                1,
+                0,
+                64_998u32,
+            ),
+            ("LfEcaUf77iEhnz6gFpLqYgDb5Uk6Ekc5n69wu7Qa9Uw", 1, 2, 67_999),
+            ("C9fusuRFwYkH2kBsq4k2Sf9FfZHtvP7WEcaJ3AEoM8Z9", 3, 5, 75_498),
+            (
+                "C9fusuRFwYkH2kBsq4k2Sf9FfZHtvP7WEcaJ3AEoM8Z9",
+                3,
+                13,
+                87_499,
+            ),
+        ] {
+            assert_eq!(w(k), wt, "{k}");
+            // without W the v1 limit leaves at most 2 CU (legacy, +450, fails)
+            assert!(snipe_cu_limit(s, 0) < units + 3, "{k} S {s}");
+            // with W: covered, with the 1,500 margin (legacy adds 450)
+            let lim = snipe_cu_limit(s + wt, 0);
+            assert!(lim >= units + 450 + 1_000, "{k} S {s}: {lim} vs {units}");
+            assert!(lim - units <= 3_500);
+        }
     }
 }

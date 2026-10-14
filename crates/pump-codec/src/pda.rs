@@ -62,6 +62,13 @@ pub fn user_volume_accumulator(user: &Pubkey) -> Pubkey {
         &c::PUMP_PROGRAM_ID,
     )
 }
+/// `["user_volume_accumulator", user]` (pump) with its bump.
+pub fn user_volume_accumulator_with_bump(user: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[seeds::USER_VOLUME_ACCUMULATOR, user.as_ref()],
+        &c::PUMP_PROGRAM_ID,
+    )
+}
 /// `["pool-authority", mint]` (pump): creator of the canonical PumpSwap pool.
 pub fn pool_authority(mint: &Pubkey) -> Pubkey {
     find(&[seeds::POOL_AUTHORITY, mint.as_ref()], &c::PUMP_PROGRAM_ID)

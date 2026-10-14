@@ -632,8 +632,8 @@ impl HotLoop {
             );
         };
         // keys and the per-mint compute-unit limit (gap-5: 65,000 + 1,500*S
-        // over the four PDA bumps, clamped to [tx.cu_limit floor, 1.4M]),
-        // before any nonce is claimed
+        // over the four PDA bumps plus the wallet's UVA term, clamped to
+        // [tx.cu_limit floor, 1.4M]), before any nonce is claimed
         let abc = if hit.abc != Pubkey::default() {
             hit.abc
         } else {
@@ -644,9 +644,12 @@ impl HotLoop {
             .unwrap_or_else(|| pda::ata_spl(&hit.bc, &WSOL_MINT));
         let user_ata = pda::ata_token_2022(&self.owner, &hit.mint);
         let keys = MintKeys::curve(hit.mint, hit.bc, abc, aqbc, user_ata);
-        let Some(cu_limit) =
-            keys.snipe_cu_limit(&self.owner, &TOKEN_2022_PROGRAM_ID, self.tmpl.cu_floor)
-        else {
+        let Some(cu_limit) = keys.snipe_cu_limit(
+            &self.owner,
+            &TOKEN_2022_PROGRAM_ID,
+            self.tmpl.cu_wallet_missing,
+            self.tmpl.cu_floor,
+        ) else {
             // a key is not the canonical PDA of its seeds: the buy would fail
             if real {
                 self.risk.release_unfilled();

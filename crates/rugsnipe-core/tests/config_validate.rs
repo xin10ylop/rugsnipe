@@ -66,6 +66,11 @@ fn unknown_keys_are_rejected() {
     let e = Config::from_toml_str("[risk]\nmax_snipe_lamport = 1\n").unwrap_err();
     assert!(e.contains("max_snipe_lamport"), "{e}");
     assert!(Config::from_toml_str("[mode]\nmode = \"yolo\"\n").is_err());
+    // `[exit]` is raw for the exit engine: a misspelled table name would be
+    // replaced by the default exits without a word, so it is refused (F3)
+    let e = Config::from_toml_str("[exit.defualt]\nmax_hold_slots = 5\n").unwrap_err();
+    assert!(e.contains("[exit.defualt]"), "{e}");
+    assert!(Config::from_toml_str("[exit.default]\nmax_hold_slots = 5\n").is_ok());
 }
 
 #[test]

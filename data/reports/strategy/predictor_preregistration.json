@@ -1,0 +1,11 @@
+{
+ "written_at": "2026-10-14 15:34:20 UTC",
+ "note": "Written after the random-sample-only dev grid had been seen (so the criterion was chosen knowing which dev configs led), but before the dev grid with the operator-pool variant was run and before any Oct 12-14 feature-level number was computed. Only aggregate EVs of the sets (docs/04) and the window busy/quiet split were known.",
+ "data_for_selection": "pre-Oct-12 rows only (gap-3 random sample, 413 launches; plus operator-pool training rows in the 'pool' variant); walk-forward folds Oct 2-12 in 2-day steps, 15-min embargo",
+ "candidates": "every 'select' configuration of predictor_wf.py dev with >= 40 OOS test launches and keep share >= 20 %; sizing configs separately",
+ "rule_1": "best univariate threshold rule by the lower 90 % bound of the dev OOS EV (ties: higher keep share)",
+ "rule_2": "best model keep-rule by the same criterion (any variant / feature set / target)",
+ "rule_3": "best sizing rule (size / size_skip) by the one-sided p of its gain over the same size mix assigned at random",
+ "evaluation": "each frozen rule once on: fresh holdout (150 multi), dense window (915), deep (77), gap-3 post-Oct-12, and all post-Oct-12 pooled; report kept EV, lift over all launches with a launch-bootstrap 90% CI and p, busy rate kept/dropped, AUCs, stresses",
+ "success": "lift > 0 with bootstrap p < 0.05 on the pooled post-Oct-12 set AND kept EV lower bound above the unselected EV on the window"
+}
