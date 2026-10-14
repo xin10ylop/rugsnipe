@@ -1,7 +1,7 @@
 # Validation: does the edge exist, and under what conditions?
 
 Status: base rates and competition measured on real data (this document); operator-level walk-forward
-backtest in progress (section 5 is filled in when it lands). All numbers are from our own on-chain
+backtest done (section 5); the strategy verdict built on it is docs/04. All numbers are from our own on-chain
 pulls on 2026-10-12..14 via public RPC and the pump.fun APIs, reproducible with the scripts in
 `analysis/`. Nothing here uses the guru's numbers.
 

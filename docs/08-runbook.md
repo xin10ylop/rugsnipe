@@ -333,7 +333,15 @@ Slot timing changes (confirmation ~150 ms, several banks per slot, ticks collaps
    `reconnects`, and the lane's `create signature not in the curve's history` / `unresolved` share in the
    summary (`cold.e1_errors`, `cold.paper.outcomes.unresolved`).
 3. **Re-measure the slot length:** `shadow_gate.py --summary ...` prints `ms per slot` (run time over the
-   slot span). If it moves away from 217, set `[paper] slot_ms` to the new value in `shadow.toml`.
+   slot span of the scored attempts). It is only valid for an uninterrupted run: a kill latch, a stall or
+   a quiet stretch at either end inflates it (a 5-minute test run killed at 150 s printed 509). Check it
+   against the chain's own samples before you change anything:
+   ```bash
+   curl -s https://api.mainnet-beta.solana.com -X POST -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","id":1,"method":"getRecentPerformanceSamples","params":[60]}' \
+     | python3 -c 'import json,sys; s=json.load(sys.stdin)["result"]; print(1000*sum(x["samplePeriodSecs"] for x in s)/sum(x["numSlots"] for x in s), "ms per slot")'
+   ```
+   If both move away from 217, set `[paper] slot_ms` to the new value in `shadow.toml`.
 4. **Re-run the decoder tests** on the new box build: `cd ~/rugsnipe && cargo test -p pump-codec -p rugsnipe-feed`.
 5. **Leader classes flip during the cutover** (BAM validators fall back to plain Jito-Agave mode). The
    bid split per class (docs/03 §6.1) does not need changing, but `[paper] leader_mix` should be updated
@@ -351,12 +359,12 @@ cd /opt/rugsnipe/src
 #    Keep the old frame and report first: the stages resume from their cache.
 mv data/cache/strategy_holdout data/cache/strategy_holdout.$(date +%F)
 cp data/reports/strategy/critic_holdout.json data/reports/strategy/critic_holdout.$(date +%F).json
-.venv/bin/python -I analysis/scripts/strategy/critic_holdout.py index
-.venv/bin/python -I analysis/scripts/strategy/critic_holdout.py decode
-.venv/bin/python -I analysis/scripts/strategy/critic_holdout.py pull
-.venv/bin/python -I analysis/scripts/strategy/critic_holdout_eval.py      # -> data/reports/strategy/critic_holdout.json
+/opt/rugsnipe/venv/bin/python -I analysis/scripts/strategy/critic_holdout.py index
+/opt/rugsnipe/venv/bin/python -I analysis/scripts/strategy/critic_holdout.py decode
+/opt/rugsnipe/venv/bin/python -I analysis/scripts/strategy/critic_holdout.py pull
+/opt/rugsnipe/venv/bin/python -I analysis/scripts/strategy/critic_holdout_eval.py      # -> data/reports/strategy/critic_holdout.json
 # 3. the daily P&L model with this week's inputs
-.venv/bin/python -I analysis/scripts/strategy/pnl_run.py                  # -> data/reports/strategy/pnl_model.json
+/opt/rugsnipe/venv/bin/python -I analysis/scripts/strategy/pnl_run.py                  # -> data/reports/strategy/pnl_model.json
 ```
 
 Write down each week: attempts, EV per attempt and its 90% CI, the failed-attempt cost, and the holdout

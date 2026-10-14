@@ -12,7 +12,7 @@ Tags:
 
 **Shape.** Judge 1 picked P3, judge 2 picked P2; both prescribe the same graft. **P3's process skeleton** (chain as truth, guard, keeper, upgrade gate, recovery before READY), **P1's hot-path internals** (pinned run-to-completion loop, complete PatchTable, per-class bids, advertised-TPU routing) and **P2's validation core**, which is normative and blocking (point-in-time operators, the same `arming` code live and in backtest, vault, `n_configs_tried`, randomized skips, `min_tokens_out` from `v_max`). On conflict: P2 wins on statistics, P3 on operations, P1 on packet → wire.
 
-**Prior.** The evidence leans negative. The guru's headline rule loses ~27% of stake per snipe (skeptic §2), and the in-progress 16-day uniform study shows **0 hits in ~30 out-of-sample rows** for its first rule (preliminary) [V, `data/reports/gap1_operators.json`]. The system is built to reach a **cheap, honest "no"** fast and stays paper-only unless the gate (§9.5) passes.
+**Prior.** The evidence leans negative. The guru's headline rule loses ~27% of stake per snipe (skeptic §2), and the 16-day uniform study, in progress when this was designed, showed **0 hits in ~30 out-of-sample rows** for its first rule (preliminary; the final verdict is docs/04) [V, `data/reports/gap1_operators.json`]. The system is built to reach a **cheap, honest "no"** fast and stays paper-only unless the gate (§9.5) passes.
 
 | Verified today | Result |
 |---|---|

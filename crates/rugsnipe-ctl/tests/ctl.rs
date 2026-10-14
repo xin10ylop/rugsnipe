@@ -87,6 +87,35 @@ fn config_validate_refuses_exit_typos() {
 }
 
 #[test]
+fn config_validate_refuses_a_missing_filter_model() {
+    // rugsnipe-hot refuses to start without `entry.filter_model`; the
+    // pre-flight of docs/08 step 5 must say so instead of "OK"
+    let lead = format!(
+        "{}/../../config/paper-lead.example.toml",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let text = std::fs::read_to_string(&lead).unwrap();
+    let d = tmpdir();
+    let p = d.path().join("nomodel.toml");
+    std::fs::write(
+        &p,
+        text.replace(
+            "filter_model = \"data/reports/strategy/entry_filter_v1.json\"",
+            "filter_model = \"/nonexistent/entry_filter_v1.json\"",
+        ),
+    )
+    .unwrap();
+    let out = run(&s(&["config", "validate", p.to_str().unwrap()]));
+    assert_eq!(out.code, 1, "{}", out.text);
+    assert!(
+        out.text
+            .contains("REFUSED: entry.filter_model: /nonexistent/entry_filter_v1.json"),
+        "{}",
+        out.text
+    );
+}
+
+#[test]
 fn template_dump_v1_and_legacy() {
     let mint = "8xWodG9Q37nvqeefeHKqxrgQMdRaVSQvSeiudxispump";
     let wallet = "DXatZCLiwrHKsREZ4z3ej8rCdFCuwRTUD24VWtBPFvVX";

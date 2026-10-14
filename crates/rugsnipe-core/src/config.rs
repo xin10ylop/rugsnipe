@@ -1134,6 +1134,13 @@ impl Config {
                 "feeds.pumpportal enabled: PumpPortal allows ONE connection per IP (the collector usually holds it)"
                     .to_string(),
             );
+            let f = &self.feeds;
+            if !(f.logsws.enabled || f.relay.enabled || f.grpc.enabled || f.shreds.enabled) {
+                w.push(
+                    "feeds.pumpportal is the only create feed: it carries no v1 transactions (about 45% of creates, docs/03 section 5); enable feeds.logsws"
+                        .to_string(),
+                );
+            }
         }
         // ---- paper: nothing else is required
         if !mode.is_real() {

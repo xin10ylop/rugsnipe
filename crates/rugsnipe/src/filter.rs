@@ -997,6 +997,36 @@ mod tests {
             .join("../../data/reports/strategy/entry_filter_v1.json")
     }
 
+    /// The gap-3 run behind the create (`tapes._raw_bundle`): buys at most
+    /// 2 indices apart and at most create + 5; a gap of 3 or index create + 6
+    /// closes the run. The real-data fixtures of `tests/filter_parity.rs`
+    /// never hit either boundary, so this pins them.
+    #[test]
+    fn bundle_run_stops_at_a_gap_of_three_and_at_create_plus_six() {
+        let dev = Pubkey::new_unique();
+        let w: Vec<Pubkey> = (0..4).map(|_| Pubkey::new_unique()).collect();
+        let tr = |index, is_create, user| S0Trade {
+            index,
+            is_create,
+            user,
+            is_buy: true,
+            sol: 500_000_000,
+            tok: 15_000_000_000,
+            v: 31_000_000_000,
+            t: 1_000_000_000_000_000,
+        };
+        let run = |idx: &[u32]| -> Vec<Pubkey> {
+            let mut trades = vec![tr(10, true, dev)];
+            trades.extend(idx.iter().zip(&w).map(|(i, u)| tr(*i, false, *u)));
+            bundle_features(&trades, &[dev], Some(30.0))
+                .unwrap()
+                .wallets
+        };
+        assert_eq!(run(&[12, 14]), vec![w[0], w[1]]); // gaps of 2: one run
+        assert_eq!(run(&[12, 15]), vec![w[0]]); // gap of 3 closes it
+        assert_eq!(run(&[11, 13, 15, 16]), vec![w[0], w[1], w[2]]); // 16 = create + 6
+    }
+
     #[test]
     fn loads_the_export_and_refuses_a_different_feature_list() {
         let m = Model::load(&model_path()).unwrap();

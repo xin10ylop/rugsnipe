@@ -5,7 +5,7 @@ It implements docs/06-architecture.md sections 2, 6, 10, 12 and 13, and docs/03-
 
 **Status.** The deployment layer is ready. The binaries are not.
 - `deploy/install.sh`, the systemd units and `deploy/tune-hot.sh` are linted and verified in this container (see "Validation").
-- The hot units call binaries that the build plan still has to deliver: `rugsnipe-hot`, `-guard` and `-keeper` (M3-M5).
+- `rugsnipe-hot` and `rugsnipe-guard` exist but run paper only (real modes are refused, docs/08 section 0); `rugsnipe-keeper` does not exist yet (M3-M5).
 - The collector unit runs the existing `analysis/scripts/collector.py`. The discover timer is a placeholder that runs the selftest until M2.
 - Python units exit cleanly with code 78 if their module or script is missing, instead of restart-looping. install.sh does not enable a Rust unit whose binary is missing.
 
@@ -35,7 +35,7 @@ It implements docs/06-architecture.md sections 2, 6, 10, 12 and 13, and docs/03-
 | this container | tests, paper runs, reports | none (run by hand) | none |
 | **ohio1** (exists) | `sudo deploy/install.sh --role analytics` | `rugsnipe-collector.service`, `rugsnipe-discover.timer`/`.service`, `rugsnipe.target` | `armset-signing.key`, `api-keys.toml`. **Never** wallets (install.sh refuses) |
 | **fra1** (to rent) | `sudo deploy/install.sh --role hot`, then `deploy/tune-hot.sh` | `rugsnipe-keeper`, `rugsnipe-guard`, `rugsnipe-hot`, optional `rugsnipe-tune`, `rugsnipe.target` | `hot-keypair.json`, `probe-keypair.json`, `api-keys.toml`. **Never** the ArmSet signing key (install.sh refuses) |
-| second box | phase 2, after the gate. docs/06 section 11 says ams1; docs/03 section 4 now recommends Tokyo (TeraSwitch TYO2) first | same as fra1 | same as fra1 |
+| second box | phase 2, after the gate: tyo1 (TeraSwitch TYO2), then ams1 (AMS3), per docs/03 section 4 and docs/06 section 11 | same as fra1 | same as fra1 |
 
 Step-by-step guides:
 - `deploy/aws-ohio-analytics.md` for ohio1;
@@ -85,6 +85,8 @@ The system stays **paper-only unless the go/no-go gate passes** (docs/06 section
 | **shadow** | fra1 + SVS Yellowstone gRPC; still `mode = "paper"` | detection lead vs rivals' landing slots per leader class | M4 paper run clean (decode-miss < 1%) | box ~$400-425 + SVS $150 |
 | **probe** | fra1 + paid post-exec feed (LaserStream fra or SVS); lock probes, then 0.01-0.02 SOL buys, ≤ 20/day | true `buyers_ahead`, landing per sender × leader class, exit fills; replaces the guessed k̂ | `cu_limit` set by `ctl sim`, keys 0400, all caps non-zero, clock offset ≤ 5 ms, healthy post-exec feed, `max_probe_lamports` 0.02 SOL; ≤ 0.5 SOL in total (M7) | + LaserStream $499-999 (if replacing SVS) + ~0.004 SOL overhead per probe |
 | **live** | fra1; after the gate add DZ Edge + Helius shreds | money | **gate (below)** + `mode = "live"` in TOML + CLI flag + local `rugsnipe-ctl arm-live` token for that gate run (valid 7 days) | + DZ $1,500 + Helius shreds $800-1,000 + tips |
+
+**Conflict to settle before the probe.** This table predates docs/04 §7 and docs/08: those run shadow on `logsSubscribe` (the hot binary has no gRPC feed yet) and plan a probe of about 200 trades at 0.25 SOL (docs/08 §9: up to 300 attempts a day, 1 SOL daily loss cap), not 0.01-0.02 SOL buys at ≤ 20 a day and ≤ 0.5 SOL in total. docs/06 §9.5/§10 still say 0.01-0.02 SOL. Pick one and align docs/06, docs/07 and the probe caps.
 
 **The gate** (docs/06 section 9.5), signed into the ArmSet as `gate_passed`. All of these must hold:
 - ≥ 300 out-of-sample snipes from ≥ 15 operators, and no operator above 40% of P&L;
@@ -174,7 +176,7 @@ latch with `rugsnipe-ctl` (M3+). A Telegram message can kill but never unkill.
 
 ### Automatic kill triggers (docs/06 section 13)
 
-The latch fires automatically on any of these:
+Planned: the latch fires automatically on any of these. **In this build only the decode-miss trigger and a daily-loss cap computed from the bot's own ledger (not from the chain) exist**, besides the kill file and SIGUSR1; the others are task #12, which blocks the probe (docs/08 section 0):
 - the daily-loss cap (chain-derived, marked to the sell quote);
 - an unexplained balance drop > 0.05 SOL;
 - send errors > 20% over 5 min;
@@ -191,7 +193,7 @@ The latch fires automatically on any of these:
 
 `sudo systemctl stop rugsnipe.target` also stops guard. Any open position is then **stranded**: it is bounded by
 `max_open_positions × max_snipe` (4 × 0.25 SOL) but unmanaged. Do this only when flat. Check first with
-`sqlite3 -readonly /var/lib/rugsnipe/state/state.db "select mint,state from positions where state!='closed'"`.
+`sqlite3 -readonly /var/lib/rugsnipe/state.db "select mint,state from positions where state!='closed'"`.
 
 ### Alerts
 

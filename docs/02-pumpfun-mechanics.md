@@ -102,4 +102,5 @@ past ~1,000; `&creator=<pubkey>` filters by creator), `GET /coins-v2/{mint}`,
 `GET /trades/solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp/{mint}?limit=100&cursor=…` (per-trade slot,
 txIndex, trader, amounts with decimals), `GET /candles/…/{mint}?res=1s`, `GET /sol-price`.
 Dead: `/coins/{mint}`, `/trades/all/{mint}`, `/candlesticks/{mint}`, `/coins/user-created-coins/…`.
-Real-time: PumpPortal `wss://pumpportal.fun/api/data` (`subscribeNewToken` free, ~1 slot late).
+Real-time: PumpPortal `wss://pumpportal.fun/api/data` (`subscribeNewToken` free, ~1 slot late; carries no
+v1 transactions, so never the sole create feed: docs/03 §5).

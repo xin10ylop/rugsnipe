@@ -121,3 +121,15 @@ def test_ath_prefilter() -> None:
     assert not W.could_be_bundled(rec)  # stayed at the floor -> slot 0 had < 1 SOL of buys
     assert W.could_be_bundled({"sol_quoted": True, "coin": {"ath_market_cap": 4000.0}})
     assert W.could_be_bundled({"sol_quoted": True, "coin": None})
+
+
+def main() -> None:
+    tests = [v for k, v in globals().items() if k.startswith("test_") and callable(v)]
+    for t in tests:
+        t()
+        print(f"ok  {t.__name__}")
+    print(f"{len(tests)} tests passed")
+
+
+if __name__ == "__main__":
+    main()

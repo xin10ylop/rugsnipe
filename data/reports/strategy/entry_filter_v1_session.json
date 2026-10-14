@@ -1,0 +1,215 @@
+{
+ "what": "15-minute paper session, config/paper-lead.example.toml, entry filter in log mode (docs/research/strategy-entry-filter.md section 3)",
+ "started": "2026-10-14T18:22:37Z",
+ "ended": "2026-10-14T18:37:37Z",
+ "counters": {
+  "closed": 48,
+  "creates": 607,
+  "decisions": 607,
+  "e1_failed": 258,
+  "e1_replayed_trades": 212,
+  "events": 7877,
+  "fills": 48,
+  "filtered": 0,
+  "intents": 335,
+  "ring_full": 0,
+  "sell_fills": 48,
+  "sells": 97,
+  "trades": 7270,
+  "unfilled": 258
+ },
+ "decisions": [
+  [
+   "paper",
+   335
+  ],
+  [
+   "paper_would_skip",
+   3
+  ],
+  [
+   "skip_class",
+   261
+  ],
+  [
+   "no_nonce",
+   8
+  ]
+ ],
+ "e1": {
+  "requested": 335,
+  "resolved": 301,
+  "rpc_calls": 2244
+ },
+ "paper": {
+  "attempts": 56,
+  "closed": 48,
+  "closed_spend_lamports": 24000000000,
+  "ev_per_attempt": -0.02257509,
+  "exits_by_reason": {
+   "bundle_sell": 10,
+   "max_hold": 19,
+   "no_activity": 14,
+   "tp0": 5
+  },
+  "failed_attempts": 8,
+  "failed_cost_lamports": 2870120,
+  "fills": 48,
+  "filter": {
+   "mode": "log",
+   "model": "entry_filter_v1",
+   "outcomes_written": 56,
+   "scored": 56,
+   "skipped": 0,
+   "store_rows": 56,
+   "store_rows_loaded": 0,
+   "store_signers": 54,
+   "store_wallets": 199,
+   "t1": 0.14801023412598682,
+   "t2": 0.2271929921988808,
+   "tertiles": {
+    "high": {
+     "attempts": 17,
+     "closed": 15,
+     "ev_per_attempt": 0.013327755411764706,
+     "failed_attempts": 2,
+     "failed_cost_lamports": 717530,
+     "fills": 15,
+     "filtered": 0,
+     "intents": 17,
+     "mean_score": 0.282531898595519,
+     "net_lamports": 113285921,
+     "realized_lamports": 174003451,
+     "return_per_fill_net": 0.015200460133333333,
+     "tp_exits": 1
+    },
+    "low": {
+     "attempts": 9,
+     "closed": 8,
+     "ev_per_attempt": -0.03375971244444445,
+     "failed_attempts": 1,
+     "failed_cost_lamports": 358765,
+     "fills": 8,
+     "filtered": 0,
+     "intents": 9,
+     "mean_score": 0.07564173393290162,
+     "net_lamports": -151918706,
+     "realized_lamports": -119559941,
+     "return_per_fill_net": -0.03788998525,
+     "tp_exits": 0
+    },
+    "mid": {
+     "attempts": 30,
+     "closed": 25,
+     "ev_per_attempt": -0.039564649,
+     "failed_attempts": 5,
+     "failed_cost_lamports": 1793825,
+     "fills": 25,
+     "filtered": 0,
+     "intents": 30,
+     "mean_score": 0.19443264228390594,
+     "net_lamports": -593469735,
+     "realized_lamports": -491675910,
+     "return_per_fill_net": -0.0473340728,
+     "tp_exits": 4
+    },
+    "unscored": {
+     "attempts": 0,
+     "closed": 0,
+     "ev_per_attempt": 0.0,
+     "failed_attempts": 0,
+     "failed_cost_lamports": 0,
+     "fills": 0,
+     "filtered": 0,
+     "intents": 250,
+     "mean_score": 0.0,
+     "net_lamports": 0,
+     "realized_lamports": 0,
+     "return_per_fill_net": 0.0,
+     "tp_exits": 0
+    }
+   },
+   "unscored": 250
+  },
+  "in_class": 56,
+  "landing_rate": 0.8571428571428571,
+  "mean_premium_bps_attempts": 110.0,
+  "mean_premium_bps_fills": 110.0,
+  "net_lamports": -632102520,
+  "outcomes": {
+   "class": 232,
+   "filled": 48,
+   "not_in_slot0": 8,
+   "unresolved": 18
+  },
+  "realized_lamports": -437232400,
+  "return_per_fill_gross": -0.018218016666666666,
+  "return_per_fill_net": -0.026218016666666667,
+  "round_trip_cost_lamports": 192000000
+ },
+ "state_rows": [
+  [
+   "intents",
+   335
+  ],
+  [
+   "sends",
+   670
+  ],
+  [
+   "fills",
+   288
+  ],
+  [
+   "positions",
+   48
+  ],
+  [
+   "exits",
+   48
+  ],
+  [
+   "nonces",
+   32
+  ],
+  [
+   "watch_dyn",
+   0
+  ],
+  [
+   "risk",
+   1
+  ],
+  [
+   "op_risk",
+   0
+  ],
+  [
+   "lease",
+   1
+  ],
+  [
+   "kv",
+   6
+  ],
+  [
+   "shadow",
+   306
+  ],
+  [
+   "filter",
+   306
+  ],
+  [
+   "outcomes",
+   56
+  ]
+ ],
+ "decision_latency_ns": {
+  "max": 654335,
+  "n": 335,
+  "p50": 88383,
+  "p90": 127295,
+  "p99": 175103
+ }
+}

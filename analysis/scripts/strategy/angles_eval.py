@@ -3,7 +3,7 @@
   .venv/bin/python -I analysis/scripts/strategy/angles_eval.py funding [rps]   # signer funding as of each create (RPC)
   .venv/bin/python -I analysis/scripts/strategy/angles_eval.py meta            # metadata JSON of each uri (study only)
   .venv/bin/python -I analysis/scripts/strategy/angles_eval.py build           # holdout rows: slot-0 features + labels
-  .venv/bin/python -I analysis/scripts/strategy/angles_eval.py eval            # every rule, once -> angles_holdout.json
+  .venv/bin/python -I analysis/scripts/strategy/angles_eval.py evaluate        # every rule, once -> angles_holdout.json
 
 Sets: HA = critic holdout (Oct 14 08:43-13:43, random + armed groups; only random is scored), HB = the new dense block
 (data/cache/strategy_holdout2), HC = copy-trade critic random holdout after Oct 14 08:05. Every row is built exactly as

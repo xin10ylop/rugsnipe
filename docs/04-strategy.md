@@ -47,7 +47,8 @@ launches) and wrong about how long it lasts. The insiders' first sell comes at a
 **Universe.** pump.fun creates, SOL-quoted, not mayhem mode, where the creation slot contains a
 bundle with **at least one non-creator wallet** adjacent to the create (gap-3 definition: the
 create transaction's buys, the creator/signer/fee-payer buys, and the contiguous run of slot-0 buys
-at index ≤ create+5 with gaps ≤ 2). About 3,750 such launches per day.
+at index ≤ create+5 with gaps ≤ 2). About 5,300 to 11,000 such launches per day, depending on the
+hour (§4, Capacity; the early estimate was 3,750).
 
 **Entry.** Buy **0.25-0.5 SOL** (never more: §4) to land **in the creation slot, first behind the
 bundle**. `max_sol_cost` is capped at the post-bundle price **+2%**, so a fill at rank 3 or later
@@ -133,6 +134,18 @@ point-in-time operator history, time, create rate). Findings:
   against 3.0 on all launches); the skip-bottom-tertile rule raises competition only modestly and
   is the one adopted for shadow mode and the probe. It needs a live per-signer store of our own
   outcomes and a re-freeze without the metadata and execution features.
+- **Implemented (`strategy-entry-filter.md`).** Re-frozen as `entry_filter_v1` on all 3,591 launches
+  known on Oct 14 with the 60 features computable at slot 0 (no metadata JSON, `cu_used`, name text,
+  gap-1 sample counts or 15-minute busy labels); fitted on the old table and scored on the three
+  holdouts it keeps the lift (+1.5 points, 62% kept, AUC 0.72; those holdouts were already used by the
+  critic, so this is a consistency check, and the deployed model is refit on every row: **shadow mode is
+  its first clean out-of-sample test**). Cut points t1 = 0.148, t2 = 0.227.
+  The hot path loads it (`entry.filter_model`), scores every E1 verdict in about 1.3 us without
+  allocating (Rust = scikit-learn to 1e-16 on 200 rows; feature extraction checked against the
+  training code on 60 real creation slots and 24 create transactions), logs score and tertile on
+  every intent, and with `entry.filter_mode = "skip"` drops the bottom tertile. The outcome store
+  (our LEAD outcome per signer and bundle wallet, 10 s after each launch) lives in state.db. Live,
+  only the bundle run behind the create is not yet visible from the shreds.
 
 **Direction of bias in the fresh holdout.** It is the uniform light sample minus the deep sample.
 The deep sample took the random arm and every launch with an all-time-high market cap above the
@@ -288,12 +301,11 @@ shadow mode (`"skip"` for the probe: skip if score < t1), `risk.max_snipe_lampor
 
 ## 8. Open items
 
-- Running now (`strategy-predictor.md`, `strategy-refinements.md`, `strategy-pnl-and-screens.md`,
-  `strategy-angles-critic.md`): a slot-0 predictor of hot launches from every feature visible at
-  the decision instant, post-entry exit and size refinements, a daily P&L model tied to landing
-  rates and failed-attempt costs, a ledger of every angle tested, three quick screens, and a
-  skeptic on a fresh holdout. If the predictor separates hot from quiet, the per-trade number
-  roughly triples on the selected launches; if not, the edge stays a pure latency race.
+- Done (`strategy-predictor.md`, `strategy-refinements.md`, `strategy-pnl-and-screens.md`,
+  `strategy-angles-critic.md`, `strategy-entry-filter.md`): entry selection lifts the LEAD from
+  +3.2% to +4.6% on a pre-registered holdout (§3a, implemented as `entry_filter_v1`); exit, size
+  and screen refinements lose (§5); the daily P&L is set by the landing rate and the cost of a
+  failed attempt (§4).
 - Resolved: a "first in slot+1" entry loses on every set (§5), so creates that sit in the last
   5-15% of a block are skipped, not chased.
 - Failed-attempt costs are modelled here by hand (§3); the hot path must log them so the probe

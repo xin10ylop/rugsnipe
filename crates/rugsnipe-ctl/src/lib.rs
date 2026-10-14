@@ -182,6 +182,15 @@ pub fn config_validate(file: &str, args: &[String]) -> Result<Out, String> {
         v.refusals
             .push(rugsnipe_core::config::Refusal::Invalid { field: "exit", why });
     }
+    // rugsnipe-hot loads `entry.filter_model` at startup and refuses to
+    // start without it: check the file here too (same path rule as
+    // `rugsnipe::filter::resolve_path`: as given, else from the source tree)
+    if let Err(why) = filter_model_check(&cfg.entry.filter_model) {
+        v.refusals.push(rugsnipe_core::config::Refusal::Invalid {
+            field: "entry.filter_model",
+            why,
+        });
+    }
     let mut s = String::new();
     let _ = writeln!(s, "config {file}: mode = {}", v.mode);
     let _ = writeln!(s, "armset: {note}");
@@ -199,6 +208,27 @@ pub fn config_validate(file: &str, args: &[String]) -> Result<Out, String> {
 }
 
 /// `[exit.default]` as the hot binary reads it (`rugsnipe::setup::exit_policy`).
+fn filter_model_check(p: &str) -> Result<(), String> {
+    if p.is_empty() {
+        return Ok(());
+    }
+    let given = Path::new(p);
+    let path = if given.is_absolute() || given.exists() {
+        given.to_path_buf()
+    } else {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(p)
+    };
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{p}: {e}"))?;
+    let v: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("{p}: not JSON: {e}"))?;
+    if v.get("model").is_none() || v.get("features").is_none() {
+        return Err(format!(
+            "{p}: not an entry-filter export (no model/features)"
+        ));
+    }
+    Ok(())
+}
+
 fn exit_check(cfg: &Config) -> Result<(), String> {
     let ec: rugsnipe_exit::ExitConfig = match cfg.exit.get("default") {
         Some(v) => v

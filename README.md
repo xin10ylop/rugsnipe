@@ -9,7 +9,7 @@ in paper/shadow mode first. No mode that moves money runs until a pre-registered
 **The verdict in five lines** (docs/04):
 
 1. His rule as stated (block-0 entry behind the rugger's bundle, hold for +100%) loses: −10.5% per trade out of sample, −21% on an independent holdout; copy-trading, per-rugger arming and mayhem coins lose too.
-2. One family survives: the **rank-1 micro-scalp**: buy 0.5 SOL right behind a multi-wallet bundle in the creation slot (fill capped at +2% over the post-bundle price) and sell within 1-3 s. +3.2% to +3.7% per trade on pre-registered fresh holdouts; +4.6% when skipping the bottom tertile of a frozen P(take-profit) score.
+2. One family survives: the **rank-1 micro-scalp**: buy 0.5 SOL right behind a multi-wallet bundle in the creation slot (fill capped at +2% over the post-bundle price) and sell within 1-3 s. +2.5% to +3.7% per trade on holdouts no search touched (+3.2% on the 480 pre-registered fresh launches); +4.6% when skipping the bottom tertile of a frozen P(take-profit) score.
 3. It holds only at rank 1: one sniper ahead of us takes it to about 0; the critic's realistic-fill stack gives −0.4% [−2.0, +1.3]. Our real landing rank is unmeasured.
 4. The business is decided by the landing rate and by what a lost race costs: 0.003 SOL per failed attempt needs a 12% landing rate to break even, 0.0005 SOL needs 2%. So the bid goes into a tip that is paid only on success wherever the leader orders by tip (docs/03 §6.1).
 5. Next: shadow mode on a Frankfurt box against a fixed go/no-go rule, then a capped probe of about 200 trades at 0.25 SOL with a kill switch. The runbook is docs/08.

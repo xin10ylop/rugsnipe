@@ -2,7 +2,7 @@
 
 Short version: **your AWS box in Ohio (us-east-2) is the wrong place for the hot path.** Put the
 execution box in **Frankfurt**, ideally bare metal in the TeraSwitch facility (or Latitude / Cherry in
-Frankfurt), with **Amsterdam** as the second box. Keep Ohio for analytics, backtests and discovery,
+Frankfurt), with **Tokyo** as the second box and Amsterdam (AMS3) as the third (§4). Keep Ohio for analytics, backtests and discovery,
 which are not latency-sensitive. If it must stay on AWS, use **eu-central-1 (Frankfurt)**, never Ohio.
 
 Everything below was checked today against primary data (Stakewiz validator data, the current epoch's

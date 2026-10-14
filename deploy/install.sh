@@ -541,7 +541,7 @@ else
   cat <<EOF
   sudo $BIN/tune-hot.sh --check                 # review OS tuning, then: sudo $BIN/tune-hot.sh --apply
   sudo systemctl enable rugsnipe-tune.service   # re-apply runtime tuning at boot
-  sudo systemctl enable --now rugsnipe.target   # keeper, guard, hot (mode = paper in rugsnipe.toml)
+  sudo systemctl enable --now rugsnipe.target   # keeper, guard, hot; NOT during shadow mode (docs/08-runbook.md section 3)
   sudo touch /run/rugsnipe/KILL                 # kill latch: buys stop, exits continue
 EOF
 fi

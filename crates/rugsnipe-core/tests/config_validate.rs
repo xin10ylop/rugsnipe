@@ -181,6 +181,22 @@ fn paper_with_real_senders_warns() {
     assert_eq!(v.warnings.len(), 2, "{:?}", v.warnings);
 }
 
+#[test]
+fn pumpportal_as_the_only_create_feed_warns() {
+    // PumpPortal carries no v1 transactions (docs/03 section 5)
+    let mut c = example();
+    c.feeds.pumpportal.enabled = true;
+    c.feeds.logsws.enabled = false;
+    c.feeds.relay.enabled = false;
+    let v = c.validate(&ValidateEnv::default());
+    assert!(v.ok());
+    assert!(
+        v.warnings.iter().any(|w| w.contains("only create feed")),
+        "{:?}",
+        v.warnings
+    );
+}
+
 /// docs/06 section 6, item by item: starting from a configuration and an
 /// environment that pass, each single defect alone refuses probe AND live
 /// with exactly its own reason, and boundaries are where the spec puts them.

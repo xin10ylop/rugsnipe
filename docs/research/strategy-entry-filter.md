@@ -104,7 +104,31 @@ p50 1.2 us, p90 1.4 us, p99 2.0 us** per score (150 trees, 200 rows × 20,000).
 
 ## 3. Paper session with the filter in log mode
 
-SESSION_RESULTS
+18:22:37-18:37:37 UTC, `config/paper-lead.example.toml` as shipped (E1 lane, LEAD exits, `filter_mode = "log"`),
+a fresh state.db (empty outcome store), this container's public-RPC feed (about a second late, so no latency
+information). Summary: `data/reports/strategy/entry_filter_v1_session.json`.
+
+* 607 creates, 335 paper intents, 306 E1 verdicts: 232 `class` (not multi-wallet), 18 unresolved, **56 attempts**
+  (48 fills, 8 not-in-slot-0), all 56 scored; 250 verdicts without creation-slot features (class / unresolved).
+* Every attempt also produced a `filter` row with its feature vector, an rslog `Filter` record and, 10 s after the
+  launch, an `outcomes` row (56 rows; 54 signers, 199 bundle wallets).
+
+| Tertile | Attempts (share) | Mean score | Fills / failed | TP exits | Net | **EV per attempt** |
+|---|---|---|---|---|---|---|
+| low (< 0.148) | 9 (16%) | 0.076 | 8 / 1 | 0 | −0.152 SOL | **−3.4%** |
+| mid | 30 (54%) | 0.194 | 25 / 5 | 4 | −0.593 SOL | **−4.0%** |
+| high (≥ 0.227) | 17 (30%) | 0.283 | 15 / 2 | 1 | +0.113 SOL | **+1.3%** |
+| all | 56 | | 48 / 8 | 5 | −0.632 SOL | −2.3% |
+
+An independent recomputation from state.db (`filter` x `shadow` x `fills` x `exits`) gives the same numbers. With 56
+attempts in one quarter hour this is noise (the LEAD itself swings from −0.4% to +6.1% between holdout sets); it
+shows the pipeline working, not the filter's value.
+
+**Why only 16% in the bottom tertile.** The store started empty, so every signer was first-seen (`op_has_hist = 0`)
+and no signer's funding was known. In the training rows, first-seen signers fall in the bottom tertile only 17% of
+the time (45% middle, 38% top); signers with history fill it (56%). So in `skip` mode the filter would drop about
+one attempt in six at first, rising towards one in three as the outcome store fills.
+
 
 ## 4. What this does not settle
 
