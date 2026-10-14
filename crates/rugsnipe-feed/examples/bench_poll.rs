@@ -54,7 +54,7 @@ fn main() {
             }
         }
         let dt = t.elapsed().as_nanos() as u64;
-        if buf.len() > 0 {
+        if !buf.is_empty() {
             per_poll.push((dt, buf.len()));
         }
         if st == FeedStatus::Ended {

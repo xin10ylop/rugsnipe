@@ -166,7 +166,7 @@ python3 -I analysis/scripts/collector.py --config /etc/rugsnipe/rugsnipe.toml   
   `slot0`), `repair` (after a logs outage: the missed creates from `getSignaturesForAddress(TSLvdd,
   before, until)`).
 * `--relay [PATH]` (or `[feeds.relay]` in the TOML) serves the raw PumpPortal frames on a Unix
-  socket, one line each: `<recv_unix_ns>\t<frame>\n`.
+  socket, one line each: `<recv_unix_ns>\t<frame>\n` (CR/LF inside a frame become spaces).
 * A source silent for 30 s (logs) / 60 s (PumpPortal) is force-reconnected; every outage is an
   `ingest_gaps` row (time and slot range); reconnects back off 1-60 s with jitter; a restart writes a
   `collector_down` gap.  The run summary is printed and stored as a `box_events` row.
@@ -177,6 +177,7 @@ python3 -I analysis/scripts/collector.py --config /etc/rugsnipe/rugsnipe.toml   
 |---|---|
 | creates seen | 1,149 total: `logsSubscribe` 1,147, PumpPortal 603 (2 PumpPortal-only), plus 49 failed creates seen by logs; 0 ingest gaps, 0 reconnects |
 | **PumpPortal misses every v1 create** | of decoded creates, PumpPortal reported 577/602 v0 and 19/19 legacy but **0/518 v1** (v1 = 45%). PumpPortal alone is not a population feed |
+| **PumpPortal can name the wrong mint** | for some non-SOL-quoted creates PumpPortal's `mint` is the quote mint (an xStock `Xs…` or PUMP `pumpCmXq…`): 5 of 603 sightings here, 4 of 95 in a 10 min re-run. The old code wrote phantom `creates` rows and ran funding/rivals/tape on the quote token while the real mint got none. Fixed: a PumpPortal sighting only schedules `decode`; `creates` rows and mint-keyed jobs come from the logs CreateEvent or `getTransaction` |
 | lead, PumpPortal vs logs (both seen, n = 601) | median +1.4 ms (PumpPortal first in 57%), p10 -62 ms, p90 +100 ms: the same within noise from this container |
 | funding (fresh signers first) | first run: 264 traced `ok` (188 fresh signers, median funding-to-create lag 135 s), 96 `serial` (>= 1000 prior txs), 35 deferred; 963 creates came from 443 distinct signers (one bot made 77) |
 | rivals | 3,984 txs touching the curve in slots s..s+1 for 894 creates, 1,594 of them failed |
