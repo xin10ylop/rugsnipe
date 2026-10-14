@@ -7,6 +7,19 @@ use rugsnipe_state::recovery::{load_nonces, load_open_positions, RecoverCtx};
 use rugsnipe_state::*;
 use std::path::PathBuf;
 
+/// A fresh directory under the system temp dir (removed when the guard drops).
+struct Tmp(PathBuf);
+impl Drop for Tmp {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn tmp_guarded(name: &str) -> (Tmp, PathBuf) {
+    let p = tmp(name);
+    (Tmp(p.parent().unwrap().to_path_buf()), p)
+}
+
 fn tmp(name: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!(
         "rugsnipe-state-{}-{}-{}",
@@ -68,7 +81,7 @@ fn count(c: &rusqlite::Connection, t: &str) -> i64 {
 
 #[test]
 fn schema_has_every_spec_table_and_column() {
-    let p = tmp("schema");
+    let (_tmp, p) = tmp_guarded("schema");
     let s = StateStore::open(&p).unwrap();
     let c = s.reader().unwrap();
     let want: &[(&str, &str)] = &[
@@ -101,7 +114,7 @@ fn schema_has_every_spec_table_and_column() {
 
 #[test]
 fn ledger_flow_and_intent_state_machine() {
-    let p = tmp("ledger");
+    let (_tmp, p) = tmp_guarded("ledger");
     let s = StateStore::open(&p).unwrap();
     let l = Ledger::new(s.writer());
     let mint = Pubkey::new_unique();
@@ -226,7 +239,7 @@ fn ledger_flow_and_intent_state_machine() {
 
 #[test]
 fn check_constraints_reject_bad_rows() {
-    let p = tmp("check");
+    let (_tmp, p) = tmp_guarded("check");
     let s = StateStore::open(&p).unwrap();
     let c = s.reader().unwrap();
     let err = c.execute(
@@ -243,7 +256,7 @@ fn check_constraints_reject_bad_rows() {
 
 #[test]
 fn exits_lease_heartbeat_and_takeover() {
-    let p = tmp("lease");
+    let (_tmp, p) = tmp_guarded("lease");
     let s = StateStore::open(&p).unwrap();
     let hot_c = s.reader().unwrap();
     let guard_c = s.reader().unwrap();
@@ -317,7 +330,7 @@ fn nonce_data(authority: &Pubkey, value: [u8; 32]) -> Vec<u8> {
 
 #[test]
 fn recovery_reconciles_positions_nonces_and_orphans() {
-    let p = tmp("recover");
+    let (_tmp, p) = tmp_guarded("recover");
     let s = StateStore::open(&p).unwrap();
     let l = Ledger::new(s.writer());
     let (gone, resized, kept, orphan) = (
@@ -424,7 +437,7 @@ fn recovery_reconciles_positions_nonces_and_orphans() {
 
 #[test]
 fn paper_recovery_abandons_simulated_positions() {
-    let p = tmp("paper");
+    let (_tmp, p) = tmp_guarded("paper");
     let s = StateStore::open(&p).unwrap();
     let l = Ledger::new(s.writer());
     let m = Pubkey::new_unique();

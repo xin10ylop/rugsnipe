@@ -2,11 +2,36 @@
 
 **Question.** Does the S5 verdict (`docs/research/strategy-copytrade.md`: no copy-trading policy has a positive out-of-sample expectancy after costs) survive an attempt to break it? We attacked it for look-ahead in wallet scoring, wallets selected on the launches they are scored on, entry fills, our own impact and the rank premium, truncated tapes, swap-api paging gaps, survivorship and multiple testing. Then we ran the top three surviving policies on a fresh holdout of launches created after every tape used for wallet scoring.
 
-*Measured 2026-10-14. Code: `analysis/scripts/strategy/copytrade_critic.py` (stages `holdout_pull`, `hot_pull`, `audit`, `holdout_eval`). Caches: `data/cache/strategy_holdout_copy/`. Results: `data/cache/strategy_holdout_copy/audit.json`, `data/reports/strategy/copytrade_critic_holdout.json`. Fix applied to the study: `analysis/scripts/strategy/copytrade.py` (4 lines), with `sim` and `report` re-run. Nothing was committed.*
+*Measured 2026-10-14. Code: `analysis/scripts/strategy/copytrade_critic.py` (stages `holdout_pull`, `hot_pull`, `audit`, `probes`, `holdout_eval`, `lead_check`). Caches: `data/cache/strategy_holdout_copy/`. Results: `data/cache/strategy_holdout_copy/{audit,probes,lead_check}.json`, `data/reports/strategy/copytrade_critic_holdout.json`. Fix applied to the study: `analysis/scripts/strategy/copytrade.py` (4 lines), with `sim` and `report` re-run. Nothing was committed.*
 
 ## Verdict in brief
 
-HOLDOUT_VERDICT_TBD
+1. **The S5 verdict stands, and a fresh holdout makes it stronger. VERIFIED.**
+   * Holdout A: 383 random launches created 06:12-10:45 UTC today, all after the last data any wallet score could contain; scores frozen.
+   * All three surviving policies lose there:
+     * front-run upper bound (`Sd_d_1-3`): **-2.5% [-5.6, +1.4]** (n=65);
+     * best realistic policy on test (`Sb_R3` scalp): **-4.9% [-8.0, -1.8]** (n=150);
+     * honest walk-forward pick (`Sd_d_lt0.3` scalp): **-3.1% [-5.6, -0.5]** (n=185).
+   * With a second untouched holdout added (522 more launches), they are **-2.4% [-4.6, -0.0]**, **-4.9% [-7.0, -2.7]** and **-4.8% [-6.7, -2.7]**.
+   * All 16 holdout tests (3 policies plus the realistic version of the first, 2 lags, 2 holdouts) have BH q = 1.00.
+2. **One bug, fixed.**
+   * The "all tapes" rows weighted every launch equally. But gap-1 kept only 1 in 5 launches with ATH < $5.5k, so those rows over-weighted launches that later did well.
+   * With the subsample weight (w = 5) restored, the lead's all-tapes figure goes from **+1.6% to -0.6%**, and the number of all-tapes configs with n ≥ 20 and EV > 0 goes from **19 to 0**.
+   * Population results are unchanged.
+3. **None of the other attacks moves the test EV by more than 0.4 points in the copier's favour. The later-entry and crowding stresses only make it worse.**
+   * No look-ahead in wallet scoring. One latent look-ahead (later token transfers used to exclude signal wallets) never changes a single event.
+   * Fills are exact (1e-9) and sit at the end of the slot after the signal, never at the signal price.
+   * Truncated tapes and paging gaps are immaterial.
+   * Two hot test launches the study lost to paging limits are big copy winners, but restoring them moves test EV by at most +0.25 points.
+   * BH recomputes identically: 0 of 32,400 test p-values are below 0.05, and 27,549 configs are significantly *negative*.
+   * A missing guru exit ("auto-sell on big buy", 1,152 configs) finds nothing positive on test.
+   * Crowding (an extra +1.1 / +3.6 / +10.8% fill premium) costs 1 / 2.7 / 11 points.
+4. **The scope is narrower than the study says.**
+   * A 1.27% sample can only score wallets with at least ~20 early entries a day. The guru's ~8-a-day wallets have an 8% chance of being scored.
+   * So the null is established for bots. It is not established for low-frequency wallets, though the few slow wallets we do see lose money (§3).
+5. **No copy policy is a lead any more.**
+   * The only persistent positive PnL in this data belongs to the fast early wallets themselves: SOL-weighted own ROI of about +2-4% out of sample, after 0.004 SOL per trade.
+   * It sits at their own rank-1 fill and sub-5-second exit, and copying them loses 4-6%. See §5.
 
 ## 1. What we checked, and what we found
 
@@ -31,7 +56,41 @@ HOLDOUT_VERDICT_TBD
 
 ## 2. Fresh holdout
 
-HOLDOUT_TBD
+**Holdout A (fresh, primary).**
+
+* **Frame.** `getSignaturesForAddress` on the pump mint authority (`TSLvdd…`) gives 5,389 successful creates between 06:12 and 10:45 UTC on 2026-10-14 (28.3k a day).
+  * The window starts after 06:11 UTC, the last moment of any study tape's horizon, so every wallet score is frozen before it.
+  * Every create was at least 60 minutes old at pull time.
+* **Sampling.** Creates were taken in seeded random order and decoded with `dataset.creation_record` (994 decoded).
+  * 53% are non-mayhem and SOL-quoted; 34% are mayhem.
+  * 6 slot-0 graduations were skipped before pulling.
+* **Tapes.** The first 150 s from swap-api (95 s fallback).
+  * **689 requests** against a cap of 700. 108 of them were rate-limit retries caused by other agents' traffic.
+  * 422 tapes, **383 usable**. The other 39: 35 had no curve trades, 3 were slot-0 graduations caught late, and 1 hot curve launch (`9WUtJgC8…`, 3 SOL dev buy) could not be paged to slot 0. We dropped it, as the study did; §1 shows such drops are immaterial.
+* **Scores.** Built by the study's own `walk_forward()` over all 1,023 study tapes. Holdout launches never feed back into scores.
+* **Weights.** Unit weights. The sample is random, so they are population weights.
+
+**Holdout B (secondary, overlaps the study period).**
+
+* 522 usable light-sample launches from 2026-10-12..14 that neither the copy study nor gap-3 used (`data/cache/strategy/holdout_trades.jsonl`, 150 s, pulled by another agent).
+* Scores are point-in-time: only study launches whose horizon closed before each create count. Holdout launches never feed back.
+
+Entry is at the end of slot+1 (lag 2 also shown), the cost is 0.004 SOL per round trip, and the 90% CI comes from a launch bootstrap.
+
+| Policy | Study test (pop) | Holdout A | Holdout B | A + B | BH q (A, A+B) |
+|---|---|---|---|---|---|
+| **P1** `Sd_d_1-3` / 0.5 / FRONT:copy+idle3 / TP100 / 60 s (unachievable upper bound) | +0.58% [-3.1, +4.3] (89) | **-2.53% [-5.6, +1.4]** (65) | -2.33% [-5.1, +1.0] (77) | **-2.42% [-4.6, -0.0]** (142) | 1.00, 1.00 |
+| P1, realistic (copy-sell + 1 slot) | -3.87% [-7.7, +0.1] (89) | -5.51% [-8.8, -1.5] | -5.77% [-9.4, -1.9] | -5.66% [-8.2, -2.9] | 1.00, 1.00 |
+| **P2** `Sb_R3` / 0.5 / idle3 / TP30 / 60 s (best realistic, chosen on test) | -2.49% [-6.3, +1.4] (171) | **-4.89% [-8.0, -1.8]** (150) | -4.89% [-8.1, -1.8] (182) | **-4.89% [-7.0, -2.7]** (332) | 1.00, 1.00 |
+| **P3** `Sd_d_lt0.3` / 0.5 / idle3 / TP20 / 60 s (best on train) | -3.23% [-6.1, -0.4] (191) | **-3.12% [-5.6, -0.5]** (185) | -6.25% [-9.2, -3.3] (204) | **-4.76% [-6.7, -2.7]** (389) | 1.00, 1.00 |
+| *Reference:* `Sb_R1` default copy / 0.25 / 300 s | -6.99% (234) | -4.73% [-6.7, -2.6] (211) | -6.46% (247) | -5.66% [-7.1, -4.1] (458) | n/a |
+| *Control:* `C0` first independent buyer, same exit as P2 | -5.24% (274) | -5.12% [-7.0, -3.1] (267) | -5.19% (334) | -5.16% [-6.5, -3.7] (601) | n/a |
+| *Control:* `C0` default copy | -7.51% (274) | -6.17% [-8.1, -4.2] (267) | -9.22% (334) | -7.86% [-9.1, -6.6] (601) | n/a |
+
+* **Lag 2 on holdout A:** P1 -2.22%, P2 -3.93%, P3 -3.75%. At the competitive 0.01 SOL cost, subtract a further 1.2 points (0.5 SOL size).
+* **Signals per usable holdout launch:** P1 0.17, P2 0.39, P3 0.48. That is roughly 2.5k, 5.5k and 7k trades a day on ~15k usable creates a day. Capacity was never the problem.
+* **The scored wallets add nothing on fresh data.** P2 (-4.9%) and the unscored control with the same exit (-5.2%) are within noise of each other.
+* **The study's lead is dead.** Its front-run upper bound is negative on both holdouts, and on the combined 142 launches the CI touches zero from below. In practice that bound needs a sell landing ahead of the leader's own sell.
 
 ## 3. Why the null is robust
 
@@ -48,14 +107,33 @@ HOLDOUT_TBD
 
 ## 5. Most promising lead
 
-LEAD_TBD
+* **No copy policy remains a lead.** The study's lead (front-run exit on 1-3 SOL scored buys) is -2.4% [-4.6, -0.0] on 142 fresh launches, even as an upper bound that cannot be achieved. Every realistic variant is -3% to -6%.
+* **The single most promising lead in this data is the edge the leaders keep for themselves, and it is not copyable.**
+  * Take early independent wallets with a point-in-time median hold under 5 s over ≥3 earlier launches and a profitable history (`lead_check`; results in `data/cache/strategy_holdout_copy/lead_check.json`).
+  * Their SOL-weighted own ROI, after 0.004 SOL per trade:
+
+    | Split | Pairs | SOL-weighted own ROI [90% CI] | Per trade | Copying them |
+    |---|---|---|---|---|
+    | Train | 905 | **+5.3% [+2.7, +8.1]** | +2.2% | -5.5% |
+    | Test | 679 | **+3.8% [+0.4, +7.3]** | +1.7% | -4.8% |
+    | Holdout A | 417 | **+1.8% [-0.4, +4.2]** | +0.4% | -4.4% |
+    | Holdout B | 565 | **+3.2% [+0.0, +6.5]** | +0.1% | -6.2% |
+
+  * The money is in their rank-1 fill and an exit within seconds (the gap-3 `idle_3s` family). Following them always lands after they have sold.
+  * Pursuing it means competing for that fill, which is the sniping problem of S1-S4, not a copy problem. The scored set is useful there as a map of who you are racing.
+  * **Status: LIKELY real but small and decaying (+5.3% → +1.8% to +3.2%).** It was picked among about 8 diagnostic subgroups. It is SOL-weighted (the per-trade means are about 0 on the holdouts), and it excludes the leaders' own priority fees and tips.
+* **Untested, and the only way the guru's claim could still hold:** low-frequency "pump wallets" (~8 tokens a day).
+  * Testing them needs a full-feed wallet ledger, meaning every trade on every launch for several days, not a 1.3% sample.
+  * The priors are poor: slow wallets with profitable histories lose 4-7% themselves going forward, and the persistence test shows winners regressing to the mean.
 
 ## Reproduce
 
 ```
-.venv/bin/python -I analysis/scripts/strategy/copytrade_critic.py audit           # A1-A8 probes (~2 min, no network)
+.venv/bin/python -I analysis/scripts/strategy/copytrade_critic.py audit           # A1-A7: BH, baseline, look-ahead, refresh delay, entry stress, fills (~2 min)
+.venv/bin/python -I analysis/scripts/strategy/copytrade_critic.py probes          # A8-A12: clean tapes, hot launches, big-buy exit, study section 5, leaders by hold
 .venv/bin/python -I analysis/scripts/strategy/copytrade_critic.py holdout_pull 1.0 # fresh holdout (RPC + swap-api, <=700 requests)
 .venv/bin/python -I analysis/scripts/strategy/copytrade_critic.py hot_pull        # 2 hot test launches dropped by the study
 .venv/bin/python -I analysis/scripts/strategy/copytrade_critic.py holdout_eval    # frozen scores -> holdout signals -> policies
+.venv/bin/python -I analysis/scripts/strategy/copytrade_critic.py lead_check      # fast leaders' own ROI: train / test / holdouts
 .venv/bin/python -I analysis/scripts/strategy/copytrade.py sim && .venv/bin/python -I analysis/scripts/strategy/copytrade.py report   # study re-run with the weight fix
 ```

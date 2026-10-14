@@ -1,0 +1,141 @@
+{
+ "n_launches": 408,
+ "closed_positions": 1872,
+ "wallets": 981,
+ "roi_mean": 0.04092814062614425,
+ "roi_median": -0.02480929783822805,
+ "pnl_sum_sol": -34.94918839606247,
+ "share_profitable": 0.4375,
+ "wf_selected_wallets": 43,
+ "wf_test_positions": 65,
+ "wf_test_roi_mean": -0.04161028949681708,
+ "wf_test_roi_ci": [
+  -0.15647104587668437,
+  0.07039838957093124
+ ],
+ "wf_test_pnl_sum": -11.157303019712495,
+ "top_wallets_in_sample": [
+  {
+   "wallet": "5pUgxQGgX36GyV5BdsBNRAw9JxJ6Br4UVddJmJ3sumhc",
+   "n": 7,
+   "pnl": 10.761407388250001,
+   "roi_mean": 1.3144800061991726,
+   "median_first_trade_s": 0.0,
+   "median_hold_s": 19.0
+  },
+  {
+   "wallet": "9rYHALo6CGDdhKnGQSox1uQUyr3eQovAXY3iMzeLkFAt",
+   "n": 1,
+   "pnl": 7.2688966916750015,
+   "roi_mean": 2.795729498505085,
+   "median_first_trade_s": 0.0,
+   "median_hold_s": 65.0
+  },
+  {
+   "wallet": "BjD2HHepguECa7evn1WPXHHkzmnUYMyXXXYYFADazft7",
+   "n": 3,
+   "pnl": 5.1666708391,
+   "roi_mean": 5.078390196162954,
+   "median_first_trade_s": 22.0,
+   "median_hold_s": 47.0
+  },
+  {
+   "wallet": "8qFFFB8k99XVN3fMhkQRd8K6K1iPxcri1KaVrGXAbi8T",
+   "n": 1,
+   "pnl": 4.8782279418875,
+   "roi_mean": 3.4250326449509547,
+   "median_first_trade_s": 0.0,
+   "median_hold_s": 102.0
+  },
+  {
+   "wallet": "FhQg4hYGb6bEM5SgVRkB5bPyBiWxZRKDnxRrrkyDRGbX",
+   "n": 1,
+   "pnl": 3.966253928575,
+   "roi_mean": 2.0031585534274603,
+   "median_first_trade_s": 23.0,
+   "median_hold_s": 160.0
+  },
+  {
+   "wallet": "26WF2agrnqpQXkYkkuo48wD6PyhTqPtNCVkCS3FCL3Bb",
+   "n": 1,
+   "pnl": 2.8162793819250007,
+   "roi_mean": 9.38759804418703,
+   "median_first_trade_s": 12.0,
+   "median_hold_s": 36.0
+  },
+  {
+   "wallet": "H8sM6HNJKvMWxZu31pn8q7mxMjPoeuid5PqHaERvzdXk",
+   "n": 2,
+   "pnl": 2.6495259704375,
+   "roi_mean": 1.062552309814257,
+   "median_first_trade_s": 20.0,
+   "median_hold_s": 68.5
+  },
+  {
+   "wallet": "7qS94nqG8TXifQ7ptKrFWs9aU34uh6RssdJ5QBYAQDk5",
+   "n": 8,
+   "pnl": 2.3297886867125004,
+   "roi_mean": 0.39714460170546245,
+   "median_first_trade_s": 0.0,
+   "median_hold_s": 61.5
+  },
+  {
+   "wallet": "9E4so7x4MNqRNJSD1BtngNgdQsKLxRamwe74FzPYXW9Z",
+   "n": 1,
+   "pnl": 2.2092226799375005,
+   "roi_mean": 2.232272726864076,
+   "median_first_trade_s": 0.0,
+   "median_hold_s": 21.0
+  },
+  {
+   "wallet": "K6Eh9fwKkrhVNq6SpRtJn7F4Myi3HUst5QP8x5BKHnR",
+   "n": 13,
+   "pnl": 2.105232111187501,
+   "roi_mean": -0.019993766587206384,
+   "median_first_trade_s": 0.0,
+   "median_hold_s": 23.0
+  },
+  {
+   "wallet": "2wjsP4wEovqK8WGK8c4y9UXbkPJqMc7g6BhoRJQHjvJw",
+   "n": 1,
+   "pnl": 1.6542575919875,
+   "roi_mean": 4.668099025008819,
+   "median_first_trade_s": 0.0,
+   "median_hold_s": 33.0
+  },
+  {
+   "wallet": "2MHH9k7AQ9uKEfYszZYob9pmB8MwPNYqXAb6t9HdmCMQ",
+   "n": 2,
+   "pnl": 1.5187623886250001,
+   "roi_mean": 0.4861319210286793,
+   "median_first_trade_s": 18.0,
+   "median_hold_s": 12.0
+  },
+  {
+   "wallet": "H8srYEpyWnGQ1FnqoYJfXEjjaiw6hwwMUx7EL4xQsZQr",
+   "n": 1,
+   "pnl": 1.5023898108875,
+   "roi_mean": 3.7797907345644326,
+   "median_first_trade_s": 0.0,
+   "median_hold_s": 45.0
+  },
+  {
+   "wallet": "BefaLZajqW2gKu4F8gNxdm7fHPE7o6494Hg7KEwejtJU",
+   "n": 2,
+   "pnl": 1.4542528861750001,
+   "roi_mean": 5.604786752473667,
+   "median_first_trade_s": 0.0,
+   "median_hold_s": 44.5
+  },
+  {
+   "wallet": "AtepExxRkwM1zZ5TDn7HsEdEXKGDfLU7wZiTdJxDsHQP",
+   "n": 1,
+   "pnl": 1.4475796728125,
+   "roi_mean": 1.7486569434859227,
+   "median_first_trade_s": 43.0,
+   "median_hold_s": 5.0
+  }
+ ],
+ "wallets_ge5_positions": 59,
+ "wallets_ge5_profitable": 29
+}

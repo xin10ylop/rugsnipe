@@ -1,10 +1,18 @@
 {
- "generated_at": "2026-10-14T11:20:05Z",
+ "generated_at": "2026-10-14T12:13:12Z",
  "window_hours": 6.0,
  "n_sol_quoted_launches": 7049,
  "n_trades_pulled": 1797,
  "n_bundled": 579,
- "bundled_share": 0.0821,
+ "trades_modes": {
+  "skipped_ath": 1652,
+  "not_pulled": 3600,
+  "full_1page": 1340,
+  "full": 209,
+  "prefix60": 248
+ },
+ "bundled_share_known": 0.1679,
+ "bundled_share_known_nonmayhem": 0.1911,
  "n_signers_traced": 1982,
  "n_fresh_launches": 1374,
  "fresh_funder_kinds": {
@@ -314,12 +322,12 @@
   }
  ],
  "args": {
-  "stages": "cluster",
+  "stages": "cluster,expand",
   "hours": 6.0,
   "end": null,
   "horizon": 900,
   "rpc_rps": 8.0,
-  "api_rps": 3.0,
+  "api_rps": 2.0,
   "workers": 8,
   "funding_scope": "tradable",
   "min_cluster": 3,
@@ -328,5 +336,652 @@
   "expand_hours": 72.0,
   "max_minutes": 38.0
  },
- "expansion": {}
+ "expansion": {
+  "C001": {
+   "method": "a_mother+d",
+   "keys": [
+    {
+     "kind": "a_mother",
+     "key": "64wbopqaUeAENaMiXwozvsqgZMgftGidundhSm4XF6md",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "4WWBZpVu3WQoPjVYKEhDdq78S9xqvJu2tX9pS7eYJ5yk",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "9B2jKRQBnmNPKd6NgkNi3Z3B9wT6RR3qezp8CEGekye9",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
+   "n_found": 0
+  },
+  "C004": {
+   "method": "c+d",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "8UFCmgL3TN8sfVirNm4aGW2u99AAzPNCwYQ8Rha52Kav",
+     "status": "ok",
+     "found": 3
+    },
+    {
+     "kind": "c",
+     "key": "9LEDdnbQYkRcHEGYZPEhzGjJeyfsgHdTu5LVNpgsQVHf",
+     "status": "ok",
+     "found": 1
+    },
+    {
+     "kind": "c",
+     "key": "EtFSQARAa64tfXbNWm1SiWLs1WJrRatidHYuzybK4MjF",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "3DnNdd6FAjSyCKMybcVa3dWhtgPCkRAshzhdMCqTR293",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "7BNKbm2KMDtF329hq3utXNSNhEkN5HAvV7LbynLZkD5J",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
+   "n_found": 4
+  },
+  "C011": {
+   "method": "c",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "8hoff6aFPGfTE1zQ2CrpUxvdwenswZJXJsnbThEKc2rp",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "AwTf1KyStmXBif3XS6hT9P8qZD8qVBXB6VYZkUrpinex",
+     "status": "ok",
+     "found": 7
+    },
+    {
+     "kind": "c",
+     "key": "BDyjZec1cUkRLnHUjxMRmUxjvzkwhHF9zNPUEpU5gqUh",
+     "status": "ok",
+     "found": 2
+    }
+   ],
+   "status": "ok",
+   "n_found": 9
+  },
+  "C014": {
+   "method": "a_mother+d+c",
+   "keys": [
+    {
+     "kind": "a_mother",
+     "key": "ET69TzBLppVXzQAzMiXPxYKzDybFrxg759zuVGAQJNrD",
+     "status": "ok",
+     "found": 25
+    }
+   ],
+   "status": "ok",
+   "n_found": 25
+  },
+  "C017": {
+   "method": "a_mother+c",
+   "keys": [
+    {
+     "kind": "a_mother",
+     "key": "JAmGVx91nwS8MxTEKxmA6MMTgrSkQBs2ktavsKPdi3ug",
+     "status": "ok",
+     "found": 12
+    },
+    {
+     "kind": "c",
+     "key": "5keZDfGz6og3j5Zg1RKwQFq2YH4Ba73mFKBrQ3oFR49A",
+     "status": "ok",
+     "found": 5
+    },
+    {
+     "kind": "c",
+     "key": "6F1kzJ3UDqJp1wn793ukFWitUgVYkMqY3GPJehBQc8Wv",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "8WGf6wQqRDn7UeRrq9Pz5LtKUkb9D3rFiE2RNemMbDUi",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "HAmnM7iniF3FGdD3Gu4M2XZtuYADnmr6XDert7eA7aR3",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
+   "n_found": 17
+  },
+  "C028": {
+   "method": "c+d",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "8cyV9PNBauy1JH1ByYXJcPkCD8qVZY6aMG7cqRCM9GcD",
+     "status": "ok",
+     "found": 2
+    },
+    {
+     "kind": "c",
+     "key": "AfxriQ2TVVfE2AokYVDSJZdwoFCV1hXEzPU1eNVtihr9",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "7x7nFGrBz4ikQzbFEfYYEvG3JGszVRwzipjLexkwJbr1",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
+   "n_found": 2
+  },
+  "C029": {
+   "method": "d+c",
+   "keys": [
+    {
+     "kind": "d",
+     "key": "6UDa2n542Ap8naVzWiXieuYhmEGn512bAjsyePZpVHk9",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "6EaXeYSg1uagYTVDtYuu1DxgYphAR824ELccpGNHddK8",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "AZVqY8nGfaWAFHyzNxWzqQU7my9Tyjita9SrcRYf99f7",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "HPj4dTYrLd4dytLMmAB3Axx9RszwNkeFqgjHubutGDGY",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
+   "n_found": 0
+  },
+  "C034": {
+   "method": "c+d",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "9mYSL8yVahDPNRaR9KLZSFpxrvjhkFk3CB67ko7LgSHF",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "5LWtpGmwibCTE3J7Mbxt14FGo8dzuK5e45qaXmN6L3vV",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "BhYBQXbLrwCGFnfp1E7ZnM71L76oB8fmfntLxS7gfebJ",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
+   "n_found": 0
+  },
+  "C041": {
+   "method": "c",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "FthzaNju3KNsbw9X4yCgKHBQCPJ3HWcaWGK7cNvqZYxG",
+     "status": "ok",
+     "found": 3
+    },
+    {
+     "kind": "c",
+     "key": "GZc8Ex2h4A6Yp7J711xWU6pXYyNZjS7PzS13LkbjC6XT",
+     "status": "ok",
+     "found": 1
+    },
+    {
+     "kind": "c",
+     "key": "HLocRpSLh2ToLxSBT2XhfUKeziUVmvD9ySt5TNciYSuK",
+     "status": "ok",
+     "found": 4
+    }
+   ],
+   "status": "ok",
+   "n_found": 8
+  },
+  "C056": {
+   "method": "c",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "2jX6jm3eXFvGKeJCWHY5oH8JvP5vNKLvCw4m3eDzvHfm",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "2w3nD9VdShyo1zTuoajtgQKKSRMQNPSHxHPwDwfB5Q3c",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "4G9JAzftaydKjB2558MLnkYw175KMN6NGGgyxkeRuwwA",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "6tzAKfHtQA4zLwgaXn97kU5C1dYsKcRy8XZhZUWmWU23",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
+   "n_found": 0
+  },
+  "C062": {
+   "method": "c+d",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "8uKDtj3Bmc3sGBjMxfzvn4sBobNfmNmrjikek6erE73E",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "12UwnWB2KxuHWjURJ2SYrHLwEHaZUmj48MXM8KGgjav9",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
+   "n_found": 0
+  },
+  "C064": {
+   "method": "c+d",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "2V6oHwhG6Wxm72uSsXwG5Uami17M58cjHr2AVos51jxT",
+     "status": "ok",
+     "found": 5
+    },
+    {
+     "kind": "c",
+     "key": "3cCjvEQiQAz17VqRtpgpwXAsbBqSXEFgxMFnHi6Jsgcn",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "99kZbsmqacHzCBotcXEc1LXdRdH7jEtCUunUucS2GiWo",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "CJBRLNdjMd6TcsLUpdWxgyFNJfJP7PCABDjtEsGTaceS",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "GQsQEHY3RDoLXFLcRuVttJMpWoc3fjDRzgtLAtQmUqN5",
+     "status": "ok",
+     "found": 4
+    }
+   ],
+   "status": "ok",
+   "n_found": 9
+  },
+  "C072": {
+   "method": "d+c",
+   "keys": [
+    {
+     "kind": "d",
+     "key": "B4RdcEazcc6oFsqnQwsVDRE5BgrcCDSopz1BMeJXQG3u",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "6NDckgf3QPyRG9ddHHrNGDCV2wRj7WYuvC6TEZdwYWnF",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "J67uzxfBbzQNaUmEFUQ6zqpmc6AEW9a73HYkhCA2g1MC",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
+   "n_found": 0
+  },
+  "C084": {
+   "method": "c",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "5zFqvGj3x1Ubp7Zn7SACZnUFfm2DKMnbvG8zWscSMR3b",
+     "status": "ok",
+     "found": 15
+    },
+    {
+     "kind": "c",
+     "key": "7MxmPPV4LY8tMu1rJ3PMFBuECPGhGpUcmr835meXcytz",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "7uWDAcGhsLJfwgHQ4bt3SmdiEopcqbS9zGP9ZKZfDP8c",
+     "status": "ok",
+     "found": 1
+    },
+    {
+     "kind": "c",
+     "key": "DBwE9B8HxVGd8bBfqF26wJqQX2gHzWtvBK9AYZxmUAK8",
+     "status": "ok",
+     "found": 1
+    }
+   ],
+   "status": "ok",
+   "n_found": 17
+  },
+  "C100": {
+   "method": "c",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "33CNJEUTpi1zisZpig4JroY1cnVjdPaUZKr1DNxQ5ijD",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "CPH9FL5TL9njcSen6JxzBks7Ety72xKxgWCZ7XHSGY4",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "D57TdtmSj337mWB3wxrKAS1zm4CgJ41F5xgLt9d9XopM",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
+   "n_found": 0
+  },
+  "C108": {
+   "method": "d+c",
+   "keys": [
+    {
+     "kind": "d",
+     "key": "DnFsgpK8LSc6Pr4R79vkjAy93TiM73CN3nWBWeiDcqh",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "242fa4ne7VKkjJdB866DWqujMGK1vNZg1uRXbMZuSoTi",
+     "status": "ok",
+     "found": 5
+    },
+    {
+     "kind": "c",
+     "key": "EzrcmEu3VC5WoC8xcrKdSuBC9frbGchLMRJxZDn2QWBh",
+     "status": "ok",
+     "found": 9
+    },
+    {
+     "kind": "c",
+     "key": "G4tFdxs3xGLqAh7oN47v9EPba9fX8gq3d2tUVFbDwL7T",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "ypnQLY2y3Jrh8y5Akgn7ndNuygXCKPXuMJhpipDy6kN",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
+   "n_found": 14
+  },
+  "C109": {
+   "method": "c",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "1it1Fs7jUe8bseXHN46EQNqFRac6MJHe7UDV62A9Tk5",
+     "status": "ok",
+     "found": 6
+    },
+    {
+     "kind": "c",
+     "key": "3QKprrnS5o6v2zLTRQm3J1dSviugLENPHiXJ88tVqmWS",
+     "status": "ok",
+     "found": 16
+    },
+    {
+     "kind": "c",
+     "key": "6Y2vmyNqp24EoUPQFz4SpjvYnTGE2ngYryKmSJ1Bd1RN",
+     "status": "ok",
+     "found": 2
+    },
+    {
+     "kind": "c",
+     "key": "7Zf3Ze1uo4f2SZwQbGjQoS3D8jDAtZ1Xu62k2QFqmCCV",
+     "status": "ok",
+     "found": 3
+    }
+   ],
+   "status": "ok",
+   "n_found": 25
+  },
+  "C183": {
+   "method": "c",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "2HAEG9hfgevQtaqGnUd7UL4rnup7kA5okQfo3iJZ5mAh",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
+   "n_found": 0
+  },
+  "C222": {
+   "method": "c",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "6uVUur5QDNJ91KDY2Jze5fhu4r6q2mvC4AHjMW2qChXf",
+     "status": "ok",
+     "found": 2
+    },
+    {
+     "kind": "c",
+     "key": "D5KapXqMGmjsjmDcB7ygQjWDoypKqma7URTZrCj4jDTn",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "FZza8vArCCCaaBu2XxJAULGyhzE4aZyM3R5d3sJbceBf",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
+   "n_found": 2
+  },
+  "C256": {
+   "method": "c",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "ECEnxytiSskDiM9NCt7ehys2zhUJpv5Ksmdf8qKCzwun",
+     "status": "ok",
+     "found": 13
+    }
+   ],
+   "status": "ok",
+   "n_found": 13
+  },
+  "C311": {
+   "method": "c",
+   "keys": [],
+   "status": "deadline",
+   "n_found": 0
+  },
+  "C003": {
+   "method": "d+c",
+   "keys": [
+    {
+     "kind": "d",
+     "key": "DqeVuNmymZEqzNQmFUvMGAL6xaB49TN7yCmx3h3FpYaK",
+     "status": "ok",
+     "found": 18
+    },
+    {
+     "kind": "d",
+     "key": "EUA3BRvTAWPKEcxhm7tCEppuNoevSBMCfKLaXAiAPNKA",
+     "status": "ok",
+     "found": 20
+    }
+   ],
+   "status": "ok",
+   "n_found": 25
+  },
+  "C005": {
+   "method": "d+c",
+   "keys": [
+    {
+     "kind": "d",
+     "key": "DJQwtiowTJmAvAu4vhCaFgPiS3nnKD5r5agZgBQEdHK2",
+     "status": "ok",
+     "found": 12
+    },
+    {
+     "kind": "d",
+     "key": "G54ZbbLh1SutTwegKdPwpKfUj4xaYr7xq26ynAnV1RaD",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "HoNZUc53DmGKmXy424NNGtu7fTUEQaamrocHsyvTi5sL",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "hYP39WZZQyxkm2vs7j59TFCfK2iuCKAJ3HGeuNRfvZS",
+     "status": "ok",
+     "found": 1
+    },
+    {
+     "kind": "c",
+     "key": "3uuGdtp8Yves8TfbnjRJbv5VPNabTRnTv9g4GFmbGckw",
+     "status": "ok",
+     "found": 7
+    },
+    {
+     "kind": "c",
+     "key": "7cWpF6NeGueFa6JXDrTQmApinoHjyfsh5kaAXDaeoEy8",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "AaNmgcFtXYxaYQn22RdJroZYS8s6pVG9PvbFaDfTZ2JZ",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "deadline",
+   "n_found": 20
+  },
+  "C006": {
+   "method": "d+c",
+   "keys": [],
+   "status": "deadline",
+   "n_found": 0
+  },
+  "C008": {
+   "method": "d+c",
+   "keys": [],
+   "status": "deadline",
+   "n_found": 0
+  },
+  "C009": {
+   "method": "d+c",
+   "keys": [],
+   "status": "deadline",
+   "n_found": 0
+  },
+  "C010": {
+   "method": "d+c",
+   "keys": [],
+   "status": "deadline",
+   "n_found": 0
+  },
+  "C012": {
+   "method": "d+c",
+   "keys": [],
+   "status": "deadline",
+   "n_found": 0
+  },
+  "C013": {
+   "method": "d+c",
+   "keys": [],
+   "status": "deadline",
+   "n_found": 0
+  },
+  "C015": {
+   "method": "d+c",
+   "keys": [],
+   "status": "deadline",
+   "n_found": 0
+  }
+ }
 }

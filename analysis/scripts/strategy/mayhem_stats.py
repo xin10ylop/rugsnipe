@@ -21,7 +21,8 @@ def share(b):
     b = [v for v in b if v is not None]
     return {'n': len(b), 'share': float(np.mean(b)) if b else None}
 
-out = {'n_rows': len(rows), 'n_tapes': len(tps)}
+out = {'n_rows': len(rows), 'n_tapes': len(tps),
+       'n_full_checkpoint_rows': sum('latest' in (r.get('cp') or {}) for r in rows)}
 cov = [r['cov'] for r in rows]
 out['coverage'] = {str(k): cov.count(k) for k in set(cov)}
 
@@ -44,7 +45,8 @@ for r in rows:
                 last = max(last or 0, t[3])
     if len(ai):
         last = max(last or 0, tp.ts[ai[-1]])
-    ag_last_any.append((last - tp.bt) if last else None)
+    if 'latest' in (r.get('cp') or {}):          # full-checkpoint rows only
+        ag_last_any.append((last - tp.bt) if last else None)
     if len(ai) == 0:
         first_s.append(None); continue
     i0 = ai[0]

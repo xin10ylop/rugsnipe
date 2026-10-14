@@ -1104,6 +1104,11 @@ impl HotLoop {
                 try_no: o.try_no,
             });
             self.apply_exit(i, ExitEvent::Trade(fill), now);
+            // persist the new size (a close sends its own final snapshot)
+            if let Some(s) = self.slots[i].as_ref() {
+                let snap = s.pos;
+                self.send_cold(ColdMsg::Position(snap));
+            }
         }
     }
 

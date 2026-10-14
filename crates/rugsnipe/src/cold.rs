@@ -495,8 +495,8 @@ impl Cold {
                 let Some(state) = pos_state(p.state) else {
                     return;
                 };
-                if state != PosState::Closed {
-                    // snapshots are sent on open and on close only
+                if state == PosState::Open && p.next_order_id == 1 {
+                    // the snapshot sent by `Opened` (no order issued yet)
                     lock(&self.p.report).positions_opened += 1;
                 }
                 if let Some(l) = &ledger {

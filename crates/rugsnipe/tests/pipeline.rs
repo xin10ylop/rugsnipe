@@ -335,3 +335,18 @@ fn real_modes_are_refused_by_the_library_and_the_binary() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn paper_mode_never_builds_a_real_sender_even_when_configured() {
+    let dir = tmpdir("paper-senders");
+    let mut cfg = paper_cfg(&dir);
+    cfg.senders.rpcsend.enabled = true;
+    cfg.senders.helius.enabled = true;
+    cfg.senders.helius.url = "http://127.0.0.1:9".into();
+    cfg.senders.jito.enabled = true;
+    let app = build(cfg, armset(&[], &[]), &dir, 3, false);
+    assert!(app.senders.real().is_empty());
+    assert_eq!(app.senders.mode, rugsnipe_core::Mode::Paper);
+    app.shutdown(vec![]);
+    let _ = std::fs::remove_dir_all(&dir);
+}

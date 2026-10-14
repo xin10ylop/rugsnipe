@@ -545,6 +545,158 @@ def lead_check():
     json.dump(out, open(HC / "lead_check.json", "w"), indent=1)
 
 
+# ============================================================================ probes (A8-A12)
+def _bad_reserves(t):
+    end = t.hend
+    if end < 2:
+        return False
+    vs = np.sqrt(ct.K_CURVE * t.mc[:end] / 1e6) / 1e9
+    d = np.diff(vs)
+    sg = np.where(t.buy[1:end], t.sol[1:end], -t.sol[1:end])
+    _, inv = np.unique(t.slot[1:end], return_inverse=True)
+    b = np.abs(np.bincount(inv, weights=d) - np.bincount(inv, weights=sg)) > \
+        (0.02 * np.bincount(inv, weights=np.abs(sg)) + 0.002)
+    return bool(b.sum() > 0)
+
+
+def probes():
+    import itertools
+    mod = load_script()
+    T = study_tapes()
+    cut = int(np.quantile([t.bt for t in T], 0.60))
+    out = {}
+    # ---- A8: drop tapes whose implied reserves are inconsistent (paging gaps / non-standard curves)
+    bad = [t for t in T if _bad_reserves(t)]
+    out["A8_inconsistent_tapes"] = {s_: sum(1 for t in bad if t.src == s_) for s_ in ("gap3", "ops", "deep")}
+    T2 = [t for t in T if not _bad_reserves(t)]
+    TT, ev = run_with(mod, T2, [])
+    W, _ = mod.pop_weights(TT, cut)
+    by = {t.mint: t for t in TT}
+    out["A8_clean"] = {nm: summarize(pol_returns(ev, pol), by, W, cut) for nm, pol in POLICIES.items()}
+    # ---- A9: restore the 2 hot test launches dropped by paging (not frozen: they are study-period launches)
+    HOT, _ = mk_tapes(HC / "hot_trades.jsonl", "deep", False)
+    for t in HOT:
+        t.src = "deep"
+    TT, ev = run_with(mod, T, HOT)
+    W, _ = mod.pop_weights(TT, cut)
+    by = {t.mint: t for t in TT}
+    out["A9_hot_restored"] = {nm: summarize(pol_returns(ev, pol), by, W, cut) for nm, pol in POLICIES.items()}
+    # ---- baseline events (study tapes only)
+    TT, events = run_with(mod, T, [])
+    W, _ = mod.pop_weights(TT, cut)
+    by = {t.mint: t for t in TT}
+    # ---- A10: the guru's "auto-sell on big buy" exit (missing from the study's grid)
+    kinds = ["Sb_R1", "Sb_R3", "Sb_R4", "Sc_2in5s", "Sd_d_lt0.3", "Sd_d_0.3-1", "Sd_d_1-3", "Sd_band", "C0_first_indep"]
+    BIG, COMBO, TPS_, HS = (0.5, 1.0, 2.0, 4.0), [(), ("idle3",), ("copy",), ("copy", "idle3")], (None, 0.3), (60, 300)
+    res = []
+    for kind in kinds:
+        E = [e for e in events if e["kind"] == kind]
+        for size in (0.25, 0.5):
+            base = []
+            for e in E:
+                ev = e["evs"][(1, size)]
+                if ev is None:
+                    continue
+                t = by[e["mint"]]
+                e0, end = ev["e"], t.hend
+                ws = {e["w"]} if isinstance(e["w"], str) else set(e["w"])
+                trig = {}
+                for X in BIG:
+                    j = next((k for k in range(e0 + 1, end) if t.buy[k] and t.sol[k] >= X and t.user[k] not in ws), None)
+                    if j is not None:
+                        s_ = max(int(t.slot[j]) + 1, ev["s_ent"] + 1)
+                        trig[X] = max(int(np.searchsorted(t.slot[e0:end], s_, side="right")) - 1, 0)
+                base.append((e["mint"], ev, trig))
+            for X, keys, tp, h in itertools.product(BIG, COMBO, TPS_, HS):
+                x, w, sp = [], [], []
+                for m, ev, trig in base:
+                    v, _ = ct.policy_exit(ev, keys, tp, h)
+                    if X in trig:
+                        c_ = [ev["trig"][k] for k in keys if k in ev["trig"]]
+                        if tp is not None and f"tp{tp}" in ev["trig"]:
+                            c_.append(ev["trig"][f"tp{tp}"])
+                        c_.append(ev["holds"][h][0])
+                        if trig[X] < min(c_):
+                            v = float(ev["v"][trig[X]])
+                    x.append((v - size - COST) / size)
+                    w.append(W[m])
+                    sp.append(by[m].bt >= cut)
+                x, w, sp = np.array(x), np.array(w), np.array(sp)
+                row = {"kind": kind, "size": size, "X": X, "keys": keys, "tp": tp, "h": h}
+                for nm, msk in (("train", ~sp & (w > 0)), ("test", sp & (w > 0))):
+                    m_, se = ct.wmean_se(x[msk], w[msk])
+                    row[nm] = [m_, se, int(msk.sum()), ct.norm_sf(m_ / se) if se > 0 else 1.0]
+                res.append(row)
+    q = ct.bh([r["test"][3] for r in res])
+    bt_ = max(res, key=lambda r: r["train"][0])
+    bs_ = max(res, key=lambda r: r["test"][0])
+    out["A10_bigbuy"] = {"configs": len(res), "min_q": float(min(q)), "n_test_pos": sum(r["test"][0] > 0 for r in res),
+                         "best_on_train": bt_, "best_on_test": bs_}
+    print("A10", json.dumps(out["A10_bigbuy"], default=str), flush=True)
+    # ---- A11: study section 5 (leader vs copy, persistence) and A12: leaders by point-in-time hold
+    pairs = []
+    seen = collections.defaultdict(list)
+    pending = []
+    for t in TT:
+        pending.sort(key=lambda z: z[0])
+        while pending and pending[0][0] < t.bt:
+            _, ul = pending.pop(0)
+            for u, hd, roi in ul:
+                seen[u].append((hd, roi))
+        L = ct.ledger(t)
+        P = ct.prep(t)
+        ins = t.C | t.B | t.funders | t.xrecv
+        done = []
+        for u, r in L.items():
+            if r["fb"] is None or u in ins or r["fb_s"] >= 30:
+                continue
+            roi = r["pnl"] / r["sin"] if r["sin"] else 0.0
+            done.append((u, r["hold"] if r["hold"] is not None else 900.0, roi))
+            if mod.role_of(t, u) != "O":
+                continue
+            e25 = ct.event_paths(t, P, r["fb"], u, 1, 0.25)
+            e50 = ct.event_paths(t, P, r["fb"], u, 1, 0.5)
+            if e25 is None:
+                continue
+            h = seen.get(u, [])
+            pairs.append({"u": u, "test": t.bt >= cut, "roi": roi,
+                          "cp": (ct.policy_exit(e25, ("copy",), None, 300)[0] - 0.25 - COST) / 0.25,
+                          "fr": (ct.policy_exit(e25, ("copy",), None, 300, True)[0] - 0.25 - COST) / 0.25,
+                          "sc": (ct.policy_exit(e25, ("idle3", "trail20"), 0.2, 60)[0] - 0.25 - COST) / 0.25,
+                          "cp50": (ct.policy_exit(e50, ("copy",), None, 300)[0] - 0.5 - COST) / 0.5 if e50 else None,
+                          "nh": len(h), "mh": float(np.median([z[0] for z in h])) if h else None,
+                          "proi": float(np.mean([z[1] for z in h])) if h else None})
+        pending.append((t.end_time, done))
+    A = lambda k, sel: float(np.mean([p_[k] for p_ in sel])) if sel else None
+    out["A11_section5"] = {"pairs": len(pairs), "leader_roi": A("roi", pairs), "copy": A("cp", pairs),
+                           "front": A("fr", pairs), "scalp": A("sc", pairs)}
+    byu = collections.defaultdict(lambda: {"tr": [], "te": [], "teo": []})
+    for p_ in pairs:
+        d = byu[p_["u"]]
+        (d["te"] if p_["test"] else d["tr"]).append(p_["cp"])
+        if p_["test"]:
+            d["teo"].append(p_["roi"])
+    Wl = sorted([(np.mean(d["tr"]), np.mean(d["te"]), np.mean(d["teo"])) for d in byu.values()
+                 if len(d["tr"]) >= 4 and len(d["te"]) >= 3])
+    n = len(Wl)
+    out["A11_persistence"] = {"wallets": n, "terciles": [[float(np.mean([z[i] for z in Wl[a:b]])) for i in range(3)]
+                                                         for a, b in ((0, n // 3), (n // 3, 2 * n // 3), (2 * n // 3, n))],
+                              "corr": float(np.corrcoef([z[0] for z in Wl], [z[1] for z in Wl])[0, 1])}
+    a12 = {}
+    for lo, hi in ((0, 5), (5, 30), (30, 120), (120, 1e9)):
+        sel = [p_ for p_ in pairs if p_["nh"] >= 3 and lo <= p_["mh"] < hi and p_["cp50"] is not None]
+        a12[f"hold_{lo}_{hi}"] = {"n": len(sel), "copy50": A("cp50", sel), "leader": A("roi", sel)}
+    for lo, prmin in ((30, 0.0), (60, 0.0)):
+        for split in (False, True):
+            sel = [p_ for p_ in pairs if p_["nh"] >= 3 and p_["mh"] >= lo and p_["proi"] > prmin
+                   and p_["test"] == split and p_["cp50"] is not None]
+            a12[f"slow_ge{lo}_profitable_{'test' if split else 'train'}"] = {"n": len(sel), "copy50": A("cp50", sel),
+                                                                          "leader": A("roi", sel)}
+    out["A12_leaders_by_hold"] = a12
+    print(json.dumps({k: v for k, v in out.items() if k != "A10_bigbuy"}, indent=1, default=float))
+    json.dump(out, open(HC / "probes.json", "w"), indent=1, default=float)
+
+
 if __name__ == "__main__":
     stage = sys.argv[1] if len(sys.argv) > 1 else "audit"
-    {"holdout_pull": holdout_pull, "audit": audit, "hot_pull": hot_pull, "holdout_eval": holdout_eval, "lead_check": lead_check}[stage]()
+    {"holdout_pull": holdout_pull, "audit": audit, "hot_pull": hot_pull, "holdout_eval": holdout_eval, "lead_check": lead_check, "probes": probes}[stage]()

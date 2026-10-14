@@ -34,6 +34,7 @@ const USAGE: &str =
     "usage: rugsnipe-replay --frames <jsonl> [--frames <jsonl> ...] [--config <toml>]
     [--armset <file> [--paper-unsigned-armset]] [--watch-every K] [--warmup N] [--loops N]
     [--state <db>|none] [--rslog-dir <dir>] [--no-trades] [--fill-timeout-slots N] [--speed X]
+    [--sleep-when-idle] [--no-pin | --pin-core N] [--drain-ms N]
     [--assert-zero-alloc] [--p99-max-us N] [--summary <json>]";
 
 fn main() {
@@ -180,8 +181,19 @@ fn run(args: &[String]) -> Result<i32, String> {
         paper_balance: 5_000_000_000,
         live_flag: false,
     })?;
+    // production layout: the hot loop pinned and busy-polling (docs/06 section 7.1)
+    let busy = !flag(args, "--sleep-when-idle");
+    if !flag(args, "--no-pin") {
+        let want: Option<usize> = opt(args, "--pin-core").and_then(|c| c.parse().ok());
+        if let Some(c) = core_affinity::get_core_ids().and_then(|ids| match want {
+            Some(n) => ids.into_iter().find(|c| c.id == n),
+            None => ids.last().copied(),
+        }) {
+            core_affinity::set_for_current(c);
+        }
+    }
     let warmup = num(args, "--warmup", (n_events / 10).clamp(20, 5_000) as u64)?;
-    let mut buf = FeedBuf::with_capacity(256, 1 << 20);
+    let mut buf = FeedBuf::with_capacity(32, 1 << 20);
     let mut counted_events = 0u64;
     let mut counting = false;
     let t0 = std::time::Instant::now();
@@ -197,9 +209,16 @@ fn run(args: &[String]) -> Result<i32, String> {
         if st == FeedStatus::Ended {
             break;
         }
-        if speed > 0.0 && st == FeedStatus::Idle {
+        if speed > 0.0 && st == FeedStatus::Idle && !busy {
             std::thread::sleep(std::time::Duration::from_micros(200));
         }
+    }
+    // drain: keep ticking so pending paper fills (deadline fallback) and exits resolve
+    let drain = std::time::Duration::from_millis(num(args, "--drain-ms", 1_500u64)?);
+    let t_end = std::time::Instant::now();
+    while t_end.elapsed() < drain {
+        app.hot.step(&mut mux, &mut buf);
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
     alloc_count::set_counting(false);
     let (allocs, bytes) = alloc_count::counts();
