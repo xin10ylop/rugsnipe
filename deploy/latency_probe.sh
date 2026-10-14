@@ -21,13 +21,13 @@ HOSTS=(
   "jito-slc         slc.mainnet.block-engine.jito.wtf:443"
   "jito-global      mainnet.block-engine.jito.wtf:443"
   # Helius Sender regional endpoints (http) --------------------------------------
-  "helius-slc       slc-sender.helius-rpc.com:443"
-  "helius-ewr       ewr-sender.helius-rpc.com:443"
-  "helius-lon       lon-sender.helius-rpc.com:443"
-  "helius-fra       fra-sender.helius-rpc.com:443"
-  "helius-ams       ams-sender.helius-rpc.com:443"
-  "helius-sg        sg-sender.helius-rpc.com:443"
-  "helius-tyo       tyo-sender.helius-rpc.com:443"
+  "helius-slc       http://slc-sender.helius-rpc.com/ping"
+  "helius-ewr       http://ewr-sender.helius-rpc.com/ping"
+  "helius-lon       http://lon-sender.helius-rpc.com/ping"
+  "helius-fra       http://fra-sender.helius-rpc.com/ping"
+  "helius-ams       http://ams-sender.helius-rpc.com/ping"
+  "helius-sg        http://sg-sender.helius-rpc.com/ping"
+  "helius-tyo       http://tyo-sender.helius-rpc.com/ping"
   "helius-global    sender.helius-rpc.com:443"
   # Public RPCs and pump.fun API (reference) --------------------------------------
   "solana-public    api.mainnet-beta.solana.com:443"
@@ -47,7 +47,8 @@ for entry in "${HOSTS[@]}"; do
   ok=0
   for i in $(seq 1 "$N"); do
     # time_connect = TCP connect only; resolves DNS once per call (first call warms the cache)
-    t=$(curl -s -o /dev/null --max-time 3 -w "%{time_connect}" "https://$host/" 2>/dev/null || echo "")
+    case "$host" in http://*|https://*) url="$host";; *) url="https://$host/";; esac
+    t=$(curl -s -o /dev/null --max-time 3 -w "%{time_connect}" "$url" 2>/dev/null || echo "")
     if [ -n "$t" ] && [ "$t" != "0.000000" ]; then
       times+=("$t"); ok=$((ok+1))
     fi
