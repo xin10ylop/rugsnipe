@@ -1,0 +1,9 @@
+data/cache/
+data/raw/
+*.pyc
+__pycache__/
+target/
+node_modules/
+.env
+*.pem
+.venv/
