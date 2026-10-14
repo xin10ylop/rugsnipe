@@ -222,7 +222,8 @@ pub struct PumpTrade {
     pub quote_mint: Option<Pubkey>,
     /// Legacy / v2 protocol fee recipient (v3 has none).
     pub fee_recipient: Option<Pubkey>,
-    /// v2 #8, v3 #13, legacy remaining (last account).
+    /// v2 #8, v3 #13, legacy remaining (last account). On a token-quoted v3
+    /// trade #13 is the buyback wallet's quote ATA, not the wallet.
     pub buyback_fee_recipient: Option<Pubkey>,
     pub num_accounts: usize,
 }

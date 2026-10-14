@@ -163,10 +163,23 @@ the last ~5% of a block (6.8% of creates) are unreachable in slot 0, and slot+1 
 75% of the time. Fill premium over the post-bundle price: 1st reactive buyer +1.1% median (+3.6% on
 CEX-funded bundled launches), 3rd +10.8%, 5th +15.8%, so **rank 1 is the whole edge** and slippage
 must be capped near +10%. Use **transaction v1** where the path
-accepts it (Jito, Helius, Nozomi, Astralane and Stellium were all observed landing v1): no
-compute-budget instructions, the compute-unit limit and loaded-accounts size **must** be set in the
-header (unset means zero), the priority fee is a total in lamports, no address-lookup tables (none
-are needed: the whole transaction is ~830 bytes against a 4,096-byte limit). Observed cost of a landed block-0 buy:
+accepts it: no compute-budget instructions, the compute-unit limit and loaded-accounts size **must**
+be set in the header (unset means zero and the transaction pays its fee for nothing), the priority fee
+is a total in lamports, no address-lookup tables. Simulated on mainnet against fresh curves: the
+snipe `ATA create + buy_v3 + tip` is **805 bytes** (880 with a nonce advance), consumes **61.5-71k CU**
+depending on PDA bumps (set the limit to **72,000**, or 72,150 with a nonce), and loads
+**12,089,448 bytes** of accounts (set 12,124,160 = 370 pages; recompute from live program sizes),
+which cuts the scheduler's "phantom" cost by ~13,400 units versus the 64 MiB default. Keep every
+variant ≤ 1,232 bytes: Astralane and NextBlock QUIC and Nozomi bundles cap there even for v1. In a
+160-block scan, v1 landed through Jito (`sendBundle` included), Helius (both tiers), Nozomi,
+Astralane, Stellium, 0slot, BlockRazor, NextBlock and bloXroute; **v1 plus a durable nonce** landed
+through all of those except 0slot (unproven) and bloXroute. Neither the Agave nor the Firedancer
+scheduler penalises nonce transactions (they only de-duplicate per nonce); only Nozomi warns that
+builders "may deprioritise" them, so A/B test per path. The next nonce value is
+`sha256("DURABLE_NONCE" ‖ previousBlockhash of the slot where the advance landed)`, so every box can
+re-arm without an RPC read; a reverted snipe still advances the nonce and cancels the other variants.
+Fan-out is bounded by rate limits: Jito and keyless Helius allow 1 request/s per IP per region, so
+more than one Jito variant per region needs more IPs or boxes. Observed cost of a landed block-0 buy:
 median 0.004 SOL, p75 0.014 SOL, p90 0.05 SOL. "Hardcore mode" is a forecast from the history of past
 creation slots for that operator (bids that landed ahead of the failures), not a reaction to a rival's
 bid, which cannot be seen in time.

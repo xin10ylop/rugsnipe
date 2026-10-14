@@ -72,6 +72,7 @@ fn events_per_fixture() {
 fn log_events_match_cpi_events_when_logged() {
     let mut with_logs = 0;
     let mut truncated = Vec::new();
+    let mut lost_to_truncation = 0;
     for name in tx_names() {
         let fx = TxFixture::load(&name);
         let scan = scan_program_data_logs(&fx.logs).unwrap();
@@ -102,8 +103,11 @@ fn log_events_match_cpi_events_when_logged() {
             // The runtime cut the logs: events are missing from the log path
             // (the reason to prefer inner instructions). Seen on `migrate` and
             // `v1_create_v2_buy`.
+            // A cut after the last event loses nothing, so `<=` (the log
+            // events are already checked to be an in-order subsequence).
             truncated.push(name.clone());
-            assert!(known(&from_logs).len() < known(&cpi_ev).len(), "{name}");
+            assert!(known(&from_logs).len() <= known(&cpi_ev).len(), "{name}");
+            lost_to_truncation += known(&cpi_ev).len() - known(&from_logs).len();
         } else {
             assert_eq!(known(&from_logs), known(&cpi_ev), "{name}");
         }
@@ -116,6 +120,8 @@ fn log_events_match_cpi_events_when_logged() {
         .collect();
     assert!(!marked.is_empty());
     assert_eq!(truncated, marked);
+    // ...and at least one fixture really lost an event (`migrate`).
+    assert!(lost_to_truncation > 0);
 }
 
 #[test]
@@ -134,6 +140,15 @@ fn trade_events_are_complete_and_consistent() {
                 "{name}: missing trailing fields"
             );
             assert!(t.ix_name.is_some() && t.shareholders.is_some() && t.quote_mint.is_some());
+            // The whitelisted mayhem agent (`Global.whitelist_pda` = mayhem
+            // sol-vault) trades fee-free; everyone else pays 95 bps protocol.
+            if t.user == c::MAYHEM_SOL_VAULT {
+                assert_eq!(t.fee_basis_points, Some(0), "{name}");
+                assert_eq!(t.fee, Some(0), "{name}");
+                assert_eq!(t.creator_fee, Some(0), "{name}");
+                assert_eq!(t.buyback_fee, Some(0), "{name}");
+                continue;
+            }
             assert_eq!(t.fee_basis_points, Some(95), "{name}");
             let cbps = t.creator_fee_basis_points.unwrap();
             assert!(
@@ -486,12 +501,19 @@ fn post_complete_buy_event_synthetic_round_trip() {
 #[test]
 fn mayhem_trades_pay_no_buyback_and_use_reserved_recipients() {
     let mut mayhem = 0;
+    let mut agent = 0;
     for name in tx_names() {
         let fx = TxFixture::load(&name);
         for r in cpi_events(&fx) {
             let PumpEvent::Trade(t) = &r.event else {
                 continue;
             };
+            if t.user == c::MAYHEM_SOL_VAULT {
+                // the fee-free mayhem agent: every fee component is 0
+                assert_eq!((t.fee, t.creator_fee, t.buyback_fee), (Some(0), Some(0), Some(0)));
+                agent += 1;
+                continue;
+            }
             if t.mayhem_mode == Some(true) {
                 mayhem += 1;
                 assert_eq!(t.buyback_fee_basis_points, Some(0), "{name}");
@@ -510,6 +532,8 @@ fn mayhem_trades_pay_no_buyback_and_use_reserved_recipients() {
             }
         }
     }
-    // 3 mayhem trades in the fixtures (legacy buy, buy_exact_sol_in, v3 exact-in).
-    assert_eq!(mayhem, 3);
+    // 3 original mayhem trades (legacy buy, buy_exact_sol_in, v3 exact-in)
+    // plus 5 fresh ones (buy_v2 x2, buy_exact_quote_in_v2 x2, buy_v3 via CPI).
+    assert_eq!(mayhem, 8);
+    assert_eq!(agent, 1);
 }

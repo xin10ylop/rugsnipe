@@ -178,10 +178,11 @@ pub struct CurveState {
 
 impl CurveState {
     /// A freshly created SOL curve at the mainnet `Global` constants.
-    /// Not valid for mayhem coins, whose curves use separate virtual
-    /// parameters (`set_mayhem_virtual_params`; a mayhem trade in the fixtures
-    /// shows post-trade virtual reserves of ~0.14 SOL / 1.38e15 tokens) - take
-    /// their state from `CreateEvent` / `TradeEvent` / the account instead.
+    /// Mayhem coins also start here (verified on two mayhem `create_v2` +
+    /// dev-buy transactions), but `set_mayhem_virtual_params` can later move
+    /// their virtual reserves away from `real + 30 SOL` (fixtures show mayhem
+    /// curves at ~9.5 SOL / 1.07e15 with 0.036 SOL real). After the create
+    /// slot, take a mayhem curve's state from `TradeEvent` / the account.
     pub const fn fresh(creator: Pubkey) -> Self {
         Self {
             virtual_sol: INITIAL_VIRTUAL_SOL_RESERVES,

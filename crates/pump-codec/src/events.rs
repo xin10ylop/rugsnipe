@@ -76,7 +76,9 @@ impl<'a> Shareholders<'a> {
 }
 
 /// pump `TradeEvent`. Reserves are **post-trade**. On v3 trades
-/// `fee_recipient` is the zero key (the fee stays on the curve).
+/// `fee_recipient` is the zero key (the fee stays on the curve). Trades by
+/// `Global.whitelist_pda` (the mayhem agent, = `MAYHEM_SOL_VAULT`) report
+/// 0 bps and 0 fees; quote them with `FeeBps::ZERO`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TradeEvent<'a> {
     pub mint: Pubkey,

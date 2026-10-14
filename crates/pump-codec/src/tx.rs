@@ -97,7 +97,7 @@ impl ComputeBudgetRequest {
         }
         let price = self.compute_unit_price_micro_lamports? as u128;
         let limit = self.compute_unit_limit? as u128;
-        Some((price * limit).div_ceil(1_000_000) as u64)
+        Some(u64::try_from((price * limit).div_ceil(1_000_000)).unwrap_or(u64::MAX))
     }
 }
 
@@ -169,8 +169,14 @@ impl<'a> TxView<'a> {
             offset: 0,
             needed: 1,
         })?;
+        // Dispatch like Agave: a set MSB on byte 0 means a versioned (v1+)
+        // envelope. A legacy/v0 tx would need >= 128 signatures for that.
         let tx = if first == 0x81 {
             Self::parse_v1(raw)?
+        } else if first & 0x80 != 0 {
+            return Err(DecodeError::InvalidTransaction(
+                "unsupported transaction version",
+            ));
         } else {
             Self::parse_legacy_or_v0(raw)?
         };
