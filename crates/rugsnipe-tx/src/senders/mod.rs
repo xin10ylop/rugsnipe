@@ -178,6 +178,9 @@ pub enum SendError {
     Io(String),
     /// JSON-RPC error object.
     Rpc(String),
+    /// This path does not carry this kind of variant (`rpcsend.sells_only`
+    /// refuses buys); decided before any network.
+    NotForThisSender,
 }
 
 /// Outcome of [`Sender::send`].
@@ -417,12 +420,14 @@ fn build_real(cfg: &Config, keys: &ApiKeys) -> Result<Vec<Box<dyn Sender>>, Buil
     let s = &cfg.senders;
     if s.rpcsend.enabled {
         #[cfg(feature = "rpc")]
-        out.push(Box::new(rpc_send::RpcSend::new(&s.rpcsend.url).map_err(
-            |why| BuildError::Config {
-                sender: "rpcsend",
-                why,
-            },
-        )?));
+        out.push(Box::new(
+            rpc_send::RpcSend::new(&s.rpcsend.url, s.rpcsend.sells_only).map_err(|why| {
+                BuildError::Config {
+                    sender: "rpcsend",
+                    why,
+                }
+            })?,
+        ));
         #[cfg(not(feature = "rpc"))]
         return Err(BuildError::FeatureMissing {
             sender: "rpcsend",

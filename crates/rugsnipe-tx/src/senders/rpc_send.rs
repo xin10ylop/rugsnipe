@@ -3,7 +3,7 @@
 //! re-broadcast by the RPC). Default for sells (`rpcsend.sells_only`);
 //! blocking TLS, so run it on a sender thread, never the feed thread.
 
-use super::{now_ms, Breaker, SendError, SendResult, Sender, SenderId, Variant};
+use super::{now_ms, Breaker, SendError, SendResult, Sender, SenderId, Variant, VariantKind};
 use crate::rpc::RpcClient;
 use base64::Engine as _;
 use serde_json::json;
@@ -13,16 +13,19 @@ use std::time::Instant;
 pub struct RpcSend {
     client: RpcClient,
     breaker: Breaker,
+    /// `rpcsend.sells_only`: buy variants are refused before the network.
+    sells_only: bool,
 }
 
 impl RpcSend {
-    pub fn new(url: &str) -> Result<Self, String> {
+    pub fn new(url: &str, sells_only: bool) -> Result<Self, String> {
         if !(url.starts_with("https://") || url.starts_with("http://")) {
             return Err(format!("bad rpc url {url:?}"));
         }
         Ok(Self {
             client: RpcClient::new(url),
             breaker: Breaker::new(5, 10_000),
+            sells_only,
         })
     }
 }
@@ -34,6 +37,9 @@ impl Sender for RpcSend {
     fn send(&self, v: &Variant) -> SendResult {
         if v.too_large() {
             return SendResult::Failed(SendError::TooLarge);
+        }
+        if self.sells_only && v.kind == VariantKind::Buy {
+            return SendResult::Failed(SendError::NotForThisSender);
         }
         if !self.breaker.allow(now_ms()) {
             return SendResult::Failed(SendError::BreakerOpen);

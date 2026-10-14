@@ -591,7 +591,7 @@ fn fresh_random_mints_patch_equals_scratch_and_pump_rust_client() {
         .iter()
         .map(|&(f, n, s)| {
             let mut p = params(&mut rng, f, n, s);
-            p.partial_fill = Some(rng.next() % 2 == 0);
+            p.partial_fill = Some(rng.next().is_multiple_of(2));
             (p, Template::buy(&p).unwrap())
         })
         .collect();
@@ -649,7 +649,11 @@ fn fresh_random_mints_patch_equals_scratch_and_pump_rust_client() {
             assert_eq!(prog.to_bytes(), theirs.program_id.to_bytes(), "seed {seed}");
             assert_eq!(metas.len(), theirs.accounts.len(), "seed {seed} {prog}");
             for ((k, s, w), m) in metas.iter().zip(&theirs.accounts) {
-                assert_eq!(k.to_bytes(), m.pubkey.to_bytes(), "seed {seed} mint {mint} {prog}");
+                assert_eq!(
+                    k.to_bytes(),
+                    m.pubkey.to_bytes(),
+                    "seed {seed} mint {mint} {prog}"
+                );
                 if *prog == c::PUMP_PROGRAM_ID {
                     assert_eq!((*s, *w), (m.is_signer, m.is_writable), "seed {seed} {k}");
                 } else {
@@ -662,7 +666,11 @@ fn fresh_random_mints_patch_equals_scratch_and_pump_rust_client() {
                 assert_eq!(data.len(), theirs.data.len(), "seed {seed}");
                 assert_eq!(&data[..24], &theirs.data[..24], "seed {seed} mint {mint}");
                 assert_eq!(theirs.data[24], 1, "the SDK always requests partial_fill");
-                assert_eq!(data[24], p.partial_fill.unwrap() as u8, "config partial_fill");
+                assert_eq!(
+                    data[24],
+                    p.partial_fill.unwrap() as u8,
+                    "config partial_fill"
+                );
             } else {
                 assert_eq!(data, &theirs.data, "seed {seed} ATA create data");
             }

@@ -224,7 +224,12 @@ fn kill_file_present_at_start_stops_every_buy_of_the_binary() {
     let r = run("paper-killed", true);
     let killed = decision(&r.summary, "skip_killed");
     assert!(killed >= 1, "decisions: {}", r.summary["decisions"]);
-    assert_eq!(decision(&r.summary, "paper"), 0, "{}", r.summary["decisions"]);
+    assert_eq!(
+        decision(&r.summary, "paper"),
+        0,
+        "{}",
+        r.summary["decisions"]
+    );
     assert_eq!(r.summary["counters"]["intents"], 0);
     assert_eq!(r.summary["paper_variants_recorded"], 0);
     assert_eq!(r.summary["cold"]["killed"], true);

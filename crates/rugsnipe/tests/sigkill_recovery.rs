@@ -147,11 +147,17 @@ fn sigkill_mid_run_then_recovery_before_ready() {
     assert!(err.contains(&want), "want {want:?} in\n{err}");
     let i_rec = err.find("recovery:").unwrap();
     let i_ready = err.find("rugsnipe-hot 0.1").unwrap();
-    assert!(i_rec < i_ready, "recovery is reported before the READY banner");
+    assert!(
+        i_rec < i_ready,
+        "recovery is reported before the READY banner"
+    );
     // the dead owner's lease was taken over (compare-and-set, epoch + 1)
     let (o2, e2, after) = took_over.expect("the restarted process took the exits lease over");
     assert_eq!(e2, epoch1 + 1, "{o2}");
-    assert!(after >= Duration::from_secs(1), "not before the old heartbeat went stale");
+    assert!(
+        after >= Duration::from_secs(1),
+        "not before the old heartbeat went stale"
+    );
     assert!(err.contains("exits lease held by"), "{err}");
     // the database after the restart: history kept, nothing left open
     let c = Connection::open(&state).unwrap();

@@ -298,7 +298,12 @@ fn each_section6_refusal_alone_refuses_probe_and_live() {
         // (4) no healthy post-exec feed
         let mut env = env0.clone();
         env.post_exec_feed_healthy = false;
-        only(&base, &env, vec![Refusal::NoPostExecFeed], "no post-exec feed");
+        only(
+            &base,
+            &env,
+            vec![Refusal::NoPostExecFeed],
+            "no post-exec feed",
+        );
         // (5) ArmSet unsigned (or otherwise unusable), or gate_passed = false
         for g in [
             ArmSetGate::Missing,
@@ -314,11 +319,21 @@ fn each_section6_refusal_alone_refuses_probe_and_live() {
         }
         let mut env = env0.clone();
         env.armset = ArmSetGate::Verified { gate_passed: false };
-        only(&base, &env, vec![Refusal::GateNotPassed], "gate_passed = false");
+        only(
+            &base,
+            &env,
+            vec![Refusal::GateNotPassed],
+            "gate_passed = false",
+        );
         // (6) RPC budget sum > 32 (32 itself is allowed)
         let mut c = base.clone();
         assert_eq!(c.rpc_budget.sum(), 32);
         c.rpc_budget.backfill += 1;
-        only(&c, &env0, vec![Refusal::RpcBudget { sum: 33 }], "rpc budget 33");
+        only(
+            &c,
+            &env0,
+            vec![Refusal::RpcBudget { sum: 33 }],
+            "rpc budget 33",
+        );
     }
 }

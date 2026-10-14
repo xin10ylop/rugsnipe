@@ -1,7 +1,8 @@
 //! Sender thread: takes [`FireJob`]s from the hot loop (secondary variants,
 //! and every variant in a real mode), re-prices, re-signs and hands each to
-//! the gated [`SenderSet`] (paper only in paper mode), then records `Sent`
-//! in its own rslog stream and in the ledger.
+//! the gated [`SenderSet`] (paper only in paper mode; a job not marked
+//! `real`, i.e. a decision forced to paper, goes to the paper recorder only),
+//! then records `Sent` in its own rslog stream and in the ledger.
 
 use crate::msgs::{ColdMsg, FireJob};
 use crate::stats::HotStats;

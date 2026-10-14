@@ -154,7 +154,9 @@ fn rig(cfg: &Config, set: &ArmSet, verified: bool, dir: &std::path::Path) -> Rig
     let policy = setup::exit_policy(cfg).unwrap();
     let watch = Arc::new(Watchlist::new());
     watch.load_armset(set);
-    let arm = Arc::new(ArcSwap::from_pointee(ArmState::from_armset(set, verified, "")));
+    let arm = Arc::new(ArcSwap::from_pointee(ArmState::from_armset(
+        set, verified, "",
+    )));
     let risk = Arc::new(RiskGate::new(cfg.risk.clone()));
     risk.set_hot_balance(2_000_000_000);
     let (rslog, w) = RslogWriter::spawn(dir.join("rslog"), "t-hot", box_id("t"), 1 << 12).unwrap();
@@ -278,13 +280,22 @@ fn live_mode_paper_decisions_never_reach_a_real_sender() {
         ]);
         drain(&mut r.hot, &mut feed);
         let c = r.hot.counters;
-        assert_eq!(c.intents, 1, "{case}: the decision ran to the send step {c:?}");
+        assert_eq!(
+            c.intents, 1,
+            "{case}: the decision ran to the send step {c:?}"
+        );
         assert_eq!(c.fills, 1, "{case}: the paper position filled {c:?}");
-        assert!(c.sells >= 1 && c.closed == 1, "{case}: dump sell + close {c:?}");
+        assert!(
+            c.sells >= 1 && c.closed == 1,
+            "{case}: dump sell + close {c:?}"
+        );
         // the only job handed to the sender thread is the paper secondary variant
         assert_eq!(r.fire_rx.slots(), 1, "{case}: no real buy or sell job");
         let job = r.fire_rx.peek().unwrap();
-        assert!(!job.real && job.idx == 1, "{case}: secondary variant is paper");
+        assert!(
+            !job.real && job.idx == 1,
+            "{case}: secondary variant is paper"
+        );
         // the real nonce went back to Free (nothing was sent with it)
         assert_eq!(r.nonces.free_count(), 8, "{case}: nonce released");
         // the RiskGate never saw the paper position
@@ -294,10 +305,17 @@ fn live_mode_paper_decisions_never_reach_a_real_sender() {
         let paper_before = r.senders.paper.total();
         assert!(paper_before >= 2, "{case}: primary buy + sell recorded");
         let (pairs, senders) = run_sender(r);
-        assert_eq!(pairs, 1, "{case}: the secondary went to the paper recorder only");
+        assert_eq!(
+            pairs, 1,
+            "{case}: the secondary went to the paper recorder only"
+        );
         assert_eq!(senders.paper.total(), paper_before + 1, "{case}");
         std::thread::sleep(Duration::from_millis(50));
-        assert_eq!(mock.accepted(), 0, "{case}: the real sender was never contacted");
+        assert_eq!(
+            mock.accepted(),
+            0,
+            "{case}: the real sender was never contacted"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

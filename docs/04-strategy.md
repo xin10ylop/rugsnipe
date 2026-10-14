@@ -83,11 +83,20 @@ holdout is clean of every selection step.
 | deep holdout (random arm, Oct 12-14) | +3.2% [−1.0, +7.5] | 77 | family seen |
 | **fresh holdout (pulled after the freeze)** | **+3.7% [+0.7, +6.6]**, p = 0.017 | 150 | **yes** |
 | pooled out of sample | +3.5% [+1.9, +5.2], p = 0.0002 | 427 | |
+| **dense window, Oct 14 02:05-08:05 UTC** (workflow C, every complete multi-wallet bundled tape, never used in any search) | **+2.5% [+1.6, +3.4]** at base; +1.3% at 0.01 SOL; −0.2% at the +3.6% premium | 915 | **yes** (orchestrator's run) |
 
 **Independent re-implementation.** The orchestrator re-implemented the policy from scratch (own
 curve math, own bundle detection, own exit logic, no shared code) on the fresh holdout tapes and
 obtained **+3.67% [+0.8, +6.6], n = 150, hit rate 42%**, with the same exit-reason breakdown. The
-agent's arithmetic is right given its model.
+agent's arithmetic is right given its model. (`analysis/scripts/strategy/orchestrator_checks.py`)
+
+**The dense window splits the edge by activity.** On the 915 multi-wallet bundled launches of the
+6-hour window, launches whose whole 15-minute history fits in one API page (≤100 trades; 614 of
+them) give **−0.9% [−1.9, +0.1]**, while the 300 busier launches give **+9.4% [+7.8, +11.0]** with a
+65% hit rate. The policy pays only where other snipers follow us in; on quiet launches it is a
+small, fast loss. Nothing visible in slot 0 tells the two apart in this data, which is what the
+operator-conditioned stage tests next. The busiest launches (full history not reachable in 15
+pages) are missing from the window set, which biases its number downward.
 
 **Direction of bias in the fresh holdout.** It is the uniform light sample minus the deep sample.
 The deep sample took the random arm and every launch with an all-time-high market cap above the
