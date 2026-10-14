@@ -156,3 +156,58 @@ fn collector_relay_over_a_unix_socket_reconnects() {
     assert!(h.reconnects >= 1);
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn collector_relay_keeps_a_partial_line_across_read_timeouts() {
+    use rugsnipe_feed::relay::{CollectorRelay, RelayConfig};
+    use std::io::Write;
+    use std::os::unix::net::UnixListener;
+    let dir = std::env::temp_dir().join(format!("rugsnipe-relay-split-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("pp.sock");
+    let _ = std::fs::remove_file(&path);
+    let listener = UnixListener::bind(&path).unwrap();
+    let lines = std::fs::read_to_string(format!(
+        "{}/fixtures/relay_pp.txt",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut s, _) = listener.accept().unwrap();
+        // every line arrives in two halves with a pause longer than the reader's 500 ms
+        // read timeout in between: the first half must not be dropped
+        for line in lines.lines() {
+            let bytes = line.as_bytes();
+            let mid = bytes.len() / 2;
+            s.write_all(&bytes[..mid]).unwrap();
+            s.flush().unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(700));
+            s.write_all(&bytes[mid..]).unwrap();
+            s.write_all(b"\n").unwrap();
+            s.flush().unwrap();
+        }
+        // keep the socket open briefly so the last line is consumed before EOF
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        drop(s);
+    });
+    let mut cfg = RelayConfig::new(&path);
+    cfg.max_backoff_ms = 100;
+    let mut feed = CollectorRelay::spawn(cfg).unwrap();
+    let mut buf = FeedBuf::with_capacity(64, 0);
+    let mut hits = 0;
+    let t0 = std::time::Instant::now();
+    while hits < 3 && t0.elapsed().as_secs() < 15 {
+        buf.clear();
+        feed.poll(&mut buf);
+        hits += buf
+            .events()
+            .iter()
+            .filter(|e| e.src == FeedSrc::Relay && matches!(e.payload, Payload::Hit(_)))
+            .count();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    server.join().unwrap();
+    feed.shutdown();
+    assert_eq!(hits, 3, "all 3 creates decoded although every line was split across a timeout");
+    let _ = std::fs::remove_dir_all(dir);
+}

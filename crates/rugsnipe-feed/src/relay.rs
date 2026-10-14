@@ -62,13 +62,17 @@ impl CollectorRelay {
                     health.connected.store(true, Ordering::Relaxed);
                     backoff = 250;
                     let mut r = BufReader::new(stream);
+                    // `line` is cleared only after a complete line is consumed: a read that hits
+                    // the 500 ms timeout leaves a partial line appended, and the next read_line
+                    // must continue it rather than drop it.
+                    line.clear();
                     loop {
                         if stop.load(Ordering::Acquire) {
                             break;
                         }
-                        line.clear();
                         match r.read_line(&mut line) {
                             Ok(0) => break,
+                            Ok(_) if !line.ends_with('\n') => break, // EOF mid-line
                             Ok(_) => {
                                 let recv = mono_ns();
                                 health.frame();
@@ -87,6 +91,7 @@ impl CollectorRelay {
                                         sink.push(ev);
                                     },
                                 );
+                                line.clear();
                             }
                             Err(e)
                                 if e.kind() == ErrorKind::WouldBlock
