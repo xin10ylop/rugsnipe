@@ -1,0 +1,145 @@
+{
+ "generator": "crates/rugsnipe-exit/scripts/pumpapi_tapes.py",
+ "tapes": [
+  {
+   "name": "tape_00_12FmJUPd",
+   "mint": "12FmJUPd5YscFYU268iEmf8kb5TsG9zEFSYTupxrpump",
+   "trades_after_entry": 35,
+   "peak_mult": 2.6736,
+   "bundle_sell": true
+  },
+  {
+   "name": "tape_01_12RjYRwW",
+   "mint": "12RjYRwWrvSXtD5izeKH1bu5DmEsbwS2ZF1ceo7cpump",
+   "trades_after_entry": 52,
+   "peak_mult": 1.2593,
+   "bundle_sell": true
+  },
+  {
+   "name": "tape_02_12WiHYHt",
+   "mint": "12WiHYHtQDYyU3qyRTDvSbRXc7vN2gS9Hgswbh9Tpump",
+   "trades_after_entry": 300,
+   "peak_mult": 1.4601,
+   "bundle_sell": true
+  },
+  {
+   "name": "tape_03_12jYGrVt",
+   "mint": "12jYGrVtJnfjwpWDxYWB7zA6tmeo5hPj5NoL1XNwJeje",
+   "trades_after_entry": 6,
+   "peak_mult": 1.0,
+   "bundle_sell": true
+  },
+  {
+   "name": "tape_04_12pLAb2A",
+   "mint": "12pLAb2AJnbA7Nwaeq3rBLHvbfoq2gwQ89691YHXpump",
+   "trades_after_entry": 171,
+   "peak_mult": 1.0183,
+   "bundle_sell": true
+  },
+  {
+   "name": "tape_05_138JaHky",
+   "mint": "138JaHkyvynBBhZiLRnQcyJYeQ8NXG4Tvc2wxKkxmjwW",
+   "trades_after_entry": 7,
+   "peak_mult": 1.0,
+   "bundle_sell": true
+  },
+  {
+   "name": "tape_06_24fApKBL",
+   "mint": "24fApKBLsdeLVRe1n2pLYTYua4bawi5rtCAjkABVEthM",
+   "trades_after_entry": 33,
+   "peak_mult": 1.34,
+   "bundle_sell": false
+  },
+  {
+   "name": "tape_07_26NRkmQz",
+   "mint": "26NRkmQz37LB3XxWEzPtLcLKhLD7Y1fUXakT23rLpump",
+   "trades_after_entry": 35,
+   "peak_mult": 1.7347,
+   "bundle_sell": false
+  },
+  {
+   "name": "tape_08_26Qd7CJL",
+   "mint": "26Qd7CJLwhDqnCUPHGd5TKSPfmyiBbEyRg47bjvUpump",
+   "trades_after_entry": 41,
+   "peak_mult": 3.4188,
+   "bundle_sell": false
+  },
+  {
+   "name": "tape_09_26ViywBp",
+   "mint": "26ViywBpitfDWFfxYbQ1Zjby1qmRMJjaMUKz9MGApump",
+   "trades_after_entry": 7,
+   "peak_mult": 1.1471,
+   "bundle_sell": false
+  },
+  {
+   "name": "tape_10_2CxBsSNA",
+   "mint": "2CxBsSNAnKxoigA6yo8WMmPJjSYJncxMwHzSHrshpump",
+   "trades_after_entry": 51,
+   "peak_mult": 2.3047,
+   "bundle_sell": false
+  },
+  {
+   "name": "tape_11_2DHvS3SY",
+   "mint": "2DHvS3SY4H2ZUjnX3oE6iu7t3Uxmbqc8JpVs7GyG1E8f",
+   "trades_after_entry": 23,
+   "peak_mult": 1.2604,
+   "bundle_sell": false
+  },
+  {
+   "name": "tape_12_2EUo87wZ",
+   "mint": "2EUo87wZbKEYR821AnmvN8cMuZPH688RHquTfRLcpump",
+   "trades_after_entry": 24,
+   "peak_mult": 1.6443,
+   "bundle_sell": false
+  },
+  {
+   "name": "tape_13_2GaqqPWF",
+   "mint": "2GaqqPWFw1XXDRsLZybPx6qJUvx4ojDTESrFeXFwpump",
+   "trades_after_entry": 15,
+   "peak_mult": 1.4402,
+   "bundle_sell": false
+  },
+  {
+   "name": "tape_14_2HJbVQLZ",
+   "mint": "2HJbVQLZFfTbCgvJr3kZTdz9L2Fgnswgb2Hsj39ipump",
+   "trades_after_entry": 11,
+   "peak_mult": 1.0345,
+   "bundle_sell": false
+  },
+  {
+   "name": "tape_15_2N9mun9j",
+   "mint": "2N9mun9jdXuvvEXaWU4FoLVCYdVq65apguujrTR9pump",
+   "trades_after_entry": 10,
+   "peak_mult": 1.3832,
+   "bundle_sell": false
+  },
+  {
+   "name": "tape_16_3g4iiLXU",
+   "mint": "3g4iiLXUxZc8ef9wUY9CLJ5NAb6647YfRuTDjza9pump",
+   "trades_after_entry": 150,
+   "peak_mult": 4.8836,
+   "bundle_sell": false
+  },
+  {
+   "name": "tape_17_4AW9s17F",
+   "mint": "4AW9s17Fhm9PXsBSf83cBqVx5gFChALhGQa4D6Qrpump",
+   "trades_after_entry": 218,
+   "peak_mult": 2.338,
+   "bundle_sell": false
+  },
+  {
+   "name": "tape_18_4Dyxvx4P",
+   "mint": "4Dyxvx4PbQnfgZh7wfZ7fJBADZHV5hiRorMWidxgpump",
+   "trades_after_entry": 111,
+   "peak_mult": 3.6284,
+   "bundle_sell": false
+  },
+  {
+   "name": "tape_19_4Gd4D4u2",
+   "mint": "4Gd4D4u2qQbNi6bKVKV5cR1KMFrHMnHprCf28Fnmpump",
+   "trades_after_entry": 12,
+   "peak_mult": 2.3979,
+   "bundle_sell": false
+  }
+ ]
+}

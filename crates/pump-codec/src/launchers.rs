@@ -145,7 +145,10 @@ mod tests {
             for b in &KNOWN_LAUNCHERS[i + 1..] {
                 assert_ne!(a.program_id, b.program_id);
             }
-            assert_eq!(Launcher::from_program(&a.program_id), Launcher::Known(i as u8));
+            assert_eq!(
+                Launcher::from_program(&a.program_id),
+                Launcher::Known(i as u8)
+            );
             assert_eq!(Launcher::Known(i as u8).program_id(), Some(a.program_id));
         }
     }

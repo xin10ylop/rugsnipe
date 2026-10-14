@@ -204,6 +204,23 @@ def creator_funding(rpc: RpcClient, wallet: str, create_sig: str, scan: int = 3)
     return res
 
 
+def funder_rate(rpc: RpcClient, addr: str, tag: str) -> dict[str, Any]:
+    """Activity of a funder from its newest signature page: tx/hour and page size.
+
+    Unlabeled funders that move > EXCHANGE_LIKE_TPH txs/hour are exchange-like
+    services, not an operator's private 'mother' wallet.  `tag` versions the cache.
+    """
+    page = rpc.call("getSignaturesForAddress", [addr, {"limit": 1000}], cache_key=f"sigs_head:{addr}:{tag}",
+                    endpoints=("https://api.mainnet-beta.solana.com",)) or []
+    if len(page) < 2:
+        return {"n": len(page), "tph": 0.0}
+    span = max(1, (page[0].get("blockTime") or 0) - (page[-1].get("blockTime") or 0))
+    return {"n": len(page), "tph": round(len(page) / span * 3600, 1)}
+
+
+EXCHANGE_LIKE_TPH = 200.0
+
+
 def read_jsonl(path: Path) -> list[dict]:
     if not path.exists():
         return []

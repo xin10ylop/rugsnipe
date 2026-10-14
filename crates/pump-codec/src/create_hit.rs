@@ -24,7 +24,9 @@
 use crate::constants::{self as c, ix as disc, MINT_AUTHORITY, PUMP_PROGRAM_ID};
 use crate::curve::{CurveState, FeeBps};
 use crate::error::DecodeError;
-use crate::events::{decode_cpi_event, decode_event_payload, EventSource, InnerInstruction, PumpEvent};
+use crate::events::{
+    decode_cpi_event, decode_event_payload, EventSource, InnerInstruction, PumpEvent,
+};
 use crate::instructions::{
     classify, AccountLookup, Classified, CreateKind, PumpCreate, PumpInstruction, PumpTrade,
     PumpTradeKind, TradeAmounts, TradeLayout,
@@ -50,12 +52,22 @@ pub enum HitSource {
 }
 
 /// Fixed-capacity, `Copy` list of distinct keys.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KeyList<const N: usize> {
     keys: [Pubkey; N],
     len: u8,
     /// Distinct keys offered, including the ones that did not fit.
     total: u8,
+}
+
+impl<const N: usize> Default for KeyList<N> {
+    fn default() -> Self {
+        Self {
+            keys: [Pubkey::default(); N],
+            len: 0,
+            total: 0,
+        }
+    }
 }
 
 impl<const N: usize> KeyList<N> {
@@ -115,7 +127,11 @@ pub struct CreateHit {
     /// `None` on the logs path.
     pub fee_payer: Option<Pubkey>,
     /// The `creator` argument (can differ from the signer: 18.9% of creates).
+    /// Logs path: `CreateEvent.creator`, which equals the argument except on
+    /// holder-reward coins (a pump-controlled address, see `holder_reward`).
     pub creator_arg: Pubkey,
+    /// `is_holder_reward` coin: the curve's recorded creator is not the dev.
+    pub holder_reward: bool,
     /// Transaction signers (logs path: the create's user only).
     pub signers: KeyList<MAX_SIGNERS>,
     /// Quote mint; wrapped SOL for SOL-paired coins. `None` if it sits in an
@@ -135,7 +151,9 @@ pub struct CreateHit {
     /// `true` when the totals are exact (events, or a full simulation of
     /// visible buys on a SOL, non-mayhem curve with no hidden CPI).
     pub intx_exact: bool,
-    /// Curve after all in-tx buys when `intx_exact`.
+    /// Curve after all in-tx buys when `intx_exact` (reserves are exact; the
+    /// `creator` field can differ between paths because pump-fees may migrate
+    /// the curve's fee creator inside the create transaction).
     pub curve_after: Option<CurveState>,
     /// How the create reached pump.
     pub launcher: Launcher,
@@ -182,7 +200,11 @@ impl core::fmt::Display for HitError {
         match self {
             Self::Decode(e) => write!(f, "{e}"),
             Self::CpiCreateNeedsMeta { launcher } => {
-                write!(f, "create via launcher CPI ({}) needs inner instructions", launcher.name())
+                write!(
+                    f,
+                    "create via launcher CPI ({}) needs inner instructions",
+                    launcher.name()
+                )
             }
             Self::UnresolvedAccounts => write!(f, "create accounts in an unresolved lookup table"),
         }
@@ -248,9 +270,10 @@ fn token_account_init<A: AccountLookup + ?Sized>(
     if *program == c::SPL_TOKEN_PROGRAM_ID || *program == c::TOKEN_2022_PROGRAM_ID {
         return match data.first()? {
             1 => Some((a.account(0)?, a.account(2)?)),
-            16 | 18 if data.len() >= 33 => {
-                Some((a.account(0)?, Pubkey::new_from_array(data[1..33].try_into().ok()?)))
-            }
+            16 | 18 if data.len() >= 33 => Some((
+                a.account(0)?,
+                Pubkey::new_from_array(data[1..33].try_into().ok()?),
+            )),
             _ => None,
         };
     }
@@ -339,7 +362,14 @@ fn scan<'a>(
             let inn = &inner[k];
             if let Some(program) = tx.account_key(inn.program_id_index as usize, loaded) {
                 let accts = tx.indexed_accounts(inn.accounts, loaded);
-                on_ix(&mut s, &program, inn.data, &accts, inn.outer_index, Some(pos))?;
+                on_ix(
+                    &mut s,
+                    &program,
+                    inn.data,
+                    &accts,
+                    inn.outer_index,
+                    Some(pos),
+                )?;
             }
             pos = pos.saturating_add(1);
             k += 1;
@@ -374,9 +404,7 @@ pub fn create_hit(
         // A CPI create is recognisable by the mint authority + pump program in
         // the keys with no top-level create.
         let keys = tx.static_account_keys();
-        let has = |k: &Pubkey| {
-            keys.contains(k) || loaded.is_some_and(|l| l.contains(k))
-        };
+        let has = |k: &Pubkey| keys.contains(k) || loaded.is_some_and(|l| l.contains(k));
         if inner.is_empty() && has(&MINT_AUTHORITY) && has(&PUMP_PROGRAM_ID) {
             let ma = keys.iter().position(|k| *k == MINT_AUTHORITY);
             let launcher = tx
@@ -492,7 +520,12 @@ pub fn create_hit(
     let (intx_sol_in, intx_tokens_out, intx_exact, curve_after) = if have_events {
         (ev_sol, ev_tok, true, ev_state)
     } else {
-        (sim_sol, sim_tok, exact, if exact { Some(sim) } else { None })
+        (
+            sim_sol,
+            sim_tok,
+            exact,
+            if exact { Some(sim) } else { None },
+        )
     };
 
     let mut sig = [0u8; 64];
@@ -512,6 +545,7 @@ pub fn create_hit(
         user,
         fee_payer: Some(*tx.fee_payer()),
         creator_arg: cr.args.creator,
+        holder_reward: cr.args.is_holder_reward.unwrap_or(false),
         signers,
         quote,
         token_prog,
@@ -601,6 +635,7 @@ pub fn from_logs<S: AsRef<str>>(
                         user: ev.user,
                         fee_payer: None,
                         creator_arg: ev.creator,
+                        holder_reward: ev.is_holder_reward.unwrap_or(false),
                         signers,
                         quote,
                         token_prog,
@@ -611,7 +646,11 @@ pub fn from_logs<S: AsRef<str>>(
                         intx_buys: 0,
                         intx_buyers: KeyList::default(),
                         intx_exact: sol_quote && !mayhem,
-                        curve_after: if sol_quote && !mayhem { Some(fresh) } else { None },
+                        curve_after: if sol_quote && !mayhem {
+                            Some(fresh)
+                        } else {
+                            None
+                        },
                         launcher,
                         logs_truncated: false,
                     });
@@ -685,7 +724,10 @@ mod tests {
 
     #[test]
     fn logs_without_create_give_none() {
-        let logs = ["Program 11111111111111111111111111111111 invoke [1]", "Program 11111111111111111111111111111111 success"];
+        let logs = [
+            "Program 11111111111111111111111111111111 invoke [1]",
+            "Program 11111111111111111111111111111111 success",
+        ];
         assert!(from_logs("1", &logs).unwrap().is_none());
     }
 }

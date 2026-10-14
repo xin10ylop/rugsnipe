@@ -23,7 +23,8 @@ How a tape is built from the API (deterministic):
    only if the rebuilt post-trade spot price matches the API's ``priceSol`` within 0.5% on
    every trade (this proves the history starts at the create and is complete).
 3. The bundle set is the creator plus every buyer in the first trade's slot (the create slot).
-4. Our own buy (``"own": true``) is inserted before the first trade of slot create+1 (entry
+4. Tapes stop 300 market trades after our fill (fixture size).
+5. Our own buy (``"own": true``) is inserted before the first trade of slot create+1 (entry
    model E2): 0.1 SOL exact-in at 95+30 bps, with the program's integer math, applied to the
    reserves of the previous trade. Later trades keep their observed reserves (price taker).
 """
@@ -41,7 +42,7 @@ from decimal import Decimal
 V0 = 30_000_000_000
 T0 = 1_073_000_000_000_000
 SUPPLY = 1_000_000_000_000_000
-OWNER = "RugSnipeTapeOwner11111111111111111111111111"  # placeholder wallet (valid base58, 43 chars)
+OWNER = "6nyNfFS5B2VWXPqvH4H683JAmEBXnEpZbqWoVCvBiVrR"  # base58(sha256("rugsnipe-tape-owner")): placeholder wallet, no key
 OUR_SPEND = 100_000_000
 FEES = {"protocol": 95, "creator": 30}
 
@@ -152,6 +153,9 @@ def rebuild(mint: str, raw: dict[str, dict]) -> dict | None:
     return {"mint": mint, "trades": out}
 
 
+MAX_AFTER_ENTRY = 300  # keep fixtures small: at most this many market trades after our fill
+
+
 def make_tape(rec: dict, coin: dict) -> list[dict] | None:
     trades = rec["trades"]
     create_slot = trades[0]["slot"]
@@ -175,7 +179,7 @@ def make_tape(rec: dict, coin: dict) -> list[dict] | None:
               "creator": creator, "bundle": bundle, "supply": SUPPLY, "fees": FEES, "policy": DEFAULT_POLICY,
               "source": f"pump.fun swap-api trades (data/cache/pumpapi), {len(trades)} trades, create slot {create_slot}"}
     lines = [header]
-    for i, x in enumerate(trades):
+    for i, x in enumerate(trades[: entry + MAX_AFTER_ENTRY]):
         if i == entry:
             lines.append(own)
         ev = {"kind": "trade", **{k: x[k] for k in ("slot", "tx_index", "ts_ms", "sig", "user", "is_buy",
@@ -204,10 +208,18 @@ def main() -> int:
     ap.add_argument("--out", default=os.path.join(root, "crates", "rugsnipe-exit", "fixtures", "tapes"))
     ap.add_argument("--n", type=int, default=20)
     ap.add_argument("--list", action="store_true")
+    ap.add_argument("--repick", action="store_true",
+                    help="choose new mints instead of the ones in MANIFEST.json (the cache keeps growing)")
     a = ap.parse_args()
+    manifest_path = os.path.join(a.out, "MANIFEST.json")
+    pinned = None
+    if not a.repick and os.path.exists(manifest_path):
+        pinned = [m["mint"] for m in json.load(open(manifest_path))["tapes"]]
     trades, coins = load_cache(a.cache)
     cands = []
     for mint in sorted(trades):
+        if pinned is not None and mint not in pinned:
+            continue
         coin = coins.get(mint)
         if coin is None or (coin.get("quote_mint") not in (None, "11111111111111111111111111111111",
                                                              "So11111111111111111111111111111111111111112")):
@@ -229,6 +241,11 @@ def main() -> int:
         for m, _, f in cands:
             print(m, f)
         return 0
+    if pinned is not None:
+        pick = [c for c in cands if c[0] in pinned]
+        if len(pick) != len(pinned):
+            print(f"warning: {len(pinned) - len(pick)} pinned mints no longer valid", file=sys.stderr)
+        return write(a, pick, manifest_path)
     # Deterministic, varied pick: bundle dumps, pumps past the TP levels, then the rest (by mint).
     dumps = [c for c in cands if c[2]["bundle_sell"]]
     pumps = [c for c in cands if not c[2]["bundle_sell"] and c[2]["peak_mult"] >= 2.0]
@@ -239,13 +256,24 @@ def main() -> int:
     if len(pick) < a.n:
         seen = {m for m, _, _ in pick}
         pick += [c for c in cands if c[0] not in seen][: a.n - len(pick)]
+    return write(a, pick, manifest_path)
+
+
+def write(a, pick, manifest_path: str) -> int:
     os.makedirs(a.out, exist_ok=True)
+    manifest = []
     for i, (mint, lines, f) in enumerate(sorted(pick, key=lambda c: c[0])):
-        path = os.path.join(a.out, f"tape_{i:02d}_{mint[:8]}.jsonl")
+        name = f"tape_{i:02d}_{mint[:8]}"
+        path = os.path.join(a.out, name + ".jsonl")
         with open(path, "w") as fh:
             for ln in lines:
                 fh.write(json.dumps(ln, separators=(",", ":")) + "\n")
+        manifest.append({"name": name, "mint": mint, "trades_after_entry": f["n"],
+                         "peak_mult": round(f["peak_mult"], 4), "bundle_sell": f["bundle_sell"]})
         print(f"{path}: {f}", file=sys.stderr)
+    with open(manifest_path, "w") as fh:
+        json.dump({"generator": "crates/rugsnipe-exit/scripts/pumpapi_tapes.py", "tapes": manifest}, fh, indent=1)
+        fh.write("\n")
     return 0
 
 

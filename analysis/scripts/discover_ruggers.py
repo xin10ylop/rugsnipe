@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import sys
 import time
 from collections import Counter
@@ -98,8 +99,10 @@ def stage_coins(api: PumpApi, recs: list[dict]) -> None:
 def stage_trades(args, api: PumpApi, recs: list[dict], dl: Deadline) -> dict[str, dict]:
     """-> mint -> {s0, covered_until, complete, mode, n} (trades themselves stay in the cache)."""
     todo = [r for r in recs if W.could_be_bundled(r)]
-    # non-mayhem first (the guru's model), then by ATH so a deadline cut drops the least useful
-    todo.sort(key=lambda r: (bool(r.get("is_mayhem_mode")), -((r.get("coin") or {}).get("ath_market_cap") or 0)))
+    # non-mayhem first (the guru's model), seeded random order inside each group so that a
+    # deadline cut leaves an unbiased subsample (re-runs resume from the cache)
+    random.Random(20261014).shuffle(todo)
+    todo.sort(key=lambda r: bool(r.get("is_mayhem_mode")))
     log(f"trades: {len(todo)}/{len(recs)} launches are SOL-quoted with ATH high enough for a >=1 SOL slot-0 bundle")
     out: dict[str, dict] = {}
 
@@ -159,6 +162,22 @@ def build_rows(recs: list[dict], tmeta: dict[str, dict], fund: dict[str, dict]) 
         row["covered_until"] = tm["covered_until"] if tm else None
         rows.append(row)
     return rows
+
+
+def mark_exchange_like(rows: list[dict], rpc: RpcClient, min_recipients: int = 3) -> None:
+    """Re-label busy unlabeled funders ('mother') as 'exchange_like' (> 200 tx/h)."""
+    cnt = Counter(r["funder"] for r in rows if r.get("fresh") and r.get("funder_kind") == "mother")
+    busy = {}
+    for f, n in cnt.items():
+        if n >= min_recipients:
+            busy[f] = W.funder_rate(rpc, f, "taskc1")
+    hot = {f for f, v in busy.items() if v["tph"] > W.EXCHANGE_LIKE_TPH}
+    for r in rows:
+        if r.get("funder") in hot and r.get("funder_kind") == "mother":
+            r["funder_kind"] = "exchange_like"
+    log(f"funders: {len(busy)} unlabeled funders with >= {min_recipients} fresh creators checked, "
+        f"{len(hot)} exchange-like (> {W.EXCHANGE_LIKE_TPH:.0f} tx/h): "
+        + ", ".join(f"{f[:6]}={busy[f]['tph']:.0f}/h" for f in sorted(hot, key=lambda x: -busy[x]['tph'])[:8]))
 
 
 def compact_row(r: dict) -> dict:
@@ -242,6 +261,8 @@ def main() -> None:
     else:
         fund = {r.pop("wallet"): r for r in W.read_jsonl(WCACHE / "funding.jsonl")}
     rows = build_rows(recs, tmeta, fund)
+    if "cluster" in st or "expand" in st:
+        mark_exchange_like(rows, rpc)
     if "cluster" in st or "expand" in st:
         clusters, meta = stage_cluster(args, rows)
         W.write_jsonl(TOKENS_PATH, (compact_row(r) for r in rows))

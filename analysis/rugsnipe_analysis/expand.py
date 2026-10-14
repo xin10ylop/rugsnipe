@@ -180,8 +180,10 @@ def expand_by_bundle_wallet(api: PumpApi, rpc: RpcClient, idx: CreateIndex, wall
 
 
 def expand_clusters(clusters: list[dict], rows: list[dict], api: PumpApi, rpc: RpcClient, top: int, per: int,
-                    hours: float, horizon_s: int, deadline: float, cache_dir: Path) -> dict[str, dict]:
-    """Expand the `top` clusters that have a followable key; results cached in cache_dir."""
+                    hours: float, horizon_s: int, deadline: float, cache_dir: Path,
+                    min_bundled_share: float = 0.3) -> dict[str, dict]:
+    """Expand the `top` clusters that have a followable key and mostly bundled launches
+    (results cached in cache_dir)."""
     idx = CreateIndex()
     t_hi = idx.anchor
     t_lo = int(t_hi - hours * 3600)
@@ -194,8 +196,8 @@ def expand_clusters(clusters: list[dict], rows: list[dict], api: PumpApi, rpc: R
         if n >= top:
             break
         kind = _dominant(c)
-        if kind is None:
-            continue
+        if kind is None or sum(1 for t in c["tokens"] if t.get("bundled")) < max(2, min_bundled_share * c["n_tokens"]):
+            continue  # nothing tradable for the guru's rule in this cluster
         n += 1
         key = sorted(c["keys"].get(kind, []))[0] if c["keys"].get(kind) else None
         ck = f"{kind}:{key}:{hours}:{per}"

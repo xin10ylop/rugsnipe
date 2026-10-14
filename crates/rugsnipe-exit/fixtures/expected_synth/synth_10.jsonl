@@ -1,0 +1,6 @@
+{"step":4,"slot":400010003,"ms":1800000001709,"action":{"type":"opened","origin":"intent","tokens":3340674026173,"v_fill":30898765432}}
+{"step":190,"slot":400010181,"ms":1800000078451,"action":{"type":"sell","order_id":1,"reason":{"take_profit":0},"kind":"normal","venue":"curve","tokens":1000000000000,"min_sol_output":50181980,"tip_lamports":50000,"try_no":1,"trigger_slot":400010180,"v_trigger":43898765432,"close_account":false}}
+{"step":492,"slot":400010472,"ms":1800000200093,"action":{"type":"dump_signal","reason":"consolidation","slot":400010472}}
+{"step":492,"slot":400010472,"ms":1800000200093,"action":{"type":"sell","order_id":2,"reason":"consolidation","kind":"dump","venue":"curve","tokens":2000000000000,"min_sol_output":54013952,"tip_lamports":200000,"try_no":1,"trigger_slot":400010472,"v_trigger":45498765432,"close_account":true}}
+{"step":493,"slot":400010473,"ms":1800000200628,"action":{"type":"closed","cause":{"by":"sold","reason":"consolidation"},"slot":400010473}}
+{"final":{"closed_slot":400010473,"cost":100000000,"fills":2,"proceeds":185691759,"realized_lamports":85691759,"sell_spend":250000,"state":"closed","steps":494,"tokens":0}}

@@ -1,0 +1,5 @@
+{"step":11,"slot":455757909,"ms":1791745029000,"action":{"type":"opened","origin":"intent","tokens":2523954619021,"v_fill":35540740734}}
+{"step":12,"slot":455757909,"ms":1791745029000,"action":{"type":"dump_signal","reason":"bundle_sell","slot":455757909}}
+{"step":12,"slot":455757909,"ms":1791745029000,"action":{"type":"sell","order_id":1,"reason":"bundle_sell","kind":"dump","venue":"curve","tokens":2523954619021,"min_sol_output":68131175,"tip_lamports":200000,"try_no":1,"trigger_slot":455757909,"v_trigger":34276668043,"close_account":true}}
+{"step":13,"slot":455757910,"ms":1791745030000,"action":{"type":"closed","cause":{"by":"sold","reason":"bundle_sell"},"slot":455757910}}
+{"final":{"closed_slot":455757910,"cost":100000000,"fills":1,"proceeds":90725470,"realized_lamports":-9274530,"sell_spend":200000,"state":"closed","steps":14,"tokens":0}}

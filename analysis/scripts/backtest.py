@@ -60,7 +60,8 @@ def parse_args() -> argparse.Namespace:
 
 # --------------------------------------------------------------------------- loading
 class CacheOnlyApi(PumpApi):
-    """PumpApi that refuses network calls (cache misses return an empty page)."""
+    """PumpApi that refuses network calls: a cache miss raises CacheMiss (the launch is skipped),
+    so a missing page can never masquerade as 'end of history'."""
 
     def get_json(self, url, params=None, cache_key=None):  # type: ignore[override]
         if cache_key:
@@ -69,6 +70,17 @@ class CacheOnlyApi(PumpApi):
                 self.stats["cache_hits"] += 1
                 return hit["v"]
         self.stats["misses"] = self.stats.get("misses", 0) + 1
+        raise CacheMiss(cache_key or url)
+
+
+class CacheMiss(LookupError):
+    pass
+
+
+def safe_trades(fn, *a, **kw) -> dict | None:
+    try:
+        return fn(*a, **kw)
+    except CacheMiss:
         return None
 
 
@@ -103,7 +115,10 @@ def load_window(args, api: PumpApi) -> tuple[list[tuple[dict, list[dict]]], dict
         rec = {"mint": r["mint"], "create_time": r["create_time"], "create_slot": r["create_slot"],
                "create_sig": r["create_sig"], "creator": r["creator"], "create_user": r["signer"],
                "fee_payer": r.get("fee_payer")}
-        res = W.staged_trades(api, rec, lambda p: True, horizon_s=args.horizon)
+        res = safe_trades(W.staged_trades, api, rec, lambda p: True, horizon_s=args.horizon)
+        if res is None:
+            stats["cache_miss"] = stats.get("cache_miss", 0) + 1
+            continue
         t = token_from_row(r, res, "window")
         if t:
             out.append(t)
@@ -131,7 +146,9 @@ def load_clusters(args, api: PumpApi, window_tokens: list[tuple[dict, list[dict]
             rec = {"mint": et["mint"], "create_time": et["create_time"], "create_slot": et["create_slot"],
                    "create_sig": et["create_sig"], "creator": et["creator"], "create_user": et["signer"],
                    "fee_payer": et["signer"]}
-            res = W.staged_trades(api, rec, lambda p: True, horizon_s=args.horizon)
+            res = safe_trades(W.staged_trades, api, rec, lambda p: True, horizon_s=args.horizon)
+            if res is None:
+                continue
             row = {**et, "fee_payer": et["signer"]}
             t = token_from_row(row, res, "expanded")
             if t:
@@ -152,7 +169,9 @@ def load_taskA(args, api: PumpApi) -> list[tuple[dict, list[dict]]]:
     for r in deep:
         if r.get("instant_graduation"):
             continue
-        res = ds.pull_trades(api, r["mint"], r["create_time"], 300, 20, 6)
+        res = safe_trades(ds.pull_trades, api, r["mint"], r["create_time"], 300, 20, 6)
+        if res is None:
+            continue
         trades = res["trades"]
         if not trades or res["coverage"] == "partial":
             continue

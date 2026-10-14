@@ -1,0 +1,82 @@
+# rslog record layouts (docs/06 section 5.3). Little-endian, no padding.
+# Frame: header (30 bytes) + payload. Checked by rugsnipe-core tests/rslog.rs
+# (encoder sizes and field order) and by the golden file fixtures/golden.rslog.
+# The Python ingest decoder (analysis) must follow this file.
+
+[header]
+fields = ["magic:u32=0x52534C47", "kind:u16", "ver:u16", "len:u32", "mono_ns:u64", "wall_ns:u64", "box:u16"]
+size = 30
+
+[[kind]]
+id = 1
+name = "FeedSeen"
+fields = ["src:u8", "slot:u64", "recv_ns:u64", "sig:[64]"]
+size = 81
+
+[[kind]]
+id = 2
+name = "CreateHit"
+fields = ["src:u8", "slot:u64", "sig:[64]", "mint:[32]", "user:[32]", "fee_payer:[32]", "creator:[32]", "launcher:[32]", "intx_sol_in:u64", "intx_tokens_out:u64", "intx_buys:u8", "n_signers:u8", "flags:u16"]
+size = 253
+flags = { mayhem = 1, cashback = 2, sol_quote = 4, exact = 8, logs_source = 16, logs_truncated = 32, holder_reward = 64, token_2022 = 128 }
+
+[[kind]]
+id = 3
+name = "Matched"
+fields = ["intent:u64", "op_id:u32", "armset_ver:u64", "via:u8", "shadow:u8"]
+size = 22
+
+[[kind]]
+id = 4
+name = "Decision"
+fields = ["intent:u64", "mint:[32]", "mode:u8", "code:u8", "would_skip:u8", "size:u64", "v_max:u64", "min_tokens:u64", "nonce_idx:u16", "decided_ns:u64"]
+size = 77
+# code: 0 fire, 0x10|paper_reason, 0x20|skip_reason (rugsnipe_core::risk)
+
+[[kind]]
+id = 5
+name = "Sent"
+fields = ["intent:u64", "variant:u8", "sender:u8", "prio:u64", "tip:u64", "sig:[64]", "result:u8", "latency_ns:u64"]
+size = 99
+
+[[kind]]
+id = 6
+name = "PosEvent"
+fields = ["intent:u64", "kind:u8", "slot:u64", "v:u64", "tokens:u64"]
+size = 33
+
+[[kind]]
+id = 7
+name = "ExitFired"
+fields = ["intent:u64", "reason:u8", "tokens:u64", "min_out:u64", "sig:[64]"]
+size = 89
+
+[[kind]]
+id = 8
+name = "Risk"
+fields = ["kind:u8", "value:i64"]
+size = 9
+
+[[kind]]
+id = 9
+name = "FeedHealth"
+fields = ["src:u8", "ok:u8", "lag_ms:u32", "decode_miss_ppm:u32"]
+size = 10
+
+[[kind]]
+id = 10
+name = "Lease"
+fields = ["name_hash:u32", "owner:u16", "epoch:u64", "hb_unix_ms:u64"]
+size = 22
+
+[[kind]]
+id = 11
+name = "Upgrade"
+fields = ["program:[32]", "slot:u64"]
+size = 40
+
+[[kind]]
+id = 12
+name = "NonceEvt"
+fields = ["idx:u16", "from:u8", "to:u8", "slot:u64", "value:[32]", "intent:u64"]
+size = 52

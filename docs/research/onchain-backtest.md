@@ -1,6 +1,6 @@
 # On-chain backtest of the guru's rugger snipe (Task C)
 
-Generated 2026-10-14T10:12:34Z by `analysis/scripts/backtest.py` from `data/reports/backtest_results.json`. Discovery: `analysis/scripts/discover_ruggers.py` (`data/rugger_clusters.json`, `data/reports/discovery_summary.json`).
+Generated 2026-10-14T10:46:31Z by `analysis/scripts/backtest.py` from `data/reports/backtest_results.json`. Discovery: `analysis/scripts/discover_ruggers.py` (`data/rugger_clusters.json`, `data/reports/discovery_summary.json`).
 
 
 
@@ -36,13 +36,13 @@ Guru base rule and the best variants (ranked by expectancy, n >= min-n):
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy2 | 80 | 0.0% | +0.0751 | -0.0920 | 0.817 | -0.0565 (-22.6%) | [-0.0744, -0.0386] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail30/20 | 80 | 2.5% | +0.0640 | -0.0974 | 0.657 | -0.0590 (-23.6%) | [-0.0777, -0.0403] |
 | eos0 0.25SOL c0.002 SLfloor idle150 trail30/20 | 80 | 0.0% | +0.0592 | -0.0974 | 0.608 | -0.0602 (-24.1%) | [-0.0780, -0.0423] |
-| eos0 0.25SOL c0.002 TP100 SL30 idle150 B<=10 | 50 | 4.0% | +0.2856 | -0.0750 | 3.81 | -0.0605 (-24.2%) | [-0.0811, -0.0399] |
-| eos0 0.25SOL c0.002 TP100 SL30 B<=10 | 50 | 4.0% | +0.2856 | -0.0754 | 3.789 | -0.0609 (-24.4%) | [-0.0815, -0.0403] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=45 | 38 | 2.6% | +0.2836 | -0.0728 | 3.895 | -0.0634 (-25.4%) | [-0.0830, -0.0439] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 B<=10 | 50 | 4.0% | +0.2856 | -0.0812 | 3.517 | -0.0665 (-26.6%) | [-0.0877, -0.0453] |
-| eos0 0.25SOL c0.002 TP100 SL50 idle150 B<=10 | 50 | 4.0% | +0.2856 | -0.0812 | 3.517 | -0.0665 (-26.6%) | [-0.0877, -0.0453] |
-| eos0 0.25SOL c0.002 TP150 SL30 idle150 B<=10 | 50 | 2.0% | +0.3539 | -0.0751 | 4.711 | -0.0665 (-26.6%) | [-0.0843, -0.0488] |
-| eos0 0.25SOL c0.002 TP150 SL30 B<=10 | 50 | 2.0% | +0.3539 | -0.0755 | 4.685 | -0.0669 (-26.8%) | [-0.0847, -0.0492] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail50/20 | 80 | 2.5% | +0.0995 | -0.0987 | 1.008 | -0.0715 (-28.6%) | [-0.0898, -0.0531] |
+| eos0 0.25SOL c0.002 SLfloor idle150 trail50/20 | 80 | 0.0% | +0.0911 | -0.0987 | 0.923 | -0.0726 (-29.0%) | [-0.0901, -0.0551] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail50/30 | 80 | 3.8% | +0.1235 | -0.0958 | 1.289 | -0.0739 (-29.6%) | [-0.0924, -0.0553] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=140 | 77 | 6.5% | +0.2674 | -0.0986 | 2.712 | -0.0748 (-29.9%) | [-0.0965, -0.0532] |
+| eos0 0.25SOL c0.002 SLfloor idle150 trail50/30 | 80 | 0.0% | +0.1074 | -0.0958 | 1.121 | -0.0755 (-30.2%) | [-0.0928, -0.0582] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=60 | 69 | 4.3% | +0.2773 | -0.0930 | 2.983 | -0.0769 (-30.8%) | [-0.0960, -0.0577] |
 
 Upper bounds with perfect foresight (not implementable): `oracle:max` sells at the best price seen in the horizon, `oracle:pre_dump` sells right before the slot with the largest sell volume.
 
@@ -96,12 +96,7 @@ Selected exits and filters:
 
 | variant | n | TP hit | avg win SOL | avg loss SOL | W/L | expectancy / snipe | 95% CI |
 |---|---|---|---|---|---|---|---|
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 B<=3 | 8 | 0.0% | +0.0000 | -0.0486 | 0.0 | -0.0486 (-19.4%) | [-0.0600, -0.0372] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 B<=5 | 20 | 0.0% | +0.0000 | -0.0624 | 0.0 | -0.0624 (-25.0%) | [-0.0728, -0.0520] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 B<=10 | 50 | 4.0% | +0.2856 | -0.0812 | 3.517 | -0.0665 (-26.6%) | [-0.0877, -0.0453] |
-| eos0 0.25SOL c0.002 TP100 SLfloor B<=3 | 8 | 0.0% | +0.0000 | -0.0500 | 0.0 | -0.0500 (-20.0%) | [-0.0618, -0.0381] |
-| eos0 0.25SOL c0.002 TP100 SLfloor B<=5 | 20 | 0.0% | +0.0000 | -0.0632 | 0.0 | -0.0632 (-25.3%) | [-0.0737, -0.0526] |
-| eos0 0.25SOL c0.002 TP100 SLfloor B<=10 | 50 | 4.0% | +0.2856 | -0.0823 | 3.472 | -0.0675 (-27.0%) | [-0.0888, -0.0463] |
 | eos0 0.25SOL c0.002 SLfloor idle150 trail30/20 | 80 | 0.0% | +0.0592 | -0.0974 | 0.608 | -0.0602 (-24.1%) | [-0.0780, -0.0423] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail30/20 | 80 | 2.5% | +0.0640 | -0.0974 | 0.657 | -0.0590 (-23.6%) | [-0.0777, -0.0403] |
 | eos0 0.25SOL c0.002 SLfloor idle150 trail50/30 | 80 | 0.0% | +0.1074 | -0.0958 | 1.121 | -0.0755 (-30.2%) | [-0.0928, -0.0582] |

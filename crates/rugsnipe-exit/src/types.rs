@@ -69,7 +69,10 @@ impl Trade {
             is_buy: ev.is_buy,
             sol_amount: ev.sol_amount,
             token_amount: ev.token_amount,
-            fee_lamports: ev.fee.unwrap_or(0).saturating_add(ev.creator_fee.unwrap_or(0)),
+            fee_lamports: ev
+                .fee
+                .unwrap_or(0)
+                .saturating_add(ev.creator_fee.unwrap_or(0)),
             reserve_sol: ev.virtual_sol_reserves,
             reserve_token: ev.virtual_token_reserves,
             slot,
@@ -232,7 +235,7 @@ pub enum Alert {
 /// Output of [`crate::decide`]. Every decision is an action, so recording the
 /// actions records every decision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "action", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum ExitAction {
     /// The position opened (first own fill or a non-zero balance).
     Opened {

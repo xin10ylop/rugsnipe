@@ -158,7 +158,14 @@ mod tests {
         d.extend_from_slice(&42u64.to_le_bytes());
         let t = decode_token_transfer(&TOKEN_2022_PROGRAM_ID, &d, k.as_slice()).unwrap();
         assert_eq!(
-            (t.source, t.destination, t.owner, t.amount, t.mint, t.checked),
+            (
+                t.source,
+                t.destination,
+                t.owner,
+                t.amount,
+                t.mint,
+                t.checked
+            ),
             (Some(k[0]), Some(k[1]), Some(k[2]), 42, None, false)
         );
         let mut d = vec![12u8];

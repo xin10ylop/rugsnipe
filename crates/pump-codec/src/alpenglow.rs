@@ -357,7 +357,10 @@ mod tests {
 
     #[test]
     fn abort_batch() {
-        assert_eq!(parse_block_component(&[0u8; 8]).unwrap(), BlockComponent::Abort);
+        assert_eq!(
+            parse_block_component(&[0u8; 8]).unwrap(),
+            BlockComponent::Abort
+        );
         // 7 bytes is not a component
         assert!(parse_block_component(&[0u8; 7]).is_err());
     }

@@ -232,8 +232,9 @@ class Edge:
 class Cluster:
     cid: str
     mints: list[str]
-    edges: Counter = field(default_factory=Counter)
+    edges: Counter = field(default_factory=Counter)      # kind -> #launches touched by that edge kind
     keys: dict[str, set] = field(default_factory=lambda: defaultdict(set))
+    touched: dict[str, set] = field(default_factory=lambda: defaultdict(set))
     score: float = 0.0
 
 
@@ -277,7 +278,7 @@ def edges_for(rows: list[dict]) -> tuple[list[Edge], dict[str, Any]]:
     by_funder = defaultdict(list)
     for r in rows:
         if r.get("fresh") and r.get("funder") and r.get("fund_amount") and \
-                r["funder_kind"] in ("mother", "cex"):
+                r["funder_kind"] in ("mother", "cex", "exchange_like"):
             by_funder[r["funder"]].append(r)
     for f, rs in by_funder.items():
         rs = sorted(rs, key=lambda x: x["fund_amount"])
@@ -345,8 +346,10 @@ def cluster(rows: list[dict], min_size: int = 3) -> tuple[list[Cluster], dict[st
     for e in edges:
         ra = uf.find(e.a)
         if ra in clusters and uf.find(e.b) == ra:
-            clusters[ra].edges[e.kind] += 1
+            clusters[ra].touched[e.kind] |= {e.a, e.b}
             clusters[ra].keys[e.kind].add(e.key)
+    for c in clusters.values():
+        c.edges = Counter({k: len(v) for k, v in c.touched.items()})
     by_mint = {r["mint"]: r for r in rows}
     out = []
     for c in clusters.values():
@@ -362,7 +365,7 @@ def cluster(rows: list[dict], min_size: int = 3) -> tuple[list[Cluster], dict[st
 def cluster_score(c: Cluster, rows: list[dict]) -> float:
     """Confidence that the launches share one operator (0..~10).
 
-    Sum of distinct-key edge evidence (log-damped) + bonus for a consistent
+    Sum over edge kinds of weight x log(1 + #launches linked by that kind) + bonus for a consistent
     scheme (same funder kind, bundled share).  Not a profitability score.
     """
     s = 0.0

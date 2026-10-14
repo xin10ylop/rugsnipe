@@ -1,0 +1,26 @@
+[package]
+name = "rugsnipe-core"
+version = "0.1.0"
+description = "Config + validation, Mode, signed ArmSet, Watchlist, RiskGate (atomics), rslog records + SPSC writer, IntentId. No I/O except the rslog writer thread and the kill-file stat."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+pump-codec = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { version = "1.1", default-features = false, features = ["parse", "serde", "std"] }
+sha2 = { workspace = true }
+bs58 = { workspace = true }
+ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize"] }
+arc-swap = "1.9"
+rtrb = "0.4"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
+[dev-dependencies]
+ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize"] }
+
+[lints.clippy]
+too_many_arguments = "allow"

@@ -1,0 +1,304 @@
+{
+ "generated_at": "2026-10-14T10:45:54Z",
+ "window_hours": 6.0,
+ "n_sol_quoted_launches": 7049,
+ "n_trades_pulled": 0,
+ "n_bundled": 0,
+ "bundled_share": 0.0,
+ "n_signers_traced": 1982,
+ "n_fresh_launches": 1374,
+ "fresh_funder_kinds": {
+  "mother": 813,
+  "cex": 463,
+  "exchange_like": 63,
+  "bridge": 31,
+  "pump_proceeds": 3,
+  "none": 1
+ },
+ "clustering": {
+  "services": 76,
+  "bundle_wallet_keys": 0,
+  "sniper_like_bundle_wallets": 0,
+  "edges": {
+   "d": 4139,
+   "a_cex": 2375,
+   "a_mother": 1507
+  },
+  "n_rows": 7049,
+  "components_by_size": {
+   "1": 2150,
+   "2": 255,
+   "3": 88,
+   "4": 61,
+   "5": 35,
+   "6": 27,
+   "7": 18,
+   "8": 16,
+   "9": 20,
+   "10": 10,
+   "11": 4,
+   "12": 9,
+   "13": 6,
+   "14": 6,
+   "15": 1,
+   "16": 4,
+   "17": 3,
+   "18": 2,
+   "19": 3,
+   "20": 7,
+   "21": 4,
+   "22": 1,
+   "23": 4,
+   "24": 2,
+   "25": 1,
+   "27": 2,
+   "28": 3,
+   "29": 1,
+   "31": 3,
+   "34": 1,
+   "35": 1,
+   "36": 1,
+   "37": 1,
+   "39": 1,
+   "40": 1,
+   "42": 2,
+   "43": 1,
+   "45": 1,
+   "51": 2,
+   "52": 1,
+   "53": 1,
+   "58": 1,
+   "59": 1,
+   "60": 2,
+   "63": 1,
+   "64": 1,
+   "66": 1,
+   "84": 1,
+   "110": 1,
+   "115": 1,
+   "127": 1,
+   "336": 1
+  }
+ },
+ "n_clusters": 367,
+ "cluster_sizes": {
+  "34": 1,
+  "31": 3,
+  "336": 1,
+  "19": 3,
+  "127": 1,
+  "8": 16,
+  "115": 1,
+  "110": 1,
+  "14": 6,
+  "84": 1,
+  "13": 6,
+  "66": 1,
+  "64": 1,
+  "63": 1,
+  "60": 2,
+  "59": 1,
+  "58": 1,
+  "53": 1,
+  "52": 1,
+  "51": 2,
+  "45": 1,
+  "43": 1,
+  "42": 2,
+  "40": 1,
+  "39": 1,
+  "6": 27,
+  "37": 1,
+  "9": 20,
+  "36": 1,
+  "35": 1,
+  "29": 1,
+  "28": 3,
+  "27": 2,
+  "25": 1,
+  "24": 2,
+  "23": 4,
+  "22": 1,
+  "7": 18,
+  "21": 4,
+  "20": 7,
+  "18": 2,
+  "17": 3,
+  "16": 4,
+  "15": 1,
+  "4": 61,
+  "12": 9,
+  "11": 4,
+  "5": 35,
+  "10": 10,
+  "3": 88
+ },
+ "launches_in_clusters": 4389,
+ "bundled_in_clusters": 0,
+ "clusters_by_dominant_edge": {
+  "a_mother": 18,
+  "d": 349
+ },
+ "scheme": {
+  "n_traced": 6354,
+  "n_fresh": 1374,
+  "fresh_share_of_traced": 0.2162,
+  "fresh_funding_to_create_s_median": 372,
+  "fresh_top_funders": [
+   [
+    "mother",
+    813
+   ],
+   [
+    "Binance 1",
+    324
+   ],
+   [
+    "exchange_like",
+    63
+   ],
+   [
+    "Relay payout solver",
+    31
+   ],
+   [
+    "Bybit hot wallet (iGdF)",
+    28
+   ],
+   [
+    "KuCoin 2",
+    28
+   ],
+   [
+    "Coinbase (ravex #13)",
+    7
+   ],
+   [
+    "Coinbase 4",
+    7
+   ],
+   [
+    "MoonPay (ravex #1)",
+    6
+   ],
+   [
+    "MEXC 1",
+    6
+   ],
+   [
+    "Kraken (ravex #3)",
+    6
+   ],
+   [
+    "Gate.io 6",
+    5
+   ]
+  ],
+  "bundled_fresh_share": null,
+  "bundle_wallet_count_dist": {},
+  "bundle_sol_quantiles": null,
+  "eos0_mcap_quantiles": null
+ },
+ "signal_a_chance": [
+  {
+   "kind": "cex",
+   "n_launches": 463,
+   "n_funders": 26,
+   "observed_pairs": 2136,
+   "chance_pairs_mean": 1559.8,
+   "p_value": 0.005,
+   "top_amounts": [
+    [
+     1.999,
+     44
+    ],
+    [
+     1.166,
+     15
+    ],
+    [
+     0.164,
+     14
+    ],
+    [
+     9.999,
+     11
+    ],
+    [
+     399.999,
+     9
+    ],
+    [
+     0.685,
+     7
+    ],
+    [
+     3.0,
+     6
+    ],
+    [
+     1.994,
+     5
+    ]
+   ]
+  },
+  {
+   "kind": "mother",
+   "n_launches": 813,
+   "n_funders": 496,
+   "observed_pairs": 1466,
+   "chance_pairs_mean": 68.64,
+   "p_value": 0.005,
+   "top_amounts": [
+    [
+     0.024,
+     51
+    ],
+    [
+     0.5,
+     42
+    ],
+    [
+     0.047,
+     42
+    ],
+    [
+     0.565,
+     39
+    ],
+    [
+     0.007,
+     32
+    ],
+    [
+     2.0,
+     23
+    ],
+    [
+     0.092,
+     21
+    ],
+    [
+     2.6,
+     19
+    ]
+   ]
+  }
+ ],
+ "args": {
+  "stages": "cluster",
+  "hours": 6.0,
+  "end": null,
+  "horizon": 900,
+  "rpc_rps": 8.0,
+  "api_rps": 3.0,
+  "workers": 8,
+  "funding_scope": "tradable",
+  "min_cluster": 3,
+  "expand_top": 30,
+  "expand_per": 25,
+  "expand_hours": 72.0,
+  "max_minutes": 38.0
+ },
+ "expansion": {}
+}

@@ -201,7 +201,12 @@ mod tests {
     #[test]
     fn amm_quote() {
         // 1% of the base into a 100 SOL / 1e15 pool, 1.25% fee
-        let out = amm_sell_net(10_000_000_000_000, 100_000_000_000, 1_000_000_000_000_000, 125);
+        let out = amm_sell_net(
+            10_000_000_000_000,
+            100_000_000_000,
+            1_000_000_000_000_000,
+            125,
+        );
         let gross = 10_000_000_000_000u128 * 100_000_000_000 / 1_010_000_000_000_000;
         let fee = (gross * 125).div_ceil(10_000);
         assert_eq!(out as u128, gross - fee);

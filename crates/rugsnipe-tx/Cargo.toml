@@ -1,0 +1,39 @@
+[package]
+name = "rugsnipe-tx"
+version = "0.1.0"
+description = "Buy/sell transaction templates with a fixed-offset PatchTable (legacy and v1), durable-nonce pool with the no-double-buy rule, zeroizing signer, and the Sender trait (Paper always; RpcSend behind `rpc`; Helius/Nozomi/Astralane/Jito/NextBlock fixed-buffer HTTP/1.1 behind `senders`)."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+# JSON-RPC sendTransaction and the cold RPC client (TLS via ureq + rustls). Off the hot thread.
+rpc = ["dep:ureq"]
+# Plain-HTTP fixed-buffer senders (std TcpStream only, no extra dependencies).
+senders = []
+
+[dependencies]
+pump-codec = { workspace = true }
+rugsnipe-core = { path = "../rugsnipe-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+bs58 = { workspace = true }
+sha2 = { workspace = true }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+zeroize = { version = "1.9", features = ["zeroize_derive"] }
+ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize"] }
+ureq = { version = "3", optional = true, default-features = false, features = ["rustls", "json"] }
+
+[dev-dependencies]
+pump-rust-client = { workspace = true }
+solana-message = { workspace = true, features = ["wincode"] }
+solana-hash = { workspace = true }
+solana-nonce = { version = "3.4", features = ["serde"] }
+solana-system-interface = { workspace = true }
+bincode = { workspace = true }
+
+[lints.clippy]
+too_many_arguments = "allow"
