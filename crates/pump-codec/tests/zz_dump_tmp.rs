@@ -1,19 +1,19 @@
 mod common;
+use base64::Engine as _;
 use common::*;
 use pump_codec::events::{events_from_inner_instructions, PumpEvent};
 #[test]
 fn dump() {
-    for name in tx_names() {
-        let fx = TxFixture::load(&name);
+    let v = read_json("accounts/global.json");
+    let d = base64::engine::general_purpose::STANDARD.decode(v["result"]["value"]["data"][0].as_str().unwrap()).unwrap();
+    let g = pump_codec::curve::Global::decode(&d).unwrap();
+    println!("whitelist_pda={} reserved={} auth={}", g.whitelist_pda, g.reserved_fee_recipient, g.authority);
+    for name in ["fresh_v0alt_inner_sell_v2", "fresh_v1_create_v2_usdc_buy_v2", "fresh_v1_inner_bexq_v2", "fresh_v1_big_inner_buy_v3_uva"] {
+        let fx = TxFixture::load(name);
         let keys = fx.full_keys();
         for r in events_from_inner_instructions(&keys, fx.inner_instructions(), true).unwrap() {
-            match &r.event {
-                PumpEvent::Trade(t) => println!("{name} | TRADE {} buy={} sol={} tok={} q={:?} qa={:?} fee={:?}/{:?} cr={:?}/{:?} bb={:?}/{:?} mayhem={:?} fr={:?} cash={:?}/{:?} hr={:?}/{:?} vq={:?} rq={:?} vs={} vt={}",
-                    t.ix_name.unwrap_or("?"), t.is_buy, t.sol_amount, t.token_amount, t.quote_mint.map(|q| q.to_string()[..6].to_string()), t.quote_amount,
-                    t.fee_basis_points, t.fee, t.creator_fee_basis_points, t.creator_fee, t.buyback_fee_basis_points, t.buyback_fee, t.mayhem_mode,
-                    t.fee_recipient.map(|q| q.to_string()[..6].to_string()), t.cashback_fee_basis_points, t.cashback, t.holder_rewards_bps, t.holder_rewards,
-                    t.virtual_quote_reserves, t.real_quote_reserves, t.virtual_sol_reserves, t.virtual_token_reserves),
-                e => println!("{name} | {} {:?}", e.name(), r.source),
+            if let PumpEvent::Trade(t) = &r.event {
+                println!("{name} user={} creator={:?} fee_payer={} mint={}", t.user, t.creator, fx.view().fee_payer(), t.mint);
             }
         }
     }

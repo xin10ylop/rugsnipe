@@ -12,7 +12,7 @@ Tags:
 
 **Shape.** Judge 1 picked P3, judge 2 picked P2; both prescribe the same graft. **P3's process skeleton** (chain as truth, guard, keeper, upgrade gate, recovery before READY), **P1's hot-path internals** (pinned run-to-completion loop, complete PatchTable, per-class bids, advertised-TPU routing) and **P2's validation core**, which is normative and blocking (point-in-time operators, the same `arming` code live and in backtest, vault, `n_configs_tried`, randomized skips, `min_tokens_out` from `v_max`). On conflict: P2 wins on statistics, P3 on operations, P1 on packet → wire.
 
-**Prior.** The evidence leans negative. The guru's headline rule loses ~27% of stake per snipe (skeptic §2), and the in-progress 16-day uniform study shows **0 hits in ~30 out-of-sample rows** for its first rule (preliminary) [V, `data/reports/gap1_operators.json`]. So the system is built to reach a **cheap, honest "no"** quickly and stays a paper instrument unless the gate (§9.5) passes.
+**Prior.** The evidence leans negative. The guru's headline rule loses ~27% of stake per snipe (skeptic §2), and the in-progress 16-day uniform study shows **0 hits in ~30 out-of-sample rows** for its first rule (preliminary) [V, `data/reports/gap1_operators.json`]. The system is built to reach a **cheap, honest "no"** fast and stays paper-only unless the gate (§9.5) passes.
 
 | Verified today | Result |
 |---|---|
@@ -39,7 +39,7 @@ Tags:
 | 9 | Stale nonce variant lands after a dump | Burn on the **first dump signal** or at 3 slots; `maxRetries=0` senders; `late_fill` class. |
 | 10, 29 | Sell bounds (P1 tight, P2 inverted, P3 zero); uncapped escalation | TP sells: trigger quote × (1 − 15%). Dump sells: **floor quote** × 0.98 (never fails on price). Per-position sell-spend cap, ≤ 15 tries. |
 | 11 | Partial-sell double fill; P2's blockhash+nonce buy variant | Final sell = blockhash + `CloseAccount`; partial = sell-nonce sub-pool. P2's buy variant **dropped**. |
-| 12 | Arming at n ≥ 30 (P3); binary hit model (P2) | Empirical Bayes on **realized P&L** per family×band; hit SPRT only for disarm. |
+| 12 | Arming at n ≥ 30 (P3); binary hit model (P2) | Empirical Bayes on **realized P&L**; hit SPRT only disarms. |
 | 13 | iid Wilson; level metric; repeated looks | **Operator×day cluster bootstrap**; Δ vs a V_e-matched control; pre-registration; k̂ grid; family-pooled farm flag (§9.4). |
 | 14 | `tx_index` → time landing model | Invalid on BAM/Harmonic batches (~63% of stake). Paper reports E2; landing comes from lock probes [U] and probe buys. |
 | 15, 16, 17 | PatchTable byte test; missing `aqbc`; wSOL | SDK sorts keys: test **semantic** equality. Five mint keys include `aqbc` = ATA(bc, SPL, WSOL) [V IDL]. No wSOL [V]. |
@@ -198,6 +198,7 @@ send_error_kill_ratio = 0.20
 max_clock_offset_ms = 5
 [feeds]
 logsws = { enabled = true, url = "wss://api.mainnet-beta.solana.com", stale_ms = 10_000 }
+relay = { enabled = false, socket = "/run/rugsnipe/pp.sock" }    # collector's PumpPortal frames
 grpc = { enabled = false, endpoint = "", token = "GRPC_TOKEN", stale_ms = 2_000 }
 shreds = { enabled = false, bind = "0.0.0.0:7733", sources = ["dz_edge", "helius"] }
 probe_live_require = "post_exec"
@@ -274,7 +275,7 @@ Validation **refuses probe or live** if any of these holds:
 2  if !dedup.insert(ev.sig) or !fired.first(ev.mint, ev.class): rec(Dup{src, delay}); return   # free feeds never claim a live slot
 3  hit = ev.hit or create_hit(TxView::parse(ev.bytes)?)    # legacy|v0|v1, launchers, all in-tx buys
 4  if hit.quote != SOL or hit.mayhem or hit.token_prog != T22 or hit.cashback_untested: rec(SkipClass); return
-5  w = watch.get(signers ∪ fee_payer − shared_fee_payers); if !w: { if watch.get(creator_arg): rec(Shadow) }; return
+5  w = watch.get(signers ∪ fee_payer − shared_fee_payers); if !w { if watch.get(creator_arg): rec(Shadow); return }; op = armset.op(w.op_id)
 6  if slot_now − hit.slot > max_age_slots or aborted(hit.slot, hit.bank_id): rec(Stale); return
 7  d = risk.decide(op, feed_class, regime(hit.slot), mode); if d == Skip: return   # latch, caps, freeze
 8  V0 = curve after all in-tx buys; if V0 ≥ op.v_max: rec(TooHigh); return
@@ -424,7 +425,7 @@ All must hold:
 - vault EV > 0;
 - landing holds after Alpenglow.
 
-Wilson intervals are shown, labelled iid. Every report is headed: *"EV is an upper bound until landing, farming and exit fills are measured by probes."*
+Wilson intervals are labelled iid. Every report is headed: *"EV is an upper bound until landing, farming and exit fills are measured by probes."*
 
 ### 9.6 Funding watcher (pre-creation watchlist)
 
@@ -435,8 +436,8 @@ An ArmSet funder sending a fresh recipient (pre-balance 0) an amount in ≤ 5 **
 | Mode | Where | What it proves |
 |---|---|---|
 | `paper` | here / Ohio, free feeds | decode coverage, decisions, internal latency, E2 P&L; nothing about block 0 |
-| `shadow` | fra1 + SVS gRPC ($150/mo) | detection lead vs rivals' landing slots by leader class; not landing position |
-| lock probe [U] | fra1 | 1-lamport transfer to the curve (takes its write lock) on our nonce, sender and bid; its `tx_index` vs rival buys = landing position, no token exposure |
+| `shadow` | fra1 + SVS gRPC ($150/mo) | detection lead vs rivals' landing slots; not landing position |
+| lock probe [U] | fra1 | 1-lamport transfer to the curve (takes its write lock) on our nonce, sender and bid; `tx_index` vs rival buys = landing position, no tokens held |
 | `probe` | fra1 + paid post-exec feed | 0.01-0.02 SOL buys, ≤ 20/day (~0.004 SOL overhead each); true `buyers_ahead` per sender × class replaces the guessed k̂ |
 | `live` | fra1 | `gate_passed` ArmSet + TOML + CLI flag + local `ctl arm-live` token for the gate run |
 
@@ -463,7 +464,7 @@ An ArmSet funder sending a fresh recipient (pre-balance 0) an amount in ≤ 5 **
 
 | Failure | Response |
 |---|---|
-| hot crash | restart (~1 s) + recovery; guard takes over after 5 s |
+| hot crash | restart + recovery; guard takeover after 5 s |
 | Ohio down | last ArmSet until `armset_max_age`, then exits only |
 | fra1 dead (phase 1) | positions stranded, bounded by `max_open_positions × max_snipe`; dead-man alert |
 | paid feeds down | entries go to paper; exits poll within the RPC budget |
@@ -515,8 +516,8 @@ M0-M4 are the session minimum. M2's report is the go/no-go artifact and can answ
 
 1. **Pre-execution feed latency and coverage** (DZ Edge covers 53% of slots). Until measured, block-0 numbers are models.
 2. **True landing position, slot-0 rate and k̂** (lock probes [U] or probe buys from fra1).
-3. **Sender behaviour:** v1 and nonce acceptance, `maxRetries=0`, nonce deprioritisation, BAM/Harmonic admission and bid split.
-4. **Farming caused by our presence**; exit fills in contested dump slots and across completion → PumpSwap.
+3. **Sender behaviour:** v1/nonce acceptance, `maxRetries=0`, BAM/Harmonic admission and bid split.
+4. **Farming caused by us**; exit fills in contested dump slots and across completion.
 5. **Post-Alpenglow behaviour** (Oct 21; FLH ≥ Nov 9); every landing number is re-measured.
 6. **FRA in-building RTT and bare-metal tuning.**
 7. **Untested ideas:** slot-expiry assertion, seed-account CU savings, lock probe (simulation, then one live send each).
