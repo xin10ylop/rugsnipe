@@ -111,11 +111,77 @@ roughly 4-5 points to the break-even hit rate.
 
 ## 5. Operator-level results (walk-forward)
 
-To be filled in from `analysis/scripts/discover_ruggers.py` and `backtest.py` when the discovery
-stage completes: clusters by (funder, amount band, fresh wallet, bundle shape, launcher, dev-buy size),
-hit rates at TP 1.5/2/3× from a rank-1 entry with the measured premium, exits by TP, by first
-bundle-wallet sell, by no-activity timeout and by consolidation, Wilson lower bounds, and the number
-of qualifying launches per day.
+Sources: `docs/research/gap-1.md` (16 days, 848k mint-authority signatures indexed, 9,905 decoded
+creates in a 1.27% uniform sample, 7,270 extra coins from 196 expanded wallets), `gap-3.md`
+(675 bundled launches with full trade tapes to +900 s), `gap-4.md` (CEX hot wallets and the
+fresh-wallet trigger). Code under `analysis/scripts/gap1`, `gap3_exits`, `gap4`. All hit rates
+use a realistic entry: after the creator's bundle and the median third-party slot-0 buyer, with
+the rank premium from §4.
+
+### 5.1 Who the operators are
+
+| Population (16 days) | Count |
+|---|---|
+| Creates per day | 49.4k |
+| Creator wallets with ≥5 launches | ≈8,900 (they make 68% of all launches) |
+| Creator wallets with ≥100 launches | ≈1,390 |
+| Creator wallets with ≥1,000 launches | 52 |
+| Operator units with ≥15 scored launches | 129 |
+
+Most high-volume wallets are dust-funded spam farms. Funder-linked groups (rotating creators) and
+CEX amount-band groups hit +100% at 0-5%.
+
+### 5.2 Hit rate at TP +100% by class (in-sample, Wilson 95%)
+
+| Class | n | hit +100% |
+|---|---|---|
+| All creates (base rate) | 9,905 | 6-10% |
+| ≥1 wallet bundled next to the create | 1,165 | 17.0% [14.9, 19.3] |
+| Fresh + bundled + exchange-funded (the guru's archetype) | 171 | 18.1% [13.1, 24.6] |
+| Mayhem-mode coins (2B supply, AI agent trades 1B for 24 h, no floor) | sample | 28% |
+| Best single operator (in-sample, 6/17) | 17 | 35.3%, Wilson lower bound 17.3% |
+
+### 5.3 Walk-forward (discover on days 1..t, score on t+1..t+7)
+
+| Arming rule | Out-of-sample hit +100% | Launches qualifying per day |
+|---|---|---|
+| Every operator, no filter | 6-10% | thousands |
+| Guru's rule (≥3 of last 10 hit +100%) | 18.6-21.8% (Wilson upper 32.6-35.3%) | 50-90 among expanded wallets |
+| Top tercile by past hit rate | 15-16% (bottom tercile ≈1%) | hundreds |
+
+Selection persists (2.2× lift over base) but tops out far below the 43-48% break-even that a
+TP +100% strategy needs when a miss rides down to the floor.
+
+### 5.4 What the tapes say about misses and exits (gap-3, n = 675 bundled launches)
+
+| Fact | Value |
+|---|---|
+| Bundle shape | median 3 wallets × 1.28 SOL; post-bundle mcap 40.3 SOL |
+| First bundle-wallet sell | median 35 slots / 9 s (6 s after Oct 9); that slot dumps 67% of the bundle's tokens |
+| Creator's first sell | median 23 slots / 6 s |
+| Bundle sell in slot 0 / creator sell within 3 slots | 0.9% / 7.1% |
+| Peak on a miss | median 1.46× entry |
+| Loss on a miss, holding to +900 s | 20-40% for a typical bundle (63-80% only above ~75 SOL post-bundle mcap) |
+| Loss on a miss, exit at first insider sell | median ≈0%, but it forfeits 50-80% of the winners |
+| Within-operator CV of post-bundle mcap and bundle SOL | 4-15% (a ±10% fingerprint band is a strong match) |
+
+Consequence: with insider-sell exits the break-even hit rate at TP +100% falls to roughly 22-27%
+(loss on a miss ≈23%, round trip ≈4% of stake), not 43-48%. The best classes above (17-18%) and
+the top tercile of operators (15-16%) still sit below it, so the open question is not speed or
+selection alone but the take-profit level and the exit rule. That is what `docs/04-strategy.md`
+settles with the policy sweep, the operator-conditioned walk-forward and the copy-trade study.
+
+### 5.5 The funding trigger as a pre-arm (gap-4)
+
+| Rule | Wallets per day | Create within 60 min |
+|---|---|---|
+| Any SOL from the 7 CEX hot wallets to a never-used wallet | ≈12,550 | 3.3% [1.9, 5.6] |
+| Same, amount 0.9-15 SOL | ≈5,000 (≈210/h) | 9.7% [5.5, 16.6] (keeps 11 of 12 creators) |
+
+Of the creates that follow a fresh CEX withdrawal, 50% come within 10 min and 75% within 60 min.
+The rule only sizes the watchlist; the buy decision is made at the create from the operator
+fingerprint and the slot-0 bundle shape. 2.955 SOL is a number the rugger typed, not a fee artefact
+(Binance and Bitget charge 0.001, KuCoin 0.008; OKX and Bybit deliver round amounts).
 
 ## 6. What the strategy must therefore be (preview)
 
