@@ -137,6 +137,8 @@ Pre-Oct-9 (268 ms slots) +4.8%, post-Oct-9 (200 ms) +3.6%. Positive on 16 of 17 
 | Copy-trading scored pump wallets, one slot late, exit on their sell | −7.0% [−9.5, −4.5]; front-run upper bound −2.4% on 905 fresh launches; 0 of 32,400 configs significant | strategy-copytrade, -critic |
 | Copy-trading the operator's own wave wallets | about −20% (they are the operator's tape-painting cost) | same |
 | Top-15 policies ranked on the test set | q = 1.00, negative on train and holdout (the winner's curse made visible) | strategy-sweep §2c |
+| **First buyer in slot+1** (same exits as §2, for creates too late in the block to reach in slot 0) | **−3.3% / −1.8% / −4.2%** on test / deep / fresh at the +1.1% premium (orchestrator's own run). The edge is strictly the creation slot. | this doc |
+| §2 policy at the +3.6% premium (rank-1 median on CEX-fresh bundled launches) | +0.9% / +0.2% / +1.3%: thin. The +2% slippage cap is part of the policy, not an option. | this doc |
 
 The copy-trade critic found the same thing from the other side: fast early wallets with a median
 hold under 5 s keep a small own return (+1.8% to +5.3% after costs across train, test and two
@@ -191,7 +193,7 @@ Config (docs/06 §6 names): `exit.default.tp = [[1.15, 1.0]]`, `exit.default.ins
   `strategy-mayhem.md` (mayhem coins hit +100% 28% of the time in gap-1; loss side unknown).
 - The adversarial critic (`strategy-critic.md`) re-runs the top policies on a holdout from the
   last hours; its verdict is appended here.
-- A "first in slot+1" entry (for creates that sit late in the block, where slot 0 is unreachable)
-  has not been simulated; E2 tested the *end* of slot+1, which loses.
+- Resolved: a "first in slot+1" entry loses on every set (§5), so creates that sit in the last
+  5-15% of a block are skipped, not chased.
 - Failed-attempt costs are modelled here by hand (§3); the hot path must log them so the probe
   measures them.
