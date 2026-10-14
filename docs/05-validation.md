@@ -171,7 +171,18 @@ the top tercile of operators (15-16%) still sit below it, so the open question i
 selection alone but the take-profit level and the exit rule. That is what `docs/04-strategy.md`
 settles with the policy sweep, the operator-conditioned walk-forward and the copy-trade study.
 
-### 5.5 The funding trigger as a pre-arm (gap-4)
+### 5.5 Strategy search outcome (strategy-*.md, summarised in `docs/04-strategy.md`)
+
+| Family | Best out-of-sample number | Verdict |
+|---|---|---|
+| Guru's rule (block-0 entry, TP +100%) and his bot's exits | −10.5% / −1% per trade | loses |
+| Survivor, dip, buy-on-dev-sell, snipe-delay entries | −2% to −17% | lose |
+| Copy-trading pump wallets or wave wallets | −3% to −20% on 905 fresh launches | loses |
+| Mayhem coins | −11% to −22% | excluded |
+| Per-operator arming (his selection idea) | no lift on the fresh holdout (−0.2 points) | logged only |
+| **Rank-1 micro-scalp** (his entry, our 1-3 s exit) | **+2.5% to +3.7%** on four independent sets (n = 915, 427, 222, 150); +9 to +12% on the hot third, −0.5% on the rest; ≈ 0 at rank 2 or under stacked realistic fill costs | the only edge; a latency race |
+
+### 5.6 The funding trigger as a pre-arm (gap-4)
 
 | Rule | Wallets per day | Create within 60 min |
 |---|---|---|
