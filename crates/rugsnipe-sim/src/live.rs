@@ -263,6 +263,11 @@ pub fn read_curve(rpc: &RpcClient, coin: &mut Coin) -> Result<(), String> {
     if bc.complete {
         return Err("curve already complete".into());
     }
+    // the API's `is_mayhem_mode` can be absent: the chain flag decides (a
+    // mayhem curve has another k and costs ~400 CU less, so it is no test)
+    if bc.is_mayhem_mode {
+        return Err("curve is in mayhem mode (rerun for another coin)".into());
+    }
     let s = bc.state();
     coin.virtual_sol = s.virtual_sol;
     coin.real_sol = s.real_sol;

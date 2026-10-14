@@ -254,3 +254,149 @@ pub fn rslog_records(dir: &std::path::Path) -> Vec<rugsnipe_core::rslog::Rec> {
 pub fn count(c: &rusqlite::Connection, sql: &str) -> i64 {
     c.query_row(sql, [], |r| r.get(0)).unwrap()
 }
+
+// ------------------------------------------------- process-level harness
+//
+// The real `rugsnipe-hot` binary fed real recorded frames through the
+// collector relay (a Unix socket served by the test), in paper mode.
+
+/// The rugsnipe-feed fixture (22 live `logsSubscribe` frames, 20 creates)
+/// as relay lines `<recv_unix_ns>\t<frame>\n`, plus the signer of every
+/// create in it.
+pub fn fixture_relay() -> (String, Vec<Pubkey>) {
+    let p = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../rugsnipe-feed/fixtures/logs_frames.jsonl"
+    );
+    let text = std::fs::read_to_string(p).unwrap();
+    let mut lines = String::new();
+    for l in text.lines() {
+        let v: serde_json::Value = serde_json::from_str(l).unwrap();
+        lines.push_str(&format!("{}\t{}\n", v["recv_unix_ns"], v["frame"]));
+    }
+    let users = rugsnipe_feed::replay::Replay::from_text(&text, false)
+        .events()
+        .iter()
+        .filter_map(|e| match e.payload {
+            Payload::Hit(h) => Some(h.user),
+            _ => None,
+        })
+        .collect();
+    (lines, users)
+}
+
+/// Serve `lines` to the first relay connection on `sock`, then keep the
+/// connection open until `stop`.
+pub fn serve_relay(
+    sock: &std::path::Path,
+    lines: String,
+    stop: Arc<AtomicBool>,
+) -> std::thread::JoinHandle<()> {
+    use std::io::Write;
+    let listener = std::os::unix::net::UnixListener::bind(sock).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    std::thread::spawn(move || {
+        let mut conn = None;
+        while !stop.load(std::sync::atomic::Ordering::Acquire) {
+            if conn.is_none() {
+                if let Ok((mut c, _)) = listener.accept() {
+                    c.set_nonblocking(false).unwrap();
+                    let _ = c.write_all(lines.as_bytes());
+                    conn = Some(c);
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    })
+}
+
+/// A paper TOML: relay feed only, metrics off, every real sender enabled
+/// and pointed at `ports` (rpcsend, helius, nozomi, astralane, jito,
+/// nextblock).
+pub fn paper_toml(dir: &std::path::Path, sock: &std::path::Path, ports: [u16; 6]) -> String {
+    format!(
+        r#"
+[box]
+id = "proc"
+[mode]
+mode = "paper"
+[secrets]
+api_keys = "api-keys"
+[risk]
+max_snipe_lamports = 250_000_000
+max_probe_lamports = 20_000_000
+max_probes_per_day = 20
+max_open_positions = 64
+max_daily_loss_lamports = 1_000_000_000
+max_consec_losses_per_op = 5
+max_buys_per_op_per_day = 100
+max_buys_per_hour = 100
+max_bid_lamports = 25_000_000
+max_sell_spend_lamports = 20_000_000
+max_entry_vsol_lamports = 40_000_000_000
+max_hot_balance_lamports = 5_000_000_000
+min_hot_balance_lamports = 1_000_000_000
+kill_file = "{kill}"
+[feeds]
+logsws = {{ enabled = false }}
+relay = {{ enabled = true, socket = "{sock}" }}
+pumpportal = {{ enabled = false }}
+[senders]
+paper = {{ enabled = true }}
+rpcsend = {{ enabled = true, url = "http://127.0.0.1:{p0}", sells_only = false }}
+helius = {{ enabled = true, url = "http://127.0.0.1:{p1}/fast", swqos_only = true, min_tip = 5_000 }}
+nozomi = {{ enabled = true, url = "http://127.0.0.1:{p2}", key = "NOZOMI_KEY", min_tip = 1_000_000 }}
+astralane = {{ enabled = true, url = "http://127.0.0.1:{p3}", key = "ASTRALANE_KEY" }}
+jito = {{ enabled = true, url = "http://127.0.0.1:{p4}", max_rps = 1 }}
+nextblock = {{ enabled = true, url = "http://127.0.0.1:{p5}", key = "NEXTBLOCK_KEY" }}
+[obs]
+metrics_listen = []
+rslog_dir = "{rslog}"
+"#,
+        kill = dir.join("KILL").display(),
+        sock = sock.display(),
+        rslog = dir.join("rslog").display(),
+        p0 = ports[0],
+        p1 = ports[1],
+        p2 = ports[2],
+        p3 = ports[3],
+        p4 = ports[4],
+        p5 = ports[5],
+    )
+}
+
+/// `rugsnipe-hot` in paper mode on `cfg` with an unsigned ArmSet file,
+/// no E2 lane, no metrics, unpinned.
+pub fn hot_cmd(
+    cfg: &std::path::Path,
+    armset: &std::path::Path,
+    state: &std::path::Path,
+    duration_s: u64,
+) -> std::process::Command {
+    let mut c = std::process::Command::new(env!("CARGO_BIN_EXE_rugsnipe-hot"));
+    c.arg("--config")
+        .arg(cfg)
+        .arg("--armset")
+        .arg(armset)
+        .arg("--paper-unsigned-armset")
+        .arg("--state")
+        .arg(state)
+        .arg("--duration-s")
+        .arg(duration_s.to_string())
+        .arg("--no-e2")
+        .arg("--no-metrics")
+        .arg("--pin-core")
+        .arg("none");
+    c
+}
+
+/// `decisions` count for `label` in a run summary.
+pub fn decision(summary: &serde_json::Value, label: &str) -> u64 {
+    summary["decisions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d[0] == label)
+        .map(|d| d[1].as_u64().unwrap())
+        .unwrap_or(0)
+}

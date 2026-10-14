@@ -14,6 +14,7 @@ use prometheus_client::registry::Registry;
 use pump_codec::Pubkey;
 use rugsnipe_core::armset::ArmSet;
 use rugsnipe_core::config::{ArmSetGate, Config, ValidateEnv};
+use rugsnipe_core::kill::KillFile;
 use rugsnipe_core::risk::RiskGate;
 use rugsnipe_core::rslog::{box_id, RslogWriter};
 use rugsnipe_core::watchlist::Watchlist;
@@ -235,6 +236,9 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     let arm = Arc::new(ArcSwap::from_pointee(arm_state));
     // --- risk
     let risk = Arc::new(RiskGate::new(cfg.risk.clone()));
+    // A kill file present at start latches before the hot loop exists: the
+    // cold thread's first poll comes ~100 ms later, after the first frames.
+    KillFile::new(&cfg.risk.kill_file).poll(&risk);
     if mode == Mode::Paper {
         risk.set_hot_balance(o.paper_balance);
     }

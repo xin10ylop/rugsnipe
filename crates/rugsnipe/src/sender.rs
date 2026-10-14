@@ -7,7 +7,7 @@ use crate::msgs::{ColdMsg, FireJob};
 use crate::stats::HotStats;
 use rugsnipe_core::rslog::{Rec, RslogProducer};
 use rugsnipe_feed::clock::mono_ns;
-use rugsnipe_tx::senders::{SenderSet, Variant, VariantKind};
+use rugsnipe_tx::senders::{Sender as _, SenderId, SenderSet, Variant, VariantKind};
 use rugsnipe_tx::signer::HotSigner;
 use std::sync::atomic::{AtomicBool, Ordering::Acquire};
 use std::sync::mpsc::Sender;
@@ -52,7 +52,13 @@ pub fn spawn(
                         job.tip,
                         Some(job.tip_account),
                     );
-                    for (id, res) in senders.send_all(&v) {
+                    // paper decisions (and paper mode) never reach a real sender
+                    let results = if job.real {
+                        senders.send_all(&v)
+                    } else {
+                        vec![(SenderId::Paper, senders.paper.send(&v))]
+                    };
+                    for (id, res) in results {
                         sent += 1;
                         stats.sends[id as usize].inc();
                         let now = mono_ns();

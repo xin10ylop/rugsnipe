@@ -556,3 +556,116 @@ fn compile_rejects_privilege_escalation_in_templates() {
     assert_eq!(layout.n_sigs, 1);
     assert_eq!(TxView::parse(&raw).unwrap().num_instructions(), 1);
 }
+
+/// Fresh random mints on every run (seed from the OS, printed for replay
+/// with `RUGSNIPE_SEED=<seed>`): the patched template equals (a) the
+/// from-scratch builder compiled by solana-message and (b) pump-rust-client
+/// 0.4.1's own `buy_exact_quote_in_v3_instructions` (T22 ATA create + buy):
+/// same programs, accounts, data and privileges, for 1,000 mints over every
+/// format / nonce / authority combination. The only intended difference is
+/// the `partial_fill` byte: the SDK always requests it, the template carries
+/// the config value (docs/03 section 6: it never rescues a slippage failure).
+#[test]
+fn fresh_random_mints_patch_equals_scratch_and_pump_rust_client() {
+    let seed = std::env::var("RUGSNIPE_SEED")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or_else(|| {
+            let mut b = [0u8; 8];
+            std::io::Read::read_exact(&mut std::fs::File::open("/dev/urandom").unwrap(), &mut b)
+                .unwrap();
+            u64::from_le_bytes(b)
+        })
+        | 1;
+    eprintln!("RUGSNIPE_SEED={seed}");
+    let mut rng = Rng(seed);
+    let combos = [
+        (TxFormat::Legacy, false, false),
+        (TxFormat::Legacy, true, false),
+        (TxFormat::Legacy, true, true),
+        (TxFormat::V1, false, false),
+        (TxFormat::V1, true, false),
+        (TxFormat::V1, true, true),
+    ];
+    let mut templates: Vec<(CurveParams, Template)> = combos
+        .iter()
+        .map(|&(f, n, s)| {
+            let mut p = params(&mut rng, f, n, s);
+            p.partial_fill = Some(rng.next() % 2 == 0);
+            (p, Template::buy(&p).unwrap())
+        })
+        .collect();
+    for i in 0..1_000 {
+        let mint = rng.key();
+        let (p, t) = &mut templates[i % combos.len()];
+        let k = real_keys(mint, p);
+        let mut lifetime = [0u8; 32];
+        for ch in lifetime.chunks_mut(8) {
+            ch.copy_from_slice(&rng.next().to_le_bytes());
+        }
+        let spend = rng.next() % 10_000_000_000 + 1;
+        let min_out = rng.next();
+        let prio = rng.next() % 50_000_000;
+        let tip = rng.next() % 10_000_000 + 1;
+        t.patch(&Patch {
+            keys: &k,
+            lifetime: &lifetime,
+            amount: spend,
+            limit: min_out,
+            priority_lamports: prio,
+            tip_lamports: tip,
+        });
+        let got = decompile(t.bytes());
+        // (a) from-scratch builder, compiled by Solana's own message code
+        let want = reference(
+            &buy_instructions(p, &k, spend, min_out, prio, tip),
+            &p.user,
+            lifetime,
+            p.format,
+            p.cu_limit,
+            p.lads_bytes,
+            prio,
+        );
+        assert_eq!(got, want, "seed {seed} mint #{i} {mint} {:?}", p.format);
+        // (b) pump-rust-client: [ATA create (idempotent, T22), buy_exact_quote_in_v3]
+        let sdk = pump_rust_client::PumpSdk.buy_exact_quote_in_v3_instructions(
+            p3(&mint),
+            p3(&c::WSOL_MINT),
+            p3(&c::TOKEN_2022_PROGRAM_ID),
+            p3(&c::SPL_TOKEN_PROGRAM_ID),
+            p3(&p.user),
+            p3(&p.buyback_fee_recipient),
+            spend,
+            min_out,
+        );
+        assert_eq!(sdk.len(), 2, "SOL-quoted: ATA create + buy");
+        let ata_prog = c::ASSOCIATED_TOKEN_PROGRAM_ID.to_bytes();
+        let ours: Vec<_> = got
+            .iter()
+            .filter(|(prog, _, _)| prog.to_bytes() == ata_prog || *prog == c::PUMP_PROGRAM_ID)
+            .collect();
+        assert_eq!(ours.len(), 2, "seed {seed} mint {mint}");
+        for ((prog, metas, data), theirs) in ours.iter().zip(&sdk) {
+            assert_eq!(prog.to_bytes(), theirs.program_id.to_bytes(), "seed {seed}");
+            assert_eq!(metas.len(), theirs.accounts.len(), "seed {seed} {prog}");
+            for ((k, s, w), m) in metas.iter().zip(&theirs.accounts) {
+                assert_eq!(k.to_bytes(), m.pubkey.to_bytes(), "seed {seed} mint {mint} {prog}");
+                if *prog == c::PUMP_PROGRAM_ID {
+                    assert_eq!((*s, *w), (m.is_signer, m.is_writable), "seed {seed} {k}");
+                } else {
+                    // message-level privileges are the union over instructions
+                    assert!(*s || !m.is_signer, "seed {seed} {k} must sign");
+                    assert!(*w || !m.is_writable, "seed {seed} {k} must be writable");
+                }
+            }
+            if *prog == c::PUMP_PROGRAM_ID {
+                assert_eq!(data.len(), theirs.data.len(), "seed {seed}");
+                assert_eq!(&data[..24], &theirs.data[..24], "seed {seed} mint {mint}");
+                assert_eq!(theirs.data[24], 1, "the SDK always requests partial_fill");
+                assert_eq!(data[24], p.partial_fill.unwrap() as u8, "config partial_fill");
+            } else {
+                assert_eq!(data, &theirs.data, "seed {seed} ATA create data");
+            }
+        }
+    }
+}

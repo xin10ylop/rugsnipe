@@ -119,6 +119,7 @@ Results: `docs/research/onchain-funding-patterns.md`.
 | `rugsnipe_analysis/report.py` | renders `docs/research/onchain-backtest.md` (hand-written verdict in `docs/research/onchain-backtest.narrative.json`). |
 | `scripts/discover_ruggers.py` | stages decode, coins, trades, funding, cluster, expand -> `data/window_tokens.jsonl`, `data/rugger_clusters.json`, `data/reports/discovery_summary.json`. `--max-minutes` stops network stages; re-run to resume. |
 | `scripts/backtest.py` | variant grid over the window, cluster members (+ walk-forward "follow the good rugger") and Task A's random arm -> `data/reports/backtest_results.json`, `data/backtest_trades.csv`, `docs/research/onchain-backtest.md`. Reads trades from the cache only unless `--allow-fetch`. |
+| `scripts/verify_backtest.py` | Task D adversarial checks of the backtest: units/decimals/fees re-derived per trade, slot-0 feature look-ahead, timestamps, API ATH vs trade max, the 200-trades-in-60-s censoring of the window, TP-hit break-even; `--probe N` (<= 2N swap-api requests, N <= 48) reads slot 0 of censored launches, `--spot N` re-checks N tokens on coins-v2 + DexScreener -> `data/reports/backtest_verification.json`. Offline run ~10 s. |
 
 ```bash
 .venv/bin/python -I analysis/scripts/discover_ruggers.py --hours 6 --stages decode,coins
@@ -126,6 +127,7 @@ Results: `docs/research/onchain-funding-patterns.md`.
 .venv/bin/python -I analysis/scripts/discover_ruggers.py --stages funding; wait  # RPC bound
 .venv/bin/python -I analysis/scripts/discover_ruggers.py --stages cluster,expand
 .venv/bin/python -I analysis/scripts/backtest.py            # seconds, cache only
+.venv/bin/python -I analysis/scripts/verify_backtest.py     # Task D checks, cache only (--probe 48 --spot 5: <= 106 requests)
 ```
 
 ## M0 data plane: analytics.db, RPC budget, collector, backfill

@@ -1,0 +1,208 @@
+{
+ "generated_at": "2026-10-14T13:04:54Z",
+ "units": {
+  "pairs": 102463,
+  "mcap_rel_err_p50": 2.827049705445006e-11,
+  "mcap_rel_err_p90": 7.147349379010848e-11,
+  "buy_tokens_rel_err_p50_net": 3.3915945607532194e-09,
+  "buy_tokens_rel_err_p50_if_gross": 0.012286144843332236,
+  "sol_usd_min": 106.90315091699998,
+  "sol_usd_median": 107.42,
+  "sol_usd_max": 108.46932218,
+  "sol_usd_low_prefilter": 104.0,
+  "prefilter_conservative": true
+ },
+ "curve_and_fees": {
+  "sol_quoted_creates": 7049,
+  "standard_initial_reserves": 7049,
+  "fee_pairs_bundled": {
+   "(95, 30)": 944
+  },
+  "fee_pairs_all_top": {
+   "(95, 30)": 6813,
+   "(95, 300)": 91,
+   "(95, 100)": 88,
+   "(0, 30)": 80,
+   "(95, 200)": 21,
+   "(95, 5)": 14
+  },
+  "non_default_fee_share_all": 0.0519
+ },
+ "lookahead_features": {
+  "tokens": 1062,
+  "mismatches": {}
+ },
+ "time": {
+  "slot0_ts_minus_create_time": {
+   "0": 4948
+  },
+  "first_trade_not_in_create_slot": 0,
+  "duplicate_trade_rows": 0
+ },
+ "ath": {
+  "n": 982,
+  "api_ath_below_trade_max_by_gt_0.5pct": 0,
+  "rel_p10": -0.00029579444400862354,
+  "rel_p50": 2.3052297848380476e-09
+ },
+ "censoring": {
+  "censored_launches": 267,
+  "censored_non_mayhem": 262,
+  "censored_non_mayhem_ath": {
+   "n": 262,
+   "ath_sol_p50": 177.1,
+   "share_ath_ge_84_sol": 0.855,
+   "graduated": 96
+  },
+  "bundled_sample_ath": {
+   "n": 985,
+   "ath_sol_p50": 49.7,
+   "share_ath_ge_84_sol": 0.133,
+   "graduated": 56
+  },
+  "window_sample_max_trades_60s": 200,
+  "taskA_hot": {
+   "n_trades": 10,
+   "tp_hits": 5,
+   "hit_rate": 0.5,
+   "expectancy_pct": 27.42,
+   "expectancy_ci95": [
+    -0.06429,
+    0.20138
+   ]
+  },
+  "taskA_not_hot": {
+   "n_trades": 70,
+   "tp_hits": 0,
+   "hit_rate": 0.0,
+   "expectancy_pct": -39.52,
+   "expectancy_ci95": [
+    -0.10728,
+    -0.09035
+   ]
+  }
+ },
+ "payoffs": {
+  "n": 932,
+  "tp_hits": 56,
+  "tp_payoff_pct": 99.0,
+  "non_hit_payoff_pct": -33.0,
+  "breakeven_tp_hit_rate": 0.25,
+  "expectancy_pct_at_30pct_tp_hits": 6.6,
+  "horizon_exits_by_coverage_s": {
+   "900": 11,
+   "60": 3
+  },
+  "not_entered": {
+   "graduated": 50
+  }
+ },
+ "probe": {
+  "censored_non_mayhem": 262,
+  "probed": 48,
+  "kinds": {
+   "bundled_on_curve": 31,
+   "graduated_in_slot0": 13,
+   "not_bundled": 4
+  },
+  "api": {
+   "calls": 0,
+   "cache_hits": 192,
+   "retries": 0
+  },
+  "lower": {
+   "censored": {
+    "n_trades": 31,
+    "tp_hits": 21,
+    "hit_rate": 0.6774,
+    "hit_ci95": [
+     0.5014,
+     0.8143
+    ],
+    "expectancy_pct": 60.93,
+    "expectancy_ci95": [
+     0.06648,
+     0.23816
+    ]
+   },
+   "window_reweighted": {
+    "n": 1101,
+    "hit_rate": 0.1549,
+    "expectancy_pct": -11.9
+   }
+  },
+  "upper": {
+   "censored": {
+    "n_trades": 31,
+    "tp_hits": 22,
+    "hit_rate": 0.7097,
+    "hit_ci95": [
+     0.5341,
+     0.839
+    ],
+    "expectancy_pct": 65.57,
+    "expectancy_ci95": [
+     0.07966,
+     0.24818
+    ]
+   },
+   "window_reweighted": {
+    "n": 1101,
+    "hit_rate": 0.1599,
+    "expectancy_pct": -11.1
+   }
+  }
+ },
+ "spot_check": [
+  {
+   "mint": "GURuqDkjAvxFb4czjTfDJFeySUZi53XFZiHxdgaXpump",
+   "trade_max_mcap_sol": 42.823,
+   "trade_max_dt_s": 1,
+   "api_ath_sol": 42.824,
+   "api_ath_dt_s": 1,
+   "api_mcap_sol_now": 27.98,
+   "dexscreener_mcap_sol_now": 27.95,
+   "dexscreener_dex": "pumpfun"
+  },
+  {
+   "mint": "DJ8qa5spWuJocYSJ7NeB8EKKohfZeRBU6Ya9Vp74pump",
+   "trade_max_mcap_sol": 51.703,
+   "trade_max_dt_s": 0,
+   "api_ath_sol": 51.72,
+   "api_ath_dt_s": 0,
+   "api_mcap_sol_now": 27.99,
+   "dexscreener_mcap_sol_now": 27.95,
+   "dexscreener_dex": "pumpfun"
+  },
+  {
+   "mint": "GMv75twRyb4zuz8t6uXtxPXR1vCA3DvSAhT3wXghpump",
+   "trade_max_mcap_sol": 37.26,
+   "trade_max_dt_s": 3,
+   "api_ath_sol": 37.26,
+   "api_ath_dt_s": 3,
+   "api_mcap_sol_now": 27.85,
+   "dexscreener_mcap_sol_now": 27.95,
+   "dexscreener_dex": "pumpfun"
+  },
+  {
+   "mint": "AadiARCarpbRSvYQS31Zr731GGGiypUezmxqVCMkpump",
+   "trade_max_mcap_sol": 49.428,
+   "trade_max_dt_s": 0,
+   "api_ath_sol": 49.445,
+   "api_ath_dt_s": 0,
+   "api_mcap_sol_now": 28.0,
+   "dexscreener_mcap_sol_now": 27.95,
+   "dexscreener_dex": "pumpfun"
+  },
+  {
+   "mint": "GN9eiuorP1AvvoPH5TvuuWg8wsdvz4LbFCSXUy6Jpump",
+   "trade_max_mcap_sol": 68.027,
+   "trade_max_dt_s": 13,
+   "api_ath_sol": 68.058,
+   "api_ath_dt_s": 13,
+   "api_mcap_sol_now": 27.93,
+   "dexscreener_mcap_sol_now": 27.96,
+   "dexscreener_dex": "pumpfun"
+  }
+ ]
+}

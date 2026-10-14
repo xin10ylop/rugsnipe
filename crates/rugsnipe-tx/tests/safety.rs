@@ -228,3 +228,57 @@ fn api_keys_parse_and_never_print() {
     assert!(!format!("{k:?}").contains("abc-secret"));
     assert!(ApiKeys::parse(&zeroize::Zeroizing::new("A = unquoted".into())).is_err());
 }
+
+/// Every docs/06 section 6 refusal alone keeps `SenderSet::build` from
+/// constructing anything real, even with a real sender enabled.
+#[test]
+fn each_section6_defect_alone_refuses_the_real_sender_set() {
+    for mode in [Mode::Probe, Mode::Live] {
+        let mut base = armable(mode);
+        base.senders.jito.enabled = true;
+        type Defect = Box<dyn Fn(&mut Config, &mut ValidateEnv)>;
+        let defects: Vec<(&str, Defect)> = vec![
+            ("cap 0", Box::new(|c, _| c.risk.max_open_positions = 0)),
+            ("cu_limit 0", Box::new(|c, _| c.tx.cu_limit = 0)),
+            (
+                "group-readable key",
+                Box::new(|c, e| {
+                    for k in [&c.secrets.hot_keypair, &c.secrets.probe_keypair] {
+                        e.credential_modes.insert(k.clone(), Some(0o640));
+                    }
+                }),
+            ),
+            (
+                "world-readable key",
+                Box::new(|c, e| {
+                    for k in [&c.secrets.hot_keypair, &c.secrets.probe_keypair] {
+                        e.credential_modes.insert(k.clone(), Some(0o604));
+                    }
+                }),
+            ),
+            ("clock 6 ms", Box::new(|_, e| e.clock_offset_ms = Some(6.0))),
+            (
+                "no post-exec feed",
+                Box::new(|_, e| e.post_exec_feed_healthy = false),
+            ),
+            (
+                "unsigned ArmSet",
+                Box::new(|_, e| e.armset = ArmSetGate::Unsigned),
+            ),
+            (
+                "gate_passed false",
+                Box::new(|_, e| e.armset = ArmSetGate::Verified { gate_passed: false }),
+            ),
+            ("rpc budget 33", Box::new(|c, _| c.rpc_budget.hot += 1)),
+        ];
+        for (what, f) in defects {
+            let mut c = base.clone();
+            let mut env = good_env(&c);
+            f(&mut c, &mut env);
+            match SenderSet::build(&c, &env, &ApiKeys::default()) {
+                Err(BuildError::Refused(r)) => assert_eq!(r.len(), 1, "{mode} {what}: {r:?}"),
+                other => panic!("{mode} {what}: {other:?}"),
+            }
+        }
+    }
+}

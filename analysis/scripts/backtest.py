@@ -325,7 +325,7 @@ def per_cluster(members: dict[str, list], strat: B.Strategy, meta: dict) -> list
                     **{k: s[k] for k in ("n_trades", "tp_hits", "hit_rate", "avg_win_sol", "avg_loss_sol",
                                          "win_loss_ratio", "expectancy_sol", "expectancy_pct", "total_pnl_sol",
                                          "guru_hit_ge_33", "guru_wl_ge_3")}})
-    out.sort(key=lambda x: -x["expectancy_sol"])
+    out.sort(key=lambda x: (x["n_trades"] == 0, -x["expectancy_sol"]))  # clusters without snipes last
     return out
 
 

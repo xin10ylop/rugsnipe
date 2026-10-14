@@ -17,8 +17,11 @@ use std::io::Read;
 use std::path::Path;
 use zeroize::Zeroizing;
 
-/// docs/03 section 6 / speed-gap-4: CU limit with a nonce advance.
-pub const PAPER_CU_LIMIT: u32 = 72_150;
+/// Static CU limit when `tx.cu_limit = 0` in paper: docs/03 section 6 (gap-5)
+/// puts the static floor at 88,000 (a static 72,150 fails ~16% of mints:
+/// CU is `62,310 + 1,500*S` with a nonce, S up to 14) until the hot path
+/// patches the per-mint limit.
+pub const PAPER_CU_LIMIT: u32 = 88_000;
 /// 370 pages.
 pub const PAPER_LADS_BYTES: u32 = 12_124_160;
 /// Fallback `max_sell_spend` when `[risk]` leaves it 0 (paper only).

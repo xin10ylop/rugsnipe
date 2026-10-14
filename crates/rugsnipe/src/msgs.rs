@@ -82,9 +82,11 @@ pub enum ColdMsg {
     },
     /// Funding transfer from the feed: update the watchlist (copy-on-write, cold side).
     Funding(FundingEvent),
-    /// First dump signal: burn the intent's nonce now.
+    /// First dump signal: burn the intent's nonce now (only while `intent`
+    /// still holds it; a later claim by another mint is left alone).
     BurnNonce {
         idx: u16,
+        intent: u64,
     },
     /// A position closed with realized P&L (lamports).
     Closed {
@@ -121,6 +123,11 @@ pub struct FireJob {
     pub prio: u64,
     pub tip: u64,
     pub tip_account: Pubkey,
+    /// `true` only for a `Decision::Fire` intent (or a sell of its position)
+    /// in probe/live. Anything else (paper mode, or a decision forced to paper
+    /// in a real mode: regime freeze, ArmSet gate, op not armed) goes to the
+    /// paper recorder only, never to a real sender.
+    pub real: bool,
 }
 
 /// rslog / metrics code of an exit reason.

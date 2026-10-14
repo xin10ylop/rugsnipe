@@ -1,7 +1,51 @@
 # On-chain backtest of the guru's rugger snipe (Task C)
 
-Generated 2026-10-14T12:40:52Z by `analysis/scripts/backtest.py` from `data/reports/backtest_results.json`. Discovery: `analysis/scripts/discover_ruggers.py` (`data/rugger_clusters.json`, `data/reports/discovery_summary.json`).
+Generated 2026-10-14T13:07:32Z by `analysis/scripts/backtest.py` from `data/reports/backtest_results.json`. Discovery: `analysis/scripts/discover_ruggers.py` (`data/rugger_clusters.json`, `data/reports/discovery_summary.json`).
 
+## Verdict
+
+**This sample shows no edge for the guru's snipe, and it gives no sign that picking ruggers would create one.**
+
+> **Verification caveat (Task D, see the last section).** The window sample misses the hottest bundled launches: those with more than 200 trades in their first minute never had slot 0 read. Those launches carry most of the TP hits. Corrected for them, the guru's rule still loses, but about half as much: roughly −11% to −17% per snipe at a 13–16% TP-hit rate. Treat the numbers below as biased against the strategy. The sign of the verdict holds.
+
+Dense window: every pump.fun create from 2026-10-14 02:05 to 08:05 UTC. That is 8,593 creates, of which 7,049 are SOL-quoted. 985 bundled launches were identified and 982 have a contiguous trade path from slot 0 (949 of them for the full 15 minutes). 50 of these completed their curve inside the creation slot. That leaves no curve to snipe, so they are skipped, which leaves 932 snipes.
+
+**The guru's rule** is: buy 0.25 SOL at the end of the creation slot, take profit at +100%, no stop (floor), sell after 150 s without trades. On the 932 snipes it:
+- hit TP on **6.0%** of snipes (95% CI 4.7–7.7%);
+- **lost 0.063 SOL per snipe, or −25.1%** (CI −27% to −23%).
+
+Task A's random arm (Oct 12–14, n=80 bundled) replicates this: −31%.
+
+**Win/loss ratio.** The rule does not reach the guru's 3:1:
+- On TP hits the trade makes about +99%.
+- The median loss is about −34%, because the bundle has already lifted the entry to a median 41.8 SOL market cap, so the floor is far below.
+- Wins vs. losses come out at 2.5:1. Wins include small idle-exit profits.
+- TP hits make +99% and every other exit −33% on average. Break-even is therefore a **25% TP-hit rate**. The guru's "3 of 10" would make about +7% per snipe. The measured rate is 6%.
+
+**Best implementable variants** (out of 172; tested filters, stops, trailing stops, big-buy exits, slot+1 entry, and size/cost):
+- The best is "enter only if the end-of-slot-0 market cap is ≤ 35 SOL": n=131, −9.3% per snipe, CI −14% to −5%.
+- Every variant with n ≥ 30 has a negative expectancy.
+- Choosing the best variant on the first half of the window and testing it on the second half gives −11.0% (CI −17% to −5%).
+
+**Even perfect foresight barely pays.**
+- Selling every snipe at its best price within 15 minutes (oracle) makes only +23% per snipe.
+- Selling just before the biggest dump slot makes +4%.
+- Both bounds are too low, because the censored hot launches are missing (see Verification).
+- The money is in the few launches that run, and the entry gives no information about which ones those are.
+
+**Competition makes it worse.**
+- Filling 5%, 15% or 30% above the post-bundle price takes the base rule to −29%, −36% and −44%.
+- Gap-2 measured that the 3rd reactive buyer pays a median +10.8%.
+
+**Ruggers are real and identifiable, but in this sample they are not better than average.**
+- 396 clusters of ≥ 3 launches. Signals used: same signer (d), same mother wallet + amount (a), shared bundle wallets (c), and identical bundle shape (b).
+- 60 clusters have ≥ 5 snipes (853 snipes in total). Their pooled TP hit rate is 6.3%.
+- Exactly **1** cluster reaches the guru's 33%. The expected number from chance alone is **1.0**.
+- 5 clusters have a binomial p < 0.05, against 3 expected by chance.
+- These tests lack the censored hot launches, so they say little.
+- Walk-forward "follow the good rugger" (snipe a cluster's launch only after ≥ 2/3/5 earlier snipes closed with ≥ 33% TP hits) traded 15–35 launches. It hit 9–13% and lost 23–27% per snipe.
+
+**What would change the verdict** (see the end of this page): re-pulling the censored hot launches; a multi-day dense window, so that operators have ≥ 10 earlier launches; live paper-trading fills at our real landing position; and a selection signal that is visible at entry and moves the TP hit rate above ~25%. In this sample the hit rate is ~6%, or ~15% after the censoring correction.
 
 
 ## Samples
@@ -32,7 +76,7 @@ Guru base rule and the best variants (ranked by expectancy, n >= min-n):
 
 | variant | n | TP hit | avg win SOL | avg loss SOL | W/L | expectancy / snipe | 95% CI |
 |---|---|---|---|---|---|---|---|
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 | 982 | 5.7% | +0.1635 | -0.0847 | 1.93 | -0.0619 (-24.8%) | [-0.0673, -0.0565] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 | 932 | 6.0% | +0.2147 | -0.0845 | 2.54 | -0.0627 (-25.1%) | [-0.0682, -0.0571] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=35 | 131 | 4.6% | +0.1725 | -0.0394 | 4.371 | -0.0233 (-9.3%) | [-0.0350, -0.0115] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 B<=3 | 140 | 4.3% | +0.1890 | -0.0450 | 4.196 | -0.0300 (-12.0%) | [-0.0414, -0.0186] |
 | eos0 0.25SOL c0.002 TP100 SL50 idle150 B<=3 | 140 | 4.3% | +0.1890 | -0.0450 | 4.196 | -0.0300 (-12.0%) | [-0.0414, -0.0186] |
@@ -48,10 +92,10 @@ Upper bounds with perfect foresight (not implementable): `oracle:max` sells at t
 
 | variant | n | TP hit | avg win SOL | avg loss SOL | W/L | expectancy / snipe | 95% CI |
 |---|---|---|---|---|---|---|---|
-| eos0 0.25SOL c0.002 oracle:max | 982 | 0.0% | +0.0934 | -0.0083 | 11.2 | +0.0560 (+22.4%) | [+0.0480, +0.0641] |
-| eos1 0.25SOL c0.002 oracle:max | 982 | 0.0% | +0.0913 | -0.0089 | 10.303 | +0.0489 (+19.6%) | [+0.0410, +0.0567] |
-| eos0 0.25SOL c0.002 oracle:pre_dump | 982 | 0.0% | +0.0682 | -0.0259 | 2.637 | +0.0104 (+4.2%) | [+0.0043, +0.0165] |
-| eos1 0.25SOL c0.002 oracle:pre_dump | 982 | 0.0% | +0.0725 | -0.0267 | 2.718 | +0.0048 (+1.9%) | [-0.0011, +0.0107] |
+| eos0 0.25SOL c0.002 oracle:max | 932 | 0.0% | +0.0974 | -0.0086 | 11.362 | +0.0587 (+23.5%) | [+0.0502, +0.0671] |
+| eos1 0.25SOL c0.002 oracle:max | 932 | 0.0% | +0.0959 | -0.0091 | 10.556 | +0.0512 (+20.5%) | [+0.0429, +0.0594] |
+| eos0 0.25SOL c0.002 oracle:pre_dump | 932 | 0.0% | +0.0721 | -0.0264 | 2.727 | +0.0110 (+4.4%) | [+0.0046, +0.0174] |
+| eos1 0.25SOL c0.002 oracle:pre_dump | 932 | 0.0% | +0.0775 | -0.0273 | 2.842 | +0.0051 (+2.0%) | [-0.0011, +0.0113] |
 
 Out-of-sample check: best variant on the first half in time (n=491 launches) was `eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=35` with expectancy -0.0183 SOL; on the second half (n=491) it made -0.0275 SOL per snipe (CI [-0.04142, -0.01361], 71 trades, hit 4.2%).
 
@@ -59,14 +103,14 @@ Size / cost sensitivity (base and top variants):
 
 | variant | n | TP hit | avg win SOL | avg loss SOL | W/L | expectancy / snipe | 95% CI |
 |---|---|---|---|---|---|---|---|
-| eos0 0.1SOL c0.002 TP100 SLfloor idle150 | 982 | 5.7% | +0.0833 | -0.0356 | 2.34 | -0.0272 (-27.2%) | [-0.0294, -0.0251] |
-| eos0 0.1SOL c0.01 TP100 SLfloor idle150 | 982 | 5.7% | +0.0787 | -0.0512 | 1.538 | -0.0432 (-43.2%) | [-0.0454, -0.0411] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 | 982 | 5.7% | +0.1635 | -0.0847 | 1.93 | -0.0619 (-24.8%) | [-0.0673, -0.0565] |
-| eos0 0.25SOL c0.01 TP100 SLfloor idle150 | 982 | 5.7% | +0.2054 | -0.0983 | 2.088 | -0.0779 (-31.2%) | [-0.0833, -0.0725] |
-| eos0 0.5SOL c0.002 TP100 SLfloor idle150 | 982 | 5.8% | +0.3110 | -0.1649 | 1.886 | -0.1194 (-23.9%) | [-0.1300, -0.1087] |
-| eos0 0.5SOL c0.01 TP100 SLfloor idle150 | 982 | 5.8% | +0.4043 | -0.1762 | 2.295 | -0.1354 (-27.1%) | [-0.1461, -0.1247] |
-| eos0 1SOL c0.002 TP100 SLfloor idle150 | 982 | 5.9% | +0.6039 | -0.3219 | 1.876 | -0.2314 (-23.1%) | [-0.2524, -0.2104] |
-| eos0 1SOL c0.01 TP100 SLfloor idle150 | 982 | 5.9% | +0.6275 | -0.3357 | 1.869 | -0.2474 (-24.7%) | [-0.2684, -0.2264] |
+| eos0 0.1SOL c0.002 TP100 SLfloor idle150 | 932 | 6.0% | +0.0882 | -0.0362 | 2.435 | -0.0275 (-27.5%) | [-0.0298, -0.0253] |
+| eos0 0.1SOL c0.01 TP100 SLfloor idle150 | 932 | 6.0% | +0.0787 | -0.0520 | 1.515 | -0.0435 (-43.5%) | [-0.0458, -0.0413] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 | 932 | 6.0% | +0.2147 | -0.0845 | 2.54 | -0.0627 (-25.1%) | [-0.0682, -0.0571] |
+| eos0 0.25SOL c0.01 TP100 SLfloor idle150 | 932 | 6.0% | +0.2117 | -0.1001 | 2.115 | -0.0787 (-31.5%) | [-0.0842, -0.0732] |
+| eos0 0.5SOL c0.002 TP100 SLfloor idle150 | 932 | 6.1% | +0.4251 | -0.1638 | 2.595 | -0.1208 (-24.2%) | [-0.1317, -0.1100] |
+| eos0 0.5SOL c0.01 TP100 SLfloor idle150 | 932 | 6.1% | +0.4282 | -0.1792 | 2.39 | -0.1368 (-27.4%) | [-0.1477, -0.1260] |
+| eos0 1SOL c0.002 TP100 SLfloor idle150 | 932 | 6.2% | +0.8292 | -0.3192 | 2.598 | -0.2342 (-23.4%) | [-0.2556, -0.2128] |
+| eos0 1SOL c0.01 TP100 SLfloor idle150 | 932 | 6.2% | +0.8132 | -0.3352 | 2.426 | -0.2502 (-25.0%) | [-0.2716, -0.2288] |
 | eos0 0.1SOL c0.002 TP100 SLfloor idle150 mc<=35 | 131 | 4.6% | +0.0844 | -0.0180 | 4.693 | -0.0117 (-11.7%) | [-0.0165, -0.0070] |
 | eos0 0.1SOL c0.01 TP100 SLfloor idle150 mc<=35 | 131 | 4.6% | +0.0949 | -0.0336 | 2.823 | -0.0277 (-27.7%) | [-0.0325, -0.0230] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=35 | 131 | 4.6% | +0.1725 | -0.0394 | 4.371 | -0.0233 (-9.3%) | [-0.0350, -0.0115] |
@@ -102,30 +146,30 @@ Selected exits and filters:
 | eos0 0.25SOL c0.002 TP100 SLfloor B<=3 | 140 | 4.3% | +0.2407 | -0.0478 | 5.037 | -0.0334 (-13.3%) | [-0.0448, -0.0219] |
 | eos0 0.25SOL c0.002 TP100 SLfloor B<=5 | 392 | 6.4% | +0.2375 | -0.0647 | 3.672 | -0.0431 (-17.2%) | [-0.0512, -0.0350] |
 | eos0 0.25SOL c0.002 TP100 SLfloor B<=10 | 848 | 5.1% | +0.2238 | -0.0823 | 2.72 | -0.0639 (-25.5%) | [-0.0692, -0.0586] |
-| eos0 0.25SOL c0.002 SLfloor idle150 trail30/20 | 982 | 0.0% | +0.0590 | -0.0789 | 0.748 | -0.0487 (-19.5%) | [-0.0534, -0.0440] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail30/20 | 982 | 2.6% | +0.0649 | -0.0790 | 0.822 | -0.0472 (-18.9%) | [-0.0521, -0.0423] |
-| eos0 0.25SOL c0.002 SLfloor idle150 trail50/30 | 982 | 0.0% | +0.0823 | -0.0823 | 0.999 | -0.0592 (-23.7%) | [-0.0646, -0.0538] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail50/30 | 982 | 5.1% | +0.1060 | -0.0824 | 1.285 | -0.0554 (-22.2%) | [-0.0607, -0.0500] |
-| eos0 0.25SOL c0.002 SLfloor idle150 trail50/20 | 982 | 0.0% | +0.0842 | -0.0841 | 1.002 | -0.0561 (-22.4%) | [-0.0611, -0.0512] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail50/20 | 982 | 3.4% | +0.0927 | -0.0842 | 1.102 | -0.0544 (-21.8%) | [-0.0596, -0.0493] |
-| eos0 0.25SOL c0.002 SLfloor idle150 trail100/30 | 982 | 0.0% | +0.1279 | -0.0845 | 1.513 | -0.0657 (-26.3%) | [-0.0712, -0.0602] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail100/30 | 982 | 5.7% | +0.1635 | -0.0847 | 1.93 | -0.0619 (-24.8%) | [-0.0673, -0.0565] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy2 | 982 | 2.3% | +0.0769 | -0.0756 | 1.017 | -0.0416 (-16.6%) | [-0.0466, -0.0366] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy5 | 982 | 5.0% | +0.1453 | -0.0837 | 1.737 | -0.0603 (-24.1%) | [-0.0657, -0.0550] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy10 | 982 | 5.7% | +0.1626 | -0.0846 | 1.921 | -0.0617 (-24.7%) | [-0.0672, -0.0563] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 lat0 | 982 | 5.7% | +0.1631 | -0.0847 | 1.926 | -0.0620 (-24.8%) | [-0.0674, -0.0566] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 lat2 | 982 | 5.7% | +0.1622 | -0.0847 | 1.916 | -0.0621 (-24.8%) | [-0.0674, -0.0566] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 prem5 | 982 | 4.8% | +0.2113 | -0.0906 | 2.333 | -0.0721 (-28.8%) | [-0.0773, -0.0669] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 prem15 | 982 | 4.0% | +0.2188 | -0.1040 | 2.103 | -0.0886 (-35.4%) | [-0.0934, -0.0837] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 prem30 | 982 | 2.5% | +0.2095 | -0.1207 | 1.735 | -0.1100 (-44.0%) | [-0.1142, -0.1058] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 nomayhem | 981 | 5.7% | +0.1635 | -0.0845 | 1.934 | -0.0618 (-24.7%) | [-0.0672, -0.0564] |
+| eos0 0.25SOL c0.002 SLfloor idle150 trail30/20 | 932 | 0.0% | +0.0651 | -0.0787 | 0.827 | -0.0489 (-19.6%) | [-0.0537, -0.0441] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail30/20 | 932 | 2.8% | +0.0716 | -0.0788 | 0.91 | -0.0473 (-18.9%) | [-0.0523, -0.0423] |
+| eos0 0.25SOL c0.002 SLfloor idle150 trail50/30 | 932 | 0.0% | +0.0969 | -0.0821 | 1.18 | -0.0598 (-23.9%) | [-0.0653, -0.0543] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail50/30 | 932 | 5.4% | +0.1246 | -0.0822 | 1.516 | -0.0558 (-22.3%) | [-0.0612, -0.0503] |
+| eos0 0.25SOL c0.002 SLfloor idle150 trail50/20 | 932 | 0.0% | +0.0966 | -0.0838 | 1.152 | -0.0566 (-22.6%) | [-0.0616, -0.0515] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail50/20 | 932 | 3.5% | +0.1062 | -0.0840 | 1.265 | -0.0548 (-21.9%) | [-0.0600, -0.0496] |
+| eos0 0.25SOL c0.002 SLfloor idle150 trail100/30 | 932 | 0.0% | +0.1694 | -0.0844 | 2.008 | -0.0667 (-26.7%) | [-0.0723, -0.0611] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail100/30 | 932 | 6.0% | +0.2147 | -0.0845 | 2.54 | -0.0627 (-25.1%) | [-0.0682, -0.0571] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy2 | 932 | 2.5% | +0.0865 | -0.0757 | 1.142 | -0.0423 (-16.9%) | [-0.0475, -0.0372] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy5 | 932 | 5.3% | +0.1848 | -0.0834 | 2.215 | -0.0610 (-24.4%) | [-0.0664, -0.0556] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy10 | 932 | 6.0% | +0.2128 | -0.0845 | 2.519 | -0.0625 (-25.0%) | [-0.0680, -0.0569] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 lat0 | 932 | 6.0% | +0.2142 | -0.0845 | 2.535 | -0.0627 (-25.1%) | [-0.0682, -0.0572] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 lat2 | 932 | 6.0% | +0.2130 | -0.0845 | 2.52 | -0.0628 (-25.1%) | [-0.0683, -0.0573] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 prem5 | 932 | 5.0% | +0.2183 | -0.0922 | 2.368 | -0.0729 (-29.1%) | [-0.0782, -0.0676] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 prem15 | 932 | 4.2% | +0.2188 | -0.1057 | 2.07 | -0.0893 (-35.7%) | [-0.0943, -0.0843] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 prem30 | 932 | 2.7% | +0.2095 | -0.1221 | 1.715 | -0.1108 (-44.3%) | [-0.1150, -0.1065] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 nomayhem | 931 | 6.0% | +0.2147 | -0.0843 | 2.545 | -0.0625 (-25.0%) | [-0.0680, -0.0570] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=35 | 131 | 4.6% | +0.1725 | -0.0394 | 4.371 | -0.0233 (-9.3%) | [-0.0350, -0.0115] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=45 | 647 | 5.1% | +0.2147 | -0.0704 | 3.049 | -0.0524 (-20.9%) | [-0.0582, -0.0466] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=60 | 887 | 6.0% | +0.2224 | -0.0813 | 2.737 | -0.0600 (-24.0%) | [-0.0655, -0.0545] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=140 | 928 | 5.9% | +0.2143 | -0.0841 | 2.549 | -0.0625 (-25.0%) | [-0.0680, -0.0570] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 B>=3 | 843 | 5.9% | +0.1606 | -0.0914 | 1.756 | -0.0672 (-26.9%) | [-0.0732, -0.0613] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 B>=5 | 594 | 5.2% | +0.1360 | -0.0998 | 1.362 | -0.0764 (-30.6%) | [-0.0833, -0.0695] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 B>=10 | 137 | 9.5% | +0.0910 | -0.1218 | 0.747 | -0.0659 (-26.3%) | [-0.0868, -0.0449] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 B>=3 | 793 | 6.3% | +0.2185 | -0.0915 | 2.389 | -0.0684 (-27.4%) | [-0.0745, -0.0623] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 B>=5 | 544 | 5.7% | +0.2137 | -0.1004 | 2.129 | -0.0790 (-31.6%) | [-0.0862, -0.0719] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 B>=10 | 87 | 14.9% | +0.2259 | -0.1340 | 1.686 | -0.0761 (-30.4%) | [-0.1053, -0.0469] |
 
 ## Sample `clusters`
 
@@ -135,7 +179,7 @@ Guru base rule and the best variants (ranked by expectancy, n >= min-n):
 
 | variant | n | TP hit | avg win SOL | avg loss SOL | W/L | expectancy / snipe | 95% CI |
 |---|---|---|---|---|---|---|---|
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 | 960 | 6.2% | +0.1935 | -0.0852 | 2.272 | -0.0620 (-24.8%) | [-0.0675, -0.0564] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 | 939 | 6.3% | +0.2305 | -0.0848 | 2.717 | -0.0624 (-24.9%) | [-0.0679, -0.0568] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=35 | 101 | 5.9% | +0.2178 | -0.0408 | 5.331 | -0.0204 (-8.2%) | [-0.0359, -0.0048] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 B<=3 | 115 | 6.1% | +0.2355 | -0.0495 | 4.755 | -0.0297 (-11.9%) | [-0.0446, -0.0148] |
 | eos0 0.25SOL c0.002 TP100 SL50 idle150 B<=3 | 115 | 6.1% | +0.2355 | -0.0495 | 4.755 | -0.0297 (-11.9%) | [-0.0446, -0.0148] |
@@ -151,10 +195,10 @@ Upper bounds with perfect foresight (not implementable): `oracle:max` sells at t
 
 | variant | n | TP hit | avg win SOL | avg loss SOL | W/L | expectancy / snipe | 95% CI |
 |---|---|---|---|---|---|---|---|
-| eos0 0.25SOL c0.002 oracle:max | 960 | 0.0% | +0.0975 | -0.0083 | 11.669 | +0.0637 (+25.5%) | [+0.0553, +0.0722] |
-| eos1 0.25SOL c0.002 oracle:max | 960 | 0.0% | +0.0933 | -0.0089 | 10.515 | +0.0546 (+21.9%) | [+0.0466, +0.0627] |
-| eos0 0.25SOL c0.002 oracle:pre_dump | 960 | 0.0% | +0.0749 | -0.0290 | 2.585 | +0.0137 (+5.5%) | [+0.0071, +0.0202] |
-| eos1 0.25SOL c0.002 oracle:pre_dump | 960 | 0.0% | +0.0761 | -0.0305 | 2.496 | +0.0066 (+2.6%) | [+0.0003, +0.0129] |
+| eos0 0.25SOL c0.002 oracle:max | 939 | 0.0% | +0.0996 | -0.0085 | 11.748 | +0.0649 (+26.0%) | [+0.0563, +0.0736] |
+| eos1 0.25SOL c0.002 oracle:max | 939 | 0.0% | +0.0955 | -0.0090 | 10.639 | +0.0557 (+22.3%) | [+0.0475, +0.0638] |
+| eos0 0.25SOL c0.002 oracle:pre_dump | 939 | 0.0% | +0.0767 | -0.0293 | 2.615 | +0.0138 (+5.5%) | [+0.0072, +0.0205] |
+| eos1 0.25SOL c0.002 oracle:pre_dump | 939 | 0.0% | +0.0784 | -0.0309 | 2.541 | +0.0066 (+2.6%) | [+0.0002, +0.0130] |
 
 Out-of-sample check: best variant on the first half in time (n=480 launches) was `eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=35` with expectancy -0.0215 SOL; on the second half (n=480) it made -0.0190 SOL per snipe (CI [-0.0405, 0.00259], 45 trades, hit 6.7%).
 
@@ -162,14 +206,14 @@ Size / cost sensitivity (base and top variants):
 
 | variant | n | TP hit | avg win SOL | avg loss SOL | W/L | expectancy / snipe | 95% CI |
 |---|---|---|---|---|---|---|---|
-| eos0 0.1SOL c0.002 TP100 SLfloor idle150 | 960 | 6.2% | +0.0908 | -0.0361 | 2.513 | -0.0273 (-27.3%) | [-0.0295, -0.0250] |
-| eos0 0.1SOL c0.01 TP100 SLfloor idle150 | 960 | 6.2% | +0.0813 | -0.0519 | 1.568 | -0.0433 (-43.3%) | [-0.0455, -0.0410] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 | 960 | 6.2% | +0.1935 | -0.0852 | 2.272 | -0.0620 (-24.8%) | [-0.0675, -0.0564] |
-| eos0 0.25SOL c0.01 TP100 SLfloor idle150 | 960 | 6.2% | +0.2180 | -0.0998 | 2.184 | -0.0780 (-31.2%) | [-0.0835, -0.0724] |
-| eos0 0.5SOL c0.002 TP100 SLfloor idle150 | 960 | 6.2% | +0.3701 | -0.1658 | 2.233 | -0.1194 (-23.9%) | [-0.1303, -0.1085] |
-| eos0 0.5SOL c0.01 TP100 SLfloor idle150 | 960 | 6.2% | +0.4406 | -0.1787 | 2.466 | -0.1354 (-27.1%) | [-0.1464, -0.1245] |
-| eos0 1SOL c0.002 TP100 SLfloor idle150 | 960 | 6.3% | +0.7151 | -0.3234 | 2.211 | -0.2314 (-23.1%) | [-0.2529, -0.2100] |
-| eos0 1SOL c0.01 TP100 SLfloor idle150 | 960 | 6.3% | +0.7432 | -0.3375 | 2.202 | -0.2475 (-24.7%) | [-0.2689, -0.2260] |
+| eos0 0.1SOL c0.002 TP100 SLfloor idle150 | 939 | 6.3% | +0.0921 | -0.0365 | 2.528 | -0.0274 (-27.4%) | [-0.0297, -0.0252] |
+| eos0 0.1SOL c0.01 TP100 SLfloor idle150 | 939 | 6.3% | +0.0813 | -0.0522 | 1.557 | -0.0434 (-43.4%) | [-0.0457, -0.0412] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 | 939 | 6.3% | +0.2305 | -0.0848 | 2.717 | -0.0624 (-24.9%) | [-0.0679, -0.0568] |
+| eos0 0.25SOL c0.01 TP100 SLfloor idle150 | 939 | 6.3% | +0.2180 | -0.1008 | 2.164 | -0.0784 (-31.3%) | [-0.0839, -0.0728] |
+| eos0 0.5SOL c0.002 TP100 SLfloor idle150 | 939 | 6.4% | +0.4564 | -0.1645 | 2.775 | -0.1202 (-24.0%) | [-0.1312, -0.1092] |
+| eos0 0.5SOL c0.01 TP100 SLfloor idle150 | 939 | 6.4% | +0.4472 | -0.1803 | 2.48 | -0.1362 (-27.2%) | [-0.1472, -0.1252] |
+| eos0 1SOL c0.002 TP100 SLfloor idle150 | 939 | 6.5% | +0.8889 | -0.3205 | 2.774 | -0.2329 (-23.3%) | [-0.2545, -0.2113] |
+| eos0 1SOL c0.01 TP100 SLfloor idle150 | 939 | 6.5% | +0.8729 | -0.3365 | 2.594 | -0.2489 (-24.9%) | [-0.2705, -0.2273] |
 | eos0 0.1SOL c0.002 TP100 SLfloor idle150 mc<=35 | 101 | 5.9% | +0.0980 | -0.0186 | 5.261 | -0.0106 (-10.6%) | [-0.0168, -0.0043] |
 | eos0 0.1SOL c0.01 TP100 SLfloor idle150 mc<=35 | 101 | 5.9% | +0.0974 | -0.0344 | 2.833 | -0.0266 (-26.6%) | [-0.0328, -0.0203] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=35 | 101 | 5.9% | +0.2178 | -0.0408 | 5.331 | -0.0204 (-8.2%) | [-0.0359, -0.0048] |
@@ -205,30 +249,30 @@ Selected exits and filters:
 | eos0 0.25SOL c0.002 TP100 SLfloor B<=3 | 115 | 6.1% | +0.2690 | -0.0525 | 5.123 | -0.0329 (-13.2%) | [-0.0478, -0.0181] |
 | eos0 0.25SOL c0.002 TP100 SLfloor B<=5 | 420 | 7.4% | +0.2446 | -0.0705 | 3.471 | -0.0457 (-18.3%) | [-0.0542, -0.0372] |
 | eos0 0.25SOL c0.002 TP100 SLfloor B<=10 | 879 | 5.8% | +0.2350 | -0.0845 | 2.78 | -0.0638 (-25.5%) | [-0.0693, -0.0583] |
-| eos0 0.25SOL c0.002 SLfloor idle150 trail30/20 | 960 | 0.0% | +0.0604 | -0.0787 | 0.767 | -0.0455 (-18.2%) | [-0.0503, -0.0408] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail30/20 | 960 | 2.9% | +0.0667 | -0.0788 | 0.846 | -0.0439 (-17.6%) | [-0.0489, -0.0389] |
-| eos0 0.25SOL c0.002 SLfloor idle150 trail50/30 | 960 | 0.0% | +0.0835 | -0.0832 | 1.005 | -0.0592 (-23.7%) | [-0.0645, -0.0538] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail50/30 | 960 | 5.3% | +0.1121 | -0.0833 | 1.347 | -0.0548 (-21.9%) | [-0.0602, -0.0493] |
-| eos0 0.25SOL c0.002 SLfloor idle150 trail50/20 | 960 | 0.0% | +0.0861 | -0.0851 | 1.012 | -0.0558 (-22.3%) | [-0.0607, -0.0509] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail50/20 | 960 | 3.5% | +0.0971 | -0.0851 | 1.141 | -0.0538 (-21.5%) | [-0.0590, -0.0486] |
-| eos0 0.25SOL c0.002 SLfloor idle150 trail100/30 | 960 | 0.0% | +0.1558 | -0.0851 | 1.831 | -0.0655 (-26.2%) | [-0.0713, -0.0598] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail100/30 | 960 | 6.2% | +0.1935 | -0.0852 | 2.272 | -0.0620 (-24.8%) | [-0.0675, -0.0564] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy2 | 960 | 2.2% | +0.0841 | -0.0800 | 1.051 | -0.0417 (-16.7%) | [-0.0469, -0.0365] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy5 | 960 | 5.5% | +0.1707 | -0.0846 | 2.017 | -0.0602 (-24.1%) | [-0.0657, -0.0547] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy10 | 960 | 6.2% | +0.1935 | -0.0852 | 2.272 | -0.0620 (-24.8%) | [-0.0675, -0.0564] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 lat0 | 960 | 6.2% | +0.1928 | -0.0852 | 2.263 | -0.0620 (-24.8%) | [-0.0676, -0.0565] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 lat2 | 960 | 6.2% | +0.1941 | -0.0852 | 2.278 | -0.0619 (-24.8%) | [-0.0675, -0.0564] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 prem5 | 960 | 5.2% | +0.2291 | -0.0919 | 2.493 | -0.0722 (-28.9%) | [-0.0775, -0.0669] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 prem15 | 960 | 4.1% | +0.2217 | -0.1054 | 2.103 | -0.0898 (-35.9%) | [-0.0946, -0.0849] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 prem30 | 960 | 2.6% | +0.2148 | -0.1222 | 1.758 | -0.1113 (-44.5%) | [-0.1155, -0.1072] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 nomayhem | 960 | 6.2% | +0.1935 | -0.0852 | 2.272 | -0.0620 (-24.8%) | [-0.0675, -0.0564] |
+| eos0 0.25SOL c0.002 SLfloor idle150 trail30/20 | 939 | 0.0% | +0.0638 | -0.0785 | 0.813 | -0.0457 (-18.3%) | [-0.0505, -0.0409] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail30/20 | 939 | 3.0% | +0.0705 | -0.0785 | 0.898 | -0.0441 (-17.6%) | [-0.0491, -0.0390] |
+| eos0 0.25SOL c0.002 SLfloor idle150 trail50/30 | 939 | 0.0% | +0.0919 | -0.0828 | 1.111 | -0.0595 (-23.8%) | [-0.0649, -0.0541] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail50/30 | 939 | 5.4% | +0.1233 | -0.0829 | 1.488 | -0.0550 (-22.0%) | [-0.0605, -0.0495] |
+| eos0 0.25SOL c0.002 SLfloor idle150 trail50/20 | 939 | 0.0% | +0.0932 | -0.0847 | 1.101 | -0.0561 (-22.4%) | [-0.0610, -0.0511] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail50/20 | 939 | 3.6% | +0.1051 | -0.0848 | 1.241 | -0.0540 (-21.6%) | [-0.0593, -0.0488] |
+| eos0 0.25SOL c0.002 SLfloor idle150 trail100/30 | 939 | 0.0% | +0.1864 | -0.0848 | 2.199 | -0.0660 (-26.4%) | [-0.0718, -0.0602] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 trail100/30 | 939 | 6.3% | +0.2305 | -0.0848 | 2.717 | -0.0624 (-24.9%) | [-0.0679, -0.0568] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy2 | 939 | 2.2% | +0.0895 | -0.0801 | 1.117 | -0.0424 (-16.9%) | [-0.0477, -0.0370] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy5 | 939 | 5.6% | +0.1983 | -0.0843 | 2.353 | -0.0605 (-24.2%) | [-0.0660, -0.0550] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 bigbuy10 | 939 | 6.3% | +0.2305 | -0.0848 | 2.717 | -0.0624 (-24.9%) | [-0.0679, -0.0568] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 lat0 | 939 | 6.3% | +0.2296 | -0.0848 | 2.706 | -0.0624 (-25.0%) | [-0.0680, -0.0568] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 lat2 | 939 | 6.3% | +0.2311 | -0.0848 | 2.724 | -0.0623 (-24.9%) | [-0.0679, -0.0567] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 prem5 | 939 | 5.3% | +0.2291 | -0.0928 | 2.469 | -0.0726 (-29.0%) | [-0.0779, -0.0672] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 prem15 | 939 | 4.2% | +0.2217 | -0.1062 | 2.087 | -0.0902 (-36.1%) | [-0.0950, -0.0853] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 prem30 | 939 | 2.7% | +0.2148 | -0.1229 | 1.748 | -0.1117 (-44.7%) | [-0.1159, -0.1076] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 nomayhem | 939 | 6.3% | +0.2305 | -0.0848 | 2.717 | -0.0624 (-24.9%) | [-0.0679, -0.0568] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=35 | 101 | 5.9% | +0.2178 | -0.0408 | 5.331 | -0.0204 (-8.2%) | [-0.0359, -0.0048] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=45 | 639 | 5.8% | +0.2303 | -0.0719 | 3.204 | -0.0520 (-20.8%) | [-0.0582, -0.0459] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=60 | 910 | 6.3% | +0.2327 | -0.0830 | 2.803 | -0.0608 (-24.3%) | [-0.0664, -0.0552] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 mc<=140 | 939 | 6.3% | +0.2305 | -0.0848 | 2.717 | -0.0624 (-24.9%) | [-0.0679, -0.0568] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 B>=3 | 845 | 6.2% | +0.1889 | -0.0901 | 2.096 | -0.0664 (-26.5%) | [-0.0722, -0.0605] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 B>=5 | 544 | 5.1% | +0.1642 | -0.0984 | 1.669 | -0.0767 (-30.7%) | [-0.0837, -0.0697] |
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 B>=10 | 82 | 9.8% | +0.0991 | -0.1248 | 0.794 | -0.0674 (-27.0%) | [-0.0944, -0.0405] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 B>=3 | 824 | 6.3% | +0.2298 | -0.0898 | 2.56 | -0.0669 (-26.8%) | [-0.0729, -0.0610] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 B>=5 | 523 | 5.3% | +0.2297 | -0.0980 | 2.344 | -0.0780 (-31.2%) | [-0.0851, -0.0709] |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 B>=10 | 61 | 13.1% | +0.2554 | -0.1251 | 2.041 | -0.0752 (-30.1%) | [-0.1084, -0.0421] |
 
 ## Sample `taskA`
 
@@ -337,13 +381,13 @@ Selected exits and filters:
 
 | launches of ... | n | TP hit | 95% CI | expectancy / snipe | 95% CI |
 |---|---|---|---|---|---|
-| shared_bundle_wallets | 398 | 5.3% | 3.5%-7.9% | -0.0616 (-24.6%) | [-0.06947, -0.05377] |
-| no_cluster | 291 | 5.8% | 3.7%-9.2% | -0.0603 (-24.1%) | [-0.07086, -0.04967] |
+| shared_bundle_wallets | 380 | 5.5% | 3.6%-8.3% | -0.0640 (-25.6%) | [-0.07201, -0.05591] |
+| no_cluster | 262 | 6.5% | 4.1%-10.1% | -0.0614 (-24.5%) | [-0.07253, -0.05017] |
 | serial_signer | 170 | 5.9% | 3.2%-10.5% | -0.0714 (-28.6%) | [-0.08477, -0.05799] |
 | same_bundle_shape | 63 | 1.6% | 0.3%-8.5% | -0.0676 (-27.1%) | [-0.07881, -0.05643] |
 | rotating_signer | 21 | 0.0% | 0.0%-15.5% | -0.0605 (-24.2%) | [-0.06927, -0.05168] |
 | mother_funded | 17 | 17.6% | 6.2%-41.0% | -0.0238 (-9.5%) | [-0.08732, 0.03965] |
-| cex_funded_same_shape | 14 | 7.1% | 1.3%-31.5% | -0.0858 (-34.3%) | [-0.14776, -0.02382] |
+| cex_funded_same_shape | 11 | 9.1% | 1.6%-37.7% | -0.0435 (-17.4%) | [-0.09962, 0.01261] |
 | same_round_bundle_shape | 8 | 37.5% | 13.7%-69.4% | +0.0645 (+25.8%) | [-0.05794, 0.18687] |
 
 ## Hits after the horizon (window sample)
@@ -352,9 +396,9 @@ The simulation sees 900 s of trades. Launches whose all-time ATH (coin API) reac
 
 | variant | n | TP in horizon | late ATH hits | expectancy | if late hits were TP | hit-rate upper bound |
 |---|---|---|---|---|---|---|
-| eos0 0.25SOL c0.002 TP100 SLfloor idle150 | 982 | 56 | 21 | -0.0619 | -0.0568 | 7.8% |
-| eos0 0.25SOL c0.002 TP150 SLfloor idle150 | 982 | 28 | 18 | -0.0666 | -0.0614 | 4.7% |
-| eos0 0.25SOL c0.002 TP200 SLfloor idle150 | 982 | 17 | 14 | -0.0690 | -0.0635 | 3.2% |
+| eos0 0.25SOL c0.002 TP100 SLfloor idle150 | 932 | 56 | 9 | -0.0627 | -0.0605 | 7.0% |
+| eos0 0.25SOL c0.002 TP150 SLfloor idle150 | 932 | 28 | 10 | -0.0676 | -0.0652 | 4.1% |
+| eos0 0.25SOL c0.002 TP200 SLfloor idle150 | 932 | 17 | 8 | -0.0702 | -0.0675 | 2.7% |
 
 ## Clusters
 
@@ -379,7 +423,7 @@ Walk-forward 'follow the good rugger': a cluster's launch is sniped only after a
 | eos1 0.25SOL c0.002 TP100 SLfloor idle150 | 5 | 0.33 | 4 | 10 | 20.0% | -0.0351 (-14.0%) | [-0.13017, 0.05994] |
 | eos1 0.25SOL c0.002 TP100 SLfloor idle150 | 3 | 0.5 | 1 | 1 | 0.0% | -0.1464 (-58.5%) | [-0.14638, -0.14638] |
 
-Are some clusters really better? Among 61 clusters with >= 5 snipes (871 snipes, pooled TP hit 6.2%), 1 reach the guru's 33 % hit rate; 1.0 would by pure chance if every cluster had the pooled rate. 5 clusters have a binomial p < 0.05 (~3.05 expected false positives).
+Are some clusters really better? Among 60 clusters with >= 5 snipes (853 snipes, pooled TP hit 6.3%), 1 reach the guru's 33 % hit rate; 1.04 would by pure chance if every cluster had the pooled rate. 5 clusters have a binomial p < 0.05 (~3.0 expected false positives).
 
 Per cluster, guru base rule (in-sample, top 25 by expectancy):
 
@@ -391,25 +435,165 @@ Per cluster, guru base rule (in-sample, top 25 by expectancy):
 | C151 | 8.288 | 3 (2) | {"d": 3, "c": 2} | 2 | 50.0% | 2.644 | +0.0790 | +0.158 | True | False |
 | C127 | 9.377 | 8 (8) | {"a_cex_shape": 7, "b_weak": 8, "b_strong": 7} | 8 | 37.5% | 4.471 | +0.0645 | +0.516 | True | True |
 | C029 | 15.178 | 10 (7) | {"d": 10, "c": 7, "b_weak": 5} | 7 | 28.6% | 4.862 | +0.0352 | +0.246 | False | True |
-| C016 | 17.96 | 336 (0) | {"d": 336} | 0 | 0.0% | - | +0.0000 | +0.000 | None | None |
-| C030 | 15.148 | 16 (0) | {"d": 10, "c": 11} | 0 | 0.0% | - | +0.0000 | +0.000 | None | None |
-| C031 | 15.056 | 127 (0) | {"d": 127} | 0 | 0.0% | - | +0.0000 | +0.000 | None | None |
-| C035 | 14.761 | 115 (0) | {"d": 115} | 0 | 0.0% | - | +0.0000 | +0.000 | None | None |
-| C037 | 14.629 | 110 (0) | {"d": 110} | 0 | 0.0% | - | +0.0000 | +0.000 | None | None |
-| C042 | 13.828 | 84 (0) | {"d": 84} | 0 | 0.0% | - | +0.0000 | +0.000 | None | None |
-| C045 | 13.683 | 8 (0) | {"d": 8, "a_mother": 8} | 0 | 0.0% | - | +0.0000 | +0.000 | None | None |
-| C051 | 13.114 | 66 (0) | {"d": 66} | 0 | 0.0% | - | +0.0000 | +0.000 | None | None |
-| C052 | 13.023 | 64 (0) | {"d": 64} | 0 | 0.0% | - | +0.0000 | +0.000 | None | None |
-| C053 | 12.977 | 63 (0) | {"d": 63} | 0 | 0.0% | - | +0.0000 | +0.000 | None | None |
-| C054 | 12.833 | 60 (0) | {"d": 60} | 0 | 0.0% | - | +0.0000 | +0.000 | None | None |
-| C055 | 12.833 | 60 (0) | {"d": 60} | 0 | 0.0% | - | +0.0000 | +0.000 | None | None |
-| C056 | 12.783 | 59 (0) | {"d": 59} | 0 | 0.0% | - | +0.0000 | +0.000 | None | None |
-| C057 | 12.733 | 58 (0) | {"d": 58} | 0 | 0.0% | - | +0.0000 | +0.000 | None | None |
-| C060 | 12.467 | 53 (0) | {"d": 53} | 0 | 0.0% | - | +0.0000 | +0.000 | None | None |
-| C061 | 12.411 | 52 (0) | {"d": 52} | 0 | 0.0% | - | +0.0000 | +0.000 | None | None |
-| C063 | 12.354 | 51 (0) | {"d": 51} | 0 | 0.0% | - | +0.0000 | +0.000 | None | None |
-| C064 | 12.354 | 51 (0) | {"d": 51} | 0 | 0.0% | - | +0.0000 | +0.000 | None | None |
-| C066 | 11.986 | 45 (0) | {"d": 45} | 0 | 0.0% | - | +0.0000 | +0.000 | None | None |
+| C099 | 10.315 | 4 (5) | {"a_cex_shape": 2, "c": 4, "b_strong": 4} | 5 | 20.0% | 3.65 | -0.0047 | -0.024 | False | True |
+| C080 | 11.368 | 5 (10) | {"d": 2, "a_cex": 3, "a_cex_shape": 2, "c": 4} | 10 | 30.0% | 2.034 | -0.0112 | -0.112 | False | False |
+| C034 | 14.816 | 19 (19) | {"d": 4, "c": 19} | 19 | 21.1% | 2.851 | -0.0163 | -0.309 | False | False |
+| C019 | 16.952 | 9 (9) | {"d": 5, "c": 9, "b_weak": 2, "b_strong": 7} | 9 | 22.2% | 2.61 | -0.0172 | -0.154 | False | False |
+| C049 | 13.301 | 7 (16) | {"d": 5, "c": 7, "b_weak": 6} | 16 | 25.0% | 2.297 | -0.0181 | -0.289 | False | False |
+| C062 | 12.355 | 9 (9) | {"d": 2, "c": 9, "b_weak": 9} | 9 | 11.1% | 3.981 | -0.0284 | -0.256 | False | True |
+| C324 | 4.826 | 3 (1) | {"d": 3} | 1 | 0.0% | 0.0 | -0.0285 | -0.029 | False | False |
+| C104 | 10.057 | 11 (34) | {"c": 11, "b_strong": 2} | 34 | 14.7% | 3.105 | -0.0293 | -0.997 | False | True |
+| C076 | 11.461 | 4 (9) | {"a_cex_shape": 4, "c": 4, "b_strong": 4} | 9 | 11.1% | 3.773 | -0.0300 | -0.270 | False | True |
+| C025 | 15.967 | 9 (26) | {"a_mother": 9, "c": 9, "b_weak": 9} | 26 | 23.1% | 2.134 | -0.0314 | -0.817 | False | False |
+| C135 | 9.063 | 5 (5) | {"c": 5, "b_strong": 5} | 5 | 0.0% | 0.036 | -0.0323 | -0.161 | False | False |
+| C175 | 7.513 | 7 (20) | {"a_cex": 2, "c": 7} | 20 | 10.0% | 3.343 | -0.0345 | -0.689 | False | True |
+| C204 | 6.81 | 7 (1) | {"d": 7} | 1 | 0.0% | 0.0 | -0.0346 | -0.035 | False | False |
+| C004 | 21.862 | 34 (2) | {"d": 34, "a_mother": 34} | 2 | 0.0% | 0.0 | -0.0357 | -0.071 | False | False |
+| C006 | 20.312 | 21 (28) | {"a_cex_shape": 15, "c": 21, "b_strong": 19} | 28 | 0.0% | 0.0 | -0.0362 | -1.014 | False | False |
+| C038 | 14.481 | 19 (27) | {"c": 19, "b_strong": 19} | 27 | 11.1% | 3.356 | -0.0364 | -0.982 | False | True |
+| C033 | 14.817 | 6 (5) | {"d": 6, "c": 5, "b_strong": 5} | 5 | 0.0% | 0.0 | -0.0366 | -0.183 | False | False |
+| C014 | 18.429 | 6 (28) | {"d": 3, "a_mother": 6, "c": 4, "b_strong": 5} | 28 | 7.1% | 4.624 | -0.0377 | -1.056 | False | True |
+| C140 | 8.731 | 14 (3) | {"d": 14} | 3 | 0.0% | 0.0 | -0.0410 | -0.123 | False | False |
 
+## Discovery: what the clusters look like
+
+`data/rugger_clusters.json` lists 396 clusters with ≥ 3 launches. Each entry has its tokens, slot-0 shape, funding and outcome, and, for 30 clusters, up to 25 extra launches from the 72 h expansion (286 launches). `data/reports/discovery_summary.json` has the aggregates.
+
+**Population (6 h, 7,049 SOL-quoted launches)**
+- 6,354 launches have a traced signer. 21.6% of these are fresh wallets (≤ 10 prior txs).
+- Fresh creators are funded by:
+  - unlabeled "mother" wallets: 813
+  - labeled exchanges: 463 (Binance 1 alone: 324)
+  - exchange-like unlabeled wallets (> 200 tx/h): 63
+  - the Relay bridge solver: 31
+- Median time from funding to create: 372 s.
+- 23% of the non-mayhem launches with a known slot 0 are bundled. Counting the 262 launches whose slot 0 was never read (see Verification), it is ≈ 29%. Bundle-wallet counts: 1 (209), 2 (279), 3 (360), 4+ (137). Median bundle 5.9 SOL (p10 2.4, p90 11.0); median end-of-slot-0 market cap 41.8 SOL.
+
+**Signal (a), same funder + amount ±0.02 SOL**
+- Exchange-funded fresh creators: 2,136 matching pairs observed vs 1,560 expected by chance (permutation p = 0.005). That is only 1.4×, and it is driven by round withdrawals (1.999 SOL: 44 launches; 9.999: 11).
+- Exchange + amount alone is therefore weak. It is used only together with the same bundle shape (`a_cex_shape`).
+- Mother wallets: 1,466 pairs vs 69 expected. Mothers really do send fixed amounts. Most of these are coin farms seeding wallets with dust (0.024, 0.047, 0.007 SOL), and those coins stay at the floor.
+
+**Signal (c), shared bundle wallets**
+- 334 bundle wallets recur across launches. 26 more wallets show up both as bundle wallets and as third-party slot-0 buyers (sniper bots) and are excluded.
+
+**Signal (d), same signer**
+- 76 signers launch for ≥ 3 different `creator` keys. These are launch services, and they are keyed by `creator` instead.
+
+**Examples of the guru's scheme found on-chain**
+- **C001**: 48 launches in 6 h, 98% fresh creators, 35 of them funded directly by Binance 1, and 44 with the identical bundle "dev 0.99 SOL + 3 wallets 1.11 / 0.99 / 0.95 SOL". This is exactly the guru's rugger, and trivially trackable. Typical peak: 1.2–1.5× the entry. 1 of 48 snipes hit +100%; −23% per snipe.
+- **C025**: mother `JAmGVx91` sends exactly 2.0 SOL to fresh creators, who launch with 4 bundle wallets.
+  - In the window, 3 of 9 launches reached 2× (one reached 70×).
+  - After expansion to 26 launches: 6 TP hits (23%), −12.6% per snipe. The small in-window sample regressed toward the mean.
+- **C014**: mother `ET69Tz` (the 0.9 SOL scheme found in Task B). 28 launches, 2 TP hits, −15%.
+- **C127**: Binance 1 sends 0.685 SOL; 2-wallet bundles of ~0.88 SOL. 8 launches, 3 TP hits, +26% per snipe. This is the one cluster that passes both guru tests. It is consistent with chance (see the heterogeneity test above) and should be re-tested forward before any money goes on it.
+
+## Method notes
+
+- **Window and sampling.** Every create in the window was decoded over RPC.
+  - 1,652 SOL-quoted launches were skipped for trades: their all-time high (at a conservative SOL price of $104) proves slot 0 held < 1 SOL of buys, so they were never bundled.
+  - Trades were pulled for all 3,006 non-mayhem candidates and for a random 606 of 2,391 mayhem candidates.
+  - However, 262 non-mayhem candidates had more than 200 trades in their first 60 s. For them slot 0 was never read, and they were stored as not bundled (see Verification). The other 1,785 mayhem launches were not pulled because of the shared swap-api rate limit. The bundled sample is therefore essentially all non-mayhem (981 of 982).
+- **Trade paths.** Paths come from swap-api, using a crafted cursor 900 s after creation and paging back to the first trade. If 15 pages were not enough, the 300 s and then 60 s windows were used. The simulator only uses the contiguous prefix from slot 0.
+- **Instant graduations.** 50 of the 982 loaded launches completed their curve inside the creation slot. They are skipped (`why = graduated`), because their later trades are AMM trades, which the curve model cannot price.
+- **Holds past the covered path.** 14 positions were still open at the end of their covered path and were closed at the last price: 11 at 900 s and 3 at a 60 s coverage limit. 9 launches reached 2× of the slot-0 price only after the simulation had closed them. Counting all of them as TP wins moves the base rule from −0.063 to −0.061 SOL per snipe.
+- **Look-ahead guard.** All 6,912 entry decisions (3 entry variants × all samples) were recomputed from truncated and from scrambled futures. There were zero mismatches. Task D also recomputed every slot-0 feature this way: zero differences.
+- **Not modelled.**
+  - Failed buy attempts. Gap-2 measured 22% slippage failures in slot 0; each costs the tip without opening a position.
+  - Sell-side competition when the dump is under way.
+  - Jito bundle ordering inside the slot: the entry is the last recorded trade of the slot, which is optimistic for a reactive bot.
+
+## What more data is needed
+
+0. **Re-pull the censored hot launches** (see Verification). This comes before anything else on this page.
+1. **A longer dense window, at least 3–7 days.** In 6 h, only 61 clusters had ≥ 5 snipes, and walk-forward could only trade 15–35 launches. The guru's rule ("≥ 10 earlier tokens, ≥ 3 of 10 hits") needs operator histories that a 6 h window, plus a 25-launch expansion, cannot give. This is mostly a rate-limit problem: a paid RPC with Geyser or a dedicated trade indexer removes it.
+2. **Live paper trading.** Record our own would-be landing index and fill price in slot 0 / slot+1 for every bundled launch from tracked funders, instead of assuming the last recorded trade.
+3. **A pre-entry signal that separates the ~6% of runners.** Candidates: metadata and socials, the dev's earlier runners, how fast bundle wallets were funded, and slot-1 buy pressure. Each must be tested out of sample against the ~25% break-even TP-hit rate.
+4. **Mayhem launches.** They had to be dropped from slot-0 coverage because of the rate limit. The guru's floor-stop argument does not hold for them in any case.
+
+## Verification (Task D, adversarial check, 2026-10-14)
+
+**Trust level: LOW for the published magnitudes, MEDIUM for the sign of the verdict.**
+- The simulator's arithmetic is right: units, decimals, fees, sell impact and look-ahead all check out.
+- The sample is censored in a way that removes most of the winners. Corrected, the guru's base rule still loses money, even at the favourable end of the correction.
+- Not reliable as published: the size of the loss, the TP-hit rates, the variant ranking, the oracle bounds and the cluster tests.
+
+**How it was checked.** `analysis/scripts/verify_backtest.py` runs offline in about 10 s. `--probe 48` adds at most 96 swap-api requests and `--spot 5` adds 10. Output: `data/reports/backtest_verification.json`.
+
+Before the fixes below, the selftest and `backtest.py` were re-run from the cache with 0 network calls, and they reproduced every published number.
+
+**What holds up**
+- **Units and decimals.** Each window trade was re-derived from the previous trade's curve state (102k trade pairs).
+  - `priceSol × 1e9` is the post-trade market cap in SOL on k = 30 SOL × 1.073e15 (median error 3e-11).
+  - `amountSol` is net of fees: token amounts at 6 decimals match to 3e-9. Treating it as gross would be off by 1.2%.
+- **SOL vs USD.** The coin API's `ath_market_cap` and `usd_market_cap` are USD, and the code treats them as USD everywhere.
+  - API ATH ÷ the trades' SOL-USD equals the trade-path maximum (median difference 2e-9; 0 of 982 below it by more than 0.5%).
+  - SOL traded at $106.9–108.5 in the window, so the $104 ATH prefilter is conservative. It skipped no bundled launch.
+- **Fees.** All 944 bundled launches with in-tx TradeEvents pay 95 + 30 bps, so 1.25% per side is right for this sample.
+  - The buy fee is added on top of the SOL amount and the sell fee is deducted.
+  - Sell impact is included: buying and then selling on an unchanged curve returns the size minus both fees.
+- **Curve.** All 7,049 SOL-quoted creates in the window start from the standard 30 SOL / 1.073e15 reserves.
+- **Look-ahead.** Beyond the decision check, every slot-0 feature (roles, bundle wallets and sizes, eos0) was recomputed from a truncated and from a scrambled future on 1,062 launches. There were 0 differences.
+- **Creation slot and timestamps.**
+  - Every loaded launch has its first trade in the create slot.
+  - All 4,948 slot-0 trades carry the create block time: no ms/s or timezone slip.
+  - No trade row is duplicated.
+  - Dev buys are not double-counted: swap-api dev buys match the RPC create-tx TradeEvents.
+- **Failed transactions.** Swap-api lists only successful trades (256 of 256 matched on-chain in Task A). Failed creates are excluded from the window index.
+- **Population frame.** The window comes from the RPC create index, not the coins API's capped pagination. Its largest gap between consecutive creates is 21 s.
+- **Spot check by hand: 5 random bundled launches** (coins-v2 + DexScreener, 13:05 UTC).
+  - API ATH equals the trade maximum within 0.05%, at the same second.
+  - The current DexScreener price (27.95 SOL mcap on the pumpfun pair) equals API `usd_market_cap` ÷ SOL, which is the curve floor. All 5 had been rugged to the floor within 25–700 s.
+
+**Fixed in this pass** (all numbers on this page are after these fixes)
+1. **Instant graduations were priced as curve trades.**
+   - 50 of the 982 loaded launches (5%) completed their curve inside the creation slot. Their later trades are PumpSwap AMM trades, which the simulator priced with the bonding-curve formula.
+   - `backtest.entry_view` now skips the entry when an AMM trade happened by the entry slot, or when the curve is ≥ 98% complete. The skip reason is `graduated`, and selftest `test_skip_graduated_entry` covers it. Task A and the strategy modules already did this.
+   - Effect on the window base rule: −24.8% → −25.1%, n 982 → 932.
+2. **Wrong break-even.** The verdict said break-even needs a 34% hit rate, so the guru's "3 of 10" is exactly break-even.
+   - 34% was the break-even *win* rate (any profitable exit), not the TP-hit rate.
+   - TP hits make +99% and the other exits −33% on average. Break-even is therefore a **25% TP-hit rate**, and 3 of 10 would make about +7% per snipe.
+3. **"56 positions still open at 900 s."** 42 of those were instant graduations. After fix 1 the count is 14 (11 at 900 s, 3 at a 60 s coverage limit), with 9 late-ATH launches.
+4. **Per-cluster table.** It listed 19 clusters with zero tradable launches among the "top 25 by expectancy". Clusters with snipes now come first.
+
+**Not fixed: the window sample is censored at 200 trades in the first minute (the main problem)**
+- **Mechanism.**
+  - `window.staged_trades` reads slot 0 from at most 2 pages (200 trades) of the first 60 s.
+  - For 262 non-mayhem launches the first minute did not fit. Slot 0 was never read, and they were stored as `bundled = False`.
+  - No loaded launch has more than 200 trades in its first 60 s: the sample is truncated exactly there.
+- **These are the runners.**
+  - Median ATH 177 SOL, against 49.7 SOL for the bundled sample.
+  - 86% passed 84 SOL, against 13%.
+  - 96 graduated, against 56 in the whole bundled sample.
+- **Probe of 48 random censored launches** (slot 0 read live, 60 requests).
+  - 43 are bundled. 13 of those graduated in slot 0, which leaves 31 normal bundled launches.
+  - On those 31 the guru's rule hits TP **68–71%** of the time (CI 50–84%) and makes **+61% to +66% per snipe** (CI +27% to +99%).
+  - The lower bound uses only the cached 60 s and 900 s pages. The upper bound also credits API ATHs inside 900 s.
+  - Re-weighted to all 262, the window base rule becomes about **−11% to −12% per snipe at a 15–16% TP-hit rate** (n ≈ 1,100), instead of −25% at 6%.
+  - At the top of the probe's CI it would still be about −6%.
+- **Task A agrees, with less optimism.** Task A's random arm pulled up to 2,000 trades, so it is not censored.
+  - Its 10 bundled launches with more than 200 trades in the first minute hit TP 5 times, for +27% per snipe (CI −26% to +81%).
+  - The other 70 hit TP 0 times (−40%). Every TP hit in Task A comes from a hot launch.
+  - Using +27% instead of +61% for the censored group puts the corrected window at about −17%.
+- **What survives.** The base-rule verdict (negative) holds under both corrections.
+- **What does not.**
+  - "Every variant is negative" and the variant ranking: hot launches are not spread evenly over the filters. For example, both probed hot launches with eos0 ≤ 35 SOL hit TP.
+  - The oracle bounds: +23% is far too low.
+  - The cluster heterogeneity test and the walk-forward results: the clusters lack exactly the launches where an edge would show.
+  - The "23% bundled" share: it is ≈ 29% once censored launches are counted.
+  - The TP-hit rates quoted on this page: 6% becomes ≈ 15%.
+- **Fix (not run).** It needs about 5–10k swap-api requests, i.e. hours under the shared limit of 1,000 requests per 5 minutes.
+  1. When the 60 s prefix is incomplete, read slot 0 with a cursor at create time + 1 s (1–2 pages).
+  2. If that also fails, mark the row `s0_unknown` instead of `bundled = False`.
+  3. Pull the full path of bundled launches with a page budget sized to the trade count, or use `minSolAmount`-filtered pages for the price path.
+  4. Re-run discovery from the cluster stage, then the backtest.
+
+**Other limitations** (unchanged; see Method notes)
+- **Optimistic entry.** Entering at the last recorded slot-0 trade is optimistic for a reactive bot. Failed attempts and sell-side competition are not charged, and the hot launches are where the slot-0 competition is heaviest. All of this works against the strategy.
+- **Hindsight in walk-forward.** Cluster membership uses the whole window, so a launch can be linked to its cluster only through a later launch. This flatters "follow the good rugger".
+- **Non-default creator fees.** 5.2% of all window creates use one (up to 300 bps; 80 also pay 0 protocol fee). None in the bundled sample do, but a live bot must read the fee from the curve rather than assume 1.25%.
+- **The only positive pocket.** Hot launches are the one profitable group in the data; Task A and the probe agree on the sign. But "hot" is measured over the first 60 s, which is after the entry.
+  - The open question for the strategy work is whether anything visible at entry predicts it: the count of third-party slot-0 snipers, the dev buy size, or slot-1 buy flow.
+  - That must be tested on uncensored data.
 
 

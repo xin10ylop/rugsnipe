@@ -169,3 +169,156 @@ fn paper_with_real_senders_warns() {
     assert!(v.ok());
     assert_eq!(v.warnings.len(), 2, "{:?}", v.warnings);
 }
+
+/// docs/06 section 6, item by item: starting from a configuration and an
+/// environment that pass, each single defect alone refuses probe AND live
+/// with exactly its own reason, and boundaries are where the spec puts them.
+#[test]
+fn each_section6_refusal_alone_refuses_probe_and_live() {
+    for mode in [Mode::Probe, Mode::Live] {
+        let base = armable(example(), mode);
+        let env0 = good_env(&base);
+        assert!(base.validate(&env0).ok(), "{mode}: baseline passes");
+        let only = |c: &Config, env: &ValidateEnv, want: Vec<Refusal>, what: &str| {
+            let v = c.validate(env);
+            assert_eq!(v.refusals, want, "{mode}: {what}");
+            // and paper still runs with the same defect
+            let mut p = c.clone();
+            p.mode.mode = Mode::Paper;
+            assert!(p.validate(env).ok(), "{mode}: paper unaffected by {what}");
+        };
+        // (1) a cap is 0 ...
+        for (name, _) in base.risk.caps() {
+            let mut c = base.clone();
+            let r = &mut c.risk;
+            match name {
+                "max_snipe_lamports" => r.max_snipe_lamports = 0,
+                "max_probe_lamports" => r.max_probe_lamports = 0,
+                "max_probes_per_day" => r.max_probes_per_day = 0,
+                "max_open_positions" => r.max_open_positions = 0,
+                "max_daily_loss_lamports" => r.max_daily_loss_lamports = 0,
+                "max_consec_losses_per_op" => r.max_consec_losses_per_op = 0,
+                "max_buys_per_op_per_day" => r.max_buys_per_op_per_day = 0,
+                "max_buys_per_hour" => r.max_buys_per_hour = 0,
+                "max_bid_lamports" => r.max_bid_lamports = 0,
+                "max_sell_spend_lamports" => r.max_sell_spend_lamports = 0,
+                "max_entry_vsol_lamports" => r.max_entry_vsol_lamports = 0,
+                "max_hot_balance_lamports" => r.max_hot_balance_lamports = 0,
+                "min_hot_balance_lamports" => r.min_hot_balance_lamports = 0,
+                other => panic!("unlisted cap {other}"),
+            }
+            only(&c, &env0, vec![Refusal::CapMissing(name)], name);
+        }
+        // ... or missing from the file (the whole [risk] table absent)
+        let text = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../config/rugsnipe.example.toml"
+        ))
+        .unwrap();
+        let start = text.find("[risk]").unwrap();
+        let end = start + text[start..].find("\n[feeds]").unwrap();
+        let no_risk = format!("{}{}", &text[..start], &text[end..]);
+        let c = armable(Config::from_toml_str(&no_risk).unwrap(), mode);
+        let caps: Vec<Refusal> = c
+            .risk
+            .caps()
+            .iter()
+            .map(|(n, _)| Refusal::CapMissing(n))
+            .collect();
+        assert_eq!(caps.len(), 13);
+        only(&c, &env0, caps, "no [risk] table");
+        // (1b) cu_limit = 0
+        let mut c = base.clone();
+        c.tx.cu_limit = 0;
+        only(&c, &env0, vec![Refusal::CuLimitZero], "cu_limit = 0");
+        // (2) a key credential group- or world-readable (or missing)
+        let key = match mode {
+            Mode::Probe => base.secrets.probe_keypair.clone(),
+            _ => base.secrets.hot_keypair.clone(),
+        };
+        for m in [0o440, 0o640, 0o404, 0o604, 0o644, 0o444, 0o410, 0o401] {
+            let mut env = env0.clone();
+            env.credential_modes.insert(key.clone(), Some(m));
+            only(
+                &base,
+                &env,
+                vec![Refusal::CredentialPermissive {
+                    name: key.clone(),
+                    mode: m,
+                }],
+                &format!("credential mode {m:o}"),
+            );
+        }
+        for m in [0o400, 0o600, 0o100400] {
+            let mut env = env0.clone();
+            env.credential_modes.insert(key.clone(), Some(m));
+            assert!(base.validate(&env).ok(), "{mode}: mode {m:o} is private");
+        }
+        let mut env = env0.clone();
+        env.credential_modes.remove(&key);
+        only(
+            &base,
+            &env,
+            vec![Refusal::CredentialMissing(key.clone())],
+            "credential missing",
+        );
+        // the api-keys credential counts once a keyed HTTP sender is enabled
+        let mut c = base.clone();
+        c.senders.nozomi.enabled = true;
+        let mut env = env0.clone();
+        env.credential_modes
+            .insert(c.secrets.api_keys.clone(), Some(0o640));
+        only(
+            &c,
+            &env,
+            vec![Refusal::CredentialPermissive {
+                name: c.secrets.api_keys.clone(),
+                mode: 0o640,
+            }],
+            "api-keys group-readable",
+        );
+        // (3) clock offset > 5 ms (either sign), or unknown
+        for (ms, ok) in [(5.0, true), (-5.0, true), (5.001, false), (-6.0, false)] {
+            let mut env = env0.clone();
+            env.clock_offset_ms = Some(ms);
+            if ok {
+                assert!(base.validate(&env).ok(), "{mode}: offset {ms}");
+            } else {
+                only(
+                    &base,
+                    &env,
+                    vec![Refusal::ClockOffset { ms, max: 5.0 }],
+                    &format!("offset {ms}"),
+                );
+            }
+        }
+        let mut env = env0.clone();
+        env.clock_offset_ms = None;
+        only(&base, &env, vec![Refusal::ClockUnknown], "clock unknown");
+        // (4) no healthy post-exec feed
+        let mut env = env0.clone();
+        env.post_exec_feed_healthy = false;
+        only(&base, &env, vec![Refusal::NoPostExecFeed], "no post-exec feed");
+        // (5) ArmSet unsigned (or otherwise unusable), or gate_passed = false
+        for g in [
+            ArmSetGate::Missing,
+            ArmSetGate::Unsigned,
+            ArmSetGate::BadSignature,
+            ArmSetGate::ShaMismatch,
+            ArmSetGate::Stale,
+            ArmSetGate::WrongRegime,
+        ] {
+            let mut env = env0.clone();
+            env.armset = g;
+            only(&base, &env, vec![Refusal::ArmSet(g)], &format!("{g:?}"));
+        }
+        let mut env = env0.clone();
+        env.armset = ArmSetGate::Verified { gate_passed: false };
+        only(&base, &env, vec![Refusal::GateNotPassed], "gate_passed = false");
+        // (6) RPC budget sum > 32 (32 itself is allowed)
+        let mut c = base.clone();
+        assert_eq!(c.rpc_budget.sum(), 32);
+        c.rpc_budget.backfill += 1;
+        only(&c, &env0, vec![Refusal::RpcBudget { sum: 33 }], "rpc budget 33");
+    }
+}

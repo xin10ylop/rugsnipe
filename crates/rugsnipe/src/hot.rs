@@ -169,6 +169,10 @@ struct Slot {
     keys: MintKeys,
     sig0: [u8; 64],
     filled: bool,
+    /// `Decision::Fire` in probe/live. A decision forced to paper in a real
+    /// mode (freeze, ArmSet gate, op not armed) is a paper position: its sells
+    /// go to the paper recorder and its P&L never touches the RiskGate.
+    real: bool,
     deadline: u64,
     buf: [Option<Trade>; TRADE_BUF],
     buf_len: usize,
@@ -628,6 +632,7 @@ impl HotLoop {
                 prio: prio0,
                 tip: tip0,
                 tip_account,
+                real: true,
             };
             if self.fire.push(job).is_err() {
                 self.counters.ring_full += 1;
@@ -651,6 +656,8 @@ impl HotLoop {
                 prio: (bid as f64 * self.cfg.split_secondary[0]) as u64,
                 tip: (bid as f64 * self.cfg.split_secondary[1]) as u64,
                 tip_account,
+                // a paper decision's secondary variant is recorded, never sent
+                real,
             };
             if self.fire.push(job).is_err() {
                 self.counters.ring_full += 1;
@@ -722,6 +729,11 @@ impl HotLoop {
                 t0: t0_tok,
                 decided_unix_ms: now_ms,
             });
+            if self.cfg.mode.is_real() {
+                // forced to paper in a real mode: nothing was sent with this
+                // value, so the real nonce is released (no burn needed)
+                self.nonces.release_unsent(&claim);
+            }
         }
         // the position (opens on our own fill only)
         let mut bundle = BundleSet::new(hit.intx_buyers.as_slice());
@@ -757,6 +769,7 @@ impl HotLoop {
             keys,
             sig0: v.sig,
             filled: false,
+            real,
             deadline: slot + self.cfg.fill_timeout_slots,
             buf: [None; TRADE_BUF],
             buf_len: 0,
@@ -1122,6 +1135,7 @@ impl HotLoop {
             return;
         };
         let intent = s.intent;
+        let real = s.real;
         match a {
             ExitAction::Opened { tokens, v_fill, .. } => {
                 self.rslog.push(Rec::PosEvent {
@@ -1144,7 +1158,7 @@ impl HotLoop {
                     tokens: 0,
                 });
                 let idx = s.nonce_idx;
-                self.send_cold(ColdMsg::BurnNonce { idx });
+                self.send_cold(ColdMsg::BurnNonce { idx, intent });
             }
             ExitAction::Sell(order) => self.sell(i, order, now),
             ExitAction::VenueChanged { .. } => {
@@ -1178,7 +1192,7 @@ impl HotLoop {
                     pnl,
                 });
                 self.send_cold(ColdMsg::UnwatchMint(pos.mint));
-                if self.cfg.mode.is_real() {
+                if real {
                     self.risk.on_position_closed(op_slot, pnl, now.ms / 1_000);
                 }
                 self.slots[i] = None;
@@ -1202,10 +1216,12 @@ impl HotLoop {
         self.counters.sells += 1;
         self.stats.sells.inc();
         let owned = self.shared.exits_owned.load(Acquire);
-        let paper = !self.cfg.mode.is_real();
         let Some(s) = self.slots[i].as_mut() else {
             return;
         };
+        // a paper position (paper mode, or forced to paper in a real mode) never
+        // reaches a real sender
+        let paper = !(self.cfg.mode.is_real() && s.real);
         let mut sig = [0u8; 64];
         if !owned {
             self.stats.sells_not_owner.inc();
@@ -1245,6 +1261,7 @@ impl HotLoop {
                     prio: order.tip_lamports,
                     tip: order.tip_lamports,
                     tip_account: self.tmpl.tip_account,
+                    real: true,
                 };
                 if self.fire.push(job).is_err() {
                     self.counters.ring_full += 1;

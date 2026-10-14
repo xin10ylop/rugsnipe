@@ -56,6 +56,16 @@ def test_simulate_tp_and_oracle() -> None:
     assert big["exit_reason"] == "big_buy"
 
 
+def test_skip_graduated_entry() -> None:
+    # curve completed inside the creation slot (AMM trade in slot 0): no curve to snipe
+    path = PATH[:4] + [{**_tr(100, 400, 1000, "Z", True, 1.0, 450.0), "prog": "pump_amm"}] + PATH[4:]
+    tok = {"create_slot": 100, "create_time": 1000, "mayhem": False, "covered_until": 1900,
+           "s0": D.slot0_structure(REC, path)}
+    r = B.simulate(tok, path, B.Strategy())
+    assert not r["entered"] and r["why"] == "graduated"
+    assert B.simulate(tok, PATH, B.Strategy())["entered"]
+
+
 def test_simulate_idle_and_sl() -> None:
     path = PATH[:5] + [_tr(130, 1, 1400, "Z", False, 0.5, 36.0)]
     tok = {"create_slot": 100, "create_time": 1000, "mayhem": False, "covered_until": 1900,

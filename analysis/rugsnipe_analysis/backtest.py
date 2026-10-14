@@ -35,6 +35,7 @@ from . import curve
 
 K = curve.INITIAL_VSOL * curve.INITIAL_VTOK  # lamports * raw token units
 LAMPORTS = curve.LAMPORTS
+COMPLETE_MCAP = curve.completion_mcap_sol()  # ~410.9 SOL: curve sold out -> trades move to the AMM
 
 
 @dataclass(frozen=True)
@@ -146,6 +147,11 @@ def entry_view(token: dict, trades: list[dict], strat: Strategy) -> dict[str, An
     if strat.max_entry_mcap is not None and eos0 > strat.max_entry_mcap:
         return {"enter": False, "why": "entry_too_high"}
     m = upto[-1]["mcap"]
+    # Curve completed by the entry slot (instant graduation): the price is set by the PumpSwap
+    # pool, so the bonding-curve state/impact model below does not apply (and there is no curve
+    # to snipe).  Verification 2026-10-14: 50 of 982 window entries, all priced as curve trades.
+    if any(t.get("prog") == "pump_amm" for t in upto) or m >= 0.98 * COMPLETE_MCAP:
+        return {"enter": False, "why": "graduated"}
     return {"enter": True, "slot": eslot, "idx": len(upto) - 1, "mcap": m, "ts": upto[-1]["ts"]}
 
 

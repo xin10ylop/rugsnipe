@@ -613,9 +613,11 @@ impl Cold {
                     }
                 }
             }
-            ColdMsg::BurnNonce { idx } => {
+            ColdMsg::BurnNonce { idx, intent } => {
                 let i = idx as usize;
-                if i < self.p.nonces.len() && self.p.nonces.packed(i).state == NonceState::InFlight
+                if i < self.p.nonces.len()
+                    && self.p.nonces.packed(i).state == NonceState::InFlight
+                    && self.p.nonces.intent(i) == intent
                 {
                     self.burn(i);
                 }
