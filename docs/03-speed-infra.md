@@ -53,6 +53,10 @@ Model: a create executes at a uniformly random point inside a 217 ms slot; we se
 (leader → us), react, and send (us → leader); we land in the same slot if the round trip plus ~5 ms of
 processing fits in the remaining slot time. Weighted over the real leader schedule:
 
+The model below assumes 5 ms of processing. Adding the 20-50 ms batch windows on the two thirds
+of leaders that run BAM or Harmonic lowers every P(same slot) by roughly 0.07-0.14 (Frankfurt 0.78 →
+0.65-0.72, Ohio 0.51 → 0.38-0.45) but does not change the ranking.
+
 | Box set | Mean RTT to leader | P(same slot) | Slots within 2 ms | Slots within 10 ms |
 |---|---|---|---|---|
 | **Ohio alone (today)** | 102 ms | **0.51** | 0% | 0% |
@@ -79,8 +83,9 @@ and takes race-winning coverage from 0% to 34%. Adding Amsterdam takes it to 56%
 
 1. **Now, one box: Frankfurt bare metal.** TeraSwitch FRA (Ryzen 9950X, ~$425/mo list) is the best
    building; Latitude.sh FRA (~$400/mo) or Cherry Servers FRA are the alternatives. Ask for a test IP
-   and run `deploy/latency_probe.sh`: accept the box only if Jito Frankfurt and Helius `fra-sender`
-   connect in under 1 ms. Hetzner is excluded (crypto clause in its terms); Equinix Metal closed in
+   and run `deploy/latency_probe.sh`: accept the box only if Jito Frankfurt (64.130.50.88), Helius
+   `fra-sender` (64.130.50.91), the Harmonic Frankfurt TPU (198.13.140.105) and the BAM Frankfurt node
+   (198.13.140.227) answer in under 1 ms. Hetzner is excluded (crypto clause in its terms); Equinix Metal closed in
    June 2026.
 2. **If AWS is mandatory: eu-central-1**, a current-generation compute instance (c7i / c8g, at least
    large enough for full ENA queues), Elastic IP, no NAT gateway. Expect an extra 0.5-2 ms versus the
@@ -99,7 +104,7 @@ Nobody sees a transaction before the leader executes it. Earliest to latest:
 | Feed | What it is | Cost | Notes |
 |---|---|---|---|
 | Helius `preconfSubscribe` | Leader execution notices (Helius-forwarding and BAM validators) | Pro plan $999/mo + credits (~$250/day at full coverage) | Earliest signal where covered; coverage is partial |
-| **DoubleZero Edge** | Leader shreds over multicast, one hop | $1,500/mo (FRA/AMS), $900 (LON/NY/SGP/TYO) | Successor to Jito ShredStream; GRE-encapsulated, needs bare metal or a GRE-capable VM |
+| **DoubleZero Edge** | Leader shreds over multicast, one hop | priced per epoch on-chain: $100/epoch FRA/AMS, $60 LON/NY/SGP/TYO, $30 elsewhere; epochs are now ~24 h, so **≈ $3,000/mo in Frankfurt** (confirm with DZ) | Successor to Jito ShredStream; covers validators that publish leader shreds (~53% of stake; ~19% publish in Frankfurt); GRE multicast, has devices inside the TeraSwitch FRA/AMS buildings |
 | Helius shred delivery | Raw shreds to your IP | $800-1,000/mo per IP | |
 | Solana Vibe Station raw shreds | Raw shreds | $250/mo (AMS) | Cheapest way to start A/B testing shreds |
 | Triton Yellowstone `SubscribeDeshred` | Pre-execution transactions with ALTs resolved | Usage-based | Simplest API that is still pre-execution |
@@ -112,10 +117,19 @@ compare vendors before paying for the expensive ones.
 
 ## 6. Sending (land in the same slot)
 
-Inside a block, arrival time dominates: in 25,948 pairs of pump trades on the same mint in the same
-block, the earlier transaction had the higher fee-per-compute only 54-58% of the time (50% would be
-pure first-come-first-served). So the budget priority is **co-location > fan-out > compute trimming >
-fees**.
+Who orders the block depends on the leader's software (DoubleZero validator metadata, verified
+today): **BAM (Jito's block assembly marketplace) 37.9%**, **Jito-Agave 27.2%**, **Harmonic 25.1%**,
+Firedancer 7.2%, other 2.6%. Two thirds of stake therefore sequence transactions in **batch auctions**
+(BAM rounds of 20-50 ms; Harmonic's default is a 50 ms frequent batch auction ordered by priority fee
+and tips, with shreds still streaming continuously), and **67.9% of stake advertises a proxy TPU**
+(BAM node or Harmonic remote TPU, almost all at TeraSwitch) rather than the validator itself. On
+Jito-Agave leaders arrival order dominates (in 25,948 same-block pump-trade pairs the earlier
+transaction had the higher fee only 54-58% of the time); on BAM and Harmonic leaders the fee decides
+the position inside the batch. So the bid policy must be **per leader class**, keyed on the leader's
+advertised `tpuQuic` address and refreshed every epoch (and every few minutes during the Alpenglow
+cutover, when BAM validators fall back to plain Jito-Agave mode). The spending priority is still
+**co-location > fan-out > compute trimming > fees** on Jito-Agave leaders, but on batched leaders a
+competitive fee inside the right 20-50 ms window matters as much as being first.
 
 | Path | Min tip | Notes |
 |---|---|---|
@@ -131,7 +145,11 @@ ATA create + tip transfer, ~55-62k CU with a tight compute-unit limit and a tigh
 limit (saves ~13k cost units of "phantom" cost, i.e. ~20% more priority per lamport for free), tip
 inside the transaction (a reverted buy pays no tip), `max_sol_cost` set from the expected bundle,
 pre-created `user_volume_accumulator`, warm connections, fire on sight, and **several variants on one
-durable nonce** so only one can land and only one tip is paid. Observed cost of a landed block-0 buy:
+durable nonce** so only one can land and only one tip is paid. Use **transaction v1** where the path
+accepts it (Jito, Helius, Nozomi, Astralane and Stellium were all observed landing v1): no
+compute-budget instructions, the compute-unit limit and loaded-accounts size **must** be set in the
+header (unset means zero), the priority fee is a total in lamports, no address-lookup tables (none
+are needed: the whole transaction is ~830 bytes against a 4,096-byte limit). Observed cost of a landed block-0 buy:
 median 0.004 SOL, p75 0.014 SOL, p90 0.05 SOL. "Hardcore mode" is a forecast from the history of past
 creation slots for that operator (bids that landed ahead of the failures), not a reaction to a rival's
 bid, which cannot be seen in time.
