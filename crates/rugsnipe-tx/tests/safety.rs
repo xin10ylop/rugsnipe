@@ -282,3 +282,57 @@ fn each_section6_defect_alone_refuses_the_real_sender_set() {
         }
     }
 }
+
+/// `rpcsend.sells_only` (the public RPC path of docs/06 section 6) refuses
+/// buy variants before any network; sells go out.
+#[cfg(feature = "rpc")]
+#[test]
+fn rpcsend_sells_only_refuses_buys_before_the_network() {
+    use std::io::{Read, Write};
+    use std::sync::atomic::{AtomicU64, Ordering::*};
+    use std::sync::Arc;
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    let accepted = Arc::new(AtomicU64::new(0));
+    let a = accepted.clone();
+    std::thread::spawn(move || {
+        for s in l.incoming() {
+            let mut s = s.unwrap();
+            a.fetch_add(1, AcqRel);
+            s.set_read_timeout(Some(std::time::Duration::from_millis(300)))
+                .unwrap();
+            let mut b = [0u8; 8192];
+            let _ = s.read(&mut b);
+            let body = r#"{"jsonrpc":"2.0","result":"sig","id":1}"#;
+            let _ = s.write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .as_bytes(),
+            );
+        }
+    });
+    let mut c = armable(Mode::Live);
+    c.senders.rpcsend.enabled = true;
+    c.senders.rpcsend.url = format!("http://127.0.0.1:{port}");
+    c.senders.rpcsend.sells_only = true;
+    let set = SenderSet::build(&c, &good_env(&c), &ApiKeys::default()).unwrap();
+    assert_eq!(set.real().len(), 1);
+    let r = set.send_all(&variant(1));
+    assert_eq!(
+        r[1],
+        (
+            SenderId::Rpc,
+            SendResult::Failed(SendError::NotForThisSender)
+        )
+    );
+    assert_eq!(accepted.load(Acquire), 0, "a buy never reached the RPC");
+    let sell = Variant::from_bytes(&[2; 300], [2; 64], 7, 0x81, VariantKind::Sell, 0, 0, None);
+    let r = set.send_all(&sell);
+    assert!(
+        matches!(r[1], (SenderId::Rpc, SendResult::Accepted { .. })),
+        "{r:?}"
+    );
+    assert_eq!(accepted.load(Acquire), 1, "the sell went out");
+}
