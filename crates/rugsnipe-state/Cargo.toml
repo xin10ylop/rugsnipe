@@ -1,0 +1,26 @@
+[package]
+name = "rugsnipe-state"
+version = "0.1.0"
+description = "Hot-box state: SQLite StateStore (WAL, one writer thread) with the docs/06 section 5.1 tables, Ledger (intent -> send -> fill -> position -> exit), Recovery/Reconcile against the chain, the exits Lease, and the per-IP per-method RpcBudget."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+# Chain reads for Recovery (getTokenAccountsByOwner, getMultipleAccounts, getSlot)
+# through rugsnipe-tx's cold JSON-RPC client (ureq + rustls). Never on the hot thread.
+rpc = ["rugsnipe-tx/rpc"]
+
+[dependencies]
+pump-codec = { workspace = true }
+rugsnipe-core = { path = "../rugsnipe-core" }
+rugsnipe-tx = { path = "../rugsnipe-tx" }
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde_json = { workspace = true }
+bs58 = { workspace = true }
+base64 = { workspace = true }
+
+[lints.clippy]
+too_many_arguments = "allow"

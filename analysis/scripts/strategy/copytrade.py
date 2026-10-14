@@ -505,6 +505,140 @@ def sim():
     print(json.dumps(meta, indent=1, default=str)[:3000])
 
 
+
+# ============================================================================ hist (top-20 wallet histories)
+def hist():
+    """Summarise pulled wallet histories: activity, entry mcap, Horvitz-Thompson net SOL flow."""
+    recs = [json.loads(line) for line in open(CACHE / "wallet_hist.jsonl")]
+    T = tapes()
+    bts = np.array([t.bt for t in T])
+    cut_bt = int(np.quantile(bts, 0.60))
+    led_rows = json.load(open(CACHE / "ledger.json"))
+    out = []
+    rng = np.random.default_rng(3)
+    for r in recs:
+        tr = r["trades"]
+        span_d = max((r["t_last"] or 0) - (r["t_first"] or 0), 1) / 86400
+        k = r["n_ok"] / max(r["n_sampled"], 1)          # each sampled tx stands for k txs
+        flows = np.array([(-e["sol"] * (1 + ct.FEE) if e["buy"] else e["sol"] * (1 - ct.FEE)) for e in tr])
+        buys = [e for e in tr if e["buy"]]
+        mc = [e["vsol"] / e["vtok"] * 1e6 for e in buys if e["vtok"]]
+        net = float(flows.sum() * k) if len(flows) else 0.0
+        # bootstrap over sampled transactions
+        if len(flows) > 1:
+            bs = [rng.choice(flows, len(flows)).sum() * k for _ in range(500)]
+            lo, hi = float(np.quantile(bs, 0.05)), float(np.quantile(bs, 0.95))
+        else:
+            lo = hi = float("nan")
+        mine = [x for x in led_rows if x["u"] == r["wallet"] and x["role"] == "O" and x["fb_s"] < 30]
+        tr_rows = [x for x in mine if x["bt"] < cut_bt]
+        te_rows = [x for x in mine if x["bt"] >= cut_bt]
+        out.append({"wallet": r["wallet"], "n_sigs": r["n_sigs"], "span_days": span_d,
+                    "tx_per_day": r["n_sigs"] / span_d, "pump_trades_sampled": len(tr),
+                    "pump_share": len(tr) / max(r["n_tx"], 1), "buy_share": len(buys) / max(len(tr), 1),
+                    "med_buy_sol": float(np.median([e["sol"] for e in buys])) if buys else None,
+                    "med_entry_mcap": float(np.median(mc)) if mc else None,
+                    "mints": len({e["mint"] for e in tr}),
+                    "net_sol_window": net, "net_ci90": [lo, hi], "net_per_day": net / span_d,
+                    "window": [r["t_first"], r["t_last"]], "window_after_cut": (r["t_first"] or 0) >= cut_bt,
+                    "sample_train_n": len(tr_rows), "sample_train_pnl": sum(x["pnl"] for x in tr_rows),
+                    "sample_test_n": len(te_rows), "sample_test_pnl": sum(x["pnl"] for x in te_rows)})
+    json.dump(out, open(REPORTS / "copytrade_wallet_hist.json", "w"), indent=1)
+    for o in out:
+        print(o["wallet"][:8], o["n_sigs"], round(o["span_days"], 2), round(o["tx_per_day"]), o["pump_trades_sampled"],
+              round(o["buy_share"], 2), o["med_buy_sol"] and round(o["med_buy_sol"], 3),
+              o["med_entry_mcap"] and round(o["med_entry_mcap"], 1), round(o["net_sol_window"], 2),
+              [round(x, 2) for x in o["net_ci90"]], o["sample_train_n"], round(o["sample_train_pnl"], 2),
+              o["sample_test_n"], round(o["sample_test_pnl"], 2))
+
+
+
+# ============================================================================ report (bootstrap CIs for reported rows)
+def report():
+    T = tapes()
+    mint_t = {t.mint: t for t in T}
+    bts = np.array([t.bt for t in T])
+    cut_bt = int(np.quantile(bts, 0.60))
+    W, _ = pop_weights(T, cut_bt)
+    events = pickle.load(open(CACHE / "events.pkl", "rb"))
+    d = json.load(open(REPORTS / "copytrade_sweep.json"))
+    R = d["res"]
+
+    def series(r, split, popn):
+        E = [e for e in events if e["kind"] == r["kind"] and e["evs"][(r["lag"], r["size"])] is not None]
+        x, w = [], []
+        for e in E:
+            t = mint_t[e["mint"]]
+            if (t.bt >= cut_bt) != (split == "test"):
+                continue
+            wt = W[t.mint] if popn == "pop" else 1.0
+            if wt <= 0:
+                continue
+            ev = e["evs"][(r["lag"], r["size"])]
+            v, _ = ct.policy_exit(ev, tuple(r["keys"]), r["tp"], r["hold"], r["front"])
+            x.append((v - r["size"] - COST) / r["size"])
+            w.append(wt)
+        return np.array(x), np.array(w)
+
+    def row_out(r, popn="pop"):
+        x, w = series(r, "test", popn)
+        m, lo, hi = ct.boot_ci(x, w)
+        te = r[f"test_{popn}"]
+        return {"name": r["name"], "kind": r["kind"], "n_test": te.get("n", 0), "ev_test": m, "ci90": [lo, hi],
+                "ev_comp": te.get("ev_comp"), "hit": te.get("hit"), "q": te.get("q"), "p": te.get("p"),
+                "oracle": te.get("oracle"), "prem_med": te.get("prem_med"),
+                "train_n": r[f"train_{popn}"].get("n", 0), "ev_train": r[f"train_{popn}"].get("ev"),
+                "front": r["front"], "nsrc": te.get("nsrc")}
+
+    out = {}
+    for popn in ("pop", "all"):
+        for front in (False, True):
+            rows = [r for r in R if r["front"] == front and r[f"test_{popn}"].get("n", 0) >= 20]
+            rows.sort(key=lambda r: -r[f"test_{popn}"]["ev"])
+            # de-duplicate exits that produce identical results (holds that never bind)
+            seen, top = set(), []
+            for r in rows:
+                key = (r["kind"], round(r[f"test_{popn}"]["ev"], 6), r[f"test_{popn}"]["n"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                top.append(row_out(r, popn))
+                if len(top) == 15:
+                    break
+            out[f"top15_{popn}_{'front' if front else 'real'}"] = top
+        # train-selected (realistic only) per family and overall
+        sel = []
+        for kind in sorted({r["kind"] for r in R}):
+            rs = [r for r in R if r["kind"] == kind and not r["front"] and r[f"train_{popn}"].get("n", 0) >= 20]
+            if not rs:
+                continue
+            b = max(rs, key=lambda r: r[f"train_{popn}"]["ev"])
+            sel.append(row_out(b, popn))
+        out[f"train_selected_{popn}"] = sel
+        allr = [r for r in R if not r["front"] and r[f"train_{popn}"].get("n", 0) >= 20]
+        out[f"train_best_overall_{popn}"] = row_out(max(allr, key=lambda r: r[f"train_{popn}"]["ev"]), popn)
+    # default policy per family + oracle (lag1, 0.25, copy-sell or hold 300)
+    dflt = []
+    for kind in sorted({r["kind"] for r in R}):
+        for lag in LAGS:
+            r = next(r for r in R if r["kind"] == kind and r["lag"] == lag and r["size"] == 0.25 and r["keys"] == ["copy"]
+                     and r["tp"] is None and r["hold"] == 300 and not r["front"])
+            o = row_out(r, "pop" if r["test_pop"].get("n", 0) >= 10 else "all")
+            o["lag"] = lag
+            dflt.append(o)
+    out["default_copy"] = dflt
+    out["meta"] = d["meta"]
+    json.dump(out, open(REPORTS / "copytrade_summary.json", "w"), indent=1, default=str)
+    for k, v in out.items():
+        if k == "meta":
+            continue
+        print("==", k)
+        for o in (v if isinstance(v, list) else [v]):
+            print(f"  {o['name']:72s} n={o['n_test']:4d} ev={o['ev_test']*100:6.2f} [{o['ci90'][0]*100:6.2f},{o['ci90'][1]*100:6.2f}]"
+                  f" comp={o['ev_comp']*100 if o['ev_comp'] is not None else float('nan'):6.2f} q={o['q'] if o['q'] is not None else float('nan'):.2f}"
+                  f" hit={o['hit'] or 0:.2f} orc={(o['oracle'] or 0)*100:5.1f} tr_n={o['train_n']} tr_ev={(o['ev_train'] or float('nan'))*100:6.2f}")
+
+
 if __name__ == "__main__":
     stage = sys.argv[1] if len(sys.argv) > 1 else "discover"
-    {"discover": discover, "pull": pull, "sim": sim}[stage]()
+    {"discover": discover, "pull": pull, "sim": sim, "hist": hist, "report": report}[stage]()

@@ -53,6 +53,7 @@ class Tape:
     ins_b: np.ndarray = field(repr=False)   # trade by a bundle wallet
     ins_c: np.ndarray = field(repr=False)   # trade by creator / signer / fee payer
     s0tp: np.ndarray = field(repr=False)    # trade by a third-party slot-0 buyer (another sniper)
+    uid: np.ndarray = field(repr=False)     # wallet id per trade (index into a per-tape wallet list)
 
     @property
     def regime(self) -> str:
@@ -110,6 +111,7 @@ def build_tape(mint: str, src: str, w: float, slot0: int, bt: int, csig: str, C:
     hend = int(np.searchsorted(ts, bt + hor, side="right"))
     third = {t[4] for t in tr if t[0] == slot0 and t[5] and t[4] not in C and t[4] not in B}
     s0_third = len(third)
+    uids: dict = {}
     return Tape(
         mint=mint, src=src, w=float(w), bt=bt, S0=slot0, ms_slot=217 if slot0 >= SPLIT_SLOT else 400,
         pb=pb, hend=hend, hor=hor, complete=complete, me=float(mc[pb]), nB=len(B), dev_sol=dev_sol,
@@ -119,6 +121,7 @@ def build_tape(mint: str, src: str, w: float, slot0: int, bt: int, csig: str, C:
         tok=np.array([t[7] for t in tr]), mc=mc,
         ins_b=np.array([t[4] in B for t in tr]), ins_c=np.array([t[4] in C for t in tr]),
         s0tp=np.array([t[4] in third for t in tr]),
+        uid=np.array([uids.setdefault(t[4], len(uids)) for t in tr], dtype=np.int64),
     )
 
 
@@ -177,3 +180,24 @@ def load_deep() -> list[Tape]:
             out.append(t)
     out.sort(key=lambda t: (t.bt, t.mint))
     return out
+
+
+def drop_wallets(t: Tape, drop_uids: set) -> Tape:
+    """Counterfactual tape without every trade of the given wallets; the curve is re-priced from the
+    token flows (vt_new = vt_old + tokens those wallets took out net, up to each trade)."""
+    from dataclasses import replace
+    if not drop_uids:
+        return t
+    K = 30.0 * 1.073e9
+    d = np.isin(t.uid, list(drop_uids))
+    flow = np.where(t.buy, t.tok, -t.tok) * d          # tokens removed from the curve by dropped wallets
+    vs = np.sqrt(K * t.mc / 1e9)
+    vt = K / vs + np.cumsum(flow)
+    mc = K / vt / vt * 1e9
+    keep = ~d
+    idx = np.nonzero(keep)[0]
+    pb_new = int(np.searchsorted(idx, t.pb, side="right")) - 1
+    hend_new = int(np.searchsorted(idx, t.hend, side="left"))
+    return replace(t, slot=t.slot[keep], ts=t.ts[keep], buy=t.buy[keep], sol=t.sol[keep], tok=t.tok[keep],
+                   mc=mc[keep], ins_b=t.ins_b[keep], ins_c=t.ins_c[keep], s0tp=t.s0tp[keep], uid=t.uid[keep],
+                   pb=pb_new, hend=hend_new)
