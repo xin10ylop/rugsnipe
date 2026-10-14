@@ -1,22 +1,31 @@
 # rugsnipe
 
-An automated, validated alternative to the manual "rugger sniping" method promoted by FOMO / F-Project
-on Solana pump.fun: discover serial token ruggers from on-chain data, measure whether sniping them is
-profitable, and execute at the lowest possible latency.
+**What this is.** A research-first replacement for the manual "rugger sniping" method promoted by FOMO /
+F-Project for Solana pump.fun launches. It checks every claim of that method against on-chain data,
+searches for a policy that survives honest out-of-sample tests after all costs, and carries a Rust hot
+path (feed, decode, decide, sign, send, exits) and the deployment to trade the one policy that survives,
+in paper/shadow mode first. No mode that moves money runs until a pre-registered go/no-go rule passes.
 
-Status: research and validation first, then execution. See `docs/` in reading order:
+**The verdict in five lines** (docs/04):
+
+1. His rule as stated (block-0 entry behind the rugger's bundle, hold for +100%) loses: −10.5% per trade out of sample, −21% on an independent holdout; copy-trading, per-rugger arming and mayhem coins lose too.
+2. One family survives: the **rank-1 micro-scalp**: buy 0.5 SOL right behind a multi-wallet bundle in the creation slot (fill capped at +2% over the post-bundle price) and sell within 1-3 s. +3.2% to +3.7% per trade on pre-registered fresh holdouts; +4.6% when skipping the bottom tertile of a frozen P(take-profit) score.
+3. It holds only at rank 1: one sniper ahead of us takes it to about 0; the critic's realistic-fill stack gives −0.4% [−2.0, +1.3]. Our real landing rank is unmeasured.
+4. The business is decided by the landing rate and by what a lost race costs: 0.003 SOL per failed attempt needs a 12% landing rate to break even, 0.0005 SOL needs 2%. So the bid goes into a tip that is paid only on success wherever the leader orders by tip (docs/03 §6.1).
+5. Next: shadow mode on a Frankfurt box against a fixed go/no-go rule, then a capped probe of about 200 trades at 0.25 SOL with a kill switch. The runbook is docs/08.
 
 | Doc | Content |
 |---|---|
-| `docs/00-transcript-digest.md` | What the three videos actually say: method, rules, bot features, 27 claims |
-| `docs/01-claims-verification.md` | Each claim checked against primary sources and on-chain data |
-| `docs/02-pumpfun-mechanics.md` | Pump.fun protocol in 2026 (CreateV2, Token-2022, fee program, curve, PumpSwap) |
-| `docs/03-speed-infra.md` | How to be first: feeds, senders, geography, region recommendation vs AWS Ohio |
-| `docs/04-strategy.md` | Our strategy, derived from the validation numbers |
-| `docs/05-validation.md` | The validation system: discovery, backtest, results |
-| `docs/06-architecture.md` | System design |
-| `docs/07-deploy.md` | Deployment on AWS (or better) |
-| `docs/research/` | Raw research notes with sources |
+| [`docs/00-transcript-digest.md`](docs/00-transcript-digest.md) | What the three videos actually say: method, rules, bot features, 27 claims |
+| [`docs/01-claims-verification.md`](docs/01-claims-verification.md) | Each claim checked against primary sources and on-chain data |
+| [`docs/02-pumpfun-mechanics.md`](docs/02-pumpfun-mechanics.md) | Pump.fun protocol in 2026 (CreateV2, Token-2022, fee program, curve, PumpSwap) |
+| [`docs/03-speed-infra.md`](docs/03-speed-infra.md) | How to be first: leaders by metro, feeds, senders, the per-class bid and pay on success (§6.1), Frankfurt vs AWS Ohio |
+| [`docs/04-strategy.md`](docs/04-strategy.md) | **The strategy verdict**: what works, what does not, the policy, the go/no-go rule (§7) |
+| [`docs/05-validation.md`](docs/05-validation.md) | The validation system: discovery, backtest, holdouts, results |
+| [`docs/06-architecture.md`](docs/06-architecture.md) | System design: crates, data model, configuration (§6), hot path, exits, modes |
+| [`docs/07-deploy.md`](docs/07-deploy.md) | Deployment: topology, install, phases, costs, kill and alert procedures |
+| [`docs/08-runbook.md`](docs/08-runbook.md) | **Operator runbook**: rent and accept the box, install, shadow mode, reading the go/no-go, probe, kill switch, Alpenglow, weekly checks, costs, keys |
+| [`docs/research/`](docs/research/) | Raw research notes with sources |
 
 Layout:
 
@@ -24,7 +33,7 @@ Layout:
 analysis/   Python: data pull (public RPC + pump.fun API), rugger discovery, backtest, reports
 crates/     Rust workspace (docs/06 section 3)
   pump-codec       constants, PDAs, curve math, events, ix parse/build, TxView, CreateHit (wire + logs), launchers, transfers, Alpenglow
-  rugsnipe-core    config + validation, Mode (paper default), signed ArmSet, Watchlist, RiskGate, kill file, rslog, IntentId
+  rugsnipe-core    config + validation, per-class bid policy (pay on success), Mode (paper default), signed ArmSet, Watchlist, RiskGate, kill file, rslog, IntentId
   rugsnipe-feed    Feed trait; LogsWs (free), PumpPortal (optional, off), collector relay, replay, recorder; dedup, FiredSet, health
   rugsnipe-tx      templates + PatchTable, NoncePool (no-double-buy rule), HotSigner, senders (Paper always; real ones feature-gated)
   rugsnipe-exit    exit engine: position machine, triggers, sell bounds, retries (pure decide())

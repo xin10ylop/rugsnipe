@@ -121,6 +121,22 @@ pub fn tx_obs(result: &Value, mint: &Pubkey, sig: &str, slot: u64) -> Option<TxO
     })
 }
 
+/// The realised cost of a **failed** transaction: `meta.fee` of a
+/// `getTransaction` result whose `meta.err` is set (`None` for a success or a
+/// missing meta). It is the base fee plus the priority fee; an
+/// in-transaction tip reverted with the buy and is not in it (gap-2 blocks:
+/// the fee payer's balance moved by exactly `-meta.fee` on 105,849 of
+/// 105,849 failed pump buys, and none of their tips moved;
+/// `analysis/scripts/gap2_firstslot/fee_on_failure.py`). The real fill lane
+/// records this as `fills.fail_cost` of our own failed snipes.
+pub fn failed_tx_fee(result: &Value) -> Option<u64> {
+    let meta = result.get("meta")?;
+    if meta.get("err").is_none_or(|e| e.is_null()) {
+        return None;
+    }
+    meta.get("fee")?.as_u64()
+}
+
 /// Block signatures of a `getBlock(transactionDetails = "signatures")` result.
 pub fn block_signatures(result: &Value) -> Vec<String> {
     result["signatures"]
@@ -421,6 +437,13 @@ pub struct E1Res {
     pub horizon: u64,
     pub calls: u32,
     pub error: Option<String>,
+    /// The create's `getTransaction` result (jsonParsed), for the entry
+    /// filter's create-transaction features.
+    pub create_tx: Option<Value>,
+    /// Every trade of the creation slot in block order (entry filter: the
+    /// gap-3 bundle features), and the create's fee payer.
+    pub s0_trades: Vec<crate::filter::S0Trade>,
+    pub fee_payer: Option<Pubkey>,
 }
 
 /// The verdict once the creation slot is known (pure; also used by tests).
@@ -539,6 +562,9 @@ pub async fn resolve(
         horizon: req.slot,
         calls: 0,
         error: None,
+        create_tx: None,
+        s0_trades: vec![],
+        fee_payer: None,
     };
     let due = req.decided_unix_ms + cfg.delay_ms;
     let now = now_ms();
@@ -660,6 +686,9 @@ async fn resolve_inner(
         .await;
         res.calls = calls;
         let r = r.map_err(|e| format!("slot-0 getTransaction {sig}: {e}"))?;
+        if **sig == create && !r.is_null() {
+            res.create_tx = Some(r.clone());
+        }
         match tx_obs(&r, &req.mint, sig, s0) {
             Some(mut t) => {
                 t.index = Some(*ix);
@@ -673,6 +702,26 @@ async fn resolve_inner(
     let Some(create_tx) = txs.iter().find(|t| t.sig == create) else {
         return Err("create transaction not fetched".into());
     };
+    // the creation slot for the entry filter (block order, log order inside a tx)
+    let mut by_index: Vec<&TxObs> = txs.iter().filter(|t| t.index.is_some()).collect();
+    by_index.sort_by_key(|t| t.index);
+    res.s0_trades = by_index
+        .iter()
+        .flat_map(|t| {
+            let (ix, is_create) = (t.index.unwrap_or(0), t.sig == create);
+            t.trades.iter().map(move |x| crate::filter::S0Trade {
+                index: ix,
+                is_create,
+                user: x.user,
+                is_buy: x.is_buy,
+                sol: x.sol,
+                tok: x.tok,
+                v: x.v,
+                t: x.t,
+            })
+        })
+        .collect();
+    res.fee_payer = create_tx.fee_payer;
     let mut cset: HashSet<Pubkey> = create_tx.signers.iter().copied().collect();
     cset.insert(req.creator);
     cset.insert(req.user);
@@ -1007,6 +1056,19 @@ mod tests {
         assert_eq!(keys_from_tx(&parsed), (Some(signers[1]), vec![signers[1]]));
         let failed = serde_json::json!({"meta": {"err": {"x": 1}}, "transaction": {}});
         assert!(tx_obs(&failed, &Pubkey::default(), "s", 1).is_none());
+        // the realised cost of a failed snipe: meta.fee (base + priority; the tip reverted)
+        let failed = serde_json::json!({"meta": {"err": {"InstructionError": [3, {"Custom": 6042}]},
+            "fee": 15_000, "preBalances": [100_000, 0], "postBalances": [85_000, 0]}});
+        assert_eq!(failed_tx_fee(&failed), Some(15_000));
+        assert_eq!(
+            failed_tx_fee(&v["result"]),
+            None,
+            "a success is not a failed attempt"
+        );
+        assert_eq!(
+            failed_tx_fee(&serde_json::json!({"meta": {"err": "X"}})),
+            None
+        );
         let blk = serde_json::json!({"signatures": ["a", "b", 3]});
         assert_eq!(block_signatures(&blk), vec!["a", "b"]);
     }

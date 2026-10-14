@@ -246,6 +246,22 @@ pub enum Rec {
         slot: u64,
         premium_bps: u32,
     },
+    /// The entry filter's score of one intent (docs/04 section 2,
+    /// `entry.filter_model`): P(take-profit) as `f64::to_bits`, its tertile
+    /// (0 bottom, 1 middle, 2 top; 255 = not scored: no creation-slot
+    /// features), the mode (0 log, 1 skip), whether the intent was dropped,
+    /// and the operator history behind the score (our own LEAD outcomes of
+    /// the signer, and of the best-known bundle wallet).
+    Filter {
+        intent: u64,
+        mint: Pubkey,
+        score_bits: u64,
+        tertile: u8,
+        mode: u8,
+        skipped: u8,
+        op_lead_n: u32,
+        bw_lead_n: u32,
+    },
 }
 
 /// Outcome of a paper entry (`Shadow.outcome`, `FailedBuy.reason`).
@@ -263,16 +279,20 @@ pub enum ShadowOutcome {
     Class = 4,
     /// The slot-0 history could not be reconstructed in budget.
     Unresolved = 5,
+    /// The entry filter dropped the intent (`entry.filter_mode = "skip"`,
+    /// score below `t1`): no send, no cost.
+    Filtered = 6,
 }
 
 impl ShadowOutcome {
-    pub const ALL: [ShadowOutcome; 6] = [
+    pub const ALL: [ShadowOutcome; 7] = [
         Self::Filled,
         Self::Premium,
         Self::Slippage,
         Self::NotInSlot0,
         Self::Class,
         Self::Unresolved,
+        Self::Filtered,
     ];
     pub fn as_str(self) -> &'static str {
         match self {
@@ -282,6 +302,7 @@ impl ShadowOutcome {
             Self::NotInSlot0 => "not_in_slot0",
             Self::Class => "class",
             Self::Unresolved => "unresolved",
+            Self::Filtered => "filtered",
         }
     }
     pub fn from_u8(v: u8) -> Option<Self> {
@@ -295,7 +316,7 @@ impl ShadowOutcome {
 }
 
 /// `(kind id, name)` of every record, in id order.
-pub const KINDS: [(u16, &str); 14] = [
+pub const KINDS: [(u16, &str); 15] = [
     (1, "FeedSeen"),
     (2, "CreateHit"),
     (3, "Matched"),
@@ -310,6 +331,7 @@ pub const KINDS: [(u16, &str); 14] = [
     (12, "NonceEvt"),
     (13, "Shadow"),
     (14, "FailedBuy"),
+    (15, "Filter"),
 ];
 
 struct W<'a>(&'a mut Vec<u8>);
@@ -390,6 +412,7 @@ impl Rec {
             Self::NonceEvt { .. } => 12,
             Self::Shadow { .. } => 13,
             Self::FailedBuy { .. } => 14,
+            Self::Filter { .. } => 15,
         }
     }
 
@@ -582,6 +605,25 @@ impl Rec {
                     .u64(*slot)
                     .u32(*premium_bps);
             }
+            Self::Filter {
+                intent,
+                mint,
+                score_bits,
+                tertile,
+                mode,
+                skipped,
+                op_lead_n,
+                bw_lead_n,
+            } => {
+                w.u64(*intent)
+                    .pk(mint)
+                    .u64(*score_bits)
+                    .u8(*tertile)
+                    .u8(*mode)
+                    .u8(*skipped)
+                    .u32(*op_lead_n)
+                    .u32(*bw_lead_n);
+            }
         }
     }
 
@@ -707,6 +749,16 @@ impl Rec {
                 cost: r.u64()?,
                 slot: r.u64()?,
                 premium_bps: r.u32()?,
+            },
+            15 => Self::Filter {
+                intent: r.u64()?,
+                mint: r.pk()?,
+                score_bits: r.u64()?,
+                tertile: r.u8()?,
+                mode: r.u8()?,
+                skipped: r.u8()?,
+                op_lead_n: r.u32()?,
+                bw_lead_n: r.u32()?,
             },
             _ => return None,
         };

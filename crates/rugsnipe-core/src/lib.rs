@@ -7,6 +7,7 @@
 //! |---|---|
 //! | [`mode`] | `Mode` (paper is the default and the only mode that works without keys) |
 //! | [`config`] | the TOML of docs/06 section 6 with serde, and `validate()` returning **every** refusal reason |
+//! | [`bid`] | per-leader-class bid split, the failed-attempt cap and the cost of a failed attempt (pay on success) |
 //! | [`armset`] | ArmSet JSON, sha256-in-filename and detached ed25519 signature verification |
 //! | [`watchlist`] | ArcSwap snapshot (ArmSet) + dynamic entries (TTL, remove-if-no-launch, keep, last-transfer successor) |
 //! | [`risk`] | `RiskGate`: caps, per-op consecutive-loss latch, kill latch, `decide()` on atomics |
@@ -18,6 +19,7 @@
 //! [`kill::KillFile::poll`]; everything else takes bytes/values in and out.
 
 pub mod armset;
+pub mod bid;
 pub mod config;
 pub mod intent;
 pub mod kill;

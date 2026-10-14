@@ -478,19 +478,32 @@ impl Default for TxCfg {
     }
 }
 
+/// `[priority, tip]` fractions of the bid per leader class (docs/03
+/// section 6 "Pay on success"). The tip is a transfer **after** the buy in
+/// the same transaction: it reverts with a failed buy, while the priority
+/// fee (and the base fee) is charged on failure too. Tip-ordered classes
+/// therefore put the bid in the tip and keep the priority fee at
+/// `min_priority_lamports`; priority-ordered classes bid with the priority
+/// fee, clamped by `failed_attempt_lamports_max`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct BidSplit {
+    /// Jito-Agave (`JitoLabs`): tips count through the block engine.
     pub jito_agave: [f64; 2],
+    /// Harmonic: priority-fee ordered batches (tip accounts buy nothing).
     pub harmonic: [f64; 2],
+    /// BAM: the BAM node's auction, tips to the Jito tip accounts.
     pub bam: [f64; 2],
+    /// Firedancer / Frankendancer / plain Agave / unknown: priority fee.
+    pub other: [f64; 2],
 }
 impl Default for BidSplit {
     fn default() -> Self {
         Self {
-            jito_agave: [0.7, 0.3],
+            jito_agave: [0.0, 1.0],
             harmonic: [1.0, 0.0],
-            bam: [0.5, 0.5],
+            bam: [0.0, 1.0],
+            other: [1.0, 0.0],
         }
     }
 }
@@ -501,13 +514,61 @@ pub struct BidCfg {
     pub quantile: f64,
     /// `[priority, tip]` fractions per leader class.
     pub split: BidSplit,
+    /// Header priority fee of every variant (the scheduling floor): what a
+    /// pay-on-success variant still pays when it lands and fails. 10,000
+    /// lamports sits between the p10 (1,000) and p25 (45,000) priority fee
+    /// of slot-0 winners (gap-2 section 4).
+    pub min_priority_lamports: u64,
+    /// Most a failed attempt may cost (base fee + priority fee of the variant
+    /// that lands; tips revert). The hot path clamps the priority fee to
+    /// `cap - base fee`. Validated: at least `2 x 5,000 + min_priority_lamports`.
+    pub failed_attempt_lamports_max: u64,
 }
 impl Default for BidCfg {
     fn default() -> Self {
         Self {
             quantile: 0.75,
             split: BidSplit::default(),
+            min_priority_lamports: 10_000,
+            failed_attempt_lamports_max: 1_000_000,
         }
+    }
+}
+
+/// Shares of leader slots by class (`paper.leader_mix`): the weights of the
+/// modelled failed-attempt cost while the leader of the create slot is not
+/// known (docs/03 section 6: BAM 37.9%, Jito-Agave 27.2%, Harmonic 25.1%,
+/// Firedancer 7.2% + other 2.6%).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct LeaderMix {
+    pub jito_agave: f64,
+    pub bam: f64,
+    pub harmonic: f64,
+    pub other: f64,
+}
+impl Default for LeaderMix {
+    fn default() -> Self {
+        Self {
+            jito_agave: 0.272,
+            bam: 0.379,
+            harmonic: 0.251,
+            other: 0.098,
+        }
+    }
+}
+impl LeaderMix {
+    pub fn share(&self, c: crate::bid::LeaderClass) -> f64 {
+        use crate::bid::LeaderClass as L;
+        match c {
+            L::JitoAgave => self.jito_agave,
+            L::Bam => self.bam,
+            L::Harmonic => self.harmonic,
+            L::Other => self.other,
+        }
+    }
+    pub fn total(&self) -> f64 {
+        self.jito_agave + self.bam + self.harmonic + self.other
     }
 }
 
@@ -608,14 +669,35 @@ pub struct EntryCfg {
     /// that would pay more fails (cheaply) instead.
     pub max_premium: f64,
     pub filter: EntryFilter,
+    /// The frozen P(take-profit) model of the entry filter
+    /// (`data/reports/strategy/entry_filter_v1.json`, docs/04 section 2);
+    /// empty = no filter. Loaded once at startup.
+    pub filter_model: String,
+    /// `log` (default): score every intent and record score and tertile;
+    /// `skip`: also drop the intents scoring below the bottom-tertile cut
+    /// point `t1` (no send, no cost).
+    pub filter_mode: FilterMode,
 }
 impl Default for EntryCfg {
     fn default() -> Self {
         Self {
             max_premium: 0.02,
             filter: EntryFilter::Any,
+            filter_model: String::new(),
+            filter_mode: FilterMode::Log,
         }
     }
+}
+
+/// `entry.filter_mode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FilterMode {
+    /// Score and record, never drop.
+    #[default]
+    Log,
+    /// Drop intents with `score < t1`.
+    Skip,
 }
 
 /// Paper fill model (`paper.fill_model`).
@@ -648,8 +730,14 @@ pub struct PaperCfg {
     /// first reactive buyer). A third-party buy interleaved in the bundle run
     /// raises it to that buy's price impact.
     pub entry_premium: f64,
-    /// Priority fee a failed buy still pays (lost race, slippage cap).
+    /// Cost charged per failed attempt (lost race, slippage cap). **0 =
+    /// modelled per leader class** from `[bid]` (base fee + the priority fee
+    /// of the variant matching the leader, tips revert), weighted by
+    /// `leader_mix`; a value > 0 is a fixed override (docs/04's 0.003 SOL
+    /// sensitivity runs).
     pub failed_attempt_lamports: u64,
+    /// Leader-class shares for the modelled failed-attempt cost.
+    pub leader_mix: LeaderMix,
     /// Fixed cost of a landed round trip (priority + tips), charged in the
     /// session summary's net P&L (docs/04: 0.004 SOL base).
     pub round_trip_lamports: u64,
@@ -678,7 +766,8 @@ impl Default for PaperCfg {
         Self {
             fill_model: FillModel::E1,
             entry_premium: 0.011,
-            failed_attempt_lamports: 3_000_000,
+            failed_attempt_lamports: 0,
+            leader_mix: LeaderMix::default(),
             round_trip_lamports: 4_000_000,
             exit_latency_slots: 1,
             slot_ms: 217,
@@ -864,10 +953,55 @@ impl Config {
             ("bid.split.jito_agave", self.bid.split.jito_agave),
             ("bid.split.harmonic", self.bid.split.harmonic),
             ("bid.split.bam", self.bid.split.bam),
+            ("bid.split.other", self.bid.split.other),
         ] {
             if s.iter().any(|x| !(0.0..=1.0).contains(x)) || ((s[0] + s[1]) - 1.0).abs() > 1e-6 {
                 inv(&mut r, n, "fractions must be in [0,1] and sum to 1");
             }
+        }
+        // the failed-attempt cap (docs/03 section 6 "Pay on success")
+        let b = &self.bid;
+        let floor = 2 * crate::bid::BASE_FEE_PER_SIGNATURE + b.min_priority_lamports;
+        if b.failed_attempt_lamports_max < floor {
+            inv(
+                &mut r,
+                "bid.failed_attempt_lamports_max",
+                &format!(
+                    "must be >= {floor} (2 signatures x 5,000 base fee + bid.min_priority_lamports)"
+                ),
+            );
+        } else {
+            let max_bid = if self.risk.max_bid_lamports > 0 {
+                self.risk.max_bid_lamports
+            } else {
+                25_000_000
+            };
+            // priority-ordered classes are clamped to the cap by design (the
+            // hot path cuts the fee); only a priority share on a tip class is
+            // worth a warning
+            let pol = crate::bid::BidPolicy::from_cfg(b);
+            for c in crate::bid::LeaderClass::ALL {
+                let p = pol.plan(c, max_bid, 1);
+                if c.honours_tip() && p.priority_lamports > b.min_priority_lamports {
+                    w.push(format!(
+                        "bid.split.{}: {} lamports of a {max_bid}-lamport bid go to the priority fee, which is paid on failure; the class orders by tip",
+                        c.as_str(),
+                        p.priority_lamports
+                    ));
+                }
+            }
+        }
+        let m = &self.paper.leader_mix;
+        if [m.jito_agave, m.bam, m.harmonic, m.other]
+            .iter()
+            .any(|x| !(0.0..=1.0).contains(x))
+            || (m.total() - 1.0).abs() > 1e-3
+        {
+            inv(
+                &mut r,
+                "paper.leader_mix",
+                "shares must be in [0,1] and sum to 1",
+            );
         }
         if !(0.0..1.0).contains(&self.ab.skip_p) {
             inv(&mut r, "ab.skip_p", "must be in [0, 1)");

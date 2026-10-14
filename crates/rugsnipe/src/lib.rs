@@ -8,6 +8,7 @@
 //! | [`cold`] | cold thread (tokio current-thread runtime): ledger -> `state.db`, kill file + SIGUSR1 latch, exits lease, simulated nonce keeper, funding watcher updates, ArmSet reload, paper E2 fill lane, Prometheus metrics |
 //! | [`e1`] | paper fill model E1 (rank 1 behind the bundle, docs/04): creation-slot reconstruction, verdict, replay tape |
 //! | [`e2`] | paper fill model E2 (end of slot+1 state) from `getSignaturesForAddress` + `getTransaction` |
+//! | [`filter`] | the LEAD entry filter: the frozen P(take-profit) trees (`entry.filter_model`), slot-0 feature extraction, the live per-signer outcome store, the create-rate ring |
 //! | [`setup`] | config, exit policy, ArmSet verification, templates, nonce pool, throwaway paper signer |
 //! | [`convert`] | `CreateHitLite` -> `CreateHit`, feed `TradeLite` -> exit `Trade` |
 //! | [`stats`] | Prometheus counters/gauges (pre-created, so the hot thread only does atomic adds) |
@@ -25,6 +26,7 @@ pub mod cold;
 pub mod convert;
 pub mod e1;
 pub mod e2;
+pub mod filter;
 pub mod guard;
 pub mod hot;
 pub mod msgs;

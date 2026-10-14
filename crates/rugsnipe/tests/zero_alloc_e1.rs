@@ -1,7 +1,9 @@
 //! The E1 path on the hot thread does not allocate after warm-up either:
 //! the verdict, the open at the post-bundle state, the insider keys, the
 //! replayed tape on the counterfactual curve (ticks per slot), the lead
-//! exits, the simulated sell fill, the close and the failed-attempt record.
+//! exits, the simulated sell fill, the close and the failed-attempt record,
+//! with the entry filter scoring every verdict (`entry.filter_model`, log
+//! mode: features in, score and tertile to rslog and the cold ring).
 
 mod common;
 
@@ -60,6 +62,16 @@ fn round(dev: Pubkey, owner: Pubkey, s0: u64, n0: u64) -> Round {
             post_bundle_t: c.virtual_token,
             ..Default::default()
         };
+        // the entry filter's features (scored on the hot thread, log mode)
+        let mut feat = rugsnipe::filter::Feat::default();
+        feat.x[0] = 1.0 + i as f64;
+        feat.x[4] = 30.0 + i as f64;
+        msgs.push(HotIn::E1Feat {
+            intent,
+            feat,
+            op_lead_n: i as u32,
+            bw_lead_n: 0,
+        });
         if i == 3 {
             msgs.push(HotIn::E1Open {
                 intent,
@@ -145,6 +157,11 @@ fn e1_replay_allocates_nothing_after_warm_up() {
     cfg.exit = lead.exit.clone();
     cfg.paper = lead.paper.clone();
     cfg.entry = lead.entry.clone();
+    cfg.entry.filter_model = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../data/reports/strategy/entry_filter_v1.json"
+    )
+    .into();
     cfg.risk.max_buys_per_op_per_day = 1_000;
     cfg.risk.max_buys_per_hour = 1_000;
     // the simulated keeper burns asynchronously: a large pool keeps the two
@@ -176,6 +193,10 @@ fn e1_replay_allocates_nothing_after_warm_up() {
         allocs, 0,
         "{allocs} allocation(s), {bytes} bytes on the hot thread during E1 replays"
     );
-    app.shutdown(vec![]);
+    let summary = app.shutdown(vec![]);
+    assert_eq!(
+        summary.cold.paper.filter.scored, 8,
+        "every verdict was scored"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

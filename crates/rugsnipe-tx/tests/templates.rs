@@ -760,3 +760,153 @@ fn fresh_random_mints_patch_equals_scratch_and_pump_rust_client() {
         }
     }
 }
+
+/// Index of the pump buy and of the tip transfer in a decompiled transaction.
+fn buy_and_tip(sem: &Semantic, tip_account: &Pubkey) -> (usize, Option<usize>) {
+    let buy = sem
+        .iter()
+        .position(|(prog, _, _)| *prog == c::PUMP_PROGRAM_ID)
+        .expect("a pump instruction");
+    let tip = sem.iter().position(|(prog, accs, data)| {
+        *prog == c::SYSTEM_PROGRAM_ID
+            && data.first() == Some(&2)
+            && accs.get(1).is_some_and(|a| a.0 == *tip_account)
+    });
+    (buy, tip)
+}
+
+#[test]
+fn tip_is_the_last_instruction_after_the_buy_or_sell() {
+    // Pay on success (docs/03 section 6): the tip is a transfer inside the
+    // same transaction, after the trade, so a failed (reverted) buy never pays
+    // it. Every format, with and without nonce or a second signer.
+    let mut rng = Rng(0x7195_0ff1);
+    for f in [TxFormat::Legacy, TxFormat::V1] {
+        for (nonce, sep) in [(false, false), (true, false), (true, true)] {
+            let p = params(&mut rng, f, nonce, sep);
+            let tip_acc = p.tip_account.unwrap();
+            let k = real_keys(rng.key(), &p);
+            let lifetime = [9u8; 32];
+            let mut b = Template::buy(&p).unwrap();
+            b.patch(&Patch {
+                keys: &k,
+                lifetime: &lifetime,
+                amount: 500_000_000,
+                limit: 1,
+                priority_lamports: 10_000,
+                tip_lamports: 3_400_000,
+                cu_limit: None,
+            });
+            let mut s = Template::sell(&p, true).unwrap();
+            s.patch(&Patch {
+                keys: &k,
+                lifetime: &lifetime,
+                amount: 1_000,
+                limit: 1,
+                priority_lamports: 10_000,
+                tip_lamports: 1_000_000,
+                cu_limit: None,
+            });
+            for (t, what, tip) in [(&b, "buy", 3_400_000u64), (&s, "sell", 1_000_000)] {
+                let sem = decompile(t.bytes());
+                let (trade, tip_ix) = buy_and_tip(&sem, &tip_acc);
+                let tip_ix = tip_ix.unwrap_or_else(|| panic!("{f:?} {what}: no tip"));
+                assert!(
+                    tip_ix > trade,
+                    "{f:?} nonce {nonce} {what}: tip before the trade"
+                );
+                assert_eq!(tip_ix, sem.len() - 1, "{f:?} {what}: tip is not last");
+                assert_eq!(sem[tip_ix].2[4..12], tip.to_le_bytes(), "{f:?} {what}");
+                // the tip is the only System transfer: nothing else moves SOL to a sender
+                let transfers = sem
+                    .iter()
+                    .filter(|(prog, _, d)| *prog == c::SYSTEM_PROGRAM_ID && d.first() == Some(&2))
+                    .count();
+                assert_eq!(transfers, 1, "{f:?} {what}");
+            }
+            // the direct-TPU variant (no tip account) ends with the buy
+            let direct = CurveParams {
+                tip_account: None,
+                ..p
+            };
+            let mut d = Template::buy(&direct).unwrap();
+            d.patch(&Patch {
+                keys: &k,
+                lifetime: &lifetime,
+                amount: 500_000_000,
+                limit: 1,
+                priority_lamports: 10_000,
+                tip_lamports: 0,
+                cu_limit: None,
+            });
+            let sem = decompile(d.bytes());
+            let (trade, tip_ix) = buy_and_tip(&sem, &tip_acc);
+            assert_eq!((trade, tip_ix), (sem.len() - 1, None), "{f:?} direct");
+            assert!(d.table.tip.is_none());
+        }
+    }
+}
+
+#[test]
+fn bid_plans_keep_a_failed_attempt_within_the_cap() {
+    // What a failed snipe pays is base fee x signatures + the header priority
+    // fee (legacy: ceil(price x limit / 1e6)); the tip reverts. For every leader
+    // class, format, signer count and bid, the patched template must stay
+    // within bid.failed_attempt_lamports_max, and a tip class must carry the
+    // bid in the tip with the priority fee at the floor.
+    use rugsnipe_core::bid::{base_fee, BidPolicy, LeaderClass};
+    use rugsnipe_core::config::BidCfg;
+    let mut rng = Rng(0xcafe_f00d);
+    for cap in [20_000u64, 1_000_000, 3_000_000] {
+        let cfg = BidCfg {
+            failed_attempt_lamports_max: cap,
+            ..BidCfg::default()
+        };
+        let pol = BidPolicy::from_cfg(&cfg);
+        for f in [TxFormat::Legacy, TxFormat::V1] {
+            for (nonce, sep) in [(true, false), (true, true)] {
+                let p = params(&mut rng, f, nonce, sep);
+                let mut t = Template::buy(&p).unwrap();
+                let n_sigs = t.table.n_sigs as u8;
+                assert_eq!(n_sigs, if sep { 2 } else { 1 });
+                for bid in [0u64, 10_000, 3_400_000, 25_000_000] {
+                    for class in LeaderClass::ALL {
+                        let plan = pol.plan(class, bid, n_sigs);
+                        let k = real_keys(rng.key(), &p);
+                        let cu = k
+                            .snipe_cu_limit(&p.user, &p.base_token_program, 0, p.cu_limit)
+                            .unwrap();
+                        t.patch(&Patch {
+                            keys: &k,
+                            lifetime: &[3u8; 32],
+                            amount: 500_000_000,
+                            limit: 1,
+                            priority_lamports: plan.priority_lamports,
+                            tip_lamports: plan.tip_lamports,
+                            cu_limit: Some(cu),
+                        });
+                        let cb = TxView::parse(t.bytes()).unwrap().compute_budget();
+                        let charged = match f {
+                            TxFormat::V1 => cb.priority_fee_lamports.unwrap(),
+                            TxFormat::Legacy => {
+                                let price = cb.compute_unit_price_micro_lamports.unwrap() as u128;
+                                (price * cu as u128).div_ceil(1_000_000) as u64
+                            }
+                        };
+                        let failed = base_fee(n_sigs) + charged;
+                        assert!(
+                            failed <= cap,
+                            "{f:?} {class:?} bid {bid} sigs {n_sigs}: {failed} > {cap}"
+                        );
+                        // legacy rounds the price down: never more than the plan
+                        assert!(failed <= plan.failed_cost(n_sigs));
+                        if class.honours_tip() && cap >= 2 * 5_000 + cfg.min_priority_lamports {
+                            assert_eq!(plan.priority_lamports, cfg.min_priority_lamports);
+                            assert_eq!(plan.tip_lamports, bid);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

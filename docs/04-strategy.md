@@ -232,7 +232,7 @@ within seconds, which is exactly the policy in §2.
 
 | His feature | Our setting |
 |---|---|
-| Tracking mode "new token creation", hardcore buy mode | block-0 entry, direct-TPU send with the per-class bid (docs/03 §5), rank-1 or fail |
+| Tracking mode "new token creation", hardcore buy mode | block-0 entry, direct-TPU send with the per-class bid (docs/03 §6.1: tip only paid on success where the leader class orders by it), rank-1 or fail |
 | Max token age / min-max market cap | not used: the entry is the creation slot and the post-bundle cap is only a +2% slippage bound |
 | TP levels | one level, +15% realised |
 | Sell on no activity (150 s) | 1 s |
@@ -246,7 +246,8 @@ within seconds, which is exactly the policy in §2.
 Config (docs/06 §6 names): `exit.default.tp = [[1.15, 1.0]]`, `exit.default.insider_sell = "bundle"`,
 `exit.default.no_activity_ms = 1000`, `exit.default.phantom_sl = {after_ms = 1000, drop = 0.15}`,
 `exit.default.max_hold_slots = 5`, `entry.max_premium = 0.02`, `entry.filter = "multi_bundle"`,
-`risk.max_snipe_lamports = 500_000_000`.
+`entry.filter_model = "data/reports/strategy/entry_filter_v1.json"`, `entry.filter_mode = "log"` in
+shadow mode (`"skip"` for the probe: skip if score < t1), `risk.max_snipe_lamports = 500_000_000`.
 
 ## 7. Operating plan (nothing else moves money)
 

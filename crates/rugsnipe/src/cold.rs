@@ -81,6 +81,10 @@ pub struct ColdCfg {
     pub burn_after_slots: u64,
     pub decode_miss_kill_ratio: f64,
     pub paper_start_balance: u64,
+    /// The entry filter (`entry.filter_model`) and its mode; the cold side
+    /// assembles each E1 verdict's features and keeps the outcome store.
+    pub filter: Option<Arc<crate::filter::Model>>,
+    pub filter_mode: rugsnipe_core::config::FilterMode,
 }
 
 /// Counters of the cold side (summary).
@@ -155,6 +159,9 @@ pub struct PaperReport {
     /// EV per attempt: net / (closed + failed attempts), as a fraction of the
     /// mean stake.
     pub ev_per_attempt: f64,
+    /// The entry filter: scores, tertiles, EV per attempt by tertile, the
+    /// outcome store.
+    pub filter: crate::filter::FilterReport,
     #[serde(skip)]
     premium_sum_fills: u64,
     #[serde(skip)]
@@ -325,6 +332,8 @@ pub struct ColdParts {
     pub rslog: RslogProducer,
     pub sigusr1: Arc<AtomicBool>,
     pub report: Arc<Mutex<ColdReport>>,
+    /// The outcome store's rows from `state.db` (reloaded at start).
+    pub outcomes: Vec<rugsnipe_state::rows::OutcomeRow>,
 }
 
 /// Start the cold thread; it returns when `shared.stop` is set and the
@@ -364,6 +373,8 @@ struct Cold {
     armset_mtime: Option<std::time::SystemTime>,
     nonce_intent: Vec<u64>,
     sender_gone: bool,
+    /// Entry filter features and the live outcome store.
+    lane: crate::filter::FilterLane,
 }
 
 fn lock(r: &Mutex<ColdReport>) -> std::sync::MutexGuard<'_, ColdReport> {
@@ -384,7 +395,15 @@ impl Cold {
         let (e2_tx, e2_rx) = tokio::sync::mpsc::unbounded_channel();
         let (e1_tx, e1_rx) = tokio::sync::mpsc::unbounded_channel();
         let n = p.nonces.len();
+        let lane = crate::filter::FilterLane::new(
+            p.cfg.filter.clone(),
+            p.cfg.filter_mode,
+            &p.outcomes,
+            p.cfg.round_trip_lamports,
+        );
+        lock(&p.report).paper.filter = lane.report.clone();
         Self {
+            lane,
             p,
             lease: None,
             e2_tx,
@@ -438,6 +457,7 @@ impl Cold {
                     tokio::time::sleep(Duration::from_millis(20)).await;
                 }
                 self.drain();
+                self.flush_outcomes(true);
                 self.every_5s();
                 self.write_risk_row();
                 if let Some((c, l, _)) = self.lease.as_mut() {
@@ -586,6 +606,16 @@ impl Cold {
                     }
                 }
             }
+            // the entry filter's features go right before the verdict
+            let funding = self.funding_of(&r.req.user);
+            if let Some((feat, op_lead_n, bw_lead_n)) = self.lane.on_e1(&r, funding) {
+                self.to_hot_q.push_back(HotIn::E1Feat {
+                    intent: r.req.intent,
+                    feat,
+                    op_lead_n,
+                    bw_lead_n,
+                });
+            }
             self.to_hot_q.extend(e1_messages(&r));
         }
         // in order, as ring space allows (a full ring waits for the next drain)
@@ -595,6 +625,38 @@ impl Cold {
             }
             self.to_hot_q.pop_front();
         }
+    }
+
+    /// The signer's funding as the watchlist's funding watcher knows it
+    /// (a `Funded` entry: its funder and when), else unknown.
+    fn funding_of(&self, signer: &Pubkey) -> crate::filter::Funding {
+        let Some(m) = self.lane.model.as_deref() else {
+            return Default::default();
+        };
+        self.p
+            .watch
+            .dynamic_entries()
+            .into_iter()
+            .find(|e| e.key == *signer && e.kind == rugsnipe_core::armset::WatchKind::Funded)
+            .and_then(|e| e.parent.map(|f| (f, e.added_unix)))
+            .map(|(f, t)| crate::filter::Funding::from_watch(m, &f, t, crate::now_unix()))
+            .unwrap_or_default()
+    }
+
+    /// Outcome rows due (10 s after their launch; all of them at shutdown)
+    /// into the store and `state.db`.
+    fn flush_outcomes(&mut self, all: bool) {
+        let rows = self.lane.take_due(crate::now_ms(), all);
+        if let Some(l) = &self.p.ledger {
+            for r in rows {
+                l.writer().send(Write::Outcome(r));
+            }
+        }
+        self.sync_filter();
+    }
+
+    fn sync_filter(&self) {
+        lock(&self.p.report).paper.filter = self.lane.report.clone();
     }
 
     fn mode_str(&self) -> &'static str {
@@ -622,6 +684,7 @@ impl Cold {
                 real,
             } => {
                 lock(&self.p.report).intents += 1;
+                self.lane.on_intent(intent, spend);
                 if let Some(i) = self.nonce_intent.get_mut(nonce_idx as usize) {
                     *i = intent;
                 }
@@ -708,6 +771,11 @@ impl Cold {
                         r.unfilled += 1;
                     }
                 }
+                if !filled && fail.is_none() {
+                    // E2 above v_max: no verdict of its own
+                    self.lane.on_unfilled(intent, crate::now_ms());
+                    self.sync_filter();
+                }
                 if let Some(l) = &ledger {
                     l.fill(
                         FillRow {
@@ -778,6 +846,10 @@ impl Cold {
                     r.exits += 1;
                     r.paper.on_exit(&reason.label());
                 }
+                self.lane.on_exit(
+                    &mint,
+                    matches!(reason, rugsnipe_exit::ExitReason::TakeProfit(_)),
+                );
                 if let Some(l) = &ledger {
                     l.exit(ExitRow {
                         sig,
@@ -820,7 +892,11 @@ impl Cold {
                 creator,
                 user,
                 intx_buys,
+                rate60,
+                rate600,
             } => {
+                self.lane
+                    .on_pending(intent, mint, user, decided_unix_ms, rate60, rate600);
                 if let Some(e1) = self.p.cfg.e1.clone() {
                     lock(&self.p.report).e1_requested += 1;
                     let tx = self.e1_tx.clone();
@@ -892,11 +968,31 @@ impl Cold {
                 }
             }
             ColdMsg::Closed { mint, pnl, .. } => {
-                let mut r = lock(&self.p.report);
-                r.positions_closed += 1;
-                r.realized_lamports += pnl;
-                r.paper.on_closed(&mint, pnl);
-                r.paper.derive(self.p.cfg.round_trip_lamports);
+                {
+                    let mut r = lock(&self.p.report);
+                    r.positions_closed += 1;
+                    r.realized_lamports += pnl;
+                    r.paper.on_closed(&mint, pnl);
+                    r.paper.derive(self.p.cfg.round_trip_lamports);
+                }
+                self.lane.on_closed(&mint, pnl, crate::now_ms());
+                self.sync_filter();
+            }
+            ColdMsg::FilterScore {
+                intent,
+                mint,
+                scored,
+                score,
+                tertile,
+                skipped,
+            } => {
+                let row = self
+                    .lane
+                    .on_score(intent, mint, scored, score, tertile, skipped);
+                if let Some(l) = &ledger {
+                    l.writer().send(Write::Filter(row));
+                }
+                self.sync_filter();
             }
             ColdMsg::Shadow {
                 intent,
@@ -913,6 +1009,8 @@ impl Cold {
                         .on_shadow(mint, outcome, info.premium_bps, spend, cost);
                     r.paper.derive(self.p.cfg.round_trip_lamports);
                 }
+                self.lane.on_shadow(intent, outcome, cost, crate::now_ms());
+                self.sync_filter();
                 if let Some(l) = &ledger {
                     l.shadow(ShadowRow {
                         intent_id: intent as i64,
@@ -1049,6 +1147,7 @@ impl Cold {
     }
 
     fn every_second(&mut self) {
+        self.flush_outcomes(false);
         let hb = self.p.shared.heartbeat.load(Relaxed);
         let alive = hb != self.last_hb;
         self.last_hb = hb;
@@ -1209,6 +1308,9 @@ mod tests {
 
     fn res(outcome: ShadowOutcome, slot0: Option<Slot0>, tape: Vec<TradeObs>) -> E1Res {
         E1Res {
+            create_tx: None,
+            s0_trades: vec![],
+            fee_payer: None,
             req: E1Req {
                 intent: 7,
                 mint: Pubkey::new_unique(),

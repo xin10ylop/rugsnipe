@@ -99,6 +99,20 @@ pub enum ColdMsg {
         creator: Pubkey,
         user: Pubkey,
         intx_buys: u8,
+        /// Creates the hot loop saw in the 60 / 600 s before this one
+        /// (entry filter; `u32::MAX` = window not covered yet).
+        rate60: u32,
+        rate600: u32,
+    },
+    /// The entry filter's verdict on a resolved paper intent (sent before
+    /// its `Shadow`): `scored = false` when the intent had no features.
+    FilterScore {
+        intent: u64,
+        mint: Pubkey,
+        scored: bool,
+        score: f64,
+        tertile: u8,
+        skipped: bool,
     },
     /// Funding transfer from the feed: update the watchlist (copy-on-write, cold side).
     Funding(FundingEvent),
@@ -158,6 +172,15 @@ pub enum HotIn {
     },
     /// One historical trade after our landing (reserves without us).
     E1Trade { intent: u64, trade: Trade },
+    /// The entry filter's feature vector of a paper intent (sent right
+    /// before its [`HotIn::E1Open`], which scores it).
+    E1Feat {
+        intent: u64,
+        feat: crate::filter::Feat,
+        /// LEAD outcomes known for the signer / the best-known bundle wallet.
+        op_lead_n: u32,
+        bw_lead_n: u32,
+    },
     /// The replay tape is complete up to `horizon`.
     E1End { intent: u64, horizon: u64 },
     /// The E2 state for a paper intent (`ok = false`: resolution failed,

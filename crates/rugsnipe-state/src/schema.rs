@@ -5,10 +5,15 @@
 //! `shadow` row per resolved paper intent (where the create sat in its
 //! block, the bundle, our would-be index, third-party buyers ahead/behind,
 //! premium, post-bundle state) and `intents.via = 'class'` (ArmSet class arm).
-//! [`migrate`] upgrades a version-1 file in place.
+//! Version 3 adds the entry filter (docs/04 section 2): a `filter` row per
+//! scored intent (P(take-profit), tertile, mode, whether it was dropped, the
+//! operator history behind the score, the feature vector) and the live
+//! outcome store `outcomes` (our own LEAD outcome of every launch we
+//! decided on, written 10 s after the launch at the earliest, reloaded at
+//! start). [`migrate`] upgrades version-1 and -2 files in place.
 
 /// Schema version stored in `PRAGMA user_version`.
-pub const VERSION: i64 = 2;
+pub const VERSION: i64 = 3;
 
 /// DDL (idempotent).
 pub const DDL: &str = r#"
@@ -34,6 +39,10 @@ CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT);
 CREATE TABLE IF NOT EXISTS shadow(intent_id INTEGER PRIMARY KEY, mint TEXT, model TEXT, outcome TEXT, create_slot INT,
   create_index INT, block_txs INT, bundle_trades INT, bundle_wallets INT, our_index INT, tp_ahead INT, tp_behind INT,
   s0_failed INT, premium_bps INT, post_bundle_v INT, post_bundle_t INT, post_bundle_mcap INT, cost INT);
+CREATE TABLE IF NOT EXISTS filter(intent_id INTEGER PRIMARY KEY, mint TEXT, model TEXT, score REAL, tertile INT, mode TEXT,
+  skipped INT, op_prior INT, op_lead_n INT, op_lead_hit REAL, op_lead_ev REAL, bw_lead_n INT, bw_lead_ev REAL, features TEXT);
+CREATE TABLE IF NOT EXISTS outcomes(intent_id INTEGER PRIMARY KEY, mint TEXT, signer TEXT, launch_ms INT, outcome TEXT,
+  lead INT, ret REAL, tp_hit INT, s0_third INT, bundle_wallets TEXT, written_ms INT);
 "#;
 
 /// The version-2 `intents` DDL under a temporary name (CHECK constraints
@@ -49,7 +58,7 @@ ALTER TABLE intents_v2 RENAME TO intents;
 "#;
 
 /// Table names in DDL order.
-pub const TABLES: [&str; 12] = [
+pub const TABLES: [&str; 14] = [
     "intents",
     "sends",
     "fills",
@@ -62,6 +71,8 @@ pub const TABLES: [&str; 12] = [
     "lease",
     "kv",
     "shadow",
+    "filter",
+    "outcomes",
 ];
 
 /// Open settings for every connection: WAL, NORMAL sync, busy timeout,

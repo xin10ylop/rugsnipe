@@ -44,6 +44,7 @@
 //! ring, metrics are pre-created atomics (checked by `rugsnipe-replay`).
 
 use crate::convert::{hit_from_lite, trade_from_lite, v0_of};
+use crate::filter::{CreateRate, Feat, Model};
 use crate::msgs::{reason_code, reason_index, ColdMsg, FireJob, HotIn, ShadowInfo};
 use crate::setup::{min_tokens_out, op_armed, ArmState, Templates};
 use crate::stats::{code, HotStats};
@@ -53,7 +54,8 @@ use pump_codec::constants::{TOKEN_2022_PROGRAM_ID, WSOL_MINT};
 use pump_codec::create_hit::CreateHit;
 use pump_codec::curve::{CurveState, FeeBps};
 use pump_codec::{pda, Pubkey};
-use rugsnipe_core::config::{Config, FillModel};
+use rugsnipe_core::bid::{BidPlan, BidPolicy, LeaderClass};
+use rugsnipe_core::config::{Config, FillModel, FilterMode, LeaderMix};
 use rugsnipe_core::risk::{DecideInput, Decision, RiskGate};
 use rugsnipe_core::rslog::{CreateHitRec, Rec, RslogProducer, ShadowOutcome};
 use rugsnipe_core::watchlist::{Match, Via, Watchlist};
@@ -120,9 +122,14 @@ pub struct HotCfg {
     /// Base bid B (lamports) before the per-class split.
     pub bid_lamports: u64,
     pub max_bid: u64,
-    /// `[priority, tip]` fractions of the primary (Jito-Agave class) and secondary (BAM) variants.
-    pub split_primary: [f64; 2],
-    pub split_secondary: [f64; 2],
+    /// Per-leader-class split, scheduling floor and failed-attempt cap
+    /// (`[bid]`, docs/03 section 6 "Pay on success").
+    pub bid_policy: BidPolicy,
+    /// Class of the create slot's leader when known (keeper / leader
+    /// schedule). `None`: the primary variant bids for a tip-ordered leader
+    /// (pay on success) and the secondary for a priority-ordered one
+    /// (clamped); both ride one durable nonce, so at most one lands.
+    pub leader_class: Option<LeaderClass>,
     pub secondary_variant: bool,
     pub policy: ExitPolicy,
     pub fees: FeeBps,
@@ -139,8 +146,16 @@ pub struct HotCfg {
     pub sell_lat_slots: u64,
     /// Slot clock of replayed E1 positions (`paper.slot_ms`).
     pub slot_ms: u64,
-    /// Priority fee of a failed E1 attempt (`paper.failed_attempt_lamports`).
+    /// Fixed cost of a failed E1 attempt (`paper.failed_attempt_lamports`);
+    /// 0 = modelled per leader class from `bid_policy` and `leader_mix`.
     pub failed_attempt_lamports: u64,
+    /// Leader-class shares of the modelled failed-attempt cost.
+    pub leader_mix: LeaderMix,
+    /// The entry filter (`entry.filter_model`, loaded at startup) and its
+    /// mode: every E1 verdict with creation-slot features is scored here,
+    /// on the hot thread, before the position opens.
+    pub filter: Option<Arc<Model>>,
+    pub filter_mode: FilterMode,
 }
 
 impl HotCfg {
@@ -159,8 +174,8 @@ impl HotCfg {
             fill_timeout_slots: 300,
             bid_lamports: 3_400_000u64.min(max_bid),
             max_bid,
-            split_primary: cfg.bid.split.jito_agave,
-            split_secondary: cfg.bid.split.bam,
+            bid_policy: BidPolicy::from_cfg(&cfg.bid),
+            leader_class: None,
             secondary_variant: true,
             policy,
             fees: FeeBps::DEFAULT,
@@ -172,6 +187,38 @@ impl HotCfg {
             sell_lat_slots: cfg.paper.exit_latency_slots,
             slot_ms: cfg.paper.slot_ms.max(1),
             failed_attempt_lamports: cfg.paper.failed_attempt_lamports,
+            leader_mix: cfg.paper.leader_mix.clone(),
+            filter: None,
+            filter_mode: cfg.entry.filter_mode,
+        }
+    }
+
+    /// The variants of one snipe: the primary for the leader's class (or a
+    /// tip-ordered leader when unknown) and, when unknown, a priority-ordered
+    /// secondary. Every plan's failed cost is within the cap.
+    pub fn bid_plans(&self, bid: u64, n_sigs: u8) -> (BidPlan, BidPlan) {
+        let p = &self.bid_policy;
+        match self.leader_class {
+            Some(c) => (p.plan(c, bid, n_sigs), p.plan(c, bid, n_sigs)),
+            None => (
+                p.plan(LeaderClass::JitoAgave, bid, n_sigs),
+                p.plan(LeaderClass::Harmonic, bid, n_sigs),
+            ),
+        }
+    }
+
+    /// What a failed attempt costs (paper): the fixed override, else the
+    /// base fee plus the priority fee of the variant matching the leader
+    /// (tips revert), weighted by `leader_mix` when the leader is unknown.
+    pub fn failed_attempt_cost(&self, bid: u64, n_sigs: u8) -> u64 {
+        if self.failed_attempt_lamports > 0 {
+            return self.failed_attempt_lamports;
+        }
+        match self.leader_class {
+            Some(c) => self.bid_policy.plan(c, bid, n_sigs).failed_cost(n_sigs),
+            None => self
+                .bid_policy
+                .expected_failed_cost(&self.leader_mix, bid, n_sigs),
         }
     }
 
@@ -217,6 +264,9 @@ struct Slot {
     replaying: bool,
     /// Last slot the replay reached.
     replay_slot: u64,
+    /// The entry filter's features (with the signer's and the best bundle
+    /// wallet's LEAD-outcome counts), from the cold lane.
+    feat: Option<(Feat, u32, u32)>,
 }
 
 /// Plain counters for reports (the metrics hold the same numbers).
@@ -236,6 +286,8 @@ pub struct LoopCounters {
     /// E1 verdicts other than a fill (premium, slippage, not in slot 0, class, unresolved).
     pub e1_failed: u64,
     pub e1_replayed_trades: u64,
+    /// Intents the entry filter dropped (`entry.filter_mode = "skip"`).
+    pub filtered: u64,
 }
 
 /// Everything [`HotLoop::new`] needs.
@@ -287,6 +339,8 @@ pub struct HotLoop {
     /// Per-event processing time (all events).
     hist_event: Histogram<u64>,
     pub counters: LoopCounters,
+    /// Creates per 60 / 600 s (entry filter feature).
+    rates: CreateRate,
 }
 
 impl core::fmt::Debug for HotLoop {
@@ -340,6 +394,7 @@ impl HotLoop {
             hist_wire: hist(),
             hist_event: hist(),
             counters: LoopCounters::default(),
+            rates: CreateRate::new(crate::now_ms()),
         }
     }
 
@@ -506,6 +561,8 @@ impl HotLoop {
         if let Fired::Already { .. } = self.fired.first(&hit.mint, src_class(src), src) {
             return self.decision(intent, hit, code::ALREADY_FIRED, 0, 0, 0, 0, 0);
         }
+        // creates of the last 60 / 600 s, before this one (entry filter)
+        let rates = self.rates.on_create(crate::now_ms());
         // 4: class filters
         if !hit.is_sol_quote()
             || hit.mayhem
@@ -673,8 +730,12 @@ impl HotLoop {
         let spend = op.size;
         let min_out = min_tokens_out(spend, op.v_max, hit.creator_arg, self.cfg.fees);
         // 12: patch (keys and the per-mint CU limit were resolved before the claim)
-        let prio0 = (bid as f64 * self.cfg.split_primary[0]) as u64;
-        let tip0 = (bid as f64 * self.cfg.split_primary[1]) as u64;
+        // per-class bid: the tip (after the buy, reverts on failure) carries
+        // the bid where the leader orders by it; the priority fee stays at the
+        // floor there and is clamped by bid.failed_attempt_lamports_max elsewhere
+        let n_sigs = self.tmpl.buys[claim.idx].table.n_sigs.clamp(1, 2) as u8;
+        let (plan0, plan1) = self.cfg.bid_plans(bid, n_sigs);
+        let (prio0, tip0) = (plan0.priority_lamports, plan0.tip_lamports);
         let tip_account = self.tmpl.tip_account;
         let t = &mut self.tmpl.buys[claim.idx];
         t.patch(&Patch {
@@ -726,8 +787,8 @@ impl HotLoop {
                 tmpl: t.clone(),
                 intent,
                 idx: 1,
-                prio: (bid as f64 * self.cfg.split_secondary[0]) as u64,
-                tip: (bid as f64 * self.cfg.split_secondary[1]) as u64,
+                prio: plan1.priority_lamports,
+                tip: plan1.tip_lamports,
                 tip_account,
                 // a paper decision's secondary variant is recorded, never sent
                 real,
@@ -804,6 +865,8 @@ impl HotLoop {
                 creator: hit.creator_arg,
                 user: hit.user,
                 intx_buys: hit.intx_buys,
+                rate60: crate::filter::rate_code(rates.0),
+                rate600: crate::filter::rate_code(rates.1),
             });
             if self.cfg.mode.is_real() {
                 // forced to paper in a real mode: nothing was sent with this
@@ -853,6 +916,7 @@ impl HotLoop {
             e1: false,
             replaying: false,
             replay_slot: slot,
+            feat: None,
         });
         self.stats.positions_open.set(self.positions() as i64);
     }
@@ -981,6 +1045,18 @@ impl HotLoop {
                     }
                 }
             }
+            HotIn::E1Feat {
+                intent,
+                feat,
+                op_lead_n,
+                bw_lead_n,
+            } => {
+                if let Some(i) = self.find_intent(intent) {
+                    if let Some(s) = self.slots[i].as_mut() {
+                        s.feat = Some((feat, op_lead_n, bw_lead_n));
+                    }
+                }
+            }
             HotIn::E1Trade { intent, trade } => {
                 if let Some(i) = self.find_intent(intent) {
                     self.replay_trade(i, trade);
@@ -1024,7 +1100,10 @@ impl HotLoop {
             post_bundle_t: info.post_bundle_t,
             post_bundle_mcap: info.post_bundle_mcap,
         });
-        if outcome != ShadowOutcome::Filled && outcome != ShadowOutcome::Unresolved {
+        if !matches!(
+            outcome,
+            ShadowOutcome::Filled | ShadowOutcome::Unresolved | ShadowOutcome::Filtered
+        ) {
             self.rslog.push(Rec::FailedBuy {
                 intent,
                 mint,
@@ -1045,10 +1124,58 @@ impl HotLoop {
         });
     }
 
+    /// The entry filter on an E1 verdict (docs/04 section 2): score the
+    /// intent's features (allocation-free), record the score and its tertile
+    /// (rslog `Filter`, cold `FilterScore`) and, in `skip` mode, turn an
+    /// attempt in the bottom tertile into `Filtered` (no send, no cost).
+    /// Without a model the verdict passes unchanged.
+    fn filter_verdict(&mut self, i: usize, outcome: ShadowOutcome) -> ShadowOutcome {
+        let Some(m) = self.cfg.filter.as_deref() else {
+            return outcome;
+        };
+        let Some(s) = self.slots[i].as_ref() else {
+            return outcome;
+        };
+        let (intent, mint, feat) = (s.intent, s.pos.mint, s.feat);
+        let scored = feat.map(|(f, op_n, bw_n)| {
+            let score = m.score(&f);
+            (score, m.tertile(score), op_n, bw_n)
+        });
+        let attempt = outcome == ShadowOutcome::Filled || outcome.is_failed_attempt();
+        let skipped = self.cfg.filter_mode == FilterMode::Skip
+            && attempt
+            && scored.is_some_and(|(_, t, _, _)| t == 0);
+        let (score, tertile, op_n, bw_n) = scored.unwrap_or((f64::NAN, u8::MAX, 0, 0));
+        self.rslog.push(Rec::Filter {
+            intent,
+            mint,
+            score_bits: score.to_bits(),
+            tertile,
+            mode: (self.cfg.filter_mode == FilterMode::Skip) as u8,
+            skipped: skipped as u8,
+            op_lead_n: op_n,
+            bw_lead_n: bw_n,
+        });
+        self.send_cold(ColdMsg::FilterScore {
+            intent,
+            mint,
+            scored: scored.is_some(),
+            score,
+            tertile,
+            skipped,
+        });
+        if skipped {
+            ShadowOutcome::Filtered
+        } else {
+            outcome
+        }
+    }
+
     /// The E1 verdict: open the position at the post-bundle state with the
     /// premium, or record the failed attempt and its cost.
     fn e1_open(&mut self, i: usize, outcome: ShadowOutcome, info: ShadowInfo) {
         let fees = self.cfg.fees;
+        let outcome = self.filter_verdict(i, outcome);
         let Some(s) = self.slots[i].as_ref() else {
             return;
         };
@@ -1076,7 +1203,15 @@ impl HotLoop {
             }
         }
         let cost = if outcome.is_failed_attempt() {
-            self.cfg.failed_attempt_lamports
+            // modelled per leader class (base fee + the matching variant's
+            // priority fee; tips revert) unless a fixed override is set
+            let n_sigs = self
+                .tmpl
+                .buys
+                .first()
+                .map_or(1, |t| t.table.n_sigs.clamp(1, 2) as u8);
+            self.cfg
+                .failed_attempt_cost(self.cfg.bid_lamports.min(self.cfg.max_bid), n_sigs)
         } else {
             0
         };
@@ -1086,12 +1221,17 @@ impl HotLoop {
         };
         let (mint, intent, sig0, slot0) = (s.pos.mint, s.intent, s.sig0, s.create_slot);
         let Some((q, tokens)) = fill else {
-            self.counters.e1_failed += 1;
+            if outcome == ShadowOutcome::Filtered {
+                self.counters.filtered += 1;
+            } else {
+                self.counters.e1_failed += 1;
+            }
             self.counters.unfilled += 1;
             self.stats.unfilled.inc();
             self.slots[i] = None;
             self.stats.positions_open.set(self.positions() as i64);
-            if outcome != ShadowOutcome::Unresolved {
+            // a filtered intent was never sent: no fill row
+            if outcome != ShadowOutcome::Unresolved && outcome != ShadowOutcome::Filtered {
                 self.send_cold(ColdMsg::Fill {
                     intent,
                     mint,

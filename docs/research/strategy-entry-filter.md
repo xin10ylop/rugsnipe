@@ -1,0 +1,117 @@
+# H1: the LEAD entry filter, end to end
+
+**Question.** The angles critic (`strategy-angles-critic.md` §6) adopted "skip the bottom tertile of the frozen
+P(take-profit) score" as the LEAD's entry filter for shadow mode and the probe, on two conditions: re-freeze the
+model without the inputs a live bot cannot have at slot 0 (metadata JSON, `cu_used`), and keep a live per-signer
+store of our own outcomes. This page records that re-freeze, its export, the Rust implementation in the hot path and
+a first paper session with the filter in log mode.
+
+*Done 2026-10-14. Code: `analysis/rugsnipe_analysis/strategy/entry_filter.py`, `analysis/scripts/strategy/entry_filter_freeze.py`,
+`analysis/rugsnipe_analysis/selftest_entry_filter.py`; `crates/rugsnipe/src/filter.rs` (model, features, outcome store),
+`crates/rugsnipe/src/{e1,cold,hot}.rs`, `crates/rugsnipe-state` (schema 3). Artefacts: `data/reports/strategy/entry_filter_v1.json`
+(the model the hot path loads), `entry_filter_v1.pkl` (scikit-learn object, sha256 in the JSON), `entry_filter_v1_check.json`
+(200 parity rows), `entry_filter_v1_fixtures.json` (real creation slots and create transactions with their Python features).*
+
+## 1. The re-frozen model (`entry_filter_v1`)
+
+* **Same configuration as G1's rule 3**: gradient-boosted trees of depth 3 (scikit-learn `HistGradientBoostingClassifier`,
+  learning rate 0.05, 150 trees, min leaf 20, L2 1.0), target = the LEAD's take-profit leg fires first, operator pools
+  as extra training rows and as history (`op_all`), sampling weights as in gap-3.
+* **Rows: every multi-wallet launch known now**, 3,591: the predictor table (2,965: gap-3, deep, fresh, dense window,
+  operator pools) plus the angles critic's holdouts (HA 114 + 146 armed, HB 307, HC 59). The armed HA group, like the
+  pools, is a training and history row only. The table's signer funding was re-derived with the fixed `Funding`
+  (61 rows had carried funding from after their launch, critic §2.2).
+* **60 features, the exact `feature_row` definitions that are computable at the slot-0 decision instant**:
+  bundle structure (17), create-transaction fields (14), uri (7), signer funding (10), point-in-time operator
+  history (6), time and create rate (6). **Dropped**: metadata JSON (10; fetched ~450 ms after the create), `cu_used`
+  (an execution result), the 13 name/symbol text features (Python's Unicode tables are not reproducible bit for bit;
+  AUC 0.53-0.59 alone in G1's ablation), `op_g1_prior` (counts creates in the 1.27% gap-1 sample a live bot does not
+  have) and `op_busy` (needs 15 minutes of trades per launch; the live store is written 10 s after each launch).
+* **Tertile cut points**: weighted 1/3 and 2/3 quantiles of the in-sample predictions on the 2,100 random-sample rows,
+  as in G1's freeze: **t1 = 0.1480, t2 = 0.2272** (G1's rule 3: 0.145 / 0.243). In sample the tertiles make −1.6% /
+  +1.2% / +12.1% per trade (TP rate 4% / 15% / 50%, AUC 0.84); that is in-sample and says nothing about skill.
+
+**Consistency check before the freeze** (the 60-feature set fitted on the table only, scored once on HA / HB / HC;
+those sets were already used by the critic, so this checks the reduced feature set, it is not a clean test):
+
+| Set | n | TP AUC | EV all | skip bottom tertile: kept, EV kept, lift | low / mid / high tertile EV |
+|---|---|---|---|---|---|
+| HA | 114 | 0.77 | +6.1% | 58%, +9.1%, **+3.1** | +1.9 / +3.7 / +12.9% |
+| HB | 307 | 0.69 | +2.8% | 64%, +4.1%, **+1.3** | +0.6 / −0.3 / +8.1% |
+| HC | 59 | 0.80 | −0.4% | 59%, −0.3%, **+0.1** | −0.5 / −2.7 / +2.2% |
+| pooled | 480 | **0.72** | +3.2% | 62%, **+4.7%**, **+1.5** | +0.8 / +0.2 / +8.6% |
+| pooled, funding blanked (a live bot rarely knows it) | 480 | 0.73 | +3.2% | 66%, +4.4%, +1.2 | +0.9 / +0.4 / +8.5% |
+
+The reduced set keeps the frozen rule's lift (critic: +1.4 at 74% kept). Its bottom tertile is not negative here
+(+0.8% against the frozen rule's −0.8%); the gain comes from the top third. Blanking the funding block, which a live
+bot knows only for signers its funding watcher saw funded, costs 0.3 points and moves 4% of launches out of the
+bottom tertile.
+
+**Export.** `entry_filter_v1.json` holds the feature list and groups, the dropped features and why, the defaults of
+unknown values, `scaler: null` (trees), the 150 trees as explicit node lists (`feature`, `threshold`, `missing_left`,
+`left`, `right` or a leaf `value`; `P = 1 / (1 + exp(-(baseline + sum of leaves)))`), the tertile cut points and every
+constant the features need (the five uri hosts, the eight Jito tip accounts, the CEX and swap funders of the label
+set, the compute-budget program, the base fee, the regime slot, the 10 s outcome delay). **Exporter test**
+(`python -I -m rugsnipe_analysis.selftest_entry_filter`): the pickle matches the JSON's sha256; on 200 seeded rows the
+feature vectors recomputed from disk equal the exported ones, and scikit-learn, the pure-Python scorer of the JSON and
+the stored scores agree to **0.0** (1e-9 required); NaN routing follows `missing_go_to_left`.
+
+## 2. The filter in the hot path (`crates/rugsnipe/src/filter.rs`)
+
+**Where each feature comes from.**
+
+| Group | Paper (E1 lane) | Live, from the shreds |
+|---|---|---|
+| bundle (17) | the reconstructed creation slot; the gap-3 bundle with C = {creator, signer, fee payer} exactly as `tapes._raw_bundle` + `bundle_features` (the lane's sniper rule is not applied to the features) | **not hot-visible in full**: the run behind the create (index ≤ create + 5, gaps ≤ 2) streams in with the slot's entries; a shred-level slot-0 assembler has to score once the run is closed |
+| create tx (14) | the create's jsonParsed `getTransaction` (tips to the 8 Jito accounts, `meta.fee` − 5,000 × signatures, compute-budget limit and price, instruction count, version, signers) and its `getBlock` index | the transaction itself (priority from the compute-budget price × limit); `tx_index` only approximately (entry position) |
+| uri (7) | the CreateEvent's uri | the create instruction: hot-visible |
+| funding (10) | the funding watcher's `Funded` entry for the signer (CEX / swap / other funder, fresh, lag), else unknown | same: hot-visible |
+| operator (6) | the outcome store (below) | same: hot-visible |
+| time (6) | block time, regime, creates of the previous 60 / 600 s (hot-thread ring; the training default until the session has run that long) | same: hot-visible |
+
+So in paper mode the filter runs on the E1 lane's result; live it needs the bundle run from the shreds, which this
+build does not assemble yet (the real fill lane is open item M4).
+
+**Flow.** The cold thread assembles the 60 features when the E1 verdict arrives (point in time: the outcome store as
+of that moment, without this launch) and sends them right before the verdict (`HotIn::E1Feat`). The hot thread scores
+them when the verdict arrives, before the position opens: rslog `Filter` (score, tertile, mode, dropped, the signer's
+and best bundle wallet's outcome counts) and a `FilterScore` to the cold thread (state.db `filter` row with the feature
+vector). With `entry.filter_mode = "skip"` an attempt (fill, premium, not-in-slot-0) scoring below t1 becomes
+`filtered`: no position, no fill row, no cost. `log` (default) changes nothing. `skip` without a model is refused at
+startup. Config: `entry.filter_model` (loaded once; a feature list or constants other than this binary's are refused)
+and `entry.filter_mode`.
+
+**Outcome store.** Every paper launch we decide on (in the entry class) becomes an `outcomes` row: the signer, the
+bundle wallets, the third-party slot-0 buyers, and, for a closed position, the LEAD result (return net of the round
+trip per staked SOL, whether the take-profit was the first exit). A row enters the store, and state.db, 10 s after its
+launch at the earliest (the training's point-in-time rule); the store keeps per-signer and per-bundle-wallet totals
+and is rebuilt from state.db at start. Live limitations: failed attempts have no LEAD result (the training simulated
+one for every launch), so `op_lead_*` average over fewer launches than in training; `op_prior` counts every launch the
+bot saw, where the training counted launches in a sample; in `skip` mode a skipped operator's history stops growing.
+
+**Speed.** `Model::score` walks fixed node arrays; no allocation (checked under the counting allocator, also inside
+the E1 zero-allocation replay). Release build (`cargo run --release -p rugsnipe --example filter_bench`): **mean 1.3 us,
+p50 1.2 us, p90 1.4 us, p99 2.0 us** per score (150 trees, 200 rows × 20,000).
+
+**Tests.**
+
+| Test | What |
+|---|---|
+| `tests/filter_parity.rs` | Rust score = scikit-learn on the 200 exported rows (max diff 5.6e-17) and the same tertiles; bundle features of 60 real HB creation slots and create-transaction / uri features of 24 real create transactions equal the Python pipeline's to 1e-9; no allocation, under budget |
+| `tests/filter_pipeline.rs` | skip mode drops exactly the two bottom-tertile attempts (a fill and a premium) and lets a top-tertile and an unscored intent trade; log mode trades all four; state.db `filter` rows, rslog `Filter` records, summary tertile totals, `outcomes` rows. Outcome store through SIGKILL: a child process writes four launches, is killed with SIGKILL, the store rebuilt from state.db equals the expected one and the restart reloads it |
+| `src/filter.rs` unit tests | model loading and refusal, point-in-time assembly (a launch's outcome is history only once due), per-bundle-wallet totals, create-rate windows, time and uri features |
+| `rugsnipe-state` | schema 3 (`filter`, `outcomes`) round trip |
+
+## 3. Paper session with the filter in log mode
+
+SESSION_RESULTS
+
+## 4. What this does not settle
+
+* The skip rule's lift (+1.4 to +1.5 points) is measured on simulated rank-1 fills. Whether we land as often on the
+  kept launches as on the dropped ones is the shadow-mode question of docs/04 §7; the critic's competition counts say
+  the kept launches are only modestly more contested.
+* The live store starts empty: a first-seen signer gets the training defaults, so the history-driven part of the score
+  (AUC 0.77 with history vs 0.67 first-seen on the critic's holdout) builds up over days of running.
+* Re-freeze when the collector's full-feed tapes give a week of new launches, with the same freeze-then-holdout
+  protocol; the hourly-refitted GBT-3 and ridge cuts of the critic remain to be logged.

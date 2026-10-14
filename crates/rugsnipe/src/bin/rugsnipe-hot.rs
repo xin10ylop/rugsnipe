@@ -300,14 +300,28 @@ fn run(args: &[String]) -> Result<(), String> {
                 .collect();
             let paper = {
                 let r = app.report.lock().unwrap_or_else(|e| e.into_inner());
+                let f = &r.paper.filter;
+                // entry filter: intents / attempts / EV per attempt by tertile
+                let tert: Vec<String> = ["low", "mid", "high"]
+                    .iter()
+                    .filter_map(|k| f.tertiles.get(*k).map(|t| (k, t)))
+                    .map(|(k, t)| {
+                        format!(
+                            "{k} {}/{} ev {:+.3}",
+                            t.intents, t.attempts, t.ev_per_attempt
+                        )
+                    })
+                    .collect();
                 format!(
-                    "lane {}/{} calls {} | {:?} | landing {:.2} net {} lamports",
+                    "lane {}/{} calls {} | {:?} | landing {:.2} net {} lamports | filter {} {}",
                     r.e1_resolved,
                     r.e1_requested,
                     r.e1_rpc_calls,
                     r.paper.outcomes,
                     r.paper.landing_rate,
-                    r.paper.net_lamports
+                    r.paper.net_lamports,
+                    f.mode,
+                    tert.join(", ")
                 )
             };
             eprintln!(

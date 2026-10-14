@@ -529,7 +529,12 @@ fn entry_and_paper_sections_default_parse_and_validate() {
     let d = Config::default();
     assert_eq!(d.paper.fill_model, FillModel::E1);
     assert_eq!(d.paper.entry_premium, 0.011);
-    assert_eq!(d.paper.failed_attempt_lamports, 3_000_000);
+    assert_eq!(
+        d.paper.failed_attempt_lamports, 0,
+        "0 = modelled per leader class"
+    );
+    assert_eq!(d.bid.failed_attempt_lamports_max, 1_000_000);
+    assert_eq!(d.bid.min_priority_lamports, 10_000);
     assert_eq!(d.paper.exit_latency_slots, 1);
     assert_eq!(d.entry.max_premium, 0.02);
     assert_eq!(d.entry.filter, EntryFilter::Any);
@@ -583,4 +588,77 @@ fn entry_and_paper_sections_default_parse_and_validate() {
     ] {
         assert!(fields.contains(&f), "{f}: {fields:?}");
     }
+}
+
+#[test]
+fn failed_attempt_cap_and_pay_on_success_split_are_validated() {
+    use rugsnipe_core::bid::{BidPolicy, LeaderClass};
+    // defaults: tip classes bid with the tip, priority classes with the fee
+    let d = Config::default();
+    assert_eq!(d.bid.split.jito_agave, [0.0, 1.0]);
+    assert_eq!(d.bid.split.bam, [0.0, 1.0]);
+    assert_eq!(d.bid.split.harmonic, [1.0, 0.0]);
+    assert_eq!(d.bid.split.other, [1.0, 0.0]);
+    // every example file carries the cap and the pay-on-success split
+    for f in ["rugsnipe", "paper", "paper-lead"] {
+        let p = format!(
+            "{}/../../config/{f}.example.toml",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let c = Config::from_toml_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(c.bid, d.bid, "{f}");
+        let v = c.validate(&ValidateEnv::default());
+        assert!(v.ok(), "{f}: {:?}", v.refusals);
+        assert!(
+            !v.warnings.iter().any(|w| w.starts_with("bid.")),
+            "{f}: {:?}",
+            v.warnings
+        );
+    }
+    // below 2 x base fee + floor: no transaction could be sent within it
+    let mut c = example();
+    c.bid.failed_attempt_lamports_max = 2 * 5_000 + c.bid.min_priority_lamports - 1;
+    let v = c.validate(&ValidateEnv::default());
+    assert!(
+        v.refusals
+            .iter()
+            .any(|r| matches!(r, Refusal::Invalid { field, .. }
+            if *field == "bid.failed_attempt_lamports_max")),
+        "{:?}",
+        v.refusals
+    );
+    c.bid.failed_attempt_lamports_max = 0;
+    assert!(!c.validate(&ValidateEnv::default()).ok());
+    // exactly at the floor is accepted
+    c.bid.failed_attempt_lamports_max = 2 * 5_000 + c.bid.min_priority_lamports;
+    assert!(c.validate(&ValidateEnv::default()).ok());
+    // a priority share on a tip-ordered class is paid on failure: warned
+    let mut c = example();
+    c.bid.split.bam = [0.5, 0.5];
+    let v = c.validate(&ValidateEnv::default());
+    assert!(v.ok());
+    assert!(
+        v.warnings.iter().any(|w| w.starts_with("bid.split.bam")),
+        "{:?}",
+        v.warnings
+    );
+    // the TOML key parses and the cap binds the priority classes
+    let c = Config::from_toml_str(
+        "[bid]\nfailed_attempt_lamports_max = 505_000\n[risk]\nmax_bid_lamports = 25_000_000\n",
+    )
+    .unwrap();
+    assert_eq!(c.bid.failed_attempt_lamports_max, 505_000);
+    let pol = BidPolicy::from_cfg(&c.bid);
+    let p = pol.plan(LeaderClass::Harmonic, c.risk.max_bid_lamports, 1);
+    assert_eq!((p.priority_lamports, p.clamped), (500_000, true));
+    // leader mix must be a distribution
+    let mut c = example();
+    c.paper.leader_mix.bam = 0.9;
+    assert!(c
+        .validate(&ValidateEnv::default())
+        .refusals
+        .iter()
+        .any(|r| matches!(r, Refusal::Invalid { field, .. } if *field == "paper.leader_mix")));
+    // unknown keys under [bid] are still refused
+    assert!(Config::from_toml_str("[bid]\nfailed_attempt_max = 1\n").is_err());
 }

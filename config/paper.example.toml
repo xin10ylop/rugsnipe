@@ -87,9 +87,15 @@ nonce_pool = 32
 sell_nonce_pool = 8
 burn_after_slots = 3
 partial_fill = false
-[bid]
+[bid]                                              # docs/03 section 6 "Pay on success"
 quantile = 0.75
-split = { jito_agave = [0.7, 0.3], harmonic = [1.0, 0.0], bam = [0.5, 0.5] }   # [priority, tip]
+# [priority, tip] per leader class. The tip is a transfer AFTER the buy in the same transaction: a failed
+# (slippage-capped) buy reverts it, while the base fee and the priority fee are charged on failure too.
+# Tip-ordered classes (Jito-Agave via the block engine, BAM via its auction) bid with the tip and keep the
+# priority fee at the floor; Harmonic and other clients order by priority fee, so there the bid is at risk.
+split = { jito_agave = [0.0, 1.0], bam = [0.0, 1.0], harmonic = [1.0, 0.0], other = [1.0, 0.0] }
+min_priority_lamports = 10_000                     # header priority fee floor (gap-2: winners p10 1k, p25 45k lamports)
+failed_attempt_lamports_max = 1_000_000            # most a failed attempt may cost (base + priority); priority is clamped to it
 [exit.default]
 tp = [[2.0, 0.5], [3.0, 1.0]]
 tp_slip_bps = 1500

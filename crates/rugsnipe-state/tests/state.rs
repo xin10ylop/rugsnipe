@@ -234,7 +234,7 @@ fn ledger_flow_and_intent_state_machine() {
         Some("3")
     );
     let counts = rugsnipe_state::schema::row_counts(&c).unwrap();
-    assert_eq!(counts.len(), 12);
+    assert_eq!(counts.len(), 14);
     drop(c);
     // durable across reopen
     assert!(s.close() >= 8);
@@ -567,4 +567,70 @@ fn paper_recovery_abandons_simulated_positions() {
     assert_eq!(rep.abandoned_paper, vec![m]);
     assert!(rep.open_positions.is_empty());
     assert!(load_open_positions(&c).unwrap().is_empty());
+}
+
+/// Version 3: the entry filter's `filter` row and the live outcome store
+/// (`outcomes`) round-trip through the writer thread and `load_outcomes`.
+#[test]
+fn filter_rows_and_outcome_store_round_trip() {
+    let (_tmp, p) = tmp_guarded("outcomes");
+    let s = StateStore::open(&p).unwrap();
+    let (mint, signer, b1, b2) = (
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+    );
+    let w = s.writer();
+    w.send(Write::Filter(FilterRow {
+        intent_id: 7,
+        mint,
+        model: "entry_filter_v1".into(),
+        score: Some(0.231),
+        tertile: Some(2),
+        mode: "log".into(),
+        skipped: false,
+        op_prior: 3,
+        op_lead_n: 2,
+        op_lead_hit: Some(0.5),
+        op_lead_ev: Some(0.04),
+        bw_lead_n: 1,
+        bw_lead_ev: Some(-0.02),
+        features: Some("[1.0,2.0]".into()),
+    }));
+    let o = OutcomeRow {
+        intent_id: 7,
+        mint,
+        signer,
+        launch_ms: 1_791_990_000_000,
+        outcome: "filled".into(),
+        lead: true,
+        ret: 0.1234,
+        tp_hit: true,
+        s0_third: Some(3),
+        bundle_wallets: vec![b1, b2],
+        written_ms: 1_791_990_012_000,
+    };
+    w.send(Write::Outcome(o.clone()));
+    let mut o2 = o.clone();
+    o2.intent_id = 8;
+    o2.lead = false;
+    o2.ret = 0.0;
+    o2.tp_hit = false;
+    o2.s0_third = None;
+    o2.bundle_wallets = vec![];
+    o2.launch_ms -= 1;
+    w.send(Write::Outcome(o2.clone()));
+    assert!(s.flush());
+    let c = s.reader().unwrap();
+    assert_eq!(count(&c, "filter"), 1);
+    let (score, tertile): (f64, i64) = c
+        .query_row(
+            "SELECT score, tertile FROM filter WHERE intent_id = 7",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((score, tertile), (0.231, 2));
+    assert_eq!(store::load_outcomes(&c).unwrap(), vec![o2, o]);
 }

@@ -12,10 +12,14 @@
 # getBlock, getTransaction; at most --lane-rps requests/s, 3.5 by default): where the create
 # sat in its block, the bundle, our would-be index, third-party buyers ahead/behind, the
 # premium, then a fill at the post-bundle price + entry_premium or a failed attempt that pays
-# failed_attempt_lamports; fills replay the next slots through the exits below. The session
-# summary carries the totals (`cold.paper`: landing rate, mean premium, exits by reason, net
-# P&L, EV per attempt including failures); state.db has a `shadow` row per intent and
-# `fills.fail_reason` / `fail_cost`.
+# its modelled cost (base fee + priority fee per leader class, [bid]); fills replay the next
+# slots through the exits below. The session summary carries the totals (`cold.paper`:
+# landing rate, mean premium, exits by reason, net P&L, EV per attempt including failures);
+# state.db has a `shadow` row per intent and `fills.fail_reason` / `fail_cost`.
+# The entry filter (`[entry] filter_model`, `filter_mode = "log"`) scores every resolved intent
+# from its creation slot: state.db `filter` rows, rslog `Filter` records and `cold.paper.filter`
+# in the summary (score tertiles, EV per attempt by tertile); `outcomes` is the per-signer
+# outcome store it reads (written 10 s after each launch, reloaded at start).
 #
 # Paper caps are opened wide so the risk gate never drops a paper decision (would_skip); a
 # real mode is refused anyway (no keys, the class operator is `shadow`, free feeds are paper).
@@ -88,16 +92,27 @@ nonce_pool = 32
 sell_nonce_pool = 8
 burn_after_slots = 3
 partial_fill = false
-[bid]
+[bid]                                              # docs/03 section 6 "Pay on success"
 quantile = 0.75
-split = { jito_agave = [0.7, 0.3], harmonic = [1.0, 0.0], bam = [0.5, 0.5] }   # [priority, tip]
+# [priority, tip] per leader class. The tip is a transfer AFTER the buy in the same transaction: a failed
+# (slippage-capped) buy reverts it, while the base fee and the priority fee are charged on failure too.
+# Tip-ordered classes (Jito-Agave via the block engine, BAM via its auction) bid with the tip and keep the
+# priority fee at the floor; Harmonic and other clients order by priority fee, so there the bid is at risk.
+split = { jito_agave = [0.0, 1.0], bam = [0.0, 1.0], harmonic = [1.0, 0.0], other = [1.0, 0.0] }
+min_priority_lamports = 10_000                     # header priority fee floor (gap-2: winners p10 1k, p25 45k lamports)
+failed_attempt_lamports_max = 1_000_000            # most a failed attempt may cost (base + priority); priority is clamped to it
 [entry]
 max_premium = 0.02                                 # max_sol_cost = post-bundle price + 2%: a rank-3 fill fails cheaply
 filter = "multi_bundle"                            # >= 1 bundle wallet outside the creator set (gap-3 definition)
+filter_model = "data/reports/strategy/entry_filter_v1.json"   # frozen P(take-profit) trees (docs/04 section 2); "" = off
+filter_mode = "log"                                # log: score + tertile on every intent | skip: also drop score < t1
 [paper]
 fill_model = "e1"                                  # e1: creation slot, right behind the bundle | e2: end of slot+1
 entry_premium = 0.011                              # gap-2: rank-1 median premium over the post-bundle price
-failed_attempt_lamports = 3_000_000                # priority fee a failed (slippage-capped) buy still pays
+failed_attempt_lamports = 0                        # 0 = modelled per leader class from [bid] (base fee + the matching
+                                                   # variant's priority fee; tips revert), weighted by leader_mix;
+                                                   # 3_000_000 reproduces docs/04's all-priority 0.003 SOL base case
+leader_mix = { jito_agave = 0.272, bam = 0.379, harmonic = 0.251, other = 0.098 }   # docs/03 section 6 stake shares
 round_trip_lamports = 4_000_000                    # fixed cost per landed round trip (docs/04, base level)
 exit_latency_slots = 1                             # a sell fills at the end of trigger slot + 1
 slot_ms = 217                                      # slot clock of the replay (gap-3 tapes after Oct 9)

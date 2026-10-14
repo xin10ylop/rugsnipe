@@ -248,7 +248,19 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     let nonces = Arc::new(setup::paper_nonce_pool(owner, cfg.tx.nonce_pool as usize));
     let templates = setup::templates(&cfg, owner, &nonces)?;
     let policy = setup::exit_policy(&cfg)?;
+    // --- entry filter (docs/04 section 2): loaded once, refused if broken
+    let filter = if cfg.entry.filter_model.is_empty() {
+        if cfg.entry.filter_mode == rugsnipe_core::config::FilterMode::Skip {
+            return Err("entry.filter_mode = \"skip\" needs entry.filter_model".into());
+        }
+        None
+    } else {
+        Some(Arc::new(crate::filter::Model::load(
+            &crate::filter::resolve_path(&cfg.entry.filter_model),
+        )?))
+    };
     // --- state.db + recovery (before READY)
+    let mut outcomes = vec![];
     let (store, ledger, recovery) = match &o.state_path {
         Some(p) => {
             let s = StateStore::open(p).map_err(|e| format!("state.db: {e}"))?;
@@ -265,6 +277,9 @@ pub fn build(o: AppOpts) -> Result<App, String> {
                 },
             )
             .map_err(|e| format!("recovery: {e}"))?;
+            // the entry filter's outcome store, as the last run left it
+            outcomes = rugsnipe_state::store::load_outcomes(&c)
+                .map_err(|e| format!("state.db outcomes: {e}"))?;
             l.kv("mode", mode.as_str());
             l.kv("box", cfg.box_.id.clone());
             l.kv("paper_wallet", owner.to_string());
@@ -369,6 +384,8 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         burn_after_slots: cfg.tx.burn_after_slots,
         decode_miss_kill_ratio: cfg.risk.decode_miss_kill_ratio,
         paper_start_balance: o.paper_balance,
+        filter: filter.clone(),
+        filter_mode: cfg.entry.filter_mode,
     };
     let cold = cold::spawn(ColdParts {
         cfg: cold_cfg,
@@ -388,11 +405,13 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         rslog: cold_log,
         sigusr1: o.sigusr1,
         report: report.clone(),
+        outcomes,
     })
     .map_err(|e| e.to_string())?;
     let mut hot_cfg = HotCfg::from_config(&cfg, policy);
     hot_cfg.fill_timeout_slots = o.fill_timeout_slots;
     hot_cfg.fill_lane = fill_lane;
+    hot_cfg.filter = filter;
     let hot = HotLoop::new(HotParts {
         cfg: hot_cfg,
         watch: watch.clone(),

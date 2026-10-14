@@ -169,6 +169,57 @@ pub struct ShadowRow {
     pub cost: u64,
 }
 
+/// `filter`: the entry filter's score of one intent (schema version 3).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FilterRow {
+    pub intent_id: i64,
+    pub mint: Pubkey,
+    /// Model name (`entry_filter_v1`).
+    pub model: String,
+    /// P(take-profit); `None` when the intent had no creation-slot features.
+    pub score: Option<f64>,
+    /// 0 bottom (`score < t1`), 1 middle, 2 top; `None` when not scored.
+    pub tertile: Option<u8>,
+    /// `log` or `skip`.
+    pub mode: String,
+    /// The intent was dropped (`skip` and bottom tertile).
+    pub skipped: bool,
+    /// Our own outcomes known for the signer when the score was computed.
+    pub op_prior: u32,
+    pub op_lead_n: u32,
+    pub op_lead_hit: Option<f64>,
+    pub op_lead_ev: Option<f64>,
+    /// The launch's best-known bundle wallet (most LEAD outcomes).
+    pub bw_lead_n: u32,
+    pub bw_lead_ev: Option<f64>,
+    /// The feature vector, JSON array in the model's feature order.
+    pub features: Option<String>,
+}
+
+/// `outcomes`: one launch of the live outcome store (schema version 3). A
+/// LEAD result (`lead = true`) exists for a closed position; a failed or
+/// filtered attempt only counts as a launch of the signer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutcomeRow {
+    pub intent_id: i64,
+    pub mint: Pubkey,
+    /// The create's signer (`CreateEvent.user`).
+    pub signer: Pubkey,
+    /// Launch time (create block time, else the decision time), ms.
+    pub launch_ms: u64,
+    /// The paper / real outcome (`filled`, `premium`, ..., `e2`).
+    pub outcome: String,
+    pub lead: bool,
+    /// Net return of the closed position (after the round-trip cost) per staked SOL.
+    pub ret: f64,
+    pub tp_hit: bool,
+    /// Third-party slot-0 buyers; `None` when the creation slot is unknown.
+    pub s0_third: Option<u32>,
+    /// Bundle wallets outside the creator set (base58).
+    pub bundle_wallets: Vec<Pubkey>,
+    pub written_ms: u64,
+}
+
 /// `positions.origin`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Origin {

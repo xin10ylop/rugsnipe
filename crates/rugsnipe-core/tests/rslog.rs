@@ -130,6 +130,16 @@ fn sample_records() -> Vec<Rec> {
             slot: 456_789_000,
             premium_bps: 340,
         },
+        Rec::Filter {
+            intent: 0xdead_beef,
+            mint: k(3),
+            score_bits: 0.2315f64.to_bits(),
+            tertile: 2,
+            mode: 1,
+            skipped: 0,
+            op_lead_n: 4,
+            bw_lead_n: 1,
+        },
     ]
 }
 
@@ -216,7 +226,11 @@ fn shadow_outcomes_round_trip_and_classify() {
     for o in ShadowOutcome::ALL {
         assert_eq!(ShadowOutcome::from_u8(o as u8), Some(o));
     }
-    assert_eq!(ShadowOutcome::from_u8(6), None);
+    assert_eq!(ShadowOutcome::from_u8(7), None);
+    assert!(
+        !ShadowOutcome::Filtered.is_failed_attempt(),
+        "a filtered intent is never sent"
+    );
     let failed: Vec<&str> = ShadowOutcome::ALL
         .iter()
         .filter(|o| o.is_failed_attempt())

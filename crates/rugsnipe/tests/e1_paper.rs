@@ -277,7 +277,10 @@ fn e1_no_trades_exits_on_idle_and_steady_trading_hits_the_slot_cap() {
 fn e1_failed_attempts_are_logged_with_reason_and_cost() {
     let dir = tmpdir("e1-failed");
     let dev = Pubkey::new_unique();
-    let mut app = build(lead_cfg(&dir), armset(&[dev], &[]), &dir, 5_000, false);
+    // the fixed override (docs/04's all-priority 0.003 SOL base case)
+    let mut cfg = lead_cfg(&dir);
+    cfg.paper.failed_attempt_lamports = 3_000_000;
+    let mut app = build(cfg, armset(&[dev], &[]), &dir, 5_000, false);
     let mints: Vec<Pubkey> = (0..4).map(|_| Pubkey::new_unique()).collect();
     let mut curves = vec![];
     let mut events = vec![];
@@ -409,5 +412,87 @@ fn class_arm_takes_every_create_and_records_via_class() {
             ..
         }
     )));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn e1_failed_attempts_cost_is_modelled_per_leader_class() {
+    // paper.failed_attempt_lamports = 0 (the lead example): a failed attempt
+    // pays the base fee plus the priority fee of the variant matching the
+    // leader, weighted by paper.leader_mix; tips revert (docs/03 section 6).
+    use rugsnipe::hot::HotCfg;
+    use rugsnipe_core::bid::LeaderClass;
+    let dir = tmpdir("e1-modelled");
+    let dev = Pubkey::new_unique();
+    let cfg = lead_cfg(&dir);
+    assert_eq!(cfg.paper.failed_attempt_lamports, 0);
+    let hc = HotCfg::from_config(&cfg, rugsnipe_exit::ExitPolicy::default());
+    let bid = hc.bid_lamports.min(hc.max_bid);
+    let m = &cfg.paper.leader_mix;
+    let tip_side = 5_000 + cfg.bid.min_priority_lamports;
+    let prio_side = cfg.bid.failed_attempt_lamports_max.min(5_000 + bid);
+    let want = ((m.jito_agave + m.bam) * tip_side as f64
+        + (m.harmonic + m.other) * prio_side as f64)
+        .round() as u64;
+    assert_eq!(hc.failed_attempt_cost(bid, 1), want);
+    // the pay-on-success variant: priority at the floor, the whole bid in the tip
+    let (primary, secondary) = hc.bid_plans(bid, 1);
+    assert_eq!(primary.class, LeaderClass::JitoAgave);
+    assert_eq!(
+        (primary.priority_lamports, primary.tip_lamports),
+        (cfg.bid.min_priority_lamports, bid)
+    );
+    assert_eq!(secondary.class, LeaderClass::Harmonic);
+    assert!(secondary.failed_cost(1) <= cfg.bid.failed_attempt_lamports_max);
+    // a known leader class: both variants follow it
+    let mut known = hc.clone();
+    known.leader_class = Some(LeaderClass::Bam);
+    assert_eq!(known.failed_attempt_cost(bid, 1), tip_side);
+    known.leader_class = Some(LeaderClass::Harmonic);
+    assert_eq!(known.failed_attempt_cost(bid, 1), prio_side);
+
+    let mut app = build(cfg, armset(&[dev], &[]), &dir, 5_000, false);
+    let mints: Vec<Pubkey> = (0..2).map(|_| Pubkey::new_unique()).collect();
+    let mut curves = vec![];
+    let mut events = vec![];
+    for (k, m) in mints.iter().enumerate() {
+        let (h, c) = create(*m, dev, S0, k as u64 + 1, 1_000_000_000);
+        events.push(ev(S0, Payload::Hit(h)));
+        curves.push(c);
+    }
+    decide_all(&mut app, events, 2);
+    let owner = app.owner;
+    for (m, c) in mints.iter().zip(&curves) {
+        app.hot.inject(HotIn::E1Open {
+            intent: IntentId::new(m, &owner).0,
+            mint: *m,
+            outcome: ShadowOutcome::NotInSlot0,
+            info: info(c, 110),
+        });
+    }
+    std::thread::sleep(Duration::from_millis(200));
+    let summary = app.shutdown(vec![]);
+    let conn = rusqlite::Connection::open(dir.join("state.db")).unwrap();
+    assert_eq!(
+        count(
+            &conn,
+            &format!("SELECT COUNT(*) FROM fills WHERE fail_reason = 'not_in_slot0' AND fail_cost = {want}")
+        ),
+        2
+    );
+    // the paper sends recorded the pay-on-success split
+    assert_eq!(
+        count(
+            &conn,
+            &format!(
+                "SELECT COUNT(*) FROM sends WHERE variant = 0 AND prio = {} AND tip = {bid}",
+                primary.priority_lamports
+            )
+        ),
+        2
+    );
+    let p = &summary.cold.paper;
+    assert_eq!(p.failed_attempts, 2);
+    assert_eq!(p.failed_cost_lamports, 2 * want);
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -233,9 +233,11 @@ nonce_pool = 32
 sell_nonce_pool = 8
 burn_after_slots = 3
 partial_fill = false
-[bid]
+[bid]                                              # docs/03 section 6.1 (pay on success)
 quantile = 0.75
-split = { jito_agave = [0.7, 0.3], harmonic = [1.0, 0.0], bam = [0.5, 0.5] }   # [priority, tip]
+split = { jito_agave = [0.0, 1.0], bam = [0.0, 1.0], harmonic = [1.0, 0.0], other = [1.0, 0.0] }   # [priority, tip]
+min_priority_lamports = 10_000                     # header priority fee floor of every variant
+failed_attempt_lamports_max = 1_000_000            # base + priority of a failed attempt; priority clamped to it
 [exit.default]
 tp = [[2.0, 0.5], [3.0, 1.0]]
 tp_slip_bps = 1500
@@ -267,10 +269,13 @@ size_jitter = 0.10
 [entry]                                            # docs/04 section 6
 max_premium = 0.02                                 # fill cap over the post-bundle price
 filter = "any"                                     # any | multi_bundle (>= 1 bundle wallet outside the creator set)
+filter_model = ""                                  # frozen P(take-profit) trees (data/reports/strategy/entry_filter_v1.json); "" = off
+filter_mode = "log"                                # log: score + tertile on every intent | skip: also drop score < t1 (no send, no cost)
 [paper]                                            # shadow fill model (docs/04 section 7)
 fill_model = "e1"                                  # e1: creation slot behind the bundle | e2: end of slot+1
 entry_premium = 0.011                              # gap-2 rank-1 median
-failed_attempt_lamports = 3_000_000                # what a failed (capped) buy still pays
+failed_attempt_lamports = 0                        # 0 = modelled per leader class from [bid]; > 0 = fixed override
+leader_mix = { jito_agave = 0.272, bam = 0.379, harmonic = 0.251, other = 0.098 }   # weights while the leader is unknown
 round_trip_lamports = 4_000_000                    # fixed cost per landed round trip (summary net P&L)
 exit_latency_slots = 1                             # a paper sell fills at the end of trigger slot + 1
 slot_ms = 217                                      # slot clock of E1 replays
@@ -281,6 +286,24 @@ max_tx = 100
 min_replay_slots = 7                               # tape must cover s+7 (exits by +5, fill +1), else unresolved
 [collector]                                        # Python collector overrides (all optional; typed and validated in Rust too)
 ```
+
+**Bid and the cost of a failed attempt** (docs/03 §6.1, `rugsnipe-core::bid`). A lost race still
+lands and fails (or drops). The base fee (5,000 lamports per signature) and the priority fee are
+charged on failure; the tip is a transfer **after** the buy in the same transaction and reverts with
+it; a failed bundle is not committed. So the bid of a tip-ordered leader class (Jito-Agave, BAM) goes
+into the tip with the priority fee at `min_priority_lamports`, and the bid of a priority-ordered class
+(Harmonic, other) goes into the priority fee, clamped so that base fee + priority never exceeds
+`failed_attempt_lamports_max`. Validation refuses a cap below `2 × 5,000 + min_priority_lamports`
+in every mode and warns when a tip class puts part of the bid into the priority fee. While the
+leader's class is unknown the primary variant is the pay-on-success one and the secondary the
+clamped priority one, on one durable nonce. **Every failed attempt is recorded with its realised
+cost** in `fills.fail_cost` (and `paper.failed_cost_lamports` in the session summary): in paper the
+cost modelled per class (`paper.failed_attempt_lamports = 0`: base + the matching variant's priority
+fee, weighted by `paper.leader_mix`, ≈ 0.00036 SOL at the defaults; a value > 0 overrides it, e.g.
+3,000,000 for docs/04's 0.003 SOL case); in probe/live the `meta.fee` of our own failed transaction
+(`e1::failed_tx_fee`; the real fill lane, §16, must call it). Sensitivity
+(`strategy-pnl-and-screens.md` §1.4): 0.003 vs 0.0005 SOL per failed attempt moves the 0.5 SOL LEAD's
+break-even landing rate from 12.1% to 2.2%; the modelled default gives 1.6%.
 
 **Lead-policy exit knobs** (all off by default; `config/paper-lead.example.toml` sets docs/04 section 6):
 `tp_basis = "value"` (take-profit on the realised value of the stake after both fees and our own impact),

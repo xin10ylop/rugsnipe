@@ -160,8 +160,10 @@ time on Jito-Agave, 69-76% on Harmonic and 73% on BAM, and snipers that paid thr
 landed later than direct senders on every class** (the bundle path adds the 50 ms auction tick). So
 the bid policy must be **per leader class**: BAM → compute-unit price with a trimmed limit, Harmonic
 → priority fee (Jito-account tips buy nothing there), Jito-Agave and Rakurai → arrival first with a
-modest fee; and the block-0 variant should go **direct to the leader's TPU or a same-building sender
-with the bid in the priority fee**, keeping the Jito bundle variant as the revert-protected backup.
+modest fee; and the block-0 variant should go **direct to the leader's TPU or a same-building sender**, keeping
+the Jito bundle variant as the revert-protected backup. Where the bid sits (tip or priority fee)
+now follows §6.1: the priority fee is paid on failure, so it carries the bid only where the leader
+orders by it, and never above `bid.failed_attempt_lamports_max`.
 Classification is free: `getClusterNodes` returns the client id (AgaveBam, JitoLabs, HarmonicAgave,
 ...) matching DoubleZero's metadata for 99.8% of stake, plus the advertised `tpuQuic` address; refresh
 every epoch and every few minutes during the Alpenglow cutover, when BAM validators fall back to plain
@@ -224,6 +226,54 @@ more than one Jito variant per region needs more IPs or boxes. Observed cost of 
 median 0.004 SOL, p75 0.014 SOL, p90 0.05 SOL. "Hardcore mode" is a forecast from the history of past
 creation slots for that operator (bids that landed ahead of the failures), not a reaction to a rival's
 bid, which cannot be seen in time.
+
+### 6.1 Pay on success: what a lost race costs (added 2026-10-14)
+
+When we lose the race, the slippage-capped buy (`max_sol_cost` at post-bundle +2%) still lands and
+fails, or is dropped. What it costs depends only on where the bid sits, and that decides the
+business: the P&L model (`docs/research/strategy-pnl-and-screens.md` §1.4) moves the break-even
+rank-1 landing rate of the 0.5 SOL LEAD from **12.1% at 0.003 SOL per failed attempt to 2.2% at
+0.0005 SOL** (+9.0 → +18.2 SOL/day at a 20% landing rate).
+
+| Fact | Source | Check on our data |
+|---|---|---|
+| The base fee (5,000 lamports per signature) and the priority fee are charged on a failed transaction | solana.com/docs/core/transactions: "Fees are still charged on failure" | gap-2 blocks (7,074 blocks, `analysis/scripts/gap2_firstslot/fee_on_failure.py`): on **105,849 of 105,849** failed pump buys the fee payer lost exactly `meta.fee`; legacy `meta.fee = 5,000·sigs + ceil(price·limit/1e6)` on 40,548 of 40,548 (the priority fee is charged on the requested CU limit, not on the units used) |
+| A transaction is atomic: a failed instruction reverts every instruction, so a tip transfer in the same transaction moves only when the buy succeeds | solana.com/docs/core/transactions: "If any instruction fails, the entire transaction fails and all state changes are reverted" | **0** tip transfers moved in those 105,849 failures, although **68,598** of them carried a tip; gap-5 counts a failed transaction as "untipped" for this reason |
+| A failed Jito bundle (or a `bundleOnly` send) is not committed at all: it costs nothing | docs.jito.wtf: "If any transaction in a bundle fails, none of the transactions in the bundle will be committed"; tips belong inside the main transaction, a stand-alone tip transaction risks being unbundled | |
+| What losers actually paid | | slot-0 slippage failures (n = 10,238): priority fee p10 1,020, **p50 15,000**, p75 115,000, p90 1,200,000 lamports per transaction |
+
+**Policy** (`[bid]`, docs/06 §6; `rugsnipe-core::bid`):
+
+- **Tip after the buy, in the same transaction.** Every buy and sell template ends with the tip
+  transfer (`rugsnipe-tx/tests/templates.rs`, `tip_is_the_last_instruction_after_the_buy_or_sell`).
+  Atomicity, not the position, is what makes the tip revert; "last" is the invariant that keeps the
+  buy as the instruction that can fail first and matches the decoded winners.
+- **Tip-ordered classes carry the bid in the tip** (Jito-Agave through the block engine, BAM through
+  its auction, both via the Jito tip accounts): `split = [0.0, 1.0]`, header priority fee at the
+  scheduling floor `min_priority_lamports = 10,000` (slot-0 winners: p10 1,000, p25 45,000
+  lamports). A failure there costs 15,000 lamports (one signature) or nothing if the bundle drops.
+- **Priority-ordered classes** (Harmonic, Firedancer, other) bid with the priority fee, which is
+  at risk: `split = [1.0, 0.0]`, clamped so that base fee + priority never exceeds
+  **`failed_attempt_lamports_max` (default 1,000,000 lamports = 0.001 SOL)**. The cap is validated
+  (at least 2 × 5,000 + the floor) and the hot path enforces it on every variant
+  (`templates.rs`, `bid_plans_keep_a_failed_attempt_within_the_cap`).
+- **Leader unknown** (today: the hot path has no leader schedule yet): the primary variant is the
+  pay-on-success one and the secondary the clamped priority one, on one durable nonce, so at most
+  one lands. Paper charges the expected cost over `paper.leader_mix` (the §6 stake shares):
+  0.651 × 15,000 + 0.349 × 1,000,000 ≈ **359,000 lamports (0.00036 SOL) per failed attempt** at
+  the default bid, against docs/04's 0.003. In the P&L model that is a break-even landing rate of
+  **1.6%** (+18.7 SOL/day at 20%); a 0.001 SOL failure everywhere gives 4.4%.
+- **Recorded:** paper writes the modelled cost to `fills.fail_cost` and the summary's
+  `paper.failed_cost_lamports`; real mode must write `meta.fee` of our own failed transaction
+  (`rugsnipe::e1::failed_tx_fee`), which the real fill lane (task #12) has to call.
+
+**The catch to measure, not assume.** On Jito-Agave leaders a direct-TPU send is ordered by arrival
+and priority fee; a tip there buys position only through the block engine, and bundle senders
+landed *later* than direct senders on every class (the 50 ms auction tick, above). BAM's own
+ordering rule for tips versus priority fee is not publicly documented; our measurement saw CU price
+order inside BAM rounds (86-89%). Pay-on-success can therefore cost landing rate. The probe must log
+the landing rate per variant and leader class; if the floor-priority variant loses rank 1 where a
+priority bid would have won, raise `min_priority_lamports` for that class rather than drop the cap.
 
 ## 7. OS tuning on the hot box
 

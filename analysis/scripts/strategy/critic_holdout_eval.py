@@ -43,7 +43,10 @@ def load():
     n_rnd_elig = len(elig) - n_arm_elig
     rows = [json.loads(line) for line in open(HD / "tapes.jsonl")]
     seen = {r["mint"] for r in rows}
-    copy = [dict(json.loads(line), group="copy") for line in open(REPO / "data/cache/strategy_holdout_copy/trades.jsonl")]
+    # the copy-trade critic's holdout and the dense window are caches of the research checkout; a weekly
+    # re-run on another box (docs/08 section 12) scores the fresh frame alone
+    cp = REPO / "data/cache/strategy_holdout_copy/trades.jsonl"
+    copy = [dict(json.loads(line), group="copy") for line in open(cp)] if cp.exists() else []
     copy = [r for r in copy if r["mint"] not in seen]
     drops = Counter()
     tapes = []
@@ -78,11 +81,12 @@ def load():
     import calendar, time as _t
     cut_s = calendar.timegm(_t.strptime(cut, "%Y-%m-%d %H:%M:%S UTC"))
     wcre = {}
-    for line in open(REPO / "data/cache/window/creates.jsonl"):
+    wp = REPO / "data/cache/window/creates.jsonl"
+    for line in (open(wp) if wp.exists() else []):
         x = json.loads(line)
         wcre[x["mint"]] = x
     have = {t.mint for t in tapes}
-    win, _ = CA.load_window()
+    win, _ = CA.load_window() if wp.exists() else ([], None)
     for t in win:
         if t.bt <= cut_s or t.nB < 1 or t.mint in have:
             continue

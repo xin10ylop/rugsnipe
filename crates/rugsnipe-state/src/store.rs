@@ -30,6 +30,10 @@ pub enum Write {
     Fill(FillRow),
     /// Upsert by intent.
     Shadow(ShadowRow),
+    /// Upsert by intent.
+    Filter(FilterRow),
+    /// Upsert by intent (the live outcome store).
+    Outcome(OutcomeRow),
     /// Upsert by mint.
     Position(PositionRow),
     Exit(ExitRow),
@@ -321,6 +325,50 @@ pub fn apply(c: &Connection, w: &Write) -> rusqlite::Result<bool> {
                 ],
             )?;
         }
+        Write::Filter(r) => {
+            c.execute(
+                "INSERT OR REPLACE INTO filter(intent_id, mint, model, score, tertile, mode, skipped, op_prior, op_lead_n,
+                   op_lead_hit, op_lead_ev, bw_lead_n, bw_lead_ev, features)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+                params![
+                    r.intent_id,
+                    r.mint.to_string(),
+                    r.model,
+                    r.score,
+                    r.tertile,
+                    r.mode,
+                    r.skipped as i64,
+                    r.op_prior,
+                    r.op_lead_n,
+                    r.op_lead_hit,
+                    r.op_lead_ev,
+                    r.bw_lead_n,
+                    r.bw_lead_ev,
+                    r.features
+                ],
+            )?;
+        }
+        Write::Outcome(r) => {
+            let bw: Vec<String> = r.bundle_wallets.iter().map(|k| k.to_string()).collect();
+            c.execute(
+                "INSERT OR REPLACE INTO outcomes(intent_id, mint, signer, launch_ms, outcome, lead, ret, tp_hit, s0_third,
+                   bundle_wallets, written_ms)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+                params![
+                    r.intent_id,
+                    r.mint.to_string(),
+                    r.signer.to_string(),
+                    r.launch_ms as i64,
+                    r.outcome,
+                    r.lead as i64,
+                    r.ret,
+                    r.tp_hit as i64,
+                    r.s0_third,
+                    bw.join(","),
+                    r.written_ms as i64
+                ],
+            )?;
+        }
         Write::Position(r) => {
             c.execute(
                 "INSERT INTO positions(mint, intent_id, opened_slot, tokens, cost, v_fill, peak_v, bundle_json, policy_json,
@@ -448,4 +496,53 @@ pub fn apply(c: &Connection, w: &Write) -> rusqlite::Result<bool> {
 pub fn kv_get(c: &Connection, k: &str) -> rusqlite::Result<Option<String>> {
     c.query_row("SELECT v FROM kv WHERE k = ?1", params![k], |r| r.get(0))
         .optional()
+}
+
+/// Every row of the live outcome store (`outcomes`), oldest launch first
+/// (reloaded at start; rows with an unparsable key are skipped).
+pub fn load_outcomes(c: &Connection) -> rusqlite::Result<Vec<OutcomeRow>> {
+    let mut st = c.prepare(
+        "SELECT intent_id, mint, signer, launch_ms, outcome, lead, ret, tp_hit, s0_third, bundle_wallets, written_ms
+         FROM outcomes ORDER BY launch_ms, intent_id",
+    )?;
+    let rows = st.query_map([], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, i64>(3)?,
+            r.get::<_, String>(4)?,
+            r.get::<_, i64>(5)?,
+            r.get::<_, f64>(6)?,
+            r.get::<_, i64>(7)?,
+            r.get::<_, Option<u32>>(8)?,
+            r.get::<_, Option<String>>(9)?,
+            r.get::<_, i64>(10)?,
+        ))
+    })?;
+    let mut out = vec![];
+    for row in rows {
+        let (id, mint, signer, launch_ms, outcome, lead, ret, tp, s0, bw, written) = row?;
+        let (Ok(mint), Ok(signer)) = (mint.parse::<Pubkey>(), signer.parse::<Pubkey>()) else {
+            continue;
+        };
+        out.push(OutcomeRow {
+            intent_id: id,
+            mint,
+            signer,
+            launch_ms: launch_ms as u64,
+            outcome,
+            lead: lead != 0,
+            ret,
+            tp_hit: tp != 0,
+            s0_third: s0,
+            bundle_wallets: bw
+                .unwrap_or_default()
+                .split(',')
+                .filter_map(|k| k.parse().ok())
+                .collect(),
+            written_ms: written as u64,
+        });
+    }
+    Ok(out)
 }
