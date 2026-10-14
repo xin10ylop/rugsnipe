@@ -1,0 +1,1081 @@
+{
+ "generated_from": {
+  "stakewiz": "https://api.stakewiz.com/validators",
+  "rpc": "https://api.mainnet-beta.solana.com",
+  "rtt_sources": "WonderNetwork/DoubleZero/CloudPing, see RTT_SRC"
+ },
+ "epoch_note": "leader schedule = current epoch at fetch time",
+ "slot_ms": 217.0,
+ "overhead_ms": 5.0,
+ "validators_active": 683,
+ "total_stake_sol": 438627703,
+ "leader_slots": 432000,
+ "leader_slots_unmapped": 176,
+ "stake_pct": {
+  "city": {
+   "Frankfurt am Main, Germany": 32.22,
+   "Amsterdam, Netherlands": 19.01,
+   "London, United Kingdom": 8.41,
+   "Tokyo, Japan": 5.59,
+   "Siauliai, Lithuania": 4.62,
+   "Singapore, Singapore": 4.31,
+   "Washington, United States": 3.9,
+   "New York City, United States": 2.55,
+   "Los Angeles, United States": 2.06,
+   "Dublin, Ireland": 2.05,
+   "Stockholm, Sweden": 1.95,
+   "Newark, United States": 1.64,
+   "Boardman, United States": 1.29,
+   "Diemen, Netherlands": 1.21,
+   "Chicago, United States": 1.01,
+   "Russelsheim, Germany": 0.89,
+   "Rotterdam, Netherlands": 0.74,
+   "Hong Kong, Hong Kong": 0.66,
+   "Limburg an der Lahn, Germany": 0.57,
+   "Ogden, United States": 0.49,
+   "Toronto, Canada": 0.33,
+   "Montreal, Canada": 0.33,
+   "Seoul, South Korea": 0.31,
+   "Gravelines, France": 0.3,
+   "Sao Paulo, Brazil": 0.3,
+   "Warsaw, Poland": 0.26,
+   "Piscataway, United States": 0.25,
+   "Strasbourg, France": 0.25,
+   "Bratislava, Slovakia": 0.23,
+   "Dallas, United States": 0.2,
+   "Pittsburgh, United States": 0.17,
+   "Berlin, Germany": 0.16,
+   "Miami, United States": 0.14,
+   "Oslo, Norway": 0.1,
+   "Salt Lake City, United States": 0.09,
+   "Elk Grove, United States": 0.07,
+   "Secaucus, United States": 0.07,
+   "Haarlem, Netherlands": 0.07,
+   "Atlanta, United States": 0.07,
+   "Farnham Royal, United Kingdom": 0.06
+  },
+  "country": {
+   "Germany": 34.0,
+   "Netherlands": 21.13,
+   "United States": 14.2,
+   "United Kingdom": 8.55,
+   "Japan": 5.64,
+   "Lithuania": 4.62,
+   "Singapore": 4.31,
+   "Ireland": 2.05,
+   "Sweden": 1.95,
+   "Canada": 0.66,
+   "Hong Kong": 0.66,
+   "France": 0.57,
+   "South Korea": 0.31,
+   "Brazil": 0.3,
+   "Poland": 0.26,
+   "Slovakia": 0.23,
+   "Norway": 0.1,
+   "Spain": 0.07,
+   "Romania": 0.05,
+   "Austria": 0.05,
+   "Luxembourg": 0.04,
+   "Russian Federation": 0.04,
+   "Latvia": 0.03,
+   "Argentina": 0.03,
+   "Bulgaria": 0.03,
+   "Czechia": 0.02,
+   "Republic of Lithuania": 0.02,
+   "Ukraine": 0.02,
+   "Mexico": 0.01,
+   "Finland": 0.01,
+   "Switzerland": 0.0
+  },
+  "asn": {
+   "AS20326 TeraSwitch Networks Inc.": 26.17,
+   "AS395201 Allnodes Inc": 8.7,
+   "AS396356 Latitude.sh": 7.87,
+   "AS16125 UAB Cherry Servers": 4.26,
+   "AS396356 Saveincloud Hospedagem na Internet Ltda": 4.06,
+   "AS400963 Galaxy Digital LP": 3.23,
+   "AS7979 Servers.com B.V.": 3.19,
+   "AS213896 Private Customer": 2.83,
+   "AS14618 Amazon Data Services Northern Virginia": 2.81,
+   "AS59642 UAB Nacionalinis Telekomunikaciju Tinklas": 2.76,
+   "AS1072 Waverly Community Schools": 2.14,
+   "AS60068 Datacamp Limited": 1.84,
+   "AS16276 OVH SAS": 1.76,
+   "AS214159 UAB Cherry Servers": 1.67,
+   "AS20326 Teraswitch, Inc.": 1.66,
+   "AS262287 Latitude.sh": 1.65,
+   "AS7979 root SA": 1.62,
+   "AS9002 RETN Limited": 1.61,
+   "AS20473 Vultr Holdings, LLC": 1.3,
+   "AS16509 Amazon Technologies Inc.": 1.29,
+   "AS214783 Danny Nieuwenhuis trading as DedicatedNodes": 1.21,
+   "AS45102 Alibaba Cloud Singapore Private Limited": 1.21,
+   "AS396356 Megaport UK Limited": 1.07,
+   "AS214783 RTM Networks B.V.": 0.81,
+   "AS1072 Switch": 0.77,
+   "AS213896 UAB Cherry Servers": 0.63,
+   "AS206264 Amarutu Technology Ltd": 0.62,
+   "AS214434 Twinstake Ltd": 0.61,
+   "AS18450 WebNX, Inc.": 0.6,
+   "AS396356 Latitude.sh LTDA": 0.57,
+   "AS402479 Private Customer": 0.46,
+   "AS262287 X-Gravity Web Hosting": 0.4,
+   "AS29802 Hivelocity LLC": 0.4,
+   "AS20473 The Constant Company, LLC": 0.37,
+   "AS16125 Turkbil Telekomunikasyon": 0.36,
+   "AS16276 OVH Hosting, Inc.": 0.33,
+   "AS216444 UAB Cherry Servers": 0.31,
+   "AS9318 SK Broadband Co Ltd": 0.31,
+   "AS3402 Butterfly Research": 0.27,
+   "AS204770 UAB Nacionalinis Telekomunikaciju Tinklas": 0.26
+  },
+  "metro": {
+   "FRA": 35.0,
+   "AMS": 21.13,
+   "LON": 8.85,
+   "TYO": 5.95,
+   "NYC": 5.51,
+   "SQQ": 4.68,
+   "WAS": 4.32,
+   "SIN": 4.31,
+   "LAX": 2.14,
+   "STO": 2.07,
+   "DUB": 2.05,
+   "PDX": 1.34,
+   "CHI": 1.3,
+   "HKG": 0.66,
+   "SLC": 0.61,
+   "PAR": 0.09
+  },
+  "region": {
+   "EU": 73.87,
+   "APAC": 10.92,
+   "US-East": 9.82,
+   "US-West": 4.09,
+   "US-Central": 1.3
+  },
+  "hosting": {
+   "bare-metal/other": 90.3,
+   "AWS": 4.31,
+   "OVH": 2.31,
+   "Vultr": 1.8,
+   "Alibaba": 1.21,
+   "Hetzner": 0.06
+  }
+ },
+ "leader_slot_pct_by_metro": {
+  "FRA": 35.34,
+  "AMS": 21.03,
+  "LON": 9.16,
+  "TYO": 6.05,
+  "NYC": 5.39,
+  "SQQ": 4.51,
+  "WAS": 4.23,
+  "SIN": 4.21,
+  "LAX": 2.14,
+  "DUB": 2.05,
+  "STO": 1.98,
+  "PDX": 1.34,
+  "CHI": 1.27,
+  "HKG": 0.66,
+  "SLC": 0.52,
+  "PAR": 0.08
+ },
+ "rtt_matrix_ms": {
+  "AMS": {
+   "AMS": 1.0,
+   "CHI": 91.6,
+   "CMH": 97.4,
+   "DUB": 17.8,
+   "FRA": 7.4,
+   "HKG": 191.4,
+   "LAX": 131.9,
+   "LON": 6.4,
+   "NYC": 76.3,
+   "PAR": 13.5,
+   "PDX": 135.7,
+   "SIN": 155.7,
+   "SLC": 141.9,
+   "SQQ": 43.8,
+   "STO": 27.7,
+   "TYO": 235.8,
+   "WAS": 87.2
+  },
+  "CHI": {
+   "AMS": 91.6,
+   "CHI": 1.0,
+   "CMH": 12.9,
+   "DUB": 100.1,
+   "FRA": 106.9,
+   "HKG": 196.7,
+   "LAX": 52.2,
+   "LON": 91.6,
+   "NYC": 18.0,
+   "PAR": 96.6,
+   "PDX": 44.5,
+   "SIN": 217.9,
+   "SLC": 29.7,
+   "SQQ": 130.7,
+   "STO": 115.6,
+   "TYO": 148.3,
+   "WAS": 19.7
+  },
+  "CMH": {
+   "AMS": 97.4,
+   "CHI": 12.9,
+   "CMH": 1.0,
+   "DUB": 108.8,
+   "FRA": 107.9,
+   "HKG": 206.4,
+   "LAX": 60.3,
+   "LON": 90.1,
+   "NYC": 15.9,
+   "PAR": 95.1,
+   "PDX": 55.7,
+   "SIN": 233.3,
+   "SLC": 60.3,
+   "SQQ": 120.8,
+   "STO": 117.9,
+   "TYO": 145.8,
+   "WAS": 13.9
+  },
+  "DUB": {
+   "AMS": 17.8,
+   "CHI": 100.1,
+   "CMH": 108.8,
+   "DUB": 1.0,
+   "FRA": 25.4,
+   "HKG": 258.0,
+   "LAX": 145.2,
+   "LON": 10.8,
+   "NYC": 80.0,
+   "PAR": 15.4,
+   "PDX": 118.5,
+   "SIN": 163.9,
+   "SLC": 109.7,
+   "SQQ": 48.5,
+   "STO": 38.0,
+   "TYO": 203.8,
+   "WAS": 69.4
+  },
+  "FRA": {
+   "AMS": 7.4,
+   "CHI": 106.9,
+   "CMH": 107.9,
+   "DUB": 25.4,
+   "FRA": 1.0,
+   "HKG": 180.2,
+   "LAX": 145.8,
+   "LON": 16.8,
+   "NYC": 85.9,
+   "PAR": 10.2,
+   "PDX": 143.3,
+   "SIN": 156.9,
+   "SLC": 148.6,
+   "SQQ": 24.8,
+   "STO": 23.9,
+   "TYO": 230.0,
+   "WAS": 87.9
+  },
+  "HKG": {
+   "AMS": 191.4,
+   "CHI": 196.7,
+   "CMH": 206.4,
+   "DUB": 258.0,
+   "FRA": 180.2,
+   "HKG": 1.0,
+   "LAX": 149.7,
+   "LON": 199.2,
+   "NYC": 212.1,
+   "PAR": 196.7,
+   "PDX": 144.8,
+   "SIN": 30.1,
+   "SLC": 168.2,
+   "SQQ": 205.0,
+   "STO": 211.8,
+   "TYO": 52.5,
+   "WAS": 200.8
+  },
+  "LAX": {
+   "AMS": 131.9,
+   "CHI": 52.2,
+   "CMH": 60.3,
+   "DUB": 145.2,
+   "FRA": 145.8,
+   "HKG": 149.7,
+   "LAX": 1.0,
+   "LON": 124.7,
+   "NYC": 66.4,
+   "PAR": 127.7,
+   "PDX": 27.5,
+   "SIN": 176.6,
+   "SLC": 23.4,
+   "SQQ": 157.6,
+   "STO": 161.3,
+   "TYO": 105.1,
+   "WAS": 56.4
+  },
+  "LON": {
+   "AMS": 6.4,
+   "CHI": 91.6,
+   "CMH": 90.1,
+   "DUB": 10.8,
+   "FRA": 16.8,
+   "HKG": 199.2,
+   "LAX": 124.7,
+   "LON": 1.0,
+   "NYC": 70.0,
+   "PAR": 7.2,
+   "PDX": 129.3,
+   "SIN": 162.3,
+   "SLC": 131.9,
+   "SQQ": 38.9,
+   "STO": 25.7,
+   "TYO": 214.2,
+   "WAS": 75.3
+  },
+  "NYC": {
+   "AMS": 76.3,
+   "CHI": 18.0,
+   "CMH": 15.9,
+   "DUB": 80.0,
+   "FRA": 85.9,
+   "HKG": 212.1,
+   "LAX": 66.4,
+   "LON": 70.0,
+   "NYC": 1.0,
+   "PAR": 72.9,
+   "PDX": 62.5,
+   "SIN": 220.0,
+   "SLC": 64.4,
+   "SQQ": 106.5,
+   "STO": 97.2,
+   "TYO": 173.1,
+   "WAS": 7.5
+  },
+  "PAR": {
+   "AMS": 13.5,
+   "CHI": 96.6,
+   "CMH": 95.1,
+   "DUB": 15.4,
+   "FRA": 10.2,
+   "HKG": 196.7,
+   "LAX": 127.7,
+   "LON": 7.2,
+   "NYC": 72.9,
+   "PAR": 1.0,
+   "PDX": 142.2,
+   "SIN": 150.6,
+   "SLC": 133.2,
+   "SQQ": 29.8,
+   "STO": 27.5,
+   "TYO": 221.0,
+   "WAS": 78.5
+  },
+  "PDX": {
+   "AMS": 135.7,
+   "CHI": 44.5,
+   "CMH": 55.7,
+   "DUB": 118.5,
+   "FRA": 143.3,
+   "HKG": 144.8,
+   "LAX": 27.5,
+   "LON": 129.3,
+   "NYC": 62.5,
+   "PAR": 142.2,
+   "PDX": 1.0,
+   "SIN": 167.4,
+   "SLC": 40.7,
+   "SQQ": 163.7,
+   "STO": 154.6,
+   "TYO": 99.3,
+   "WAS": 68.3
+  },
+  "SIN": {
+   "AMS": 155.7,
+   "CHI": 217.9,
+   "CMH": 233.3,
+   "DUB": 163.9,
+   "FRA": 156.9,
+   "HKG": 30.1,
+   "LAX": 176.6,
+   "LON": 162.3,
+   "NYC": 220.0,
+   "PAR": 150.6,
+   "PDX": 167.4,
+   "SIN": 1.0,
+   "SLC": 169.6,
+   "SQQ": 191.4,
+   "STO": 180.4,
+   "TYO": 68.0,
+   "WAS": 213.6
+  },
+  "SLC": {
+   "AMS": 141.9,
+   "CHI": 29.7,
+   "CMH": 60.3,
+   "DUB": 109.7,
+   "FRA": 148.6,
+   "HKG": 168.2,
+   "LAX": 23.4,
+   "LON": 131.9,
+   "NYC": 64.4,
+   "PAR": 133.2,
+   "PDX": 40.7,
+   "SIN": 169.6,
+   "SLC": 1.0,
+   "SQQ": 150.4,
+   "STO": 143.4,
+   "TYO": 115.7,
+   "WAS": 61.5
+  },
+  "SQQ": {
+   "AMS": 43.8,
+   "CHI": 130.7,
+   "CMH": 120.8,
+   "DUB": 48.5,
+   "FRA": 24.8,
+   "HKG": 205.0,
+   "LAX": 157.6,
+   "LON": 38.9,
+   "NYC": 106.5,
+   "PAR": 29.8,
+   "PDX": 163.7,
+   "SIN": 191.4,
+   "SLC": 150.4,
+   "SQQ": 1.0,
+   "STO": 33.2,
+   "TYO": 285.0,
+   "WAS": 118.0
+  },
+  "STO": {
+   "AMS": 27.7,
+   "CHI": 115.6,
+   "CMH": 117.9,
+   "DUB": 38.0,
+   "FRA": 23.9,
+   "HKG": 211.8,
+   "LAX": 161.3,
+   "LON": 25.7,
+   "NYC": 97.2,
+   "PAR": 27.5,
+   "PDX": 154.6,
+   "SIN": 180.4,
+   "SLC": 143.4,
+   "SQQ": 33.2,
+   "STO": 1.0,
+   "TYO": 246.3,
+   "WAS": 98.1
+  },
+  "TYO": {
+   "AMS": 235.8,
+   "CHI": 148.3,
+   "CMH": 145.8,
+   "DUB": 203.8,
+   "FRA": 230.0,
+   "HKG": 52.5,
+   "LAX": 105.1,
+   "LON": 214.2,
+   "NYC": 173.1,
+   "PAR": 221.0,
+   "PDX": 99.3,
+   "SIN": 68.0,
+   "SLC": 115.7,
+   "SQQ": 285.0,
+   "STO": 246.3,
+   "TYO": 1.0,
+   "WAS": 149.4
+  },
+  "WAS": {
+   "AMS": 87.2,
+   "CHI": 19.7,
+   "CMH": 13.9,
+   "DUB": 69.4,
+   "FRA": 87.9,
+   "HKG": 200.8,
+   "LAX": 56.4,
+   "LON": 75.3,
+   "NYC": 7.5,
+   "PAR": 78.5,
+   "PDX": 68.3,
+   "SIN": 213.6,
+   "SLC": 61.5,
+   "SQQ": 118.0,
+   "STO": 98.1,
+   "TYO": 149.4,
+   "WAS": 1.0
+  }
+ },
+ "single_site": [
+  {
+   "sites": [
+    "AMS"
+   ],
+   "mean_rtt_ms": 43.7,
+   "p_same_slot": 0.7822,
+   "cov_le_ms": {
+    "2": 0.2016,
+    "10": 0.6387,
+    "25": 0.6717,
+    "50": 0.7415
+   }
+  },
+  {
+   "sites": [
+    "FRA"
+   ],
+   "mean_rtt_ms": 43.8,
+   "p_same_slot": 0.7804,
+   "cov_le_ms": {
+    "2": 0.3407,
+    "10": 0.5542,
+    "25": 0.7169,
+    "50": 0.7415
+   }
+  },
+  {
+   "sites": [
+    "PAR"
+   ],
+   "mean_rtt_ms": 45.1,
+   "p_same_slot": 0.7717,
+   "cov_le_ms": {
+    "2": 0.0,
+    "10": 0.0879,
+    "25": 0.6723,
+    "50": 0.7411
+   }
+  },
+  {
+   "sites": [
+    "LON"
+   ],
+   "mean_rtt_ms": 45.1,
+   "p_same_slot": 0.7696,
+   "cov_le_ms": {
+    "2": 0.0877,
+    "10": 0.3019,
+    "25": 0.6671,
+    "50": 0.7409
+   }
+  },
+  {
+   "sites": [
+    "DUB"
+   ],
+   "mean_rtt_ms": 52.4,
+   "p_same_slot": 0.737,
+   "cov_le_ms": {
+    "2": 0.0205,
+    "10": 0.0205,
+    "25": 0.3226,
+    "50": 0.7397
+   }
+  },
+  {
+   "sites": [
+    "STO"
+   ],
+   "mean_rtt_ms": 60.9,
+   "p_same_slot": 0.7059,
+   "cov_le_ms": {
+    "2": 0.0187,
+    "10": 0.0198,
+    "25": 0.3605,
+    "50": 0.74
+   }
+  },
+  {
+   "sites": [
+    "SQQ"
+   ],
+   "mean_rtt_ms": 69.6,
+   "p_same_slot": 0.6768,
+   "cov_le_ms": {
+    "2": 0.0448,
+    "10": 0.0451,
+    "25": 0.3798,
+    "50": 0.7395
+   }
+  },
+  {
+   "sites": [
+    "NYC"
+   ],
+   "mean_rtt_ms": 86.5,
+   "p_same_slot": 0.5793,
+   "cov_le_ms": {
+    "2": 0.0439,
+    "10": 0.0822,
+    "25": 0.1021,
+    "50": 0.1055
+   }
+  },
+  {
+   "sites": [
+    "WAS"
+   ],
+   "mean_rtt_ms": 88.5,
+   "p_same_slot": 0.5689,
+   "cov_le_ms": {
+    "2": 0.0383,
+    "10": 0.0844,
+    "25": 0.1021,
+    "50": 0.1055
+   }
+  },
+  {
+   "sites": [
+    "CHI"
+   ],
+   "mean_rtt_ms": 99.8,
+   "p_same_slot": 0.5175,
+   "cov_le_ms": {
+    "2": 0.0103,
+    "10": 0.0103,
+    "25": 0.0966,
+    "50": 0.1235
+   }
+  },
+  {
+   "sites": [
+    "CMH"
+   ],
+   "mean_rtt_ms": 101.9,
+   "p_same_slot": 0.5111,
+   "cov_le_ms": {
+    "2": 0,
+    "10": 0,
+    "25": 0.0947,
+    "50": 0.1056
+   }
+  },
+  {
+   "sites": [
+    "PDX"
+   ],
+   "mean_rtt_ms": 126.6,
+   "p_same_slot": 0.3929,
+   "cov_le_ms": {
+    "2": 0.0127,
+    "10": 0.0127,
+    "25": 0.0127,
+    "50": 0.0503
+   }
+  },
+  {
+   "sites": [
+    "LAX"
+   ],
+   "mean_rtt_ms": 127.0,
+   "p_same_slot": 0.3914,
+   "cov_le_ms": {
+    "2": 0.0205,
+    "10": 0.0214,
+    "25": 0.0266,
+    "50": 0.0393
+   }
+  },
+  {
+   "sites": [
+    "SLC"
+   ],
+   "mean_rtt_ms": 130.1,
+   "p_same_slot": 0.3768,
+   "cov_le_ms": {
+    "2": 0.0052,
+    "10": 0.0052,
+    "25": 0.0257,
+    "50": 0.0496
+   }
+  },
+  {
+   "sites": [
+    "SIN"
+   ],
+   "mean_rtt_ms": 154.6,
+   "p_same_slot": 0.2692,
+   "cov_le_ms": {
+    "2": 0.0421,
+    "10": 0.0421,
+    "25": 0.0421,
+    "50": 0.0487
+   }
+  },
+  {
+   "sites": [
+    "HKG"
+   ],
+   "mean_rtt_ms": 174.9,
+   "p_same_slot": 0.1771,
+   "cov_le_ms": {
+    "2": 0.0066,
+    "10": 0.0066,
+    "25": 0.0066,
+    "50": 0.0487
+   }
+  },
+  {
+   "sites": [
+    "TYO"
+   ],
+   "mean_rtt_ms": 198.5,
+   "p_same_slot": 0.1356,
+   "cov_le_ms": {
+    "2": 0.057,
+    "10": 0.0575,
+    "25": 0.0575,
+    "50": 0.0605
+   }
+  }
+ ],
+ "best_sets": {
+  "2": [
+   {
+    "sites": [
+     "AMS",
+     "TYO"
+    ],
+    "mean_rtt_ms": 23.7,
+    "p_same_slot": 0.8673,
+    "cov_le_ms": {
+     "2": 0.2587,
+     "10": 0.6962,
+     "25": 0.7292,
+     "50": 0.8019
+    }
+   },
+   {
+    "sites": [
+     "FRA",
+     "TYO"
+    ],
+    "mean_rtt_ms": 23.7,
+    "p_same_slot": 0.8673,
+    "cov_le_ms": {
+     "2": 0.3977,
+     "10": 0.6117,
+     "25": 0.7744,
+     "50": 0.8019
+    }
+   },
+   {
+    "sites": [
+     "AMS",
+     "SIN"
+    ],
+    "mean_rtt_ms": 26.0,
+    "p_same_slot": 0.8568,
+    "cov_le_ms": {
+     "2": 0.2438,
+     "10": 0.6808,
+     "25": 0.7138,
+     "50": 0.7901
+    }
+   },
+   {
+    "sites": [
+     "AMS",
+     "HKG"
+    ],
+    "mean_rtt_ms": 26.1,
+    "p_same_slot": 0.8563,
+    "cov_le_ms": {
+     "2": 0.2082,
+     "10": 0.6452,
+     "25": 0.6783,
+     "50": 0.7901
+    }
+   },
+   {
+    "sites": [
+     "PAR",
+     "TYO"
+    ],
+    "mean_rtt_ms": 26.2,
+    "p_same_slot": 0.8557,
+    "cov_le_ms": {
+     "2": 0.057,
+     "10": 0.1454,
+     "25": 0.7298,
+     "50": 0.8016
+    }
+   }
+  ],
+  "3": [
+   {
+    "sites": [
+     "FRA",
+     "TYO",
+     "WAS"
+    ],
+    "mean_rtt_ms": 13.0,
+    "p_same_slot": 0.9168,
+    "cov_le_ms": {
+     "2": 0.436,
+     "10": 0.6961,
+     "25": 0.8765,
+     "50": 0.9074
+    }
+   },
+   {
+    "sites": [
+     "FRA",
+     "NYC",
+     "TYO"
+    ],
+    "mean_rtt_ms": 13.0,
+    "p_same_slot": 0.9166,
+    "cov_le_ms": {
+     "2": 0.4416,
+     "10": 0.6939,
+     "25": 0.8765,
+     "50": 0.9074
+    }
+   },
+   {
+    "sites": [
+     "CHI",
+     "FRA",
+     "TYO"
+    ],
+    "mean_rtt_ms": 13.5,
+    "p_same_slot": 0.9143,
+    "cov_le_ms": {
+     "2": 0.408,
+     "10": 0.6219,
+     "25": 0.871,
+     "50": 0.9255
+    }
+   },
+   {
+    "sites": [
+     "AMS",
+     "TYO",
+     "WAS"
+    ],
+    "mean_rtt_ms": 13.7,
+    "p_same_slot": 0.9134,
+    "cov_le_ms": {
+     "2": 0.297,
+     "10": 0.7806,
+     "25": 0.8313,
+     "50": 0.9074
+    }
+   },
+   {
+    "sites": [
+     "AMS",
+     "NYC",
+     "TYO"
+    ],
+    "mean_rtt_ms": 13.8,
+    "p_same_slot": 0.9132,
+    "cov_le_ms": {
+     "2": 0.3025,
+     "10": 0.7784,
+     "25": 0.8313,
+     "50": 0.9074
+    }
+   }
+  ],
+  "4": [
+   {
+    "sites": [
+     "FRA",
+     "SIN",
+     "TYO",
+     "WAS"
+    ],
+    "mean_rtt_ms": 10.0,
+    "p_same_slot": 0.9305,
+    "cov_le_ms": {
+     "2": 0.4782,
+     "10": 0.7382,
+     "25": 0.9187,
+     "50": 0.9561
+    }
+   },
+   {
+    "sites": [
+     "FRA",
+     "NYC",
+     "SIN",
+     "TYO"
+    ],
+    "mean_rtt_ms": 10.0,
+    "p_same_slot": 0.9303,
+    "cov_le_ms": {
+     "2": 0.4837,
+     "10": 0.736,
+     "25": 0.9187,
+     "50": 0.9561
+    }
+   },
+   {
+    "sites": [
+     "AMS",
+     "FRA",
+     "TYO",
+     "WAS"
+    ],
+    "mean_rtt_ms": 10.5,
+    "p_same_slot": 0.9282,
+    "cov_le_ms": {
+     "2": 0.6377,
+     "10": 0.7842,
+     "25": 0.8976,
+     "50": 0.9074
+    }
+   },
+   {
+    "sites": [
+     "CHI",
+     "FRA",
+     "SIN",
+     "TYO"
+    ],
+    "mean_rtt_ms": 10.5,
+    "p_same_slot": 0.928,
+    "cov_le_ms": {
+     "2": 0.4501,
+     "10": 0.6641,
+     "25": 0.9131,
+     "50": 0.9741
+    }
+   },
+   {
+    "sites": [
+     "AMS",
+     "FRA",
+     "NYC",
+     "TYO"
+    ],
+    "mean_rtt_ms": 10.6,
+    "p_same_slot": 0.9279,
+    "cov_le_ms": {
+     "2": 0.6432,
+     "10": 0.782,
+     "25": 0.8976,
+     "50": 0.9074
+    }
+   }
+  ],
+  "5": [
+   {
+    "sites": [
+     "AMS",
+     "FRA",
+     "SIN",
+     "TYO",
+     "WAS"
+    ],
+    "mean_rtt_ms": 7.5,
+    "p_same_slot": 0.9418,
+    "cov_le_ms": {
+     "2": 0.6798,
+     "10": 0.8263,
+     "25": 0.9398,
+     "50": 0.9561
+    }
+   },
+   {
+    "sites": [
+     "AMS",
+     "FRA",
+     "NYC",
+     "SIN",
+     "TYO"
+    ],
+    "mean_rtt_ms": 7.6,
+    "p_same_slot": 0.9416,
+    "cov_le_ms": {
+     "2": 0.6853,
+     "10": 0.8241,
+     "25": 0.9398,
+     "50": 0.9561
+    }
+   },
+   {
+    "sites": [
+     "FRA",
+     "LAX",
+     "NYC",
+     "SIN",
+     "TYO"
+    ],
+    "mean_rtt_ms": 8.0,
+    "p_same_slot": 0.9399,
+    "cov_le_ms": {
+     "2": 0.5042,
+     "10": 0.7574,
+     "25": 0.9453,
+     "50": 0.9954
+    }
+   },
+   {
+    "sites": [
+     "FRA",
+     "LON",
+     "SIN",
+     "TYO",
+     "WAS"
+    ],
+    "mean_rtt_ms": 8.0,
+    "p_same_slot": 0.9396,
+    "cov_le_ms": {
+     "2": 0.5659,
+     "10": 0.8303,
+     "25": 0.94,
+     "50": 0.9561
+    }
+   },
+   {
+    "sites": [
+     "FRA",
+     "LAX",
+     "SIN",
+     "TYO",
+     "WAS"
+    ],
+    "mean_rtt_ms": 8.1,
+    "p_same_slot": 0.9394,
+    "cov_le_ms": {
+     "2": 0.4986,
+     "10": 0.7596,
+     "25": 0.9453,
+     "50": 0.9954
+    }
+   }
+  ]
+ },
+ "all_metros": {
+  "sites": [
+   "AMS",
+   "CHI",
+   "CMH",
+   "DUB",
+   "FRA",
+   "HKG",
+   "LAX",
+   "LON",
+   "NYC",
+   "PAR",
+   "PDX",
+   "SIN",
+   "SLC",
+   "SQQ",
+   "STO",
+   "TYO",
+   "WAS"
+  ],
+  "mean_rtt_ms": 2.0,
+  "p_same_slot": 0.9674,
+  "cov_le_ms": {
+   "2": 0.9507,
+   "10": 0.972,
+   "25": 0.9899,
+   "50": 0.9962
+  }
+ }
+}

@@ -1,0 +1,458 @@
+[
+ {
+  "provider": "jito",
+  "host": "ny.mainnet.block-engine.jito.wtf",
+  "ip": "64.130.59.53",
+  "city": "Newark",
+  "country": "US",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "jito",
+  "host": "amsterdam.mainnet.block-engine.jito.wtf",
+  "ip": "64.130.52.119",
+  "city": "Amsterdam",
+  "country": "NL",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "jito",
+  "host": "frankfurt.mainnet.block-engine.jito.wtf",
+  "ip": "64.130.50.88",
+  "city": "Frankfurt am Main",
+  "country": "DE",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "jito",
+  "host": "london.mainnet.block-engine.jito.wtf",
+  "ip": "64.130.63.171",
+  "city": "London",
+  "country": "GB",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "jito",
+  "host": "dublin.mainnet.block-engine.jito.wtf",
+  "ip": "64.130.61.37",
+  "city": "Crumlin",
+  "country": "IE",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "jito",
+  "host": "tokyo.mainnet.block-engine.jito.wtf",
+  "ip": "202.8.9.22",
+  "city": "Tokyo",
+  "country": "JP",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "jito",
+  "host": "singapore.mainnet.block-engine.jito.wtf",
+  "ip": "202.8.11.169",
+  "city": "Singapore",
+  "country": "SG",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "jito",
+  "host": "slc.mainnet.block-engine.jito.wtf",
+  "ip": "64.130.53.56",
+  "city": "Bluffdale",
+  "country": "US",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "helius-sender",
+  "host": "ewr-sender.helius-rpc.com",
+  "ip": "208.91.110.146",
+  "city": "Newark",
+  "country": "US",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "helius-sender",
+  "host": "fra-sender.helius-rpc.com",
+  "ip": "64.130.50.91",
+  "city": "Frankfurt am Main",
+  "country": "DE",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "helius-sender",
+  "host": "ams-sender.helius-rpc.com",
+  "ip": "64.130.42.91",
+  "city": "Amsterdam",
+  "country": "NL",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "helius-sender",
+  "host": "lon-sender.helius-rpc.com",
+  "ip": "67.209.52.244",
+  "city": "London",
+  "country": "GB",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "helius-sender",
+  "host": "slc-sender.helius-rpc.com",
+  "ip": "64.130.53.73",
+  "city": "Bluffdale",
+  "country": "US",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "helius-sender",
+  "host": "sg-sender.helius-rpc.com",
+  "ip": "198.13.130.83",
+  "city": "Singapore",
+  "country": "SG",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "helius-sender",
+  "host": "tyo-sender.helius-rpc.com",
+  "ip": "64.130.49.248",
+  "city": "Tokyo",
+  "country": "JP",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "laserstream",
+  "host": "laserstream-mainnet-ewr.helius-rpc.com",
+  "ip": "208.91.110.238",
+  "city": "Newark",
+  "country": "US",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "laserstream",
+  "host": "laserstream-mainnet-pitt.helius-rpc.com",
+  "ip": "64.130.56.23",
+  "city": "Pittsburgh",
+  "country": "US",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "laserstream",
+  "host": "laserstream-mainnet-fra.helius-rpc.com",
+  "ip": "64.130.32.214",
+  "city": "Frankfurt am Main",
+  "country": "DE",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "laserstream",
+  "host": "laserstream-mainnet-ams.helius-rpc.com",
+  "ip": "64.130.62.203",
+  "city": "Amsterdam",
+  "country": "NL",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "laserstream",
+  "host": "laserstream-mainnet-lon.helius-rpc.com",
+  "ip": "67.209.52.234",
+  "city": "London",
+  "country": "GB",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "laserstream",
+  "host": "laserstream-mainnet-lax.helius-rpc.com",
+  "ip": "64.130.58.36",
+  "city": "Los Angeles",
+  "country": "US",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "laserstream",
+  "host": "laserstream-mainnet-tyo.helius-rpc.com",
+  "ip": "64.130.49.243",
+  "city": "Tokyo",
+  "country": "JP",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "laserstream",
+  "host": "laserstream-mainnet-sgp.helius-rpc.com",
+  "ip": "198.13.130.60",
+  "city": "Singapore",
+  "country": "SG",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "nozomi",
+  "host": "pit1.nozomi.temporal.xyz",
+  "ip": "208.91.110.41",
+  "city": "Newark",
+  "country": "US",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "nozomi",
+  "host": "ewr1.nozomi.temporal.xyz",
+  "ip": "208.91.110.41",
+  "city": "Newark",
+  "country": "US",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "nozomi",
+  "host": "ash1.nozomi.temporal.xyz",
+  "ip": "208.91.105.189",
+  "city": "Ashburn",
+  "country": "US",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "nozomi",
+  "host": "lax1.nozomi.temporal.xyz",
+  "ip": "64.130.58.74",
+  "city": "Los Angeles",
+  "country": "US",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "nozomi",
+  "host": "fra2.nozomi.temporal.xyz",
+  "ip": "64.130.47.135",
+  "city": "Frankfurt am Main",
+  "country": "DE",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "nozomi",
+  "host": "ams1.nozomi.temporal.xyz",
+  "ip": "64.130.42.140",
+  "city": "Amsterdam",
+  "country": "NL",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "nozomi",
+  "host": "lon1.nozomi.temporal.xyz",
+  "ip": "64.130.63.12",
+  "city": "London",
+  "country": "GB",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "nozomi",
+  "host": "tyo1.nozomi.temporal.xyz",
+  "ip": "64.130.44.152",
+  "city": "Tokyo",
+  "country": "JP",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "nozomi",
+  "host": "sgp1.nozomi.temporal.xyz",
+  "ip": "198.13.130.125",
+  "city": "Singapore",
+  "country": "SG",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "0slot",
+  "host": "ny.0slot.trade",
+  "ip": "172.66.40.254",
+  "city": "San Francisco",
+  "country": "US",
+  "org": "AS13335 Cloudflare, Inc."
+ },
+ {
+  "provider": "0slot",
+  "host": "de1.0slot.trade",
+  "ip": "162.19.211.191",
+  "city": "Frankfurt am Main",
+  "country": "DE",
+  "org": "AS16276 OVH SAS"
+ },
+ {
+  "provider": "0slot",
+  "host": "de2.0slot.trade",
+  "ip": "64.130.32.201",
+  "city": "Frankfurt am Main",
+  "country": "DE",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "0slot",
+  "host": "ams.0slot.trade",
+  "ip": "172.66.40.254",
+  "city": "San Francisco",
+  "country": "US",
+  "org": "AS13335 Cloudflare, Inc."
+ },
+ {
+  "provider": "0slot",
+  "host": "la.0slot.trade",
+  "ip": "172.66.40.254",
+  "city": "San Francisco",
+  "country": "US",
+  "org": "AS13335 Cloudflare, Inc."
+ },
+ {
+  "provider": "0slot",
+  "host": "jp.0slot.trade",
+  "ip": "172.66.40.254",
+  "city": "San Francisco",
+  "country": "US",
+  "org": "AS13335 Cloudflare, Inc."
+ },
+ {
+  "provider": "nextblock",
+  "host": "ny.nextblock.io",
+  "ip": "64.130.34.140",
+  "city": "Newark",
+  "country": "US",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "nextblock",
+  "host": "fra.nextblock.io",
+  "ip": "64.130.40.42",
+  "city": "Frankfurt am Main",
+  "country": "DE",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "nextblock",
+  "host": "ams.nextblock.io",
+  "ip": "64.130.42.237",
+  "city": "Amsterdam",
+  "country": "NL",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "nextblock",
+  "host": "london.nextblock.io",
+  "ip": "64.130.46.74",
+  "city": "London",
+  "country": "GB",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "nextblock",
+  "host": "tokyo.nextblock.io",
+  "ip": "208.91.107.166",
+  "city": "Tokyo",
+  "country": "JP",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "nextblock",
+  "host": "slc.nextblock.io",
+  "ip": "64.130.33.149",
+  "city": "Bluffdale",
+  "country": "US",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "bloxroute",
+  "host": "ny.solana.dex.blxrbdn.com",
+  "ip": "208.91.110.166",
+  "city": "Newark",
+  "country": "US",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "bloxroute",
+  "host": "germany.solana.dex.blxrbdn.com",
+  "ip": "64.130.40.196",
+  "city": "Frankfurt am Main",
+  "country": "DE",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "bloxroute",
+  "host": "amsterdam.solana.dex.blxrbdn.com",
+  "ip": "74.118.139.142",
+  "city": "Amsterdam",
+  "country": "NL",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "bloxroute",
+  "host": "uk.solana.dex.blxrbdn.com",
+  "ip": "64.130.63.38",
+  "city": "London",
+  "country": "GB",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "bloxroute",
+  "host": "tokyo.solana.dex.blxrbdn.com",
+  "ip": "63.254.162.40",
+  "city": "Tokyo",
+  "country": "JP",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "astralane",
+  "host": "fr.gateway.astralane.io",
+  "ip": "185.191.117.97",
+  "city": "Frankfurt am Main",
+  "country": "DE",
+  "org": "AS213896 UAB Cherry Servers"
+ },
+ {
+  "provider": "astralane",
+  "host": "ams.gateway.astralane.io",
+  "ip": "64.130.43.43",
+  "city": "Amsterdam",
+  "country": "NL",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "astralane",
+  "host": "ny.gateway.astralane.io",
+  "ip": "64.130.45.19",
+  "city": "Newark",
+  "country": "US",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "astralane",
+  "host": "jp.gateway.astralane.io",
+  "ip": "189.1.164.31",
+  "city": "Tokyo",
+  "country": "JP",
+  "org": "AS396356 Latitude.sh"
+ },
+ {
+  "provider": "blockrazor",
+  "host": "frankfurt.solana.blockrazor.xyz",
+  "ip": "64.130.47.70",
+  "city": "Frankfurt am Main",
+  "country": "DE",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "blockrazor",
+  "host": "newyork.solana.blockrazor.xyz",
+  "ip": "64.130.34.131",
+  "city": "Newark",
+  "country": "US",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "triton",
+  "host": "ams.rpcpool.com",
+  "ip": "64.130.43.38",
+  "city": "Amsterdam",
+  "country": "NL",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ },
+ {
+  "provider": "triton",
+  "host": "fra.rpcpool.com",
+  "ip": "64.130.50.105",
+  "city": "Frankfurt am Main",
+  "country": "DE",
+  "org": "AS20326 TeraSwitch Networks Inc."
+ }
+]

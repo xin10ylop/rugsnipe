@@ -1,0 +1,3470 @@
+{
+ "generated_utc": "2026-10-14T08:48:26Z",
+ "params": {
+  "n_recent": 120,
+  "n_notable": 40,
+  "n_bundled": 0,
+  "bundle_screen": 400,
+  "pages": 20,
+  "min_age_min": 3.0,
+  "notable_ath_usd": 8000.0,
+  "creator_pages": 3,
+  "workers": 4,
+  "siblings": 8,
+  "siblings_max_txs": 300,
+  "from_rows": "data/funding_creators.jsonl (run 1, re-traced with the expanded label set)"
+ },
+ "coins_pool": 50,
+ "sample_size": 180,
+ "definitions": {
+  "fresh_creator": "creator history complete, <=5 txs before the create tx and first tx <=24h before create",
+  "direct_funder_kind": "cex (labeled), fresh_intermediary (<=10 txs, born <=48h before funding), wallet (other unlabeled <=2000 txs), exchange_like (>2000 txs, unlabeled), via_bridge/via_dex (funds arrived through a labeled program from a PDA/relayer)",
+  "bundled": ">=2 distinct non-creator buyers in the creation slot (swap-api trades)",
+  "chain_pattern": "see funding.summarize_chain"
+ },
+ "aggregates": {
+  "all": {
+   "n_creators": 180,
+   "funding_status": {
+    "ok": 126,
+    "older_than_cap": 54
+   },
+   "direct_funder_kind": {
+    "wallet": 33,
+    "cex": 27,
+    "fresh_intermediary": 26,
+    "exchange_like": 24,
+    "via_launchpad": 8,
+    "onramp": 4,
+    "via_dex": 3,
+    "via_bridge": 1
+   },
+   "chain_pattern": {
+    "mother_or_simple": 39,
+    "exchange": 35,
+    "exchange_like_or_mother": 28,
+    "dex_or_launchpad": 13,
+    "fresh_chain_unresolved": 8,
+    "bridge": 3
+   },
+   "chain_origin": {
+    "exchange_like": 42,
+    "cex": 34,
+    "fresh_intermediary": 14,
+    "via_launchpad": 13,
+    "wallet": 9,
+    "via_dex": 4,
+    "onramp": 4,
+    "bridge": 2,
+    "via_bridge": 2,
+    "swap_service": 2
+   },
+   "labeled_exchange_within_3_hops": 40,
+   "labeled_exchange_entities": {
+    "Binance": 21,
+    "KuCoin": 4,
+    "Bybit": 4,
+    "MoonPay": 4,
+    "FixedFloat": 2,
+    "Gate.io": 1,
+    "Coinbase": 1,
+    "Bitstamp": 1,
+    "Kraken": 1,
+    "LBank": 1
+   },
+   "funded_directly_by_labeled_cex": 27,
+   "funded_directly_by_labeled_exchange_category": 31,
+   "funded_by_fresh_intermediary": 26,
+   "funded_by_exchange_like_unlabeled": 24,
+   "funded_by_regular_wallet": 33,
+   "fresh_creators": 60,
+   "creator_txs_before_create": {
+    "n": 126,
+    "p10": 1,
+    "p25": 1,
+    "median": 5,
+    "p75": 125,
+    "p90": 1622,
+    "mean": 329.46
+   },
+   "creators_with_prior_coins_same_wallet(>1 coin)": 109,
+   "prior_coins_dist": {
+    "1": 71,
+    "50": 64,
+    "2": 11,
+    "3": 8,
+    "5": 3,
+    "4": 3,
+    "10": 2,
+    "15": 2,
+    "6": 2,
+    "29": 2
+   },
+   "funding_amount_sol": {
+    "n": 126,
+    "p10": 0.03,
+    "p25": 0.2,
+    "median": 1.012896209,
+    "p75": 2.00409335,
+    "p90": 17.657727156,
+    "mean": 34.731
+   },
+   "funding_amount_bins": {
+    "[0,0.05)": 17,
+    "[0.05,0.1)": 4,
+    "[0.1,0.25)": 12,
+    "[0.25,0.5)": 9,
+    "[0.5,1)": 17,
+    "[1,2)": 32,
+    "[2,3)": 11,
+    "[3,5)": 4,
+    "[5,10)": 6,
+    "[10,25)": 3,
+    "[25,inf)": 11
+   },
+   "funding_amount_round_0.1": 16,
+   "funding_amount_odd": 110,
+   "top_amounts_3dp": {
+    "1.000": 4,
+    "0.010": 4,
+    "2.000": 3,
+    "0.001": 3,
+    "0.500": 2,
+    "0.100": 2,
+    "0.900": 2,
+    "0.017": 2,
+    "1.999": 2,
+    "0.030": 2,
+    "11.309": 1,
+    "0.176": 1,
+    "0.461": 1,
+    "1.577": 1,
+    "1.531": 1
+   },
+   "amount_2.955_or_2.995": 0,
+   "first_incoming_is_main_funding": 98,
+   "first_incoming_amount_sol": {
+    "n": 126,
+    "p10": 0.01693888,
+    "p25": 0.1,
+    "median": 0.880082855,
+    "p75": 1.999,
+    "p90": 6.372814519,
+    "mean": 22.368
+   },
+   "first_incoming_amount_bins": {
+    "[0,0.05)": 22,
+    "[0.05,0.1)": 8,
+    "[0.1,0.25)": 17,
+    "[0.25,0.5)": 8,
+    "[0.5,1)": 16,
+    "[1,2)": 24,
+    "[2,3)": 11,
+    "[3,5)": 4,
+    "[5,10)": 6,
+    "[10,25)": 1,
+    "[25,inf)": 9
+   },
+   "first_funding_to_create_seconds": {
+    "n": 126,
+    "p10": 29,
+    "p25": 163,
+    "median": 3192,
+    "p75": 565300,
+    "p90": 6650257,
+    "mean": 4303097.468
+   },
+   "funding_to_create_seconds": {
+    "n": 126,
+    "p10": 23,
+    "p25": 159,
+    "median": 2127,
+    "p75": 517646,
+    "p90": 6167620,
+    "mean": 3916959.357
+   },
+   "funding_to_create_le_60s": 23,
+   "funding_to_create_le_10min": 50,
+   "funding_to_create_le_1h": 65,
+   "funding_to_create_gt_24h": 50,
+   "creator_is_not_signer": 0,
+   "bundled_creates(>=2 other buyers in slot0)": 88
+  },
+  "arm_recent": {
+   "n_creators": 100,
+   "funding_status": {
+    "older_than_cap": 32,
+    "ok": 68
+   },
+   "direct_funder_kind": {
+    "wallet": 22,
+    "fresh_intermediary": 14,
+    "exchange_like": 11,
+    "cex": 9,
+    "via_launchpad": 5,
+    "onramp": 4,
+    "via_dex": 2,
+    "via_bridge": 1
+   },
+   "chain_pattern": {
+    "mother_or_simple": 27,
+    "exchange": 15,
+    "exchange_like_or_mother": 13,
+    "dex_or_launchpad": 7,
+    "fresh_chain_unresolved": 4,
+    "bridge": 2
+   },
+   "chain_origin": {
+    "exchange_like": 25,
+    "cex": 13,
+    "fresh_intermediary": 8,
+    "via_launchpad": 7,
+    "onramp": 4,
+    "via_dex": 3,
+    "wallet": 3,
+    "via_bridge": 2,
+    "swap_service": 2,
+    "bridge": 1
+   },
+   "labeled_exchange_within_3_hops": 19,
+   "labeled_exchange_entities": {
+    "Binance": 8,
+    "MoonPay": 4,
+    "FixedFloat": 2,
+    "Bybit": 2,
+    "Kraken": 1,
+    "LBank": 1,
+    "KuCoin": 1
+   },
+   "funded_directly_by_labeled_cex": 9,
+   "funded_directly_by_labeled_exchange_category": 13,
+   "funded_by_fresh_intermediary": 14,
+   "funded_by_exchange_like_unlabeled": 11,
+   "funded_by_regular_wallet": 22,
+   "fresh_creators": 28,
+   "creator_txs_before_create": {
+    "n": 68,
+    "p10": 1,
+    "p25": 1,
+    "median": 15,
+    "p75": 125,
+    "p90": 1144,
+    "mean": 285.897
+   },
+   "creators_with_prior_coins_same_wallet(>1 coin)": 64,
+   "prior_coins_dist": {
+    "50": 37,
+    "1": 36,
+    "2": 6,
+    "3": 5,
+    "8": 2,
+    "5": 2,
+    "4": 2,
+    "35": 1,
+    "7": 1,
+    "17": 1
+   },
+   "funding_amount_sol": {
+    "n": 68,
+    "p10": 0.01041188,
+    "p25": 0.05,
+    "median": 0.865,
+    "p75": 1.324,
+    "p90": 2.989572,
+    "mean": 2.171
+   },
+   "funding_amount_bins": {
+    "[0,0.05)": 17,
+    "[0.05,0.1)": 2,
+    "[0.1,0.25)": 7,
+    "[0.25,0.5)": 4,
+    "[0.5,1)": 13,
+    "[1,2)": 15,
+    "[2,3)": 3,
+    "[3,5)": 1,
+    "[5,10)": 3,
+    "[10,25)": 1,
+    "[25,inf)": 2
+   },
+   "funding_amount_round_0.1": 8,
+   "funding_amount_odd": 60,
+   "top_amounts_3dp": {
+    "0.010": 4,
+    "0.001": 3,
+    "0.900": 2,
+    "0.017": 2,
+    "1.999": 2,
+    "0.030": 2,
+    "9.590": 1,
+    "0.871": 1,
+    "1.616": 1,
+    "2.990": 1,
+    "34.089": 1,
+    "0.020": 1,
+    "0.557": 1,
+    "0.036": 1,
+    "0.111": 1
+   },
+   "amount_2.955_or_2.995": 0,
+   "first_incoming_is_main_funding": 54,
+   "first_incoming_amount_sol": {
+    "n": 68,
+    "p10": 0.01041188,
+    "p25": 0.036,
+    "median": 0.418020288,
+    "p75": 1.0489,
+    "p90": 2.029891372,
+    "mean": 1.333
+   },
+   "first_incoming_amount_bins": {
+    "[0,0.05)": 19,
+    "[0.05,0.1)": 3,
+    "[0.1,0.25)": 10,
+    "[0.25,0.5)": 4,
+    "[0.5,1)": 12,
+    "[1,2)": 12,
+    "[2,3)": 3,
+    "[3,5)": 1,
+    "[5,10)": 3,
+    "[10,25)": 0,
+    "[25,inf)": 1
+   },
+   "first_funding_to_create_seconds": {
+    "n": 68,
+    "p10": 7,
+    "p25": 202,
+    "median": 37164,
+    "p75": 450470,
+    "p90": 5005190,
+    "mean": 4467916.779
+   },
+   "funding_to_create_seconds": {
+    "n": 68,
+    "p10": 7,
+    "p25": 163,
+    "median": 35631,
+    "p75": 384831,
+    "p90": 4306125,
+    "mean": 3755593.059
+   },
+   "funding_to_create_le_60s": 15,
+   "funding_to_create_le_10min": 23,
+   "funding_to_create_le_1h": 32,
+   "funding_to_create_gt_24h": 27,
+   "creator_is_not_signer": 0,
+   "bundled_creates(>=2 other buyers in slot0)": 28
+  },
+  "arm_notable": {
+   "n_creators": 40,
+   "funding_status": {
+    "ok": 27,
+    "older_than_cap": 13
+   },
+   "direct_funder_kind": {
+    "wallet": 9,
+    "exchange_like": 6,
+    "fresh_intermediary": 6,
+    "cex": 4,
+    "via_dex": 1,
+    "via_launchpad": 1
+   },
+   "chain_pattern": {
+    "mother_or_simple": 10,
+    "exchange_like_or_mother": 6,
+    "exchange": 5,
+    "fresh_chain_unresolved": 4,
+    "dex_or_launchpad": 2
+   },
+   "chain_origin": {
+    "exchange_like": 8,
+    "fresh_intermediary": 6,
+    "cex": 6,
+    "wallet": 4,
+    "via_launchpad": 2,
+    "via_dex": 1
+   },
+   "labeled_exchange_within_3_hops": 6,
+   "labeled_exchange_entities": {
+    "Binance": 3,
+    "Coinbase": 1,
+    "KuCoin": 1,
+    "Bitstamp": 1
+   },
+   "funded_directly_by_labeled_cex": 4,
+   "funded_directly_by_labeled_exchange_category": 4,
+   "funded_by_fresh_intermediary": 6,
+   "funded_by_exchange_like_unlabeled": 6,
+   "funded_by_regular_wallet": 9,
+   "fresh_creators": 16,
+   "creator_txs_before_create": {
+    "n": 27,
+    "p10": 1,
+    "p25": 3,
+    "median": 4,
+    "p75": 74,
+    "p90": 1428,
+    "mean": 323.037
+   },
+   "creators_with_prior_coins_same_wallet(>1 coin)": 21,
+   "prior_coins_dist": {
+    "1": 19,
+    "50": 13,
+    "29": 2,
+    "2": 2,
+    "5": 1,
+    "6": 1,
+    "10": 1,
+    "4": 1
+   },
+   "funding_amount_sol": {
+    "n": 27,
+    "p10": 0.315683,
+    "p25": 1.0,
+    "median": 2.000100171,
+    "p75": 335.193982592,
+    "p90": 445.384267143,
+    "mean": 152.557
+   },
+   "funding_amount_bins": {
+    "[0,0.05)": 0,
+    "[0.05,0.1)": 1,
+    "[0.1,0.25)": 2,
+    "[0.25,0.5)": 3,
+    "[0.5,1)": 1,
+    "[1,2)": 5,
+    "[2,3)": 3,
+    "[3,5)": 2,
+    "[5,10)": 1,
+    "[10,25)": 1,
+    "[25,inf)": 8
+   },
+   "funding_amount_round_0.1": 3,
+   "funding_amount_odd": 24,
+   "top_amounts_3dp": {
+    "1.000": 2,
+    "2.000": 2,
+    "0.414": 1,
+    "684.378": 1,
+    "3.000": 1,
+    "379.394": 1,
+    "608.939": 1,
+    "445.384": 1,
+    "0.316": 1,
+    "1.013": 1,
+    "17.658": 1,
+    "1.624": 1,
+    "0.995": 1,
+    "2.122": 1,
+    "1007.197": 1
+   },
+   "amount_2.955_or_2.995": 0,
+   "first_incoming_is_main_funding": 20,
+   "first_incoming_amount_sol": {
+    "n": 27,
+    "p10": 0.096515006,
+    "p25": 0.391,
+    "median": 1.623575638,
+    "p75": 139.373366433,
+    "p90": 379.394193284,
+    "mean": 97.165
+   },
+   "first_incoming_amount_bins": {
+    "[0,0.05)": 1,
+    "[0.05,0.1)": 3,
+    "[0.1,0.25)": 2,
+    "[0.25,0.5)": 3,
+    "[0.5,1)": 1,
+    "[1,2)": 4,
+    "[2,3)": 3,
+    "[3,5)": 2,
+    "[5,10)": 1,
+    "[10,25)": 0,
+    "[25,inf)": 7
+   },
+   "first_funding_to_create_seconds": {
+    "n": 27,
+    "p10": 48,
+    "p25": 160,
+    "median": 741,
+    "p75": 1497755,
+    "p90": 6167691,
+    "mean": 5558113.481
+   },
+   "funding_to_create_seconds": {
+    "n": 27,
+    "p10": 48,
+    "p25": 160,
+    "median": 738,
+    "p75": 1494142,
+    "p90": 6167620,
+    "mean": 5557950.222
+   },
+   "funding_to_create_le_60s": 5,
+   "funding_to_create_le_10min": 13,
+   "funding_to_create_le_1h": 17,
+   "funding_to_create_gt_24h": 9,
+   "creator_is_not_signer": 0,
+   "bundled_creates(>=2 other buyers in slot0)": 20
+  },
+  "arm_bundled": {
+   "n_creators": 40,
+   "funding_status": {
+    "ok": 31,
+    "older_than_cap": 9
+   },
+   "direct_funder_kind": {
+    "cex": 14,
+    "exchange_like": 7,
+    "fresh_intermediary": 6,
+    "wallet": 2,
+    "via_launchpad": 2
+   },
+   "chain_pattern": {
+    "exchange": 15,
+    "exchange_like_or_mother": 9,
+    "dex_or_launchpad": 4,
+    "mother_or_simple": 2,
+    "bridge": 1
+   },
+   "chain_origin": {
+    "cex": 15,
+    "exchange_like": 9,
+    "via_launchpad": 4,
+    "wallet": 2,
+    "bridge": 1
+   },
+   "labeled_exchange_within_3_hops": 15,
+   "labeled_exchange_entities": {
+    "Binance": 10,
+    "KuCoin": 2,
+    "Bybit": 2,
+    "Gate.io": 1
+   },
+   "funded_directly_by_labeled_cex": 14,
+   "funded_directly_by_labeled_exchange_category": 14,
+   "funded_by_fresh_intermediary": 6,
+   "funded_by_exchange_like_unlabeled": 7,
+   "funded_by_regular_wallet": 2,
+   "fresh_creators": 16,
+   "creator_txs_before_create": {
+    "n": 31,
+    "p10": 1,
+    "p25": 1,
+    "median": 3,
+    "p75": 337,
+    "p90": 2007,
+    "mean": 430.613
+   },
+   "creators_with_prior_coins_same_wallet(>1 coin)": 24,
+   "prior_coins_dist": {
+    "1": 16,
+    "50": 14,
+    "3": 3,
+    "2": 3,
+    "44": 1,
+    "10": 1,
+    "15": 1,
+    "36": 1
+   },
+   "funding_amount_sol": {
+    "n": 31,
+    "p10": 0.2,
+    "p25": 0.9965,
+    "median": 1.274687,
+    "p75": 2.499,
+    "p90": 6.372814519,
+    "mean": 3.529
+   },
+   "funding_amount_bins": {
+    "[0,0.05)": 0,
+    "[0.05,0.1)": 1,
+    "[0.1,0.25)": 3,
+    "[0.25,0.5)": 2,
+    "[0.5,1)": 3,
+    "[1,2)": 12,
+    "[2,3)": 5,
+    "[3,5)": 1,
+    "[5,10)": 2,
+    "[10,25)": 1,
+    "[25,inf)": 1
+   },
+   "funding_amount_round_0.1": 5,
+   "funding_amount_odd": 26,
+   "top_amounts_3dp": {
+    "11.309": 1,
+    "0.176": 1,
+    "0.461": 1,
+    "1.577": 1,
+    "1.531": 1,
+    "1.297": 1,
+    "4.918": 1,
+    "1.077": 1,
+    "0.997": 1,
+    "2.987": 1,
+    "1.500": 1,
+    "2.983": 1,
+    "0.053": 1,
+    "1.189": 1,
+    "0.400": 1
+   },
+   "amount_2.955_or_2.995": 0,
+   "first_incoming_is_main_funding": 24,
+   "first_incoming_amount_sol": {
+    "n": 31,
+    "p10": 0.096506126,
+    "p25": 0.2,
+    "median": 1.174939,
+    "p75": 2.499,
+    "p90": 6.372814519,
+    "mean": 3.363
+   },
+   "first_incoming_amount_bins": {
+    "[0,0.05)": 2,
+    "[0.05,0.1)": 2,
+    "[0.1,0.25)": 5,
+    "[0.25,0.5)": 1,
+    "[0.5,1)": 3,
+    "[1,2)": 8,
+    "[2,3)": 5,
+    "[3,5)": 1,
+    "[5,10)": 2,
+    "[10,25)": 1,
+    "[25,inf)": 1
+   },
+   "first_funding_to_create_seconds": {
+    "n": 31,
+    "p10": 75,
+    "p25": 164,
+    "median": 3192,
+    "p75": 615318,
+    "p90": 5770384,
+    "mean": 2848479.871
+   },
+   "funding_to_create_seconds": {
+    "n": 31,
+    "p10": 75,
+    "p25": 164,
+    "median": 3192,
+    "p75": 615318,
+    "p90": 5770384,
+    "mean": 2841674.032
+   },
+   "funding_to_create_le_60s": 3,
+   "funding_to_create_le_10min": 14,
+   "funding_to_create_le_1h": 16,
+   "funding_to_create_gt_24h": 14,
+   "creator_is_not_signer": 0,
+   "bundled_creates(>=2 other buyers in slot0)": 40
+  },
+  "bundled": {
+   "n_creators": 88,
+   "funding_status": {
+    "ok": 58,
+    "older_than_cap": 30
+   },
+   "direct_funder_kind": {
+    "cex": 17,
+    "wallet": 15,
+    "exchange_like": 12,
+    "fresh_intermediary": 11,
+    "via_launchpad": 3
+   },
+   "chain_pattern": {
+    "exchange": 20,
+    "mother_or_simple": 15,
+    "exchange_like_or_mother": 14,
+    "dex_or_launchpad": 5,
+    "fresh_chain_unresolved": 3,
+    "bridge": 1
+   },
+   "chain_origin": {
+    "cex": 20,
+    "exchange_like": 18,
+    "wallet": 6,
+    "via_launchpad": 6,
+    "fresh_intermediary": 5,
+    "swap_service": 2,
+    "bridge": 1
+   },
+   "labeled_exchange_within_3_hops": 22,
+   "labeled_exchange_entities": {
+    "Binance": 13,
+    "KuCoin": 4,
+    "Bybit": 2,
+    "FixedFloat": 2,
+    "Gate.io": 1
+   },
+   "funded_directly_by_labeled_cex": 17,
+   "funded_directly_by_labeled_exchange_category": 17,
+   "funded_by_fresh_intermediary": 11,
+   "funded_by_exchange_like_unlabeled": 12,
+   "funded_by_regular_wallet": 15,
+   "fresh_creators": 33,
+   "creator_txs_before_create": {
+    "n": 58,
+    "p10": 1,
+    "p25": 1,
+    "median": 4,
+    "p75": 100,
+    "p90": 1386,
+    "mean": 320.586
+   },
+   "creators_with_prior_coins_same_wallet(>1 coin)": 53,
+   "prior_coins_dist": {
+    "50": 36,
+    "1": 35,
+    "2": 6,
+    "3": 3,
+    "4": 2,
+    "44": 1,
+    "10": 1,
+    "15": 1,
+    "36": 1,
+    "17": 1
+   },
+   "funding_amount_sol": {
+    "n": 58,
+    "p10": 0.176333122,
+    "p25": 0.9,
+    "median": 1.317349157,
+    "p75": 2.499,
+    "p90": 6.947912,
+    "mean": 46.023
+   },
+   "funding_amount_bins": {
+    "[0,0.05)": 1,
+    "[0.05,0.1)": 2,
+    "[0.1,0.25)": 5,
+    "[0.25,0.5)": 2,
+    "[0.5,1)": 7,
+    "[1,2)": 21,
+    "[2,3)": 8,
+    "[3,5)": 2,
+    "[5,10)": 4,
+    "[10,25)": 1,
+    "[25,inf)": 5
+   },
+   "funding_amount_round_0.1": 11,
+   "funding_amount_odd": 47,
+   "top_amounts_3dp": {
+    "1.000": 3,
+    "2.000": 3,
+    "0.900": 2,
+    "11.309": 1,
+    "0.176": 1,
+    "0.461": 1,
+    "1.577": 1,
+    "1.531": 1,
+    "1.297": 1,
+    "4.918": 1,
+    "1.077": 1,
+    "0.997": 1,
+    "2.987": 1,
+    "1.500": 1,
+    "2.983": 1
+   },
+   "amount_2.955_or_2.995": 0,
+   "first_incoming_is_main_funding": 46,
+   "first_incoming_amount_sol": {
+    "n": 58,
+    "p10": 0.096506126,
+    "p25": 0.2,
+    "median": 1.188757,
+    "p75": 2.12203928,
+    "p90": 6.372814519,
+    "mean": 20.431
+   },
+   "first_incoming_amount_bins": {
+    "[0,0.05)": 4,
+    "[0.05,0.1)": 4,
+    "[0.1,0.25)": 8,
+    "[0.25,0.5)": 1,
+    "[0.5,1)": 8,
+    "[1,2)": 14,
+    "[2,3)": 8,
+    "[3,5)": 2,
+    "[5,10)": 4,
+    "[10,25)": 1,
+    "[25,inf)": 4
+   },
+   "first_funding_to_create_seconds": {
+    "n": 58,
+    "p10": 50,
+    "p25": 164,
+    "median": 1044,
+    "p75": 405808,
+    "p90": 2865484,
+    "mean": 1702091.655
+   },
+   "funding_to_create_seconds": {
+    "n": 58,
+    "p10": 50,
+    "p25": 164,
+    "median": 1003,
+    "p75": 402310,
+    "p90": 2865484,
+    "mean": 1696440.741
+   },
+   "funding_to_create_le_60s": 7,
+   "funding_to_create_le_10min": 28,
+   "funding_to_create_le_1h": 35,
+   "funding_to_create_gt_24h": 21,
+   "creator_is_not_signer": 0,
+   "bundled_creates(>=2 other buyers in slot0)": 88
+  },
+  "not_bundled": {
+   "n_creators": 92,
+   "funding_status": {
+    "ok": 68,
+    "older_than_cap": 24
+   },
+   "direct_funder_kind": {
+    "wallet": 18,
+    "fresh_intermediary": 15,
+    "exchange_like": 12,
+    "cex": 10,
+    "via_launchpad": 5,
+    "onramp": 4,
+    "via_dex": 3,
+    "via_bridge": 1
+   },
+   "chain_pattern": {
+    "mother_or_simple": 24,
+    "exchange": 15,
+    "exchange_like_or_mother": 14,
+    "dex_or_launchpad": 8,
+    "fresh_chain_unresolved": 5,
+    "bridge": 2
+   },
+   "chain_origin": {
+    "exchange_like": 24,
+    "cex": 14,
+    "fresh_intermediary": 9,
+    "via_launchpad": 7,
+    "via_dex": 4,
+    "onramp": 4,
+    "wallet": 3,
+    "via_bridge": 2,
+    "bridge": 1
+   },
+   "labeled_exchange_within_3_hops": 18,
+   "labeled_exchange_entities": {
+    "Binance": 8,
+    "MoonPay": 4,
+    "Bybit": 2,
+    "Coinbase": 1,
+    "Bitstamp": 1,
+    "Kraken": 1,
+    "LBank": 1
+   },
+   "funded_directly_by_labeled_cex": 10,
+   "funded_directly_by_labeled_exchange_category": 14,
+   "funded_by_fresh_intermediary": 15,
+   "funded_by_exchange_like_unlabeled": 12,
+   "funded_by_regular_wallet": 18,
+   "fresh_creators": 27,
+   "creator_txs_before_create": {
+    "n": 68,
+    "p10": 1,
+    "p25": 1,
+    "median": 18,
+    "p75": 129,
+    "p90": 1428,
+    "mean": 337.029
+   },
+   "creators_with_prior_coins_same_wallet(>1 coin)": 56,
+   "prior_coins_dist": {
+    "1": 36,
+    "50": 28,
+    "2": 5,
+    "3": 5,
+    "5": 3,
+    "6": 2,
+    "29": 2,
+    "8": 2,
+    "10": 1,
+    "35": 1
+   },
+   "funding_amount_sol": {
+    "n": 68,
+    "p10": 0.01041188,
+    "p25": 0.094711,
+    "median": 0.557107555,
+    "p75": 1.646310988,
+    "p90": 17.657727156,
+    "mean": 25.1
+   },
+   "funding_amount_bins": {
+    "[0,0.05)": 16,
+    "[0.05,0.1)": 2,
+    "[0.1,0.25)": 7,
+    "[0.25,0.5)": 7,
+    "[0.5,1)": 10,
+    "[1,2)": 11,
+    "[2,3)": 3,
+    "[3,5)": 2,
+    "[5,10)": 2,
+    "[10,25)": 2,
+    "[25,inf)": 6
+   },
+   "funding_amount_round_0.1": 5,
+   "funding_amount_odd": 63,
+   "top_amounts_3dp": {
+    "0.010": 4,
+    "0.001": 3,
+    "0.017": 2,
+    "1.999": 2,
+    "0.030": 2,
+    "0.414": 1,
+    "379.394": 1,
+    "445.384": 1,
+    "0.316": 1,
+    "1.013": 1,
+    "17.658": 1,
+    "1.624": 1,
+    "0.395": 1,
+    "0.081": 1,
+    "335.194": 1
+   },
+   "amount_2.955_or_2.995": 0,
+   "first_incoming_is_main_funding": 52,
+   "first_incoming_amount_sol": {
+    "n": 68,
+    "p10": 0.01041188,
+    "p25": 0.04551438,
+    "median": 0.402565,
+    "p75": 1.069704,
+    "p90": 4.0,
+    "mean": 24.02
+   },
+   "first_incoming_amount_bins": {
+    "[0,0.05)": 18,
+    "[0.05,0.1)": 4,
+    "[0.1,0.25)": 9,
+    "[0.25,0.5)": 7,
+    "[0.5,1)": 8,
+    "[1,2)": 10,
+    "[2,3)": 3,
+    "[3,5)": 2,
+    "[5,10)": 2,
+    "[10,25)": 0,
+    "[25,inf)": 5
+   },
+   "first_funding_to_create_seconds": {
+    "n": 68,
+    "p10": 7,
+    "p25": 163,
+    "median": 46431,
+    "p75": 1482513,
+    "p90": 20213000,
+    "mean": 6521602.426
+   },
+   "funding_to_create_seconds": {
+    "n": 68,
+    "p10": 7,
+    "p25": 129,
+    "median": 39771,
+    "p75": 970088,
+    "p90": 8470824,
+    "mean": 5810931.118
+   },
+   "funding_to_create_le_60s": 16,
+   "funding_to_create_le_10min": 22,
+   "funding_to_create_le_1h": 30,
+   "funding_to_create_gt_24h": 29,
+   "creator_is_not_signer": 0,
+   "bundled_creates(>=2 other buyers in slot0)": 0
+  },
+  "shared_direct_funders": [
+   {
+    "funder": "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9",
+    "label": "Binance 1",
+    "n_creators": 18,
+    "amounts": [
+     "0.046",
+     "0.316",
+     "0.995",
+     "0.997",
+     "1.070",
+     "1.132",
+     "1.175",
+     "1.189",
+     "1.209",
+     "1.266",
+     "1.297",
+     "1.999",
+     "2.004",
+     "2.499",
+     "2.987",
+     "2.990",
+     "4.918"
+    ],
+    "creators": [
+     "8zCXHEm9VnHgLfAb2sTaR5UQ2XK87ECdF7xVrVrm4pYD",
+     "56suxSM1BCxvcRfpejnHcj3AVcZpaLnkegrvy4vXQErZ",
+     "2z63aHtdGU1vTqCmwcf6W7WxQtambuSXa1k4joHpLTyK",
+     "H57KAwQrFru9qaoKYUfWmmv1ymaAQtdGBUefXR1M3TGo",
+     "3KSEZtvykP9LhCC7xKiztu1X4Eb8YFHbwiQBDehyFrpE",
+     "7LCDX33oKaHe5UihTZbEbaLEnHryd9nPqQHDmQxTEiUr",
+     "CAwKtPss3GmkLYZa7Ea8yAKxToYcNnqahhthqcrw89yP",
+     "FCu1w9Q3TxcjoJUzVE6qzsScFnpLBFc4rNMoSMNY6DB9",
+     "4voypGZEdVDBft3eojfxVHHkhTPjUzKEvZHE8C1fAhht",
+     "4WWBZpVu3WQoPjVYKEhDdq78S9xqvJu2tX9pS7eYJ5yk"
+    ]
+   },
+   {
+    "funder": "94dDvxXtGsdVVUmBDFkMx1eL68Zy8qRmPSpNEGDKvCh1",
+    "label": null,
+    "n_creators": 4,
+    "amounts": [
+     "0.010"
+    ],
+    "creators": [
+     "CSqoHF87z2UucW5fUXZ8Hff9GCWmXaSBjzQhyZQeiknx",
+     "AHX1rCDVSZsbcU4sQb2Qh1nXvirRb7zAPPBwWPtMHx58",
+     "J7uwmiPwKuZC9i2vJCcUdGxjQCBTQgiaReBqmTdshN28",
+     "mDiucPE7BuXNydnBPWAE5KKRSKuGqjSx2sowTvx3vz5"
+    ]
+   },
+   {
+    "funder": "BmFdpraQhkiDQE6SnfG5omcA1VwzqfXrwtNYBwWTymy6",
+    "label": "KuCoin 2",
+    "n_creators": 3,
+    "amounts": [
+     "0.053",
+     "5.106",
+     "6.948"
+    ],
+    "creators": [
+     "HeiETwcZ7ytKLRzQLDJpk6oSGe7d3QVxC1p5deW4jPWn",
+     "4gJYiQhzaQEmkpYFCCZqN6afqXuDvFMF3T2qrHxKpLy9",
+     "CK849G4eCXvwHMGKRnHyyayT71GBidP8gcu8HqKrNDEg"
+    ]
+   },
+   {
+    "funder": "49CfXAr58cCTGJnYsbm16fEsE5JRpdR8QQP8E1ZinGCq",
+    "label": null,
+    "n_creators": 3,
+    "amounts": [
+     "0.009",
+     "0.017",
+     "1.014"
+    ],
+    "creators": [
+     "ELTSrwVNBndipp795U6o9WC8oDXMnfv38C6FTw5vp8BC",
+     "JByP29e9q2swTT2AkUqVB11yuc532Jn4txPke1HnJstF",
+     "F7NpDzzpdw4Uh6YVsa543y5h9kw3d9F1GZ8HpMDYDwrF"
+    ]
+   },
+   {
+    "funder": "5F1seMKUqSNhv45f6FhB2cFmgJbk8U1avJw7M6TexUq1",
+    "label": "MoonPay hot wallet",
+    "n_creators": 3,
+    "amounts": [
+     "0.359",
+     "0.489",
+     "0.865"
+    ],
+    "creators": [
+     "ACQUaq7Qms6sMS7ygugcVUjEYkKFLdPR1irrD8rtPDww",
+     "7kUMHa4ezzeS2AHfFpqMz6cAU8SBVJ5q845MwaLQ7C5p",
+     "6xduuSWez8Xxb1AypH7qQjzReXAPBH8fAkpv77XFfypS"
+    ]
+   },
+   {
+    "funder": "4AV2Qzp3N4c9RfzyEbNZs2wqWfW4EwKnnxFAZCndvfGh",
+    "label": null,
+    "n_creators": 2,
+    "amounts": [
+     "0.403",
+     "2.983"
+    ],
+    "creators": [
+     "FHBRNt3o2X6dUdLuQGkv6BNqW9vNtPtoaehSMGKQUQbn",
+     "Hh9JsNcNxEEaqazUqhxY29ueZSF1pt7AN5HiD2iS741C"
+    ]
+   },
+   {
+    "funder": "DGb1ouFKY5364YATwYozJPMy226jYpKVZh787ore3GeK",
+    "label": null,
+    "n_creators": 2,
+    "amounts": [
+     "1.000"
+    ],
+    "creators": [
+     "G8LkyK6t9Hwfo9UCN2cdgdnDQ13ZCcGVD8P9LBqnf2Pn",
+     "7o8inuptFC3f2HVPG1HJ6ttAVviQFATZZV67Gta4wji"
+    ]
+   },
+   {
+    "funder": "ET69TzBLppVXzQAzMiXPxYKzDybFrxg759zuVGAQJNrD",
+    "label": null,
+    "n_creators": 2,
+    "amounts": [
+     "0.900"
+    ],
+    "creators": [
+     "6FA22FbKX9oXrRBxU5BgSoCPeN3MR4BMuEmA6wMvZ7jz",
+     "6uEqLH4SAfH656y3Qc7R8oxLVZ5S8wrXJQDzyYyGnpYM"
+    ]
+   },
+   {
+    "funder": "DQyrAcCrDXQ7NeoqGgDCZwBvWDcYmFCjSb9JtteuvPpz",
+    "label": null,
+    "n_creators": 2,
+    "amounts": [
+     "0.001"
+    ],
+    "creators": [
+     "DWL8DK9UShwa5HcDkKv3YeybryFmHBUvECJtpJXjYAAG",
+     "5NUfHBshhL22u1hScvDCRuN64RuyfzHJxYA2Vv4S2pDK"
+    ]
+   }
+  ],
+  "cex_amount_clusters": [
+   {
+    "entity": "Binance",
+    "amount": "1.999",
+    "n_creators": 2,
+    "creators": [
+     "4WaipqbQLxGtxC3KE1x2Y42871uWbY81TSkZtFWh79ZP",
+     "DBHXAmvmUwXL3RrT7zNnms2hhf9qTUernS4kUh1j3pn"
+    ]
+   }
+  ]
+ },
+ "unlabeled_exchange_like_funders": [
+  {
+   "address": "BjpL2bFcjtbAGQBJiaNNrvSdo7NwbqpyQAFYZnjktnvR",
+   "hits": 4,
+   "tx_per_hour_sample": 0.2,
+   "solscan": "https://solscan.io/account/BjpL2bFcjtbAGQBJiaNNrvSdo7NwbqpyQAFYZnjktnvR"
+  },
+  {
+   "address": "49CfXAr58cCTGJnYsbm16fEsE5JRpdR8QQP8E1ZinGCq",
+   "hits": 3,
+   "tx_per_hour_sample": 12.5,
+   "solscan": "https://solscan.io/account/49CfXAr58cCTGJnYsbm16fEsE5JRpdR8QQP8E1ZinGCq"
+  },
+  {
+   "address": "4AV2Qzp3N4c9RfzyEbNZs2wqWfW4EwKnnxFAZCndvfGh",
+   "hits": 2,
+   "tx_per_hour_sample": 36.3,
+   "solscan": "https://solscan.io/account/4AV2Qzp3N4c9RfzyEbNZs2wqWfW4EwKnnxFAZCndvfGh"
+  },
+  {
+   "address": "DGb1ouFKY5364YATwYozJPMy226jYpKVZh787ore3GeK",
+   "hits": 2,
+   "tx_per_hour_sample": 39.0,
+   "solscan": "https://solscan.io/account/DGb1ouFKY5364YATwYozJPMy226jYpKVZh787ore3GeK"
+  },
+  {
+   "address": "HYkyzabqDL6ZKzmDvRrFkTbKBSgW7EYPdAcNznX6347L",
+   "hits": 2,
+   "tx_per_hour_sample": 41.8,
+   "solscan": "https://solscan.io/account/HYkyzabqDL6ZKzmDvRrFkTbKBSgW7EYPdAcNznX6347L"
+  },
+  {
+   "address": "FncazAs6omJJjtLVzquzT9KoyXn6tFixr9kGjr42ktLj",
+   "hits": 2,
+   "tx_per_hour_sample": 1125.5,
+   "solscan": "https://solscan.io/account/FncazAs6omJJjtLVzquzT9KoyXn6tFixr9kGjr42ktLj"
+  },
+  {
+   "address": "GGc5VqHic9ieUXbmWa2PWWNenGALbFHPWGChgsZNk3K7",
+   "hits": 1,
+   "tx_per_hour_sample": 4.9,
+   "solscan": "https://solscan.io/account/GGc5VqHic9ieUXbmWa2PWWNenGALbFHPWGChgsZNk3K7"
+  },
+  {
+   "address": "6PCXexeNCXdAUp3SNaEB9H1uXq2NCbC19pz1hP2eBgue",
+   "hits": 1,
+   "tx_per_hour_sample": 3.8,
+   "solscan": "https://solscan.io/account/6PCXexeNCXdAUp3SNaEB9H1uXq2NCbC19pz1hP2eBgue"
+  },
+  {
+   "address": "4LMuf87sBgvPeXWcudDUMuT4w8GVL3oBBUkaTFbWt5Kt",
+   "hits": 1,
+   "tx_per_hour_sample": 33.7,
+   "solscan": "https://solscan.io/account/4LMuf87sBgvPeXWcudDUMuT4w8GVL3oBBUkaTFbWt5Kt"
+  },
+  {
+   "address": "DZnQq4DScBiJ3uFjduu45cuk4R1VHP9Uf6Ty2amE8Pjj",
+   "hits": 1,
+   "tx_per_hour_sample": 104.1,
+   "solscan": "https://solscan.io/account/DZnQq4DScBiJ3uFjduu45cuk4R1VHP9Uf6Ty2amE8Pjj"
+  },
+  {
+   "address": "CoSgqnxfXACoXGxjDngwj4jeedDBLvhh6X7KnTb3UL1X",
+   "hits": 1,
+   "tx_per_hour_sample": 2.1,
+   "solscan": "https://solscan.io/account/CoSgqnxfXACoXGxjDngwj4jeedDBLvhh6X7KnTb3UL1X"
+  },
+  {
+   "address": "AaREiG9Ft8vtnZTZMCm7ZtwLPZ3S8uv99uu5Ds2PFavr",
+   "hits": 1,
+   "tx_per_hour_sample": 3.1,
+   "solscan": "https://solscan.io/account/AaREiG9Ft8vtnZTZMCm7ZtwLPZ3S8uv99uu5Ds2PFavr"
+  },
+  {
+   "address": "2c7pVp3SwFB9xCaJXRUkCyYJPdX18ev3u1QZyQzcQZuC",
+   "hits": 1,
+   "tx_per_hour_sample": 2.4,
+   "solscan": "https://solscan.io/account/2c7pVp3SwFB9xCaJXRUkCyYJPdX18ev3u1QZyQzcQZuC"
+  },
+  {
+   "address": "2UL8hbNaoErAYNePqgQYPP9yDCDRZGWbzKW4krLqkhNL",
+   "hits": 1,
+   "tx_per_hour_sample": 85.9,
+   "solscan": "https://solscan.io/account/2UL8hbNaoErAYNePqgQYPP9yDCDRZGWbzKW4krLqkhNL"
+  },
+  {
+   "address": "3hDAFWWiRrXzE28XPqXTGWxP3YEuYoaPKEzFxkJTvDT7",
+   "hits": 1,
+   "tx_per_hour_sample": 130.4,
+   "solscan": "https://solscan.io/account/3hDAFWWiRrXzE28XPqXTGWxP3YEuYoaPKEzFxkJTvDT7"
+  },
+  {
+   "address": "JAmGVx91nwS8MxTEKxmA6MMTgrSkQBs2ktavsKPdi3ug",
+   "hits": 1,
+   "tx_per_hour_sample": 9.4,
+   "solscan": "https://solscan.io/account/JAmGVx91nwS8MxTEKxmA6MMTgrSkQBs2ktavsKPdi3ug"
+  },
+  {
+   "address": "CQ2whdrCZzm5X44BQxavdcUy1b3uUsCrLHXtgnbLmew1",
+   "hits": 1,
+   "tx_per_hour_sample": 2.1,
+   "solscan": "https://solscan.io/account/CQ2whdrCZzm5X44BQxavdcUy1b3uUsCrLHXtgnbLmew1"
+  },
+  {
+   "address": "3xDpD6UAfxCVzn4qc3gA2HpBrHWP9zdJfaZSA3B3cJbr",
+   "hits": 1,
+   "tx_per_hour_sample": 2142.9,
+   "solscan": "https://solscan.io/account/3xDpD6UAfxCVzn4qc3gA2HpBrHWP9zdJfaZSA3B3cJbr"
+  },
+  {
+   "address": "C1SX4FAVW8c5vHQaqFCxZEUrLMpbCYx51w13kCNqKGEV",
+   "hits": 1,
+   "tx_per_hour_sample": 41.7,
+   "solscan": "https://solscan.io/account/C1SX4FAVW8c5vHQaqFCxZEUrLMpbCYx51w13kCNqKGEV"
+  },
+  {
+   "address": "FRMDMfGinGidBuFLaDVMnJ1LPseKpNfDumJwrDFfhUdN",
+   "hits": 1,
+   "tx_per_hour_sample": 0.9,
+   "solscan": "https://solscan.io/account/FRMDMfGinGidBuFLaDVMnJ1LPseKpNfDumJwrDFfhUdN"
+  },
+  {
+   "address": "64s7SWjjLUJAUbjc4mngaWnZGCW4Sg5fEki8qWJtPMS2",
+   "hits": 1,
+   "tx_per_hour_sample": 0.2,
+   "solscan": "https://solscan.io/account/64s7SWjjLUJAUbjc4mngaWnZGCW4Sg5fEki8qWJtPMS2"
+  },
+  {
+   "address": "APESSnvaXBbHj2nWewrSW2Hg3ZLZAM4wVsAHFjA1FbiY",
+   "hits": 1,
+   "tx_per_hour_sample": 3.7,
+   "solscan": "https://solscan.io/account/APESSnvaXBbHj2nWewrSW2Hg3ZLZAM4wVsAHFjA1FbiY"
+  },
+  {
+   "address": "C1aTeEHbC4cYrzETaziKDpdNwTBXoSwqcAMpQZRodYJP",
+   "hits": 1,
+   "tx_per_hour_sample": 47.0,
+   "solscan": "https://solscan.io/account/C1aTeEHbC4cYrzETaziKDpdNwTBXoSwqcAMpQZRodYJP"
+  },
+  {
+   "address": "JDqnRM5sMMEKvRMkLbks8VSZL7WTVrMeKSebZrG1FAhQ",
+   "hits": 1,
+   "tx_per_hour_sample": 0.5,
+   "solscan": "https://solscan.io/account/JDqnRM5sMMEKvRMkLbks8VSZL7WTVrMeKSebZrG1FAhQ"
+  },
+  {
+   "address": "4gKjjye5GDXR15s1VgB3ZMKVBf97H4DUfAZcst4KSRdW",
+   "hits": 1,
+   "tx_per_hour_sample": 14.2,
+   "solscan": "https://solscan.io/account/4gKjjye5GDXR15s1VgB3ZMKVBf97H4DUfAZcst4KSRdW"
+  },
+  {
+   "address": "DwdrYTtTWHfnfJBiN2RH6EgPbquDQLjZTfTwpykPEq1g",
+   "hits": 1,
+   "tx_per_hour_sample": 135.0,
+   "solscan": "https://solscan.io/account/DwdrYTtTWHfnfJBiN2RH6EgPbquDQLjZTfTwpykPEq1g"
+  },
+  {
+   "address": "8TeFeU94Nt7C1MJtsDV6u755K33Q4qjfTxG2zey38j5d",
+   "hits": 1,
+   "tx_per_hour_sample": 2.3,
+   "solscan": "https://solscan.io/account/8TeFeU94Nt7C1MJtsDV6u755K33Q4qjfTxG2zey38j5d"
+  },
+  {
+   "address": "Bj4aH8aqW3TGxYUzzrajycAxojBYSvrvtyQs6fSQsLAr",
+   "hits": 1,
+   "tx_per_hour_sample": 1.4,
+   "solscan": "https://solscan.io/account/Bj4aH8aqW3TGxYUzzrajycAxojBYSvrvtyQs6fSQsLAr"
+  },
+  {
+   "address": "FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT",
+   "hits": 1,
+   "tx_per_hour_sample": 8966.4,
+   "solscan": "https://solscan.io/account/FHpcNSe6tb2n15bAdq4BkeYWGyZKFD7yLYrH92ng7wCT"
+  },
+  {
+   "address": "C9jjhzojE16zJ296tEPinA35rB1okyMVspE7FnR4idMf",
+   "hits": 1,
+   "tx_per_hour_sample": 13980.6,
+   "solscan": "https://solscan.io/account/C9jjhzojE16zJ296tEPinA35rB1okyMVspE7FnR4idMf"
+  }
+ ],
+ "siblings": [
+  {
+   "funder": "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9",
+   "amount_sol": 1.297,
+   "tol_sol": 0.0005,
+   "scanned_txs": 300,
+   "window_seconds": 1089,
+   "funder_history_complete": false,
+   "matches": [],
+   "fresh_matches": 0,
+   "why": "labeled CEX Binance 1, 1 sampled creators at this amount",
+   "index_matches": [
+    "8zCXHEm9VnHgLfAb2sTaR5UQ2XK87ECdF7xVrVrm4pYD"
+   ],
+   "recipients_checked": 0,
+   "recipients_that_created_coins": 0,
+   "their_coins": 0,
+   "their_coins_graduated": 0,
+   "their_coins_ath_usd": null
+  },
+  {
+   "funder": "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9",
+   "amount_sol": 1.999,
+   "tol_sol": 0.0005,
+   "scanned_txs": 300,
+   "window_seconds": 1088,
+   "funder_history_complete": false,
+   "matches": [
+    {
+     "destination": "ATzdZG6gDcVKgtPZUHCdJZnMu7XBBcup3oHYC7WKukJ3",
+     "amount_sol": 1.999,
+     "signature": "3b8gycrKiGyMTFYEnXCPKM3rgvph8C6Q8ZcY33FxnPEJcxQavHBjL8tFbBw1wMFysWephRo1qR66BD2w4ByEoN5q",
+     "slot": 456776600,
+     "block_time": 1791967503,
+     "fresh": false,
+     "destination_sig_count": 1000
+    },
+    {
+     "destination": "Eos8KHfTpDs6RnsRG9jRr6RUA3B1E5kFPsAq4Ga7TY38",
+     "amount_sol": 1.999,
+     "signature": "5yCv3cr4q4aLsxVEcUmDem6TAtEtuLZ9MDtvsVk33b52h47gsFf23GG9YFkzdDXKhufnvbNj7NcWbb2TqFxfgCmd",
+     "slot": 456776416,
+     "block_time": 1791967463,
+     "fresh": true,
+     "destination_sig_count": 2,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "EixPvQ2dQ1HxfdUTKT28oVGZCTLmKP6VwEj4sLBxynNe",
+     "amount_sol": 1.999,
+     "signature": "5xTXDLc3zpHtyMmpaKwrhzTZYCY8CnXnyei7Uxodm2YaumwJ6S7c3E18RCqE6WxB5GrpUnPWPyvzrXQdBW1nEnWD",
+     "slot": 456775026,
+     "block_time": 1791967160,
+     "fresh": true,
+     "destination_sig_count": 2,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "268nWEtFjjry5j3QM7Nok8LYELzM8n4mL4aVGfYg2TMu",
+     "amount_sol": 1.999,
+     "signature": "3rM6KoUThg6R9mpwaTYwvWvRDzzozg1MwDPcDzXfR2SgpCUq2CY5CexZVnXK7wS3g3amshSMuVncLyVgXuwqxwPN",
+     "slot": 456773657,
+     "block_time": 1791966862,
+     "fresh": true,
+     "destination_sig_count": 2,
+     "created_pump_coins": 0
+    }
+   ],
+   "fresh_matches": 3,
+   "why": "labeled CEX Binance 1, 2 sampled creators at this amount",
+   "index_matches": [
+    "4WaipqbQLxGtxC3KE1x2Y42871uWbY81TSkZtFWh79ZP",
+    "DBHXAmvmUwXL3RrT7zNnms2hhf9qTUernS4kUh1j3pn"
+   ],
+   "recipients_checked": 3,
+   "recipients_that_created_coins": 0,
+   "their_coins": 0,
+   "their_coins_graduated": 0,
+   "their_coins_ath_usd": null
+  },
+  {
+   "funder": "94dDvxXtGsdVVUmBDFkMx1eL68Zy8qRmPSpNEGDKvCh1",
+   "amount_sol": 0.01041188,
+   "tol_sol": 0.0005,
+   "scanned_txs": 169,
+   "window_seconds": 1543718,
+   "funder_history_complete": true,
+   "matches": [
+    {
+     "destination": "yx5StQmHMRu3nTHrDZs2bekNXFjbazdkDgSvBr49XZG",
+     "amount_sol": 0.01041188,
+     "signature": "3xZuSQUTe2dN3Tdeihc2rqwRg6ZzH5o4VpTRfovju3doGijTbVbmDQha28i2XwedD43ZXeiaS8PWpCf1TPf21Sn1",
+     "slot": 456774355,
+     "block_time": 1791967013,
+     "fresh": true,
+     "destination_sig_count": 2,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "H9Xs18vnk6fY4TLC2gR5Ait7zwykCTc2kvDMDaR99Kri",
+       "ath_usd": 3004.338988277377,
+       "complete": false,
+       "created_ts": 1791967013
+      }
+     ]
+    },
+    {
+     "destination": "Aip61JXL6cgK8NyuaDdVySFWHtQZHdkzw9FV8eLpDeeF",
+     "amount_sol": 0.01041188,
+     "signature": "3xZuSQUTe2dN3Tdeihc2rqwRg6ZzH5o4VpTRfovju3doGijTbVbmDQha28i2XwedD43ZXeiaS8PWpCf1TPf21Sn1",
+     "slot": 456774355,
+     "block_time": 1791967013,
+     "fresh": true,
+     "destination_sig_count": 2,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "4PZDVF7ssvEG5PGPFeBz7CzkhoivKms7rs11tTPDx2fL",
+       "ath_usd": 3004.338988277377,
+       "complete": false,
+       "created_ts": 1791967013
+      }
+     ]
+    },
+    {
+     "destination": "B9sR4sHZwa6mV3Z9XS934yZjaMZj6gaNeGFAXvmXGLT6",
+     "amount_sol": 0.01041188,
+     "signature": "3xZuSQUTe2dN3Tdeihc2rqwRg6ZzH5o4VpTRfovju3doGijTbVbmDQha28i2XwedD43ZXeiaS8PWpCf1TPf21Sn1",
+     "slot": 456774355,
+     "block_time": 1791967013,
+     "fresh": true,
+     "destination_sig_count": 2,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "92JNKDR7CG8zsL2TY3Dsc1phGWVNTCu3GkHy5gwcQ8XC",
+       "ath_usd": 3004.338988277377,
+       "complete": false,
+       "created_ts": 1791967013
+      }
+     ]
+    },
+    {
+     "destination": "5qySaLYwsggo4yB33EKngGL3o3k7K2YoW1wU3pwve7FB",
+     "amount_sol": 0.01041188,
+     "signature": "G1CwStP76wnEYXK76wThxfMYf13MBRg7WbYETVXDgN58nutHEGWWL1nzgfYMaT9j6XZfA48nL429cvVrHcjVdGp",
+     "slot": 456774232,
+     "block_time": 1791966986,
+     "fresh": true,
+     "destination_sig_count": 2,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "9m9o8SEFSqYrQBXkV8hwMNAzAKzBPxMCSRgrsk8rQmox",
+       "ath_usd": 3005.802965950497,
+       "complete": false,
+       "created_ts": 1791966987
+      }
+     ]
+    },
+    {
+     "destination": "FKNy8qJTGdKpujJWmn4w95e9fdvaBxvC7hoJa8yK8YHX",
+     "amount_sol": 0.01041188,
+     "signature": "G1CwStP76wnEYXK76wThxfMYf13MBRg7WbYETVXDgN58nutHEGWWL1nzgfYMaT9j6XZfA48nL429cvVrHcjVdGp",
+     "slot": 456774232,
+     "block_time": 1791966986,
+     "fresh": true,
+     "destination_sig_count": 2,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "D9azDaKsmZE2zkQF6DcXFazeCpQVhqxavy51NLRJHXqw",
+       "ath_usd": 3005.802965950497,
+       "complete": false,
+       "created_ts": 1791966987
+      }
+     ]
+    },
+    {
+     "destination": "i9Xc67T5LexiH4sLShiHAti6YX7xuPRQTZtewmnKQpF",
+     "amount_sol": 0.01041188,
+     "signature": "G1CwStP76wnEYXK76wThxfMYf13MBRg7WbYETVXDgN58nutHEGWWL1nzgfYMaT9j6XZfA48nL429cvVrHcjVdGp",
+     "slot": 456774232,
+     "block_time": 1791966986,
+     "fresh": true,
+     "destination_sig_count": 2,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "3caGSu2tYwn7aAa3pJ6E77vX5eCHavN9LxAhH5mPCND3",
+       "ath_usd": 3005.802965950497,
+       "complete": false,
+       "created_ts": 1791966987
+      }
+     ]
+    },
+    {
+     "destination": "9EAPvWV4JXxrrW5WvatacxqxL2XSkqg2rMeHokYjgjYE",
+     "amount_sol": 0.01041188,
+     "signature": "G1CwStP76wnEYXK76wThxfMYf13MBRg7WbYETVXDgN58nutHEGWWL1nzgfYMaT9j6XZfA48nL429cvVrHcjVdGp",
+     "slot": 456774232,
+     "block_time": 1791966986,
+     "fresh": true,
+     "destination_sig_count": 2,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "46NX6XsHzMXL1L3WqpsF6HAkqtFKJWTASv6rFeCuaUDY",
+       "ath_usd": 3005.802965950497,
+       "complete": false,
+       "created_ts": 1791966987
+      }
+     ]
+    },
+    {
+     "destination": "BFJSzrDmtVQZLtjDakSpxK62WJ9FB9ubhMdd4T4apw12",
+     "amount_sol": 0.01041188,
+     "signature": "5WtGrXJN1Mt4K4oa4Uh7UhVXFwycys5LWMEDNr5y9wgYGppb44LPX8dJfjdcVFpNA1AW5ie54BUbujivayhs4oLf",
+     "slot": 456774199,
+     "block_time": 1791966979,
+     "fresh": true,
+     "destination_sig_count": 2,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "9Ercfve9pFAqCU4SNzavAFd4zci5fwPhfFkyanCHxy2Q",
+       "ath_usd": 3007.419653852666,
+       "complete": false,
+       "created_ts": 1791966981
+      }
+     ]
+    },
+    {
+     "destination": "EgtkLmVqdLLY9qUrTSLPwiwebQJA4VZpWtf37ot3kKnW",
+     "amount_sol": 0.01041188,
+     "signature": "5WtGrXJN1Mt4K4oa4Uh7UhVXFwycys5LWMEDNr5y9wgYGppb44LPX8dJfjdcVFpNA1AW5ie54BUbujivayhs4oLf",
+     "slot": 456774199,
+     "block_time": 1791966979,
+     "fresh": true,
+     "destination_sig_count": 2,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "8bK23vPbM5moQLh3jPx3w2QF1oFiw8JfEHXrxThG6GiA",
+       "ath_usd": 3007.419653852666,
+       "complete": false,
+       "created_ts": 1791966981
+      }
+     ]
+    },
+    {
+     "destination": "5qnPRPW21bTtFNHBRVMZT4varsiAQFJWZ1rduneTazE",
+     "amount_sol": 0.01041188,
+     "signature": "5WtGrXJN1Mt4K4oa4Uh7UhVXFwycys5LWMEDNr5y9wgYGppb44LPX8dJfjdcVFpNA1AW5ie54BUbujivayhs4oLf",
+     "slot": 456774199,
+     "block_time": 1791966979,
+     "fresh": true,
+     "destination_sig_count": 2,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "CvFiRU1wHwp1wvc5UEi9fppFw6Wf9KY8ZC7LMF2cTCcV",
+       "ath_usd": 3007.419653852666,
+       "complete": false,
+       "created_ts": 1791966981
+      }
+     ]
+    },
+    {
+     "destination": "GPdj5h8oHhqbijRrcw1SJHQdVXYhiag8xMJCQmBZ4KiB",
+     "amount_sol": 0.01041188,
+     "signature": "5WtGrXJN1Mt4K4oa4Uh7UhVXFwycys5LWMEDNr5y9wgYGppb44LPX8dJfjdcVFpNA1AW5ie54BUbujivayhs4oLf",
+     "slot": 456774199,
+     "block_time": 1791966979,
+     "fresh": true,
+     "destination_sig_count": 2,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "Hq1Wftz4k4zfPYatUPXKhzJ5G4EuVv1S5Pp917b6Nu2X",
+       "ath_usd": 3009.3672765016595,
+       "complete": false,
+       "created_ts": 1791966981
+      }
+     ]
+    },
+    {
+     "destination": "J7uwmiPwKuZC9i2vJCcUdGxjQCBTQgiaReBqmTdshN28",
+     "amount_sol": 0.01041188,
+     "signature": "4SMDHep9d5tB6cg193uRzeGSozQWwts3Ao2ZHjhbDz1e1zNRJW1tWKQ8ztTZS2txAegifNYf3jG6fnCznfZRKiE3",
+     "slot": 456766394,
+     "block_time": 1791965287,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "EpEJNcqUNnxZ8PCy55nksozKsjBYwhy1R3i3FxxCohVt",
+       "ath_usd": 3024.8837030295276,
+       "complete": false,
+       "created_ts": 1791965289
+      }
+     ]
+    },
+    {
+     "destination": "CSqoHF87z2UucW5fUXZ8Hff9GCWmXaSBjzQhyZQeiknx",
+     "amount_sol": 0.01041188,
+     "signature": "4SMDHep9d5tB6cg193uRzeGSozQWwts3Ao2ZHjhbDz1e1zNRJW1tWKQ8ztTZS2txAegifNYf3jG6fnCznfZRKiE3",
+     "slot": 456766394,
+     "block_time": 1791965287,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "Hk7eQRub9exKYpuiLL8mHfU3j6Gy79E21T6VqcFvQLYa",
+       "ath_usd": 3024.604113076387,
+       "complete": false,
+       "created_ts": 1791965289
+      }
+     ]
+    },
+    {
+     "destination": "mDiucPE7BuXNydnBPWAE5KKRSKuGqjSx2sowTvx3vz5",
+     "amount_sol": 0.01041188,
+     "signature": "4SMDHep9d5tB6cg193uRzeGSozQWwts3Ao2ZHjhbDz1e1zNRJW1tWKQ8ztTZS2txAegifNYf3jG6fnCznfZRKiE3",
+     "slot": 456766394,
+     "block_time": 1791965287,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "2oy3pNzXjnqsBj2ci7xr9oTv618aTBc7TeSyr6mRMyfW",
+       "ath_usd": 3024.604113076387,
+       "complete": false,
+       "created_ts": 1791965289
+      }
+     ]
+    },
+    {
+     "destination": "AHX1rCDVSZsbcU4sQb2Qh1nXvirRb7zAPPBwWPtMHx58",
+     "amount_sol": 0.01041188,
+     "signature": "4SMDHep9d5tB6cg193uRzeGSozQWwts3Ao2ZHjhbDz1e1zNRJW1tWKQ8ztTZS2txAegifNYf3jG6fnCznfZRKiE3",
+     "slot": 456766394,
+     "block_time": 1791965287,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "65jde1mtfZHzQtf3TEaBLVAaxsU2X48SUcygFiierHHm",
+       "ath_usd": 3024.8837030295276,
+       "complete": false,
+       "created_ts": 1791965289
+      }
+     ]
+    },
+    {
+     "destination": "57cNVEEeZLAqCtA3cRpBagguif9vgMZNqcTgqenUkfq2",
+     "amount_sol": 0.01041188,
+     "signature": "3WMYUPNkM9YLAT52CCyYc1aYbvbny9kj5CronELQRmFkBUANoqtERdtGDTrPiRdRPRzx6UoNXTdtJXRUzCT3ARGx",
+     "slot": 456480221,
+     "block_time": 1791902863,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "9SGJQdiYWNnQweakAcdVcVbajHZE2juoQc1k8cJffjNn",
+       "ath_usd": 3017.48342567449,
+       "complete": false,
+       "created_ts": 1791902864
+      }
+     ]
+    },
+    {
+     "destination": "6YVFNhaZrMjyW7HRDyiJ58UNdZCaXrVjgPdLAoVqyiaF",
+     "amount_sol": 0.01041188,
+     "signature": "3WMYUPNkM9YLAT52CCyYc1aYbvbny9kj5CronELQRmFkBUANoqtERdtGDTrPiRdRPRzx6UoNXTdtJXRUzCT3ARGx",
+     "slot": 456480221,
+     "block_time": 1791902863,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "9zwFKtrUFBqEcyu2awWGeM1wx4FfMhYV8HzAknH741Cx",
+       "ath_usd": 3017.48342567449,
+       "complete": false,
+       "created_ts": 1791902864
+      }
+     ]
+    },
+    {
+     "destination": "7w8EWRh5nvPHo7CPGPGvXVR9fM2EW55GkUrPSUMMwJbt",
+     "amount_sol": 0.01041188,
+     "signature": "3WMYUPNkM9YLAT52CCyYc1aYbvbny9kj5CronELQRmFkBUANoqtERdtGDTrPiRdRPRzx6UoNXTdtJXRUzCT3ARGx",
+     "slot": 456480221,
+     "block_time": 1791902863,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "66aS11Cs6JeW2MWM4rY7quebFkbjRaHTbRW6LiTZH7tf",
+       "ath_usd": 3017.48342567449,
+       "complete": false,
+       "created_ts": 1791902864
+      }
+     ]
+    },
+    {
+     "destination": "656HeWgiAZUbQTTkYqF3tDQJXWHKjg8gvt6uznvcsJfF",
+     "amount_sol": 0.01041188,
+     "signature": "3WMYUPNkM9YLAT52CCyYc1aYbvbny9kj5CronELQRmFkBUANoqtERdtGDTrPiRdRPRzx6UoNXTdtJXRUzCT3ARGx",
+     "slot": 456480221,
+     "block_time": 1791902863,
+     "fresh": true,
+     "destination_sig_count": 4,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "5ZZho8q4VteHKadeEpZ4xbBXpr65TH6CDEVLngua9Uf2",
+       "ath_usd": 3018.2350842681226,
+       "complete": false,
+       "created_ts": 1791902864
+      }
+     ]
+    },
+    {
+     "destination": "4aGD3R8yLnvaks81TZuZBftRMwv36s3FaSvmTFJSPq35",
+     "amount_sol": 0.01041188,
+     "signature": "4S65EVgYY4qkVTE7QQpQ222Y5qiPNmr9JVkstCE7ctWyt8wnQL16ZXTrLJa1JgPtqyNKb69oArWbv2URF6D7KL2r",
+     "slot": 456480204,
+     "block_time": 1791902859,
+     "fresh": true,
+     "destination_sig_count": 4,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "4FYAsjgNwkCHgyxVeQ4eeJPdBJ6HCS9pJDxuvzMiyMQo",
+       "ath_usd": 3017.48342567449,
+       "complete": false,
+       "created_ts": 1791902861
+      }
+     ]
+    },
+    {
+     "destination": "3rAtifhxeZrFRUzB7sYd9m8MvJYi6zdyPCYKTKudVYwu",
+     "amount_sol": 0.01041188,
+     "signature": "4S65EVgYY4qkVTE7QQpQ222Y5qiPNmr9JVkstCE7ctWyt8wnQL16ZXTrLJa1JgPtqyNKb69oArWbv2URF6D7KL2r",
+     "slot": 456480204,
+     "block_time": 1791902859,
+     "fresh": true,
+     "destination_sig_count": 4,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "3xbxPGziBuoxLxF7oBJZwzkfU84PFW7y3PVFAEnxD3Ye",
+       "ath_usd": 3017.48342567449,
+       "complete": false,
+       "created_ts": 1791902861
+      }
+     ]
+    },
+    {
+     "destination": "9RXB99MXDAHcziAS3UHE52UnVbKSpCdKYotWE8GG1fjr",
+     "amount_sol": 0.01041188,
+     "signature": "4S65EVgYY4qkVTE7QQpQ222Y5qiPNmr9JVkstCE7ctWyt8wnQL16ZXTrLJa1JgPtqyNKb69oArWbv2URF6D7KL2r",
+     "slot": 456480204,
+     "block_time": 1791902859,
+     "fresh": true,
+     "destination_sig_count": 4,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "Ewy9SJhfwVZpLLcjzzNLQ8XXMWGsZF3hea4EEfyaLpbX",
+       "ath_usd": 3017.48342567449,
+       "complete": false,
+       "created_ts": 1791902861
+      }
+     ]
+    },
+    {
+     "destination": "uHtYrjfjYHc8oBUUrw7c2AppBsfXKF4tHkndsahxCk3",
+     "amount_sol": 0.01041188,
+     "signature": "4S65EVgYY4qkVTE7QQpQ222Y5qiPNmr9JVkstCE7ctWyt8wnQL16ZXTrLJa1JgPtqyNKb69oArWbv2URF6D7KL2r",
+     "slot": 456480204,
+     "block_time": 1791902859,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "FzdhBXjRjhkYPsVyUZBiXVmBwCenq4gi6rXwePUazzrX",
+       "ath_usd": 3017.48342567449,
+       "complete": false,
+       "created_ts": 1791902860
+      }
+     ]
+    },
+    {
+     "destination": "4QYh93oyjrBb1jkGPo8ycwV5KsqWigdp36o7yfyVNRL8",
+     "amount_sol": 0.01041188,
+     "signature": "4pYwNwyoFb4deMYebyi4zayjcuv5vX5MNS6YJrRXzL7g1zwSQJb8wHvdqA7fsmv7y4hBfhfQH76BE15jaypsKtzf",
+     "slot": 456454944,
+     "block_time": 1791897290,
+     "fresh": true,
+     "destination_sig_count": 3,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "7wEybgrMmJjL6ZTDrbiQKuFJEwkdEqgktuezAz9qyfdB",
+       "ath_usd": 2973.558856915793,
+       "complete": false,
+       "created_ts": 1791897292
+      }
+     ]
+    },
+    {
+     "destination": "F8qEgaWzfdd7UBerRsgiFKPDWkq8HeoPHetgModVXpVf",
+     "amount_sol": 0.01041188,
+     "signature": "4pYwNwyoFb4deMYebyi4zayjcuv5vX5MNS6YJrRXzL7g1zwSQJb8wHvdqA7fsmv7y4hBfhfQH76BE15jaypsKtzf",
+     "slot": 456454944,
+     "block_time": 1791897290,
+     "fresh": true,
+     "destination_sig_count": 3,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "57MuSRZPkr2fYCQJJGe6KGTswvnZg3Ry6mMBgB6tHBex",
+       "ath_usd": 2973.558856915793,
+       "complete": false,
+       "created_ts": 1791897293
+      }
+     ]
+    },
+    {
+     "destination": "GFxMyCg2GeUdXTwqoX3oXhPEfSSfsVfCP3KdgNf3oGTU",
+     "amount_sol": 0.01041188,
+     "signature": "4pYwNwyoFb4deMYebyi4zayjcuv5vX5MNS6YJrRXzL7g1zwSQJb8wHvdqA7fsmv7y4hBfhfQH76BE15jaypsKtzf",
+     "slot": 456454944,
+     "block_time": 1791897290,
+     "fresh": true,
+     "destination_sig_count": 3,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "54FJ56JGdwkkUuWNmbshuo9zv6QVe1pXodDVDKXEzTs6",
+       "ath_usd": 2973.558856915793,
+       "complete": false,
+       "created_ts": 1791897293
+      }
+     ]
+    },
+    {
+     "destination": "5YVdpA46s4uCC4Y8SuHQhhvjyEyA9zjJ3WuGTarHk22R",
+     "amount_sol": 0.01041188,
+     "signature": "4pYwNwyoFb4deMYebyi4zayjcuv5vX5MNS6YJrRXzL7g1zwSQJb8wHvdqA7fsmv7y4hBfhfQH76BE15jaypsKtzf",
+     "slot": 456454944,
+     "block_time": 1791897290,
+     "fresh": true,
+     "destination_sig_count": 3,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "65TpFMBv78X1k94hpy82XzdmteCnGBpNL4m4XxyN2pnZ",
+       "ath_usd": 2973.558856915793,
+       "complete": false,
+       "created_ts": 1791897293
+      }
+     ]
+    },
+    {
+     "destination": "2B5RUB42spV8X2Cq2BCx3C5qzdZQsjak9dvsEXVx2XQe",
+     "amount_sol": 0.01041188,
+     "signature": "5EeJKAxMGd9PNyVsMF7uJ7SK5poZxsPu2wmimkHGijg6fE6pvicT8dpUcrVaWF1vFffmxGDZgm7PH9qNa6H2Jbfj",
+     "slot": 456454903,
+     "block_time": 1791897281,
+     "fresh": true,
+     "destination_sig_count": 3,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "6ezMK4zaxdwsWGKmLme2GQm6isZwN1N38QTcAvK2NAzj",
+       "ath_usd": 2974.209319600675,
+       "complete": false,
+       "created_ts": 1791897284
+      }
+     ]
+    },
+    {
+     "destination": "J2nA4hyscvQMZQNTDx17Rpn2uaUK5HdfhakzAgfBjjJz",
+     "amount_sol": 0.01041188,
+     "signature": "5EeJKAxMGd9PNyVsMF7uJ7SK5poZxsPu2wmimkHGijg6fE6pvicT8dpUcrVaWF1vFffmxGDZgm7PH9qNa6H2Jbfj",
+     "slot": 456454903,
+     "block_time": 1791897281,
+     "fresh": true,
+     "destination_sig_count": 3,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "2MJ82C7EwtbacNiTRkNEehj7pgZA9XxTTcF4oTQyPGvH",
+       "ath_usd": 2974.209319600675,
+       "complete": false,
+       "created_ts": 1791897284
+      }
+     ]
+    },
+    {
+     "destination": "2qaH5uSM8aAxxPyairVZoNWmhoksRKvokHU5nXXNBhfG",
+     "amount_sol": 0.01041188,
+     "signature": "5EeJKAxMGd9PNyVsMF7uJ7SK5poZxsPu2wmimkHGijg6fE6pvicT8dpUcrVaWF1vFffmxGDZgm7PH9qNa6H2Jbfj",
+     "slot": 456454903,
+     "block_time": 1791897281,
+     "fresh": true,
+     "destination_sig_count": 3,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "2Zr7ag6BbEG85Rh6VSkJFvGdZAnCm2A6WdQEkhLErn6B",
+       "ath_usd": 2974.209319600675,
+       "complete": false,
+       "created_ts": 1791897284
+      }
+     ]
+    },
+    {
+     "destination": "BPnonArY3xFBZ21Aa9yyddBAsRR3mNiTNio7HwnPLYuW",
+     "amount_sol": 0.01041188,
+     "signature": "5EeJKAxMGd9PNyVsMF7uJ7SK5poZxsPu2wmimkHGijg6fE6pvicT8dpUcrVaWF1vFffmxGDZgm7PH9qNa6H2Jbfj",
+     "slot": 456454903,
+     "block_time": 1791897281,
+     "fresh": true,
+     "destination_sig_count": 3,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "3Lboo2NKg135MExowrKFRrsH3UwVZKgyasAB2bDPPRbf",
+       "ath_usd": 2974.209319600675,
+       "complete": false,
+       "created_ts": 1791897284
+      }
+     ]
+    },
+    {
+     "destination": "7uYhvYD6bPjSA7H4Ddi2ZqM47AfniMzxZrYJhv44pk73",
+     "amount_sol": 0.01041188,
+     "signature": "dQyRrkKN1YW3RDnD7ht8a6yfJKZB221Myn7s35XpfK3F9Z71Gw32RYR4NsCRhAaHwabNRdJSo9Ck7Twoo3iNkiM",
+     "slot": 456437106,
+     "block_time": 1791893381,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "5makPnZSZZp8E4X5GgEqwUfyE46nQwL96FhFhgyQ1ZR7",
+       "ath_usd": 2966.984034885286,
+       "complete": false,
+       "created_ts": 1791893382
+      }
+     ]
+    },
+    {
+     "destination": "ErfeYVRcKKwiZauaQAX1qh5aQYGjS6JdvPiGg6G1zuae",
+     "amount_sol": 0.01041188,
+     "signature": "dQyRrkKN1YW3RDnD7ht8a6yfJKZB221Myn7s35XpfK3F9Z71Gw32RYR4NsCRhAaHwabNRdJSo9Ck7Twoo3iNkiM",
+     "slot": 456437106,
+     "block_time": 1791893381,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "6CcHpVPzYhWk2ed5gWHzQnozbHcsW5dV5irj8X6WtJ3T",
+       "ath_usd": 2966.988341744842,
+       "complete": false,
+       "created_ts": 1791893382
+      }
+     ]
+    },
+    {
+     "destination": "Bbg2dJFyrrU4tQfXHHhzDdZ2ycpi3W7jFfSeDXez6CMR",
+     "amount_sol": 0.01041188,
+     "signature": "dQyRrkKN1YW3RDnD7ht8a6yfJKZB221Myn7s35XpfK3F9Z71Gw32RYR4NsCRhAaHwabNRdJSo9Ck7Twoo3iNkiM",
+     "slot": 456437106,
+     "block_time": 1791893381,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "7ssiE9vdTPihMfw5kGs3nzQP78WNtufDPucTZjV2f8WZ",
+       "ath_usd": 2966.984034885286,
+       "complete": false,
+       "created_ts": 1791893382
+      }
+     ]
+    },
+    {
+     "destination": "Do86qx3xGwgzdewCLWn8cZxne7ncAnYHFjdqgJfHnh2J",
+     "amount_sol": 0.01041188,
+     "signature": "dQyRrkKN1YW3RDnD7ht8a6yfJKZB221Myn7s35XpfK3F9Z71Gw32RYR4NsCRhAaHwabNRdJSo9Ck7Twoo3iNkiM",
+     "slot": 456437106,
+     "block_time": 1791893381,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "GhhvGWf2UXAwDS1XSq3h7wz2K8gjdNUoRu8jvrABKULS",
+       "ath_usd": 2966.984034885286,
+       "complete": false,
+       "created_ts": 1791893382
+      }
+     ]
+    },
+    {
+     "destination": "JBoo6gdbTKaV6eMWwFNqPMsZbC7uttQMJPmYrLfoSpQb",
+     "amount_sol": 0.01041188,
+     "signature": "38JP1LVU3CK8cQYfTGB9k9zRN4c2ywpbGqDwvWjjE71QMog28CfBYMB9MkLoJ26N6hpBuhr7HWbCP7opSombaRkV",
+     "slot": 456437085,
+     "block_time": 1791893376,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "8ZujV3foYcUhRXMrxwqvsHdE1t4UbhfirkmckqZiW1mE",
+       "ath_usd": 2966.984034885286,
+       "complete": false,
+       "created_ts": 1791893378
+      }
+     ]
+    },
+    {
+     "destination": "CSgbDhvtFFHxSaqexCXvc4dv4XaFpZUE78rEGvX6aTEM",
+     "amount_sol": 0.01041188,
+     "signature": "38JP1LVU3CK8cQYfTGB9k9zRN4c2ywpbGqDwvWjjE71QMog28CfBYMB9MkLoJ26N6hpBuhr7HWbCP7opSombaRkV",
+     "slot": 456437085,
+     "block_time": 1791893376,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "DyBZhUbxJe8cyEt4RjkfLpmWV5VZ1LSuUF56WEEigu9R",
+       "ath_usd": 2966.988341744842,
+       "complete": false,
+       "created_ts": 1791893378
+      }
+     ]
+    },
+    {
+     "destination": "FBv2ijwCjF9dp2BRYY4wei2kMd7Fi1AXcc8968wCQsRJ",
+     "amount_sol": 0.01041188,
+     "signature": "38JP1LVU3CK8cQYfTGB9k9zRN4c2ywpbGqDwvWjjE71QMog28CfBYMB9MkLoJ26N6hpBuhr7HWbCP7opSombaRkV",
+     "slot": 456437085,
+     "block_time": 1791893376,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "4hAa54GcnWwK9Bp6hYNgqZYTADPP8kPaDxAbiBVqofRs",
+       "ath_usd": 2969.2642669815345,
+       "complete": false,
+       "created_ts": 1791893378
+      }
+     ]
+    },
+    {
+     "destination": "7cGj6NA7DZQSB9JBRfdrCEc2j3uzi7qdXwQjHg8ckKh9",
+     "amount_sol": 0.01041188,
+     "signature": "38JP1LVU3CK8cQYfTGB9k9zRN4c2ywpbGqDwvWjjE71QMog28CfBYMB9MkLoJ26N6hpBuhr7HWbCP7opSombaRkV",
+     "slot": 456437085,
+     "block_time": 1791893376,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "5Xm8fYDiaj7tsKwH4D9681LBntJ7qrCsd4JgEBEn8qod",
+       "ath_usd": 3006.9755958948185,
+       "complete": false,
+       "created_ts": 1791893378
+      }
+     ]
+    },
+    {
+     "destination": "Fa1VDAWBenwKaRNA2tRZ5PzXcadhHSc6QfBSGHbNu9UR",
+     "amount_sol": 0.01041188,
+     "signature": "2CHwyiZQMp1k8xr1JS7vtVNW5U4WRVrG6KAF8Tf9mVCxTkJspjpkn75Cz6tuLUJBczvLQyTzxbx2Gd6XrBxQozgr",
+     "slot": 456435313,
+     "block_time": 1791892990,
+     "fresh": true,
+     "destination_sig_count": 4,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "G7g9YJKQWDWHPCXRFRR1u6SFLTuk6dpmdXn713oDrApN",
+       "ath_usd": 2962.261046434101,
+       "complete": false,
+       "created_ts": 1791892991
+      }
+     ]
+    },
+    {
+     "destination": "9dNtud5js5G6gfBRx3T38QXnncLLE9i32uGRgQNibpz4",
+     "amount_sol": 0.01041188,
+     "signature": "2CHwyiZQMp1k8xr1JS7vtVNW5U4WRVrG6KAF8Tf9mVCxTkJspjpkn75Cz6tuLUJBczvLQyTzxbx2Gd6XrBxQozgr",
+     "slot": 456435313,
+     "block_time": 1791892990,
+     "fresh": true,
+     "destination_sig_count": 4,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "7D5JZLAY5JUxevCBVPwnQmFXUqhYiqJYeGwBEZZZRZHU",
+       "ath_usd": 2962.261046434101,
+       "complete": false,
+       "created_ts": 1791892991
+      }
+     ]
+    },
+    {
+     "destination": "Dg6mSxC2ZzXps48TYjGgWR2HipbnvS9ge9iTfDr8wdUt",
+     "amount_sol": 0.01041188,
+     "signature": "2CHwyiZQMp1k8xr1JS7vtVNW5U4WRVrG6KAF8Tf9mVCxTkJspjpkn75Cz6tuLUJBczvLQyTzxbx2Gd6XrBxQozgr",
+     "slot": 456435313,
+     "block_time": 1791892990,
+     "fresh": true,
+     "destination_sig_count": 4,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "D6b7y4s3j8pXn1cQMRCJkAxSj1ZX7X29Ykn3MssRmBMq",
+       "ath_usd": 2962.2572511962,
+       "complete": false,
+       "created_ts": 1791892991
+      }
+     ]
+    },
+    {
+     "destination": "4V1sKgD7XVqUwZtDxXtqEBTC6gKpiumD13jNFBAWAhji",
+     "amount_sol": 0.01041188,
+     "signature": "2CHwyiZQMp1k8xr1JS7vtVNW5U4WRVrG6KAF8Tf9mVCxTkJspjpkn75Cz6tuLUJBczvLQyTzxbx2Gd6XrBxQozgr",
+     "slot": 456435313,
+     "block_time": 1791892990,
+     "fresh": true,
+     "destination_sig_count": 4,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "716ftAF5AY53S5WvbWQhG3whptqyrzm71A9ngdDma6ZG",
+       "ath_usd": 2962.261046434101,
+       "complete": false,
+       "created_ts": 1791892991
+      }
+     ]
+    },
+    {
+     "destination": "4CmA6Qp7E4TUFWg3obmSAWBnQ6kDG3dkqxZJZWsEqgMw",
+     "amount_sol": 0.01041188,
+     "signature": "4yejgMMwR9zyKEG85xoSf5iFzk9tze36rzyJwJQoNR2wctE3DWTmqKq61aE3WMzGBYQEy17vSKhNh1o9K679N7VB",
+     "slot": 456435244,
+     "block_time": 1791892975,
+     "fresh": true,
+     "destination_sig_count": 4,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "BRsz2t55s6rDHdr6nboCW35ieAN3zgwQDyYW99bMtAKH",
+       "ath_usd": 2962.2572511962,
+       "complete": false,
+       "created_ts": 1791892976
+      }
+     ]
+    },
+    {
+     "destination": "9bs1x82xGbcs5pLdga3CeGcTUFmjmD4Ytzoqiythm8xb",
+     "amount_sol": 0.01041188,
+     "signature": "4yejgMMwR9zyKEG85xoSf5iFzk9tze36rzyJwJQoNR2wctE3DWTmqKq61aE3WMzGBYQEy17vSKhNh1o9K679N7VB",
+     "slot": 456435244,
+     "block_time": 1791892975,
+     "fresh": true,
+     "destination_sig_count": 4,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "745kt6otqXoE6K7AE4rFb6HWDXPsW7Z4NfLahypmRApk",
+       "ath_usd": 2962.261046434101,
+       "complete": false,
+       "created_ts": 1791892976
+      }
+     ]
+    },
+    {
+     "destination": "8XZwZ3DSd5TYjz1wFQfpSGr56iCc81w5AaQ2NQBak97z",
+     "amount_sol": 0.01041188,
+     "signature": "4yejgMMwR9zyKEG85xoSf5iFzk9tze36rzyJwJQoNR2wctE3DWTmqKq61aE3WMzGBYQEy17vSKhNh1o9K679N7VB",
+     "slot": 456435244,
+     "block_time": 1791892975,
+     "fresh": true,
+     "destination_sig_count": 4,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "3FhVNxhnA25FAAPBiVvtCVbEYEwgHZeCWKroYg54FZC2",
+       "ath_usd": 2962.2572511962,
+       "complete": false,
+       "created_ts": 1791892976
+      }
+     ]
+    },
+    {
+     "destination": "8Ho1vBDNfD1JPr3HCux4sGfWDjEQxAr6BU58rfpvQFFs",
+     "amount_sol": 0.01041188,
+     "signature": "4yejgMMwR9zyKEG85xoSf5iFzk9tze36rzyJwJQoNR2wctE3DWTmqKq61aE3WMzGBYQEy17vSKhNh1o9K679N7VB",
+     "slot": 456435244,
+     "block_time": 1791892975,
+     "fresh": true,
+     "destination_sig_count": 4,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "44ML9Eqah5ava9bbEPTiquyGikqYqZBTpZs4WE2ggdGC",
+       "ath_usd": 2962.2572511962,
+       "complete": false,
+       "created_ts": 1791892976
+      }
+     ]
+    },
+    {
+     "destination": "5k4yvfHy6UGBn8Eur12KizdBEqkWvahZg6Y9rRp9JfG7",
+     "amount_sol": 0.01041188,
+     "signature": "3n8ffUwc28e4KmSLPT6AS7n4FDWNxdbRmbUWCYnMrSTPGXnMiET8fsrQFTnNKEcC6avZG49SH3qDT6Ae7KsXHRM8",
+     "slot": 456401720,
+     "block_time": 1791885665,
+     "fresh": true,
+     "destination_sig_count": 7,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "Hy7VXxAshkEa2Q1A6SzHC3x3HVyPatJJwFZvHSejdtJp",
+       "ath_usd": 2990.2145488400774,
+       "complete": false,
+       "created_ts": 1791885666
+      }
+     ]
+    },
+    {
+     "destination": "DZ9uAw9AbNMKZKmkH7Q1PeWvJSQ63EqR1FTLMQT6idrF",
+     "amount_sol": 0.01041188,
+     "signature": "3n8ffUwc28e4KmSLPT6AS7n4FDWNxdbRmbUWCYnMrSTPGXnMiET8fsrQFTnNKEcC6avZG49SH3qDT6Ae7KsXHRM8",
+     "slot": 456401720,
+     "block_time": 1791885665,
+     "fresh": true,
+     "destination_sig_count": 7,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "3UEuxTQh5AL5XPqRhATw3Fgow3MaqA4ju921Fgt4W4tG",
+       "ath_usd": 2990.2145488400774,
+       "complete": false,
+       "created_ts": 1791885666
+      }
+     ]
+    },
+    {
+     "destination": "BihrYT5t5nnRYHETe4hokM1RVa4vS9qBhc7wgiFBZhQ",
+     "amount_sol": 0.01041188,
+     "signature": "3n8ffUwc28e4KmSLPT6AS7n4FDWNxdbRmbUWCYnMrSTPGXnMiET8fsrQFTnNKEcC6avZG49SH3qDT6Ae7KsXHRM8",
+     "slot": 456401720,
+     "block_time": 1791885665,
+     "fresh": true,
+     "destination_sig_count": 8,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "2ephEEDBQQjiqNWpXmGUGuTLieLuotPArbrhbx4rwoVU",
+       "ath_usd": 2990.2145488400774,
+       "complete": false,
+       "created_ts": 1791885666
+      }
+     ]
+    },
+    {
+     "destination": "7UuSS5WKx3kMamNquvnv4qZkw9NoByX1XLJsGqFEsW7s",
+     "amount_sol": 0.01041188,
+     "signature": "3n8ffUwc28e4KmSLPT6AS7n4FDWNxdbRmbUWCYnMrSTPGXnMiET8fsrQFTnNKEcC6avZG49SH3qDT6Ae7KsXHRM8",
+     "slot": 456401720,
+     "block_time": 1791885665,
+     "fresh": true,
+     "destination_sig_count": 8,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "DQuAoVCjK1QUxYiXoCiVdc2LqRuDhjhFkbKKfgziGHSj",
+       "ath_usd": 2990.2145488400774,
+       "complete": false,
+       "created_ts": 1791885666
+      }
+     ]
+    },
+    {
+     "destination": "CB6wLr1dUsEJ8eVyiwvsZHhuq5He7zqFnJeknYGhdvND",
+     "amount_sol": 0.01041188,
+     "signature": "5tigeXTxQ44dsqCfGKAPJcmscFxrDfoXu1KT2MwBzaVeKh7nRgNsi3NhF1AUwyQ2eXzxVSWQYMvStZG6N4sQ8irb",
+     "slot": 456401678,
+     "block_time": 1791885656,
+     "fresh": true,
+     "destination_sig_count": 7,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "H2jaXnYTS8JZ11Fm6Wiy6eoqNX9mh3YM2TYXJs1FLDZT",
+       "ath_usd": 2990.2145488400774,
+       "complete": false,
+       "created_ts": 1791885657
+      }
+     ]
+    },
+    {
+     "destination": "HHUFxPLLz653x77tx22Gf491y9rpXaDdf6vNq4N9oqUT",
+     "amount_sol": 0.01041188,
+     "signature": "5tigeXTxQ44dsqCfGKAPJcmscFxrDfoXu1KT2MwBzaVeKh7nRgNsi3NhF1AUwyQ2eXzxVSWQYMvStZG6N4sQ8irb",
+     "slot": 456401678,
+     "block_time": 1791885656,
+     "fresh": true,
+     "destination_sig_count": 7,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "HgRjSMCmeqKrP21BqwnbcihZNXgodTzDyUWbP5yTQy5H",
+       "ath_usd": 2990.2145488400774,
+       "complete": false,
+       "created_ts": 1791885657
+      }
+     ]
+    },
+    {
+     "destination": "97npYHVingR6FBsXFrxG3bFAqQqLNDQ8xif4B3Ut5TpB",
+     "amount_sol": 0.01041188,
+     "signature": "5tigeXTxQ44dsqCfGKAPJcmscFxrDfoXu1KT2MwBzaVeKh7nRgNsi3NhF1AUwyQ2eXzxVSWQYMvStZG6N4sQ8irb",
+     "slot": 456401678,
+     "block_time": 1791885656,
+     "fresh": true,
+     "destination_sig_count": 7,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "9wEJxG3eKWs56N3DNToLjt1bYYqEhHiPCiB8SyVWTdeS",
+       "ath_usd": 2990.2145488400774,
+       "complete": false,
+       "created_ts": 1791885657
+      }
+     ]
+    },
+    {
+     "destination": "BDvGRYK9B1R6K2aLmSoeymmWQK3cHV9LCRCraqJjv2P3",
+     "amount_sol": 0.01041188,
+     "signature": "5tigeXTxQ44dsqCfGKAPJcmscFxrDfoXu1KT2MwBzaVeKh7nRgNsi3NhF1AUwyQ2eXzxVSWQYMvStZG6N4sQ8irb",
+     "slot": 456401678,
+     "block_time": 1791885656,
+     "fresh": true,
+     "destination_sig_count": 7,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "8hsAs51w1u9E1MfnAazTrRdWCYodJHLNRUqxyfsxeMsA",
+       "ath_usd": 2990.2145488400774,
+       "complete": false,
+       "created_ts": 1791885657
+      }
+     ]
+    },
+    {
+     "destination": "BbWU6RJMvpwxWHpWL1cNdqfss4kBFBZ1okd7ZaHBCrFp",
+     "amount_sol": 0.01041188,
+     "signature": "67ZPP1ti2bdzLrJ4ZmXXkJ93C62Z9u7Ugh2MCDVnRRWqGf8A2ib71vq5mQL5vujGzbBbAVFsdTvqaBMqYbucjQoV",
+     "slot": 456401663,
+     "block_time": 1791885653,
+     "fresh": true,
+     "destination_sig_count": 7,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "2SKJEMEBxtyZWNXzJd3nL2yy1XmZVPWzqJiY7cCauMhn",
+       "ath_usd": 2990.2145488400774,
+       "complete": false,
+       "created_ts": 1791885654
+      }
+     ]
+    },
+    {
+     "destination": "ARDerLUhbtN6TPptA7miH7qdSice78DmqzBpQhVhzRAp",
+     "amount_sol": 0.01041188,
+     "signature": "67ZPP1ti2bdzLrJ4ZmXXkJ93C62Z9u7Ugh2MCDVnRRWqGf8A2ib71vq5mQL5vujGzbBbAVFsdTvqaBMqYbucjQoV",
+     "slot": 456401663,
+     "block_time": 1791885653,
+     "fresh": true,
+     "destination_sig_count": 7,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "4cPQC25AdVHV7vE8Usyu7HD8LJhiAdzEzBysoGVujmwi",
+       "ath_usd": 2990.2145488400774,
+       "complete": false,
+       "created_ts": 1791885654
+      }
+     ]
+    },
+    {
+     "destination": "E66PKXF6BegZi7KunW5UcAMAiRrdfmRY2gQnFVn4sT7j",
+     "amount_sol": 0.01041188,
+     "signature": "67ZPP1ti2bdzLrJ4ZmXXkJ93C62Z9u7Ugh2MCDVnRRWqGf8A2ib71vq5mQL5vujGzbBbAVFsdTvqaBMqYbucjQoV",
+     "slot": 456401663,
+     "block_time": 1791885653,
+     "fresh": true,
+     "destination_sig_count": 7,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "Adx4wzrpKQxjzvnRM7treLX1D7NwroRRq4okmo9h9gE2",
+       "ath_usd": 2990.2145488400774,
+       "complete": false,
+       "created_ts": 1791885654
+      }
+     ]
+    },
+    {
+     "destination": "HCyi9R6Nikm1cP1D3VX8CtkhFsJFbirdQPwF6xHS21E6",
+     "amount_sol": 0.01041188,
+     "signature": "67ZPP1ti2bdzLrJ4ZmXXkJ93C62Z9u7Ugh2MCDVnRRWqGf8A2ib71vq5mQL5vujGzbBbAVFsdTvqaBMqYbucjQoV",
+     "slot": 456401663,
+     "block_time": 1791885653,
+     "fresh": true,
+     "destination_sig_count": 7,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "EKoYQkabe8tsZdNtYAYSMyn3guKfUJ7hMpVg4aikLsUD",
+       "ath_usd": 3001.0639609552327,
+       "complete": false,
+       "created_ts": 1791885654
+      }
+     ]
+    },
+    {
+     "destination": "5TdvfVN26dS1riPo8H8MSj6GC7bLQEnpzz4j4CZKhB3R",
+     "amount_sol": 0.01041188,
+     "signature": "5KgX2BLxYCPYMY7fCFpCL8ytNFPcxsyqC5EtLe3TwEWA2nahgkoMkNSty7zSh9AA4hhy9DMuNSdoCewWztS7pXAt",
+     "slot": 456401627,
+     "block_time": 1791885645,
+     "fresh": true,
+     "destination_sig_count": 7,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "7VL5NpHMjZZfkHbFJzuxKr5cSYV7FFf9MuqH6MxrVHn4",
+       "ath_usd": 2990.2145488400774,
+       "complete": false,
+       "created_ts": 1791885646
+      }
+     ]
+    }
+   ],
+   "fresh_matches": 387,
+   "why": "wallet, funds 4 sampled creators",
+   "index_matches": [
+    "CSqoHF87z2UucW5fUXZ8Hff9GCWmXaSBjzQhyZQeiknx",
+    "AHX1rCDVSZsbcU4sQb2Qh1nXvirRb7zAPPBwWPtMHx58",
+    "J7uwmiPwKuZC9i2vJCcUdGxjQCBTQgiaReBqmTdshN28",
+    "mDiucPE7BuXNydnBPWAE5KKRSKuGqjSx2sowTvx3vz5"
+   ],
+   "recipients_checked": 60,
+   "recipients_that_created_coins": 60,
+   "their_coins": 60,
+   "their_coins_graduated": 0,
+   "their_coins_ath_usd": {
+    "n": 60,
+    "p10": 2962.261046434101,
+    "p25": 2973.558856915793,
+    "median": 2990.2145488400774,
+    "p75": 3007.419653852666,
+    "p90": 3017.48342567449,
+    "mean": 2990.973
+   }
+  },
+  {
+   "funder": "ET69TzBLppVXzQAzMiXPxYKzDybFrxg759zuVGAQJNrD",
+   "amount_sol": 0.9,
+   "tol_sol": 0.0005,
+   "scanned_txs": 275,
+   "window_seconds": 281325,
+   "funder_history_complete": true,
+   "matches": [
+    {
+     "destination": "6FA22FbKX9oXrRBxU5BgSoCPeN3MR4BMuEmA6wMvZ7jz",
+     "amount_sol": 0.9,
+     "signature": "c1Q3ExGHi4E5QSxGSqPhV61GYjD373jS4z6du32NtMDWPUbDK6VttaCcBrjNLP9VNPrYWQANC8VHe3pUPpRtC3m",
+     "slot": 456767444,
+     "block_time": 1791965512,
+     "fresh": true,
+     "destination_sig_count": 16,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "ELqHwwF79JhULT2L2FZVBFccAd3Q4Xy1aBRRXB9zUMhA",
+       "ath_usd": 12917.004944746188,
+       "complete": false,
+       "created_ts": 1791965757
+      }
+     ]
+    },
+    {
+     "destination": "21q8YzqLeWKFoYCsngGsY3foKKbtBMsGaQ43a1KJ7EBG",
+     "amount_sol": 0.9,
+     "signature": "c1Q3ExGHi4E5QSxGSqPhV61GYjD373jS4z6du32NtMDWPUbDK6VttaCcBrjNLP9VNPrYWQANC8VHe3pUPpRtC3m",
+     "slot": 456767444,
+     "block_time": 1791965512,
+     "fresh": false,
+     "destination_sig_count": 11
+    },
+    {
+     "destination": "DcDhiSDeC7DsPuhJFs5iJoGSz6bK8Up4Fk39c6ejXPzt",
+     "amount_sol": 0.9,
+     "signature": "c1Q3ExGHi4E5QSxGSqPhV61GYjD373jS4z6du32NtMDWPUbDK6VttaCcBrjNLP9VNPrYWQANC8VHe3pUPpRtC3m",
+     "slot": 456767444,
+     "block_time": 1791965512,
+     "fresh": false,
+     "destination_sig_count": 21
+    },
+    {
+     "destination": "6uEqLH4SAfH656y3Qc7R8oxLVZ5S8wrXJQDzyYyGnpYM",
+     "amount_sol": 0.9,
+     "signature": "53hieLqmHWUvYqe2KnPA7YxQ8MSKvNeymtWsD1mXj5dnknHHdaYmBmnZhu2otmXjjkyfBsM3XDSrvjKRPGWyyZLS",
+     "slot": 456760163,
+     "block_time": 1791963935,
+     "fresh": true,
+     "destination_sig_count": 9,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "3WaK2PovcNmq4zzreGGX7k8yr3q8WfawEoBmCQ5TigMe",
+       "ath_usd": 3758.7319660897037,
+       "complete": false,
+       "created_ts": 1791965256
+      }
+     ]
+    },
+    {
+     "destination": "DcDhiSDeC7DsPuhJFs5iJoGSz6bK8Up4Fk39c6ejXPzt",
+     "amount_sol": 0.9,
+     "signature": "53hieLqmHWUvYqe2KnPA7YxQ8MSKvNeymtWsD1mXj5dnknHHdaYmBmnZhu2otmXjjkyfBsM3XDSrvjKRPGWyyZLS",
+     "slot": 456760163,
+     "block_time": 1791963935,
+     "fresh": true,
+     "destination_sig_count": 21,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "21q8YzqLeWKFoYCsngGsY3foKKbtBMsGaQ43a1KJ7EBG",
+     "amount_sol": 0.9,
+     "signature": "53hieLqmHWUvYqe2KnPA7YxQ8MSKvNeymtWsD1mXj5dnknHHdaYmBmnZhu2otmXjjkyfBsM3XDSrvjKRPGWyyZLS",
+     "slot": 456760163,
+     "block_time": 1791963935,
+     "fresh": true,
+     "destination_sig_count": 11,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "8x94ghy3HeNka9XVeePGjt9kszRbSRrk8ys2osjH6sG8",
+     "amount_sol": 0.9,
+     "signature": "49ozTu5cwtgUyJA3Z6wz1qbWXHX1rc7mzQLctooJsrxMmDdp3KiGUeGqDAct7urrSKUdZUhYDDVmCqYegMCVgPWn",
+     "slot": 456754048,
+     "block_time": 1791962602,
+     "fresh": false,
+     "destination_sig_count": 10
+    },
+    {
+     "destination": "4Pb8WVTpm8viiE1oRzoyjmu4Bii16ube5cAAKeJ4p4XT",
+     "amount_sol": 0.9,
+     "signature": "49ozTu5cwtgUyJA3Z6wz1qbWXHX1rc7mzQLctooJsrxMmDdp3KiGUeGqDAct7urrSKUdZUhYDDVmCqYegMCVgPWn",
+     "slot": 456754048,
+     "block_time": 1791962602,
+     "fresh": false,
+     "destination_sig_count": 8
+    },
+    {
+     "destination": "HSvThrTnmNh8q7Z2nhfamYjwiSAJDDdHpwzCWkwLQR8S",
+     "amount_sol": 0.9,
+     "signature": "49ozTu5cwtgUyJA3Z6wz1qbWXHX1rc7mzQLctooJsrxMmDdp3KiGUeGqDAct7urrSKUdZUhYDDVmCqYegMCVgPWn",
+     "slot": 456754048,
+     "block_time": 1791962602,
+     "fresh": false,
+     "destination_sig_count": 8
+    },
+    {
+     "destination": "8x94ghy3HeNka9XVeePGjt9kszRbSRrk8ys2osjH6sG8",
+     "amount_sol": 0.9,
+     "signature": "vZtt92CrFu3KD3mUGzK1GybxiooMkcyB57T42LgpVc1yyvsYppSTna8A56D25aJuS1DB2yd51FqNGUprXEr1aUK",
+     "slot": 456746332,
+     "block_time": 1791960929,
+     "fresh": true,
+     "destination_sig_count": 10,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "DQS8FSgYMkkcEPkPZbW2Kbn4un3F6tLRBvgGFtvCDdRH",
+       "ath_usd": 3966.9932352972523,
+       "complete": false,
+       "created_ts": 1791962902
+      }
+     ]
+    },
+    {
+     "destination": "4Pb8WVTpm8viiE1oRzoyjmu4Bii16ube5cAAKeJ4p4XT",
+     "amount_sol": 0.9,
+     "signature": "vZtt92CrFu3KD3mUGzK1GybxiooMkcyB57T42LgpVc1yyvsYppSTna8A56D25aJuS1DB2yd51FqNGUprXEr1aUK",
+     "slot": 456746332,
+     "block_time": 1791960929,
+     "fresh": true,
+     "destination_sig_count": 8,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "HSvThrTnmNh8q7Z2nhfamYjwiSAJDDdHpwzCWkwLQR8S",
+     "amount_sol": 0.9,
+     "signature": "vZtt92CrFu3KD3mUGzK1GybxiooMkcyB57T42LgpVc1yyvsYppSTna8A56D25aJuS1DB2yd51FqNGUprXEr1aUK",
+     "slot": 456746332,
+     "block_time": 1791960929,
+     "fresh": true,
+     "destination_sig_count": 8,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "4ifvMXjRgSnBgMibFBGjfdvgDcWJqVuT8xhggcQT13hD",
+     "amount_sol": 0.9,
+     "signature": "2oc1MZxYC5hrUQGZ2PhJxp56mzUdpVfqrK8m1qFJ8PsYc9uHY94Q6giWutJpC3Nkv2gubLvGN9MAMXS6DoDdMpTi",
+     "slot": 456738517,
+     "block_time": 1791959230,
+     "fresh": true,
+     "destination_sig_count": 10,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "61GTB8MExj8WEiqYLcVhQJX5cps2zqmbqk6N5HZDv87a",
+       "ath_usd": 3659.526224398523,
+       "complete": false,
+       "created_ts": 1791959910
+      }
+     ]
+    },
+    {
+     "destination": "3emPmVm8jQSjHC3syCo7VER9nAZ3dTevZxDxRJqHDfPH",
+     "amount_sol": 0.9,
+     "signature": "2oc1MZxYC5hrUQGZ2PhJxp56mzUdpVfqrK8m1qFJ8PsYc9uHY94Q6giWutJpC3Nkv2gubLvGN9MAMXS6DoDdMpTi",
+     "slot": 456738517,
+     "block_time": 1791959230,
+     "fresh": true,
+     "destination_sig_count": 6,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "6doWqLSMMkC7pzw9yyiAU7hykTDvuDCrVZ6VCZxAfLTD",
+     "amount_sol": 0.9,
+     "signature": "2oc1MZxYC5hrUQGZ2PhJxp56mzUdpVfqrK8m1qFJ8PsYc9uHY94Q6giWutJpC3Nkv2gubLvGN9MAMXS6DoDdMpTi",
+     "slot": 456738517,
+     "block_time": 1791959230,
+     "fresh": true,
+     "destination_sig_count": 6,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "F3Se4pDAKdBwEeybzvGZFJk4GU2AbPKDWGt7QYxptpBE",
+     "amount_sol": 0.9,
+     "signature": "62kDHLuNaPbkpWq66YCJWWieC97syGqxGFKMeGe7wwjyVqFjaM37za1SNjXCG2KUVG2dTQmH9ES9CWEzjFg8NEaU",
+     "slot": 456688655,
+     "block_time": 1791948394,
+     "fresh": true,
+     "destination_sig_count": 31,
+     "created_pump_coins": 4,
+     "coins": [
+      {
+       "mint": "FTxWWnbfCS4rCrJAVR2ESFjnF2npmPR5CtGaz2KR6xm4",
+       "ath_usd": 3052.8818615843984,
+       "complete": false,
+       "created_ts": 1791959064
+      },
+      {
+       "mint": "CfVn7RicZATfwkv2ihwAfKqdiDpFF7Xha4PgcdSPTHVE",
+       "ath_usd": 2996.731374759723,
+       "complete": false,
+       "created_ts": 1791957385
+      },
+      {
+       "mint": "DskgLRkmKBYjFxZAcLaB5vXRT2M2WdzzHDGJcFjs1y3t",
+       "ath_usd": 3533.9836100352286,
+       "complete": false,
+       "created_ts": 1791950144
+      },
+      {
+       "mint": "GRJm5XMe47Vsuh8TJnhEDnCSQwRFMMMxfD7tD5QknpoT",
+       "ath_usd": 3657.393572442482,
+       "complete": false,
+       "created_ts": 1791948519
+      }
+     ]
+    },
+    {
+     "destination": "Hq3MrzwMzngBTEHjiaBYB6JLttM22onpAb8HsKP51rgP",
+     "amount_sol": 0.9,
+     "signature": "62kDHLuNaPbkpWq66YCJWWieC97syGqxGFKMeGe7wwjyVqFjaM37za1SNjXCG2KUVG2dTQmH9ES9CWEzjFg8NEaU",
+     "slot": 456688655,
+     "block_time": 1791948394,
+     "fresh": true,
+     "destination_sig_count": 7,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "C33kRVWy3qYToQGKFZmiwnKGp7nCk9avYVj4J4tR1ZCC",
+     "amount_sol": 0.9,
+     "signature": "62kDHLuNaPbkpWq66YCJWWieC97syGqxGFKMeGe7wwjyVqFjaM37za1SNjXCG2KUVG2dTQmH9ES9CWEzjFg8NEaU",
+     "slot": 456688655,
+     "block_time": 1791948394,
+     "fresh": true,
+     "destination_sig_count": 7,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "d8umrw6SZ6qNwoeb1VxETLjhR6PGrZXeydVfzsWWNTy",
+     "amount_sol": 0.9,
+     "signature": "5fvADxWhkXEdCtxUxDuHgzMub44GyRKmkDBbVBRfnvX1M1HYuaKuZugBgASYCwqUeM94F7bSMFt7dSk5yRu8tqFt",
+     "slot": 456679996,
+     "block_time": 1791946501,
+     "fresh": false,
+     "destination_sig_count": 15
+    },
+    {
+     "destination": "8myceQpkgBAyfT9i5Sha95L9WrDsstJGpneFjViZcNqL",
+     "amount_sol": 0.9,
+     "signature": "5fvADxWhkXEdCtxUxDuHgzMub44GyRKmkDBbVBRfnvX1M1HYuaKuZugBgASYCwqUeM94F7bSMFt7dSk5yRu8tqFt",
+     "slot": 456679996,
+     "block_time": 1791946501,
+     "fresh": false,
+     "destination_sig_count": 15
+    },
+    {
+     "destination": "DvkhtUR1ST7ZfPYGKs1qNsruTDjuNYYHUFxBVH8Zj2zK",
+     "amount_sol": 0.9,
+     "signature": "5fvADxWhkXEdCtxUxDuHgzMub44GyRKmkDBbVBRfnvX1M1HYuaKuZugBgASYCwqUeM94F7bSMFt7dSk5yRu8tqFt",
+     "slot": 456679996,
+     "block_time": 1791946501,
+     "fresh": true,
+     "destination_sig_count": 6,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "BwrkcZp72ydrirYBWU5UhK8tk8WPi7hCRZK9TiosDdzv",
+     "amount_sol": 0.9,
+     "signature": "63y7YB1KfYXTnhUWp5zP5noAGyDysUDg6uD7RkjYPbZhDRcCmrYE1ZUDxuqN2WKo8kYxeHeoV97JHnhUdLsSZfhE",
+     "slot": 456669342,
+     "block_time": 1791944176,
+     "fresh": true,
+     "destination_sig_count": 13,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "CVeHfCfrK41bwxVNHE4iBW13tx3drAjXfWvZafYEMkBs",
+       "ath_usd": 6929.543010348634,
+       "complete": false,
+       "created_ts": 1791944257
+      }
+     ]
+    },
+    {
+     "destination": "d8umrw6SZ6qNwoeb1VxETLjhR6PGrZXeydVfzsWWNTy",
+     "amount_sol": 0.9,
+     "signature": "63y7YB1KfYXTnhUWp5zP5noAGyDysUDg6uD7RkjYPbZhDRcCmrYE1ZUDxuqN2WKo8kYxeHeoV97JHnhUdLsSZfhE",
+     "slot": 456669342,
+     "block_time": 1791944176,
+     "fresh": true,
+     "destination_sig_count": 15,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "3sYU8jAuoZNQEu2xcTeBNAHqmF4Frd2kBtym8vrCgj6k",
+       "ath_usd": 5579.053424030627,
+       "complete": false,
+       "created_ts": 1791946580
+      }
+     ]
+    },
+    {
+     "destination": "8myceQpkgBAyfT9i5Sha95L9WrDsstJGpneFjViZcNqL",
+     "amount_sol": 0.9,
+     "signature": "63y7YB1KfYXTnhUWp5zP5noAGyDysUDg6uD7RkjYPbZhDRcCmrYE1ZUDxuqN2WKo8kYxeHeoV97JHnhUdLsSZfhE",
+     "slot": 456669342,
+     "block_time": 1791944176,
+     "fresh": true,
+     "destination_sig_count": 15,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "3XpnawnqiFKzqZcAyjvWvtxcktH1kPuVh9juDXb4XyeH",
+     "amount_sol": 0.9,
+     "signature": "nq6joWwgfuEnCoGq2f9mV5PoZHEkoBesFFKud22JK5CLusewMFESxfWBJjoKRs3cfxQyAW6M7YP1mg7fKg6ejvX",
+     "slot": 456460835,
+     "block_time": 1791898591,
+     "fresh": true,
+     "destination_sig_count": 8,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "E48rH5c6WnW6r6zRDGUNBVgmBKXHK91mrWraozSEKr9t",
+       "ath_usd": 3716.330693716749,
+       "complete": false,
+       "created_ts": 1791898867
+      }
+     ]
+    },
+    {
+     "destination": "HHuBENoCt264CQEGFkizx5pTpTto7cuEUSx2aRhP9VWR",
+     "amount_sol": 0.9,
+     "signature": "nq6joWwgfuEnCoGq2f9mV5PoZHEkoBesFFKud22JK5CLusewMFESxfWBJjoKRs3cfxQyAW6M7YP1mg7fKg6ejvX",
+     "slot": 456460835,
+     "block_time": 1791898591,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "5NaoKyvBhPppS8LbWLqBsUcNHqx6QsZ5A21reK3DmVSF",
+     "amount_sol": 0.9,
+     "signature": "nq6joWwgfuEnCoGq2f9mV5PoZHEkoBesFFKud22JK5CLusewMFESxfWBJjoKRs3cfxQyAW6M7YP1mg7fKg6ejvX",
+     "slot": 456460835,
+     "block_time": 1791898591,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "5vKiA8b6jMPREdVMp8kkfkM5RMuiWv2oCsdXtKJJL2mD",
+     "amount_sol": 0.9,
+     "signature": "3eGqb9PVsnZ1WaypnJAL3fcczoM6oegF3zbUAbiV1TAtgZMBtB17dt1bNyruNCzYu8nYd17hBE1uaJtrdXxDAHk5",
+     "slot": 456458060,
+     "block_time": 1791897983,
+     "fresh": false,
+     "destination_sig_count": 20
+    },
+    {
+     "destination": "4DvK5umsaWoJzQbZGAfgjrbdYtxJrbHAFaHDqVoN2Mu5",
+     "amount_sol": 0.9,
+     "signature": "3eGqb9PVsnZ1WaypnJAL3fcczoM6oegF3zbUAbiV1TAtgZMBtB17dt1bNyruNCzYu8nYd17hBE1uaJtrdXxDAHk5",
+     "slot": 456458060,
+     "block_time": 1791897983,
+     "fresh": false,
+     "destination_sig_count": 15
+    },
+    {
+     "destination": "BDBTZTbrPWnGvperkm1CHZEj5zC1Hsmhra3kmtheGtZX",
+     "amount_sol": 0.9,
+     "signature": "3eGqb9PVsnZ1WaypnJAL3fcczoM6oegF3zbUAbiV1TAtgZMBtB17dt1bNyruNCzYu8nYd17hBE1uaJtrdXxDAHk5",
+     "slot": 456458060,
+     "block_time": 1791897983,
+     "fresh": false,
+     "destination_sig_count": 9
+    },
+    {
+     "destination": "RJmcZgCJDyRktUiLpewKeztLqu5y3SU9a2CYqJxVrEY",
+     "amount_sol": 0.9,
+     "signature": "2QtRrMmzEZYa2XZ8QCGiaBCZWk4oHHsoquZBN15PNmiTWFXnPML5416WMGVPqJD17fXdQqYTQHXsJ6kLkQZtKJZg",
+     "slot": 456302385,
+     "block_time": 1791864045,
+     "fresh": false,
+     "destination_sig_count": 97
+    },
+    {
+     "destination": "AmGg42xd3nb374f5PgbX5sXxFmrchXZGQ3bNZ8paoX6H",
+     "amount_sol": 0.9,
+     "signature": "2QtRrMmzEZYa2XZ8QCGiaBCZWk4oHHsoquZBN15PNmiTWFXnPML5416WMGVPqJD17fXdQqYTQHXsJ6kLkQZtKJZg",
+     "slot": 456302385,
+     "block_time": 1791864045,
+     "fresh": true,
+     "destination_sig_count": 8,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "2a2zqCxDTfwGe76EHwLgmTc2Np2NfRYoQce7ofAxnAND",
+     "amount_sol": 0.9,
+     "signature": "2QtRrMmzEZYa2XZ8QCGiaBCZWk4oHHsoquZBN15PNmiTWFXnPML5416WMGVPqJD17fXdQqYTQHXsJ6kLkQZtKJZg",
+     "slot": 456302385,
+     "block_time": 1791864045,
+     "fresh": true,
+     "destination_sig_count": 8,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "JAt4EGoshWAgeQfmaLEKUDSqKDmwaCLDupsSY7aYi2Eh",
+     "amount_sol": 0.9,
+     "signature": "7TFsUB2Cqi6gQuRUYYqsYEoE6tzDBtA525RzU1MHpzGwvYnN4TRDmbLDBt7NkXjJK2j8PwRwepsBJBFZFGUMT8Y",
+     "slot": 456138127,
+     "block_time": 1791828137,
+     "fresh": false,
+     "destination_sig_count": 13
+    },
+    {
+     "destination": "2eEnnAn3mjotTtqgKk9rqrvWka2vrXMEBUh6XHNfMLgM",
+     "amount_sol": 0.9,
+     "signature": "7TFsUB2Cqi6gQuRUYYqsYEoE6tzDBtA525RzU1MHpzGwvYnN4TRDmbLDBt7NkXjJK2j8PwRwepsBJBFZFGUMT8Y",
+     "slot": 456138127,
+     "block_time": 1791828137,
+     "fresh": false,
+     "destination_sig_count": 8
+    },
+    {
+     "destination": "8A3bPjPaxm5AEY6uSxtXUYbVfS8wMat73NXnbeSkCGo",
+     "amount_sol": 0.9,
+     "signature": "7TFsUB2Cqi6gQuRUYYqsYEoE6tzDBtA525RzU1MHpzGwvYnN4TRDmbLDBt7NkXjJK2j8PwRwepsBJBFZFGUMT8Y",
+     "slot": 456138127,
+     "block_time": 1791828137,
+     "fresh": false,
+     "destination_sig_count": 8
+    },
+    {
+     "destination": "JAt4EGoshWAgeQfmaLEKUDSqKDmwaCLDupsSY7aYi2Eh",
+     "amount_sol": 0.9,
+     "signature": "357svyv8KamfSNRZKcaVmJfYtE318731YL5ESa2nDDwigoZhoCK9pFRDbtaNfG7bJuWT1s2wg77m7fBC5ZzEPw7q",
+     "slot": 456136010,
+     "block_time": 1791827671,
+     "fresh": true,
+     "destination_sig_count": 13,
+     "created_pump_coins": 2,
+     "coins": [
+      {
+       "mint": "DvNotp96RY7Yr7VibMgYwDQGWbuTQtC7MoCEMdbJ3Xeo",
+       "ath_usd": 3728.33370564627,
+       "complete": false,
+       "created_ts": 1791828225
+      },
+      {
+       "mint": "DYf45SRX8dEYJMHVoS9xTPFT5Z59QNbBNeoQ8PrthkVa",
+       "ath_usd": 4091.8009751988266,
+       "complete": false,
+       "created_ts": 1791827852
+      }
+     ]
+    },
+    {
+     "destination": "2eEnnAn3mjotTtqgKk9rqrvWka2vrXMEBUh6XHNfMLgM",
+     "amount_sol": 0.9,
+     "signature": "357svyv8KamfSNRZKcaVmJfYtE318731YL5ESa2nDDwigoZhoCK9pFRDbtaNfG7bJuWT1s2wg77m7fBC5ZzEPw7q",
+     "slot": 456136010,
+     "block_time": 1791827671,
+     "fresh": true,
+     "destination_sig_count": 8,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "8A3bPjPaxm5AEY6uSxtXUYbVfS8wMat73NXnbeSkCGo",
+     "amount_sol": 0.9,
+     "signature": "357svyv8KamfSNRZKcaVmJfYtE318731YL5ESa2nDDwigoZhoCK9pFRDbtaNfG7bJuWT1s2wg77m7fBC5ZzEPw7q",
+     "slot": 456136010,
+     "block_time": 1791827671,
+     "fresh": true,
+     "destination_sig_count": 8,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "2macV2Ekozj8YMsdMkTSGwFFfqpzBpRDhs7gK6iTKy6H",
+     "amount_sol": 0.9,
+     "signature": "xsnEATQKVfCPwUSKq1zN9yAB2fwDD3Y27zvczYVLMeBZYUdhhJAVKZJXaPc6N8HQYTWXs3m8Nr8D4CURYq9JVmt",
+     "slot": 456021759,
+     "block_time": 1791802634,
+     "fresh": true,
+     "destination_sig_count": 11,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "D8hJC7zwfyaj7E1gf6Ksf3HeTW6VhgLGxubX8WqQkLgv",
+       "ath_usd": 4952.16543726095,
+       "complete": false,
+       "created_ts": 1791803828
+      }
+     ]
+    },
+    {
+     "destination": "6scPkowCuV5WiLwwqV9irwYuvd5sgsh6KpHae2CWK92x",
+     "amount_sol": 0.9,
+     "signature": "xsnEATQKVfCPwUSKq1zN9yAB2fwDD3Y27zvczYVLMeBZYUdhhJAVKZJXaPc6N8HQYTWXs3m8Nr8D4CURYq9JVmt",
+     "slot": 456021759,
+     "block_time": 1791802634,
+     "fresh": true,
+     "destination_sig_count": 8,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "AYuuKj1yRcuweu2RcSVR3TnbqwhJoagJ2VFa1Ymoxt1e",
+     "amount_sol": 0.9,
+     "signature": "xsnEATQKVfCPwUSKq1zN9yAB2fwDD3Y27zvczYVLMeBZYUdhhJAVKZJXaPc6N8HQYTWXs3m8Nr8D4CURYq9JVmt",
+     "slot": 456021759,
+     "block_time": 1791802634,
+     "fresh": true,
+     "destination_sig_count": 7,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "76LGcaFiajjB2jZepKDn89aEEykd5kRRou35zX9ZQGs8",
+     "amount_sol": 0.9,
+     "signature": "3UNigkh5zpKG6MP9t3HajXqxTdrKGTBExXXbFXCtpLjeKNn7L65g993uaJW4XyucCZYQTbdFtoaUcS7DhGn1xDgG",
+     "slot": 456015379,
+     "block_time": 1791801243,
+     "fresh": true,
+     "destination_sig_count": 7,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "ASkamnb7cLCcoTM8i2R95MP4MuWC17gFidGXMdWr64kn",
+       "ath_usd": 4047.9497254533308,
+       "complete": false,
+       "created_ts": 1791801272
+      }
+     ]
+    },
+    {
+     "destination": "EpD11q3g59jgXV4Baa9JLqqdsJWQf759jM1Je1wSxno",
+     "amount_sol": 0.9,
+     "signature": "3UNigkh5zpKG6MP9t3HajXqxTdrKGTBExXXbFXCtpLjeKNn7L65g993uaJW4XyucCZYQTbdFtoaUcS7DhGn1xDgG",
+     "slot": 456015379,
+     "block_time": 1791801243,
+     "fresh": true,
+     "destination_sig_count": 4,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "E9JZEWRyRCmgFHorKm6JYiQryhV5gAd9AEWYk84U2Ain",
+     "amount_sol": 0.9,
+     "signature": "3UNigkh5zpKG6MP9t3HajXqxTdrKGTBExXXbFXCtpLjeKNn7L65g993uaJW4XyucCZYQTbdFtoaUcS7DhGn1xDgG",
+     "slot": 456015379,
+     "block_time": 1791801243,
+     "fresh": true,
+     "destination_sig_count": 4,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "c8iY9GmeHmqJ6fYEVFByJwLoFLRoRJhDMUFDBtjSUvA",
+     "amount_sol": 0.9,
+     "signature": "3fWN34C8fRoC1iNNhqCd6wEJ3y5UWzkTXa3779tbHV67EpFfmk4ujYDg1SqgqShfffWn32nYwSaEfwmY6aa5qNXn",
+     "slot": 456001770,
+     "block_time": 1791798281,
+     "fresh": true,
+     "destination_sig_count": 6,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "8gpkVWQUcf2rwhJhhENZrzMHkbwUU9LT25x7RNkUJaQr",
+       "ath_usd": 4953.559938897299,
+       "complete": false,
+       "created_ts": 1791799200
+      }
+     ]
+    },
+    {
+     "destination": "dzf4kEHZYWpef3XVBWk9aQ1M64mNzVoQbhHVv34J9Pr",
+     "amount_sol": 0.9,
+     "signature": "3fWN34C8fRoC1iNNhqCd6wEJ3y5UWzkTXa3779tbHV67EpFfmk4ujYDg1SqgqShfffWn32nYwSaEfwmY6aa5qNXn",
+     "slot": 456001770,
+     "block_time": 1791798281,
+     "fresh": true,
+     "destination_sig_count": 4,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "4LWNBn8cxdPsGArePnFQeVXEquSVdih93Hz5fu99biiJ",
+     "amount_sol": 0.9,
+     "signature": "3fWN34C8fRoC1iNNhqCd6wEJ3y5UWzkTXa3779tbHV67EpFfmk4ujYDg1SqgqShfffWn32nYwSaEfwmY6aa5qNXn",
+     "slot": 456001770,
+     "block_time": 1791798281,
+     "fresh": true,
+     "destination_sig_count": 4,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "5vKiA8b6jMPREdVMp8kkfkM5RMuiWv2oCsdXtKJJL2mD",
+     "amount_sol": 0.9,
+     "signature": "3qwaiB1Qn1QDmpGbpZQvq2KeGbTfRsQSf6R6FrK8VbVGNZp5ap7pkV5hWDMKR37jeXCKBg2NR98GsDg7Te9xYakW",
+     "slot": 455997481,
+     "block_time": 1791797343,
+     "fresh": true,
+     "destination_sig_count": 20,
+     "created_pump_coins": 2,
+     "coins": [
+      {
+       "mint": "5fKUkC4oV7oBGBfZSS8PbhY2TvwroxUiWH3pHrWq5n38",
+       "ath_usd": 3553.541173291512,
+       "complete": false,
+       "created_ts": 1791898243
+      },
+      {
+       "mint": "AM2Jn1MJFGAbsQxJbobg5hmJkqYnpxZq56DBLdc1TrK3",
+       "ath_usd": 24343.132866759748,
+       "complete": false,
+       "created_ts": 1791797446
+      }
+     ]
+    },
+    {
+     "destination": "6cDuxUqYGWnr9Ap4fg4it9A6S46WmCautqXoh2sRy7jw",
+     "amount_sol": 0.9,
+     "signature": "3qwaiB1Qn1QDmpGbpZQvq2KeGbTfRsQSf6R6FrK8VbVGNZp5ap7pkV5hWDMKR37jeXCKBg2NR98GsDg7Te9xYakW",
+     "slot": 455997481,
+     "block_time": 1791797343,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "CE3G8xnXjHYxv8d9RUkYQK8a3ZYNNE8D9DgzAebp9F7D",
+     "amount_sol": 0.9,
+     "signature": "3qwaiB1Qn1QDmpGbpZQvq2KeGbTfRsQSf6R6FrK8VbVGNZp5ap7pkV5hWDMKR37jeXCKBg2NR98GsDg7Te9xYakW",
+     "slot": 455997481,
+     "block_time": 1791797343,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "ESJz6hdxSnHsTekPJPqFrtcqozpiSRqHb2ewnEFMXC9p",
+     "amount_sol": 0.9,
+     "signature": "3PavAWk4mLDMvZnJBBA2DpLbZzbecNCgRN5fJEaUvhbxD3bgceT3X7cFqgZbw2UT1TxdJF7PuEfjHxyBkNY8RxqS",
+     "slot": 455931600,
+     "block_time": 1791782964,
+     "fresh": false,
+     "destination_sig_count": 8
+    },
+    {
+     "destination": "CM58Nr8YcQ5TSyAYGfXiFrZuTGpWcRrGqHbSfkZJC4QQ",
+     "amount_sol": 0.9,
+     "signature": "3PavAWk4mLDMvZnJBBA2DpLbZzbecNCgRN5fJEaUvhbxD3bgceT3X7cFqgZbw2UT1TxdJF7PuEfjHxyBkNY8RxqS",
+     "slot": 455931600,
+     "block_time": 1791782964,
+     "fresh": false,
+     "destination_sig_count": 8
+    },
+    {
+     "destination": "G1DaaH3fEmM7432N2QKnGTgABja93BAQE9orNjSdhecz",
+     "amount_sol": 0.9,
+     "signature": "3PavAWk4mLDMvZnJBBA2DpLbZzbecNCgRN5fJEaUvhbxD3bgceT3X7cFqgZbw2UT1TxdJF7PuEfjHxyBkNY8RxqS",
+     "slot": 455931600,
+     "block_time": 1791782964,
+     "fresh": true,
+     "destination_sig_count": 10,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "914Z564rvciFMLppGQp91qFeUQLBFcLgMoxFAeCBUsNE",
+       "ath_usd": 4338.029908531148,
+       "complete": false,
+       "created_ts": 1791782981
+      }
+     ]
+    },
+    {
+     "destination": "C9QuM7tCFkhyeFMMMbX8v7xQg3i12n4kibiPkPEk3nRR",
+     "amount_sol": 0.9,
+     "signature": "ZM3vG4B9Qm1tUpuDcTh2rW1sD1mWnGJCbqCQJth1uijzoM1QZD8ACh8pnNr588ax4zsUYDBiFCSTkcH5MEkDXEp",
+     "slot": 455882865,
+     "block_time": 1791772325,
+     "fresh": true,
+     "destination_sig_count": 6,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "BVmh1pYWJrAnRE8419eNk6rhtyYR9QKY6z16XdGTTV8s",
+       "ath_usd": 5249.55299220658,
+       "complete": false,
+       "created_ts": 1791772575
+      }
+     ]
+    },
+    {
+     "destination": "6m6BnHmsUfJJ39gRhM1sR9Mq33daRGrEDuuZca1g7AUr",
+     "amount_sol": 0.9,
+     "signature": "ZM3vG4B9Qm1tUpuDcTh2rW1sD1mWnGJCbqCQJth1uijzoM1QZD8ACh8pnNr588ax4zsUYDBiFCSTkcH5MEkDXEp",
+     "slot": 455882865,
+     "block_time": 1791772325,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 0
+    },
+    {
+     "destination": "H3tNsfzL1JKAz12vFQxJJgJ43vrMTK6CBbp3648pFFix",
+     "amount_sol": 0.9,
+     "signature": "ZM3vG4B9Qm1tUpuDcTh2rW1sD1mWnGJCbqCQJth1uijzoM1QZD8ACh8pnNr588ax4zsUYDBiFCSTkcH5MEkDXEp",
+     "slot": 455882865,
+     "block_time": 1791772325,
+     "fresh": true,
+     "destination_sig_count": 5,
+     "created_pump_coins": 0
+    }
+   ],
+   "fresh_matches": 41,
+   "why": "wallet, funds 2 sampled creators",
+   "index_matches": [
+    "6FA22FbKX9oXrRBxU5BgSoCPeN3MR4BMuEmA6wMvZ7jz",
+    "6uEqLH4SAfH656y3Qc7R8oxLVZ5S8wrXJQDzyYyGnpYM"
+   ],
+   "recipients_checked": 41,
+   "recipients_that_created_coins": 15,
+   "their_coins": 20,
+   "their_coins_graduated": 0,
+   "their_coins_ath_usd": {
+    "n": 20,
+    "p10": 3533.9836100352286,
+    "p25": 3659.526224398523,
+    "median": 4047.9497254533308,
+    "p75": 4953.559938897299,
+    "p90": 6929.543010348634,
+    "mean": 5651.312
+   }
+  },
+  {
+   "funder": "EPLFBYEjpJUAgSLbsZxZAbUfehupBkeJjcVTX1wNNxY7",
+   "amount_sol": 11.30929476,
+   "tol_sol": 0.0005,
+   "scanned_txs": 291,
+   "window_seconds": 1016263,
+   "funder_history_complete": true,
+   "matches": [
+    {
+     "destination": "GpnJ8GDjqsrQzmybmeTicBSkohrRiruZddWBs4tbPMq2",
+     "amount_sol": 11.30929476,
+     "signature": "3LeZXWR3KBxGHYS1ryYN9vSdT5D2bC6H9pHD4trt6Jq2QKxxX1AGDhJ56mWHu4dJFUHfpFFUpWcZKdpJi4wdBCy4",
+     "slot": 454853101,
+     "block_time": 1791545352,
+     "fresh": true,
+     "destination_sig_count": 368,
+     "created_pump_coins": 44,
+     "coins": [
+      {
+       "mint": "6jkEmYHKvPw51g5wdHYLoaLPq7HDrKDkM65WMZTPpump",
+       "ath_usd": 4828.498637330159,
+       "complete": false,
+       "created_ts": 1791966747
+      },
+      {
+       "mint": "DFrYH5aXXPFZukBsQYEKSZ6fFNyVHXR1CrJQLaX4pump",
+       "ath_usd": 21011.27733855483,
+       "complete": false,
+       "created_ts": 1791966378
+      },
+      {
+       "mint": "4XeeHERXtH25dthZKAdNVKV96UQ85CjaxFsqGZM8pump",
+       "ath_usd": 4931.6227827214525,
+       "complete": false,
+       "created_ts": 1791965188
+      },
+      {
+       "mint": "G5rPMTuE5jzEwmf4BgVsmtGNvwfELeBtLLJetXFQpump",
+       "ath_usd": 4832.117902994828,
+       "complete": false,
+       "created_ts": 1791965131
+      },
+      {
+       "mint": "BmkYc3422H7Bd2k45tXuTWk7i5Lq51KvwxQx7qwzpump",
+       "ath_usd": 4844.258494639967,
+       "complete": false,
+       "created_ts": 1791963178
+      }
+     ]
+    }
+   ],
+   "fresh_matches": 1,
+   "why": "wallet, funds 1 sampled creators",
+   "index_matches": [
+    "GpnJ8GDjqsrQzmybmeTicBSkohrRiruZddWBs4tbPMq2"
+   ],
+   "recipients_checked": 1,
+   "recipients_that_created_coins": 1,
+   "their_coins": 44,
+   "their_coins_graduated": 1,
+   "their_coins_ath_usd": {
+    "n": 44,
+    "p10": 4222.0098975955125,
+    "p25": 4634.983449858694,
+    "median": 4847.711478598744,
+    "p75": 4921.3378915204785,
+    "p90": 14556.859862028527,
+    "mean": 7172.422
+   }
+  },
+  {
+   "funder": "7cAm5LhX22LPkQvj9QkhRbBeeX4xZDDtNAD4r7ydNFVU",
+   "amount_sol": 1.576521438,
+   "tol_sol": 0.0005,
+   "scanned_txs": 9,
+   "window_seconds": 1419,
+   "funder_history_complete": true,
+   "matches": [
+    {
+     "destination": "8TMpPaDWrR1VoRtLVqASHfB517jjWTEjfVmo5a5Bbbw5",
+     "amount_sol": 1.576521438,
+     "signature": "2cTG1sxCMgfX1Lkok9cGTWxEvcPpJtMcZKAAwoomYVpqMMgT7zh8U2g9AtNcXMZfeNrZVvCqFcT7e5fQZJbrertw",
+     "slot": 456764196,
+     "block_time": 1791964812,
+     "fresh": true,
+     "destination_sig_count": 10,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "AUieBChpsA6vS8p9RraLnkV4RYrwp5xfXiucqsC9pump",
+       "ath_usd": 3906.680441992306,
+       "complete": false,
+       "created_ts": 1791965085
+      }
+     ]
+    }
+   ],
+   "fresh_matches": 1,
+   "why": "fresh_intermediary, funds 1 sampled creators",
+   "index_matches": [
+    "8TMpPaDWrR1VoRtLVqASHfB517jjWTEjfVmo5a5Bbbw5"
+   ],
+   "recipients_checked": 1,
+   "recipients_that_created_coins": 1,
+   "their_coins": 1,
+   "their_coins_graduated": 0,
+   "their_coins_ath_usd": {
+    "n": 1,
+    "p10": 3906.680441992306,
+    "p25": 3906.680441992306,
+    "median": 3906.680441992306,
+    "p75": 3906.680441992306,
+    "p90": 3906.680441992306,
+    "mean": 3906.68
+   }
+  },
+  {
+   "funder": "5uNMfC5CTBWrTfXptFL4svAPAg81WNb5JeZHH8QBttof",
+   "amount_sol": 1.531085484,
+   "tol_sol": 0.0005,
+   "scanned_txs": 8,
+   "window_seconds": 1720,
+   "funder_history_complete": true,
+   "matches": [
+    {
+     "destination": "6mnUNq1BQSaT8FTDXb31d74ghE5MdqPFt8NJmrQ4SH8v",
+     "amount_sol": 1.531085484,
+     "signature": "3rUizAVc8c9iJaEW2Ntvkk1n6A6ff3PhgruGixdTavbrjQw3eQCUhKP3Ew95rynwGcgm458C6VqDiPa6szF9QCiV",
+     "slot": 456764656,
+     "block_time": 1791964913,
+     "fresh": true,
+     "destination_sig_count": 8,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "4asU5gMJ4AUPj1Uy4SraHZYyRmwNwvLWr4TDV6Y5pump",
+       "ath_usd": 4059.877161573639,
+       "complete": false,
+       "created_ts": 1791965053
+      }
+     ]
+    }
+   ],
+   "fresh_matches": 1,
+   "why": "fresh_intermediary, funds 1 sampled creators",
+   "index_matches": [
+    "6mnUNq1BQSaT8FTDXb31d74ghE5MdqPFt8NJmrQ4SH8v"
+   ],
+   "recipients_checked": 1,
+   "recipients_that_created_coins": 1,
+   "their_coins": 1,
+   "their_coins_graduated": 0,
+   "their_coins_ath_usd": {
+    "n": 1,
+    "p10": 4059.877161573639,
+    "p25": 4059.877161573639,
+    "median": 4059.877161573639,
+    "p75": 4059.877161573639,
+    "p90": 4059.877161573639,
+    "mean": 4059.877
+   }
+  },
+  {
+   "funder": "AoHwTNQvM2qGhGzvDV3bFpHLGnx6oUAAdeyT1t9FJee1",
+   "amount_sol": 1.077003796,
+   "tol_sol": 0.0005,
+   "scanned_txs": 6,
+   "window_seconds": 3064,
+   "funder_history_complete": true,
+   "matches": [
+    {
+     "destination": "5uNMfC5CTBWrTfXptFL4svAPAg81WNb5JeZHH8QBttof",
+     "amount_sol": 1.077003796,
+     "signature": "1JiMwpyf2tohakj4jkcrqSqKgQuJ9TmtUeqE7Rs5AMi23Ccn988xAtvnfwWihugFhcJ9GYPg61GPKpBroGfcGpL",
+     "slot": 456762392,
+     "block_time": 1791964419,
+     "fresh": true,
+     "destination_sig_count": 8,
+     "created_pump_coins": 1,
+     "coins": [
+      {
+       "mint": "BNqPj25RxxHBTtQS4JMKgHY6Y48PuNr32eAh2e4xpump",
+       "ath_usd": 4719.9260422062125,
+       "complete": false,
+       "created_ts": 1791964799
+      }
+     ]
+    }
+   ],
+   "fresh_matches": 1,
+   "why": "fresh_intermediary, funds 1 sampled creators",
+   "index_matches": [
+    "5uNMfC5CTBWrTfXptFL4svAPAg81WNb5JeZHH8QBttof"
+   ],
+   "recipients_checked": 1,
+   "recipients_that_created_coins": 1,
+   "their_coins": 1,
+   "their_coins_graduated": 0,
+   "their_coins_ath_usd": {
+    "n": 1,
+    "p10": 4719.9260422062125,
+    "p25": 4719.9260422062125,
+    "median": 4719.9260422062125,
+    "p75": 4719.9260422062125,
+    "p90": 4719.9260422062125,
+    "mean": 4719.926
+   }
+  }
+ ],
+ "rpc_stats": {
+  "calls": 1330,
+  "cache_hits": 2954,
+  "retries": 197
+ },
+ "runtime_s": 271.1,
+ "sample_design": {
+  "run1_utc": "2026-10-14T08:20-08:38Z",
+  "run1_cmd": "trace_funding.py --n-recent 100 --n-notable 40 --n-bundled 40 --pages 20 --siblings 8 --siblings-max-txs 300",
+  "coins_pool": 1000,
+  "coins_window_utc": "07:26-08:16 (53 min of launches, ~1000 coins)",
+  "arms": {
+   "recent": "100 most recent unique creators (coins >=3 min old)",
+   "notable": "40 creators of coins in the pool with ATH >= $8k (USD, from API)",
+   "bundled": "40 creators whose creation slot had >=2 non-creator buyers putting >=1 SOL in (58/400 screened coins = 14.5% qualified)"
+  },
+  "run2": "same 180 creators re-traced after adding ravexutils + discovered labels (Bybit iGdF, FixedFloat, MoonPay, Relay solver)",
+  "bias_note": "only the 'recent' arm is a (near) random sample of launches; 'notable' and 'bundled' are deliberately enriched"
+ }
+}

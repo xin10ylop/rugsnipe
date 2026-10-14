@@ -1,9 +1,10 @@
+*.egg-info/
+*.pem
+*.pyc
+.env
+.venv/
+__pycache__/
 data/cache/
 data/raw/
-*.pyc
-__pycache__/
-target/
 node_modules/
-.env
-*.pem
-.venv/
+target/
