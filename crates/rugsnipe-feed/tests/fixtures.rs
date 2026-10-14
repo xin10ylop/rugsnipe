@@ -90,6 +90,8 @@ fn live_recorded_frames_decode() {
     assert_eq!(h.creates as usize, hits.len());
     assert_eq!(h.decode_miss, 0);
     assert!(h.failed_tx >= 1, "fixture includes failed transactions");
+    assert!(hits.iter().any(|h| h.mayhem) && hits.iter().any(|h| !h.mayhem));
+    assert!(hits.iter().any(|h| h.intx_buys >= 2) && hits.iter().any(|h| h.intx_buys == 0));
     // cross-check every hit against pump-codec on the same logs
     let mut checked = 0;
     for line in text.lines() {

@@ -1,0 +1,21 @@
+[package]
+name = "rugsnipe-ctl"
+version = "0.1.0"
+description = "Operator CLI: config validate, template dump, nonce init/close (dry-run), armset verify. Never sends transactions."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+pump-codec = { workspace = true }
+rugsnipe-core = { path = "../rugsnipe-core" }
+rugsnipe-tx = { path = "../rugsnipe-tx" }
+base64 = { workspace = true }
+bs58 = { workspace = true }
+
+[dev-dependencies]
+ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize"] }
+
+[lints.clippy]
+too_many_arguments = "allow"

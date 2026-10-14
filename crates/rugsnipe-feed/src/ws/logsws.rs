@@ -193,6 +193,16 @@ impl Feed for LogsWs {
     }
 }
 
+/// Client ping period: `min(ping_ms, stale_ms / 3)`, at least 500 ms.
+fn ping_period(cfg: &LogsWsConfig) -> u64 {
+    let p = if cfg.stale_ms > 0 {
+        cfg.ping_ms.min(cfg.stale_ms / 3)
+    } else {
+        cfg.ping_ms
+    };
+    p.max(500)
+}
+
 fn sub_request(id: u64, mention: &Pubkey, commitment: &str) -> String {
     format!(
         r#"{{"jsonrpc":"2.0","id":{id},"method":"logsSubscribe","params":[{{"mentions":["{mention}"]}},{{"commitment":"{commitment}"}}]}}"#
@@ -355,7 +365,10 @@ async fn run(
                 break;
             }
         }
-        let mut ping = tokio::time::interval(Duration::from_millis(cfg.ping_ms.max(1000)));
+        // Ping at least 3x per stale window: a quiet but healthy socket answers with
+        // pongs (which refresh `last_frame_ns`), so only a dead one trips the detector.
+        // Measured: at ~23 creates/min, 11-12 s gaps without notifications are normal.
+        let mut ping = tokio::time::interval(Duration::from_millis(ping_period(&cfg)));
         ping.tick().await;
         let mut check = tokio::time::interval(Duration::from_millis(250));
         while ok && !stop.load(Ordering::Acquire) {
@@ -516,6 +529,15 @@ mod tests {
             r#"{"jsonrpc":"2.0","id":1,"method":"logsSubscribe","params":[{"mentions":["TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM"]},{"commitment":"processed"}]}"#
         );
         assert!(unsub_request(2, 99).contains("logsUnsubscribe"));
+        let cfg = LogsWsConfig::default();
+        assert_eq!(ping_period(&cfg), 3_333);
+        assert_eq!(
+            ping_period(&LogsWsConfig {
+                stale_ms: 0,
+                ..cfg.clone()
+            }),
+            20_000
+        );
         for _ in 0..100 {
             let j = jitter(1000);
             assert!((800..=1200).contains(&j));

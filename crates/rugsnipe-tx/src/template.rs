@@ -66,7 +66,13 @@ impl MintKeys {
         )
     }
     /// PumpSwap canonical pool: `pool, mint, user_base_ata, pool_base_ata, pool_quote_ata`.
-    pub fn amm(pool: Pubkey, mint: Pubkey, user_base: Pubkey, pool_base: Pubkey, pool_quote: Pubkey) -> Self {
+    pub fn amm(
+        pool: Pubkey,
+        mint: Pubkey,
+        user_base: Pubkey,
+        pool_base: Pubkey,
+        pool_quote: Pubkey,
+    ) -> Self {
         Self([pool, mint, user_base, pool_base, pool_quote])
     }
 }
@@ -183,7 +189,12 @@ fn push_unique(v: &mut Vec<KeySpec>, k: KeySpec) {
 }
 
 /// SPL / Token-2022 `CloseAccount` (tag 9).
-pub fn close_account(token_program: &Pubkey, account: &Pubkey, destination: &Pubkey, owner: &Pubkey) -> Instruction {
+pub fn close_account(
+    token_program: &Pubkey,
+    account: &Pubkey,
+    destination: &Pubkey,
+    owner: &Pubkey,
+) -> Instruction {
     Instruction {
         program_id: *token_program,
         accounts: vec![
@@ -226,20 +237,35 @@ fn prelude(format: TxFormat, nonce: Option<NonceKeys>, cu: u32, lads: u32) -> Ve
 
 /// The buy instructions from scratch with real values (the reference the
 /// patched template must equal; also used by `ctl template dump` and sims).
-pub fn buy_instructions(p: &CurveParams, k: &MintKeys, spend: u64, min_tokens_out: u64, priority_lamports: u64, tip: u64) -> Vec<Instruction> {
+pub fn buy_instructions(
+    p: &CurveParams,
+    k: &MintKeys,
+    spend: u64,
+    min_tokens_out: u64,
+    priority_lamports: u64,
+    tip: u64,
+) -> Vec<Instruction> {
     let keys = v3_keys(p, k);
     let mut v = prelude(p.format, p.nonce, p.cu_limit, p.lads_bytes);
     if p.format == TxFormat::Legacy {
-        v[usize::from(p.nonce.is_some()) + 1] = ixs::set_compute_unit_price(legacy_price(priority_lamports, p.cu_limit));
+        v[usize::from(p.nonce.is_some()) + 1] =
+            ixs::set_compute_unit_price(legacy_price(priority_lamports, p.cu_limit));
     }
-    v.push(ixs::create_associated_token_account_idempotent_with_address(
-        &p.user,
-        &p.user,
-        &keys.mint,
-        &p.base_token_program,
-        &keys.associated_base_user,
+    v.push(
+        ixs::create_associated_token_account_idempotent_with_address(
+            &p.user,
+            &p.user,
+            &keys.mint,
+            &p.base_token_program,
+            &keys.associated_base_user,
+        ),
+    );
+    v.push(ixs::buy_exact_quote_in_v3(
+        &keys,
+        spend,
+        min_tokens_out,
+        p.partial_fill,
     ));
-    v.push(ixs::buy_exact_quote_in_v3(&keys, spend, min_tokens_out, p.partial_fill));
     if let Some(t) = p.tip_account {
         v.push(ixs::system_transfer(&p.user, &t, tip));
     }
@@ -247,15 +273,29 @@ pub fn buy_instructions(p: &CurveParams, k: &MintKeys, spend: u64, min_tokens_ou
 }
 
 /// The sell instructions from scratch.
-pub fn sell_instructions(p: &CurveParams, k: &MintKeys, close: bool, tokens: u64, min_sol_out: u64, priority_lamports: u64, tip: u64) -> Vec<Instruction> {
+pub fn sell_instructions(
+    p: &CurveParams,
+    k: &MintKeys,
+    close: bool,
+    tokens: u64,
+    min_sol_out: u64,
+    priority_lamports: u64,
+    tip: u64,
+) -> Vec<Instruction> {
     let keys = v3_keys(p, k);
     let mut v = prelude(p.format, p.nonce, p.cu_limit, p.lads_bytes);
     if p.format == TxFormat::Legacy {
-        v[usize::from(p.nonce.is_some()) + 1] = ixs::set_compute_unit_price(legacy_price(priority_lamports, p.cu_limit));
+        v[usize::from(p.nonce.is_some()) + 1] =
+            ixs::set_compute_unit_price(legacy_price(priority_lamports, p.cu_limit));
     }
     v.push(ixs::sell_v3(&keys, tokens, min_sol_out));
     if close {
-        v.push(close_account(&p.base_token_program, &keys.associated_base_user, &p.user, &p.user));
+        v.push(close_account(
+            &p.base_token_program,
+            &keys.associated_base_user,
+            &p.user,
+            &p.user,
+        ));
     }
     if let Some(t) = p.tip_account {
         v.push(ixs::system_transfer(&p.user, &t, tip));
@@ -282,7 +322,11 @@ fn curve_key_order(p: &CurveParams, buy: bool) -> Vec<KeySpec> {
     for k in &PLACEHOLDERS[1..5] {
         push_unique(&mut v, KeySpec::new(*k, false, true));
     }
-    for k in [uk.user_volume_accumulator, uk.wsol_ata, p.buyback_fee_recipient] {
+    for k in [
+        uk.user_volume_accumulator,
+        uk.wsol_ata,
+        p.buyback_fee_recipient,
+    ] {
         push_unique(&mut v, KeySpec::new(k, false, true));
     }
     if let Some(n) = p.nonce {
@@ -350,7 +394,10 @@ impl core::fmt::Display for TemplateError {
 impl std::error::Error for TemplateError {}
 
 fn find_key(keys: &[KeySpec], layout: &Layout, k: &Pubkey) -> usize {
-    layout.key_offsets[keys.iter().position(|s| s.key == *k).expect("placeholder present")]
+    layout.key_offsets[keys
+        .iter()
+        .position(|s| s.key == *k)
+        .expect("placeholder present")]
 }
 
 fn finish(
@@ -386,8 +433,18 @@ fn finish(
     };
     let mut buf = [0u8; MAX_TX_LEN];
     buf[..bytes.len()].copy_from_slice(&bytes);
-    let signers = [keys.first().map(|k| k.key), keys.get(1).filter(|k| k.signer).map(|k| k.key)];
-    Template { buf, len: bytes.len(), table, kind, format, signers }
+    let signers = [
+        keys.first().map(|k| k.key),
+        keys.get(1).filter(|k| k.signer).map(|k| k.key),
+    ];
+    Template {
+        buf,
+        len: bytes.len(),
+        table,
+        kind,
+        format,
+        signers,
+    }
 }
 
 impl Template {
@@ -399,11 +456,27 @@ impl Template {
         let keys = curve_key_order(p, true);
         let ph = MintKeys(PLACEHOLDERS);
         let ixs = buy_instructions(p, &ph, 0, 0, 0, 0);
-        let (bytes, layout) = compile(&keys, &ixs, &[0u8; 32], to_format(p.format, p.cu_limit, p.lads_bytes))?;
+        let (bytes, layout) = compile(
+            &keys,
+            &ixs,
+            &[0u8; 32],
+            to_format(p.format, p.cu_limit, p.lads_bytes),
+        )?;
         let pre = prelude(p.format, p.nonce, p.cu_limit, p.lads_bytes).len();
         let price_ix = (p.format == TxFormat::Legacy).then_some(usize::from(p.nonce.is_some()) + 1);
         let tip_ix = p.tip_account.map(|_| pre + 2);
-        Ok(finish(&keys, bytes, layout, pre + 1, price_ix, tip_ix, p.format, p.cu_limit, TemplateKind::Buy, &PLACEHOLDERS))
+        Ok(finish(
+            &keys,
+            bytes,
+            layout,
+            pre + 1,
+            price_ix,
+            tip_ix,
+            p.format,
+            p.cu_limit,
+            TemplateKind::Buy,
+            &PLACEHOLDERS,
+        ))
     }
 
     /// Compile a sell template (`close_account` = final sell).
@@ -414,11 +487,27 @@ impl Template {
         let keys = curve_key_order(p, false);
         let ph = MintKeys(PLACEHOLDERS);
         let ixs = sell_instructions(p, &ph, close_account, 0, 0, 0, 0);
-        let (bytes, layout) = compile(&keys, &ixs, &[0u8; 32], to_format(p.format, p.cu_limit, p.lads_bytes))?;
+        let (bytes, layout) = compile(
+            &keys,
+            &ixs,
+            &[0u8; 32],
+            to_format(p.format, p.cu_limit, p.lads_bytes),
+        )?;
         let pre = prelude(p.format, p.nonce, p.cu_limit, p.lads_bytes).len();
         let price_ix = (p.format == TxFormat::Legacy).then_some(usize::from(p.nonce.is_some()) + 1);
         let tip_ix = p.tip_account.map(|_| pre + 1 + usize::from(close_account));
-        Ok(finish(&keys, bytes, layout, pre, price_ix, tip_ix, p.format, p.cu_limit, TemplateKind::Sell { close_account }, &PLACEHOLDERS))
+        Ok(finish(
+            &keys,
+            bytes,
+            layout,
+            pre,
+            price_ix,
+            tip_ix,
+            p.format,
+            p.cu_limit,
+            TemplateKind::Sell { close_account },
+            &PLACEHOLDERS,
+        ))
     }
 
     /// Compile a PumpSwap canonical-pool sell template.
@@ -428,11 +517,27 @@ impl Template {
         }
         let keys = amm_key_order(p);
         let ixs = amm_sell_instructions(p, &MintKeys(PLACEHOLDERS), 0, 0, 0, 0);
-        let (bytes, layout) = compile(&keys, &ixs, &[0u8; 32], to_format(p.format, p.cu_limit, p.lads_bytes))?;
+        let (bytes, layout) = compile(
+            &keys,
+            &ixs,
+            &[0u8; 32],
+            to_format(p.format, p.cu_limit, p.lads_bytes),
+        )?;
         let pre = prelude(p.format, p.nonce, p.cu_limit, p.lads_bytes).len();
         let price_ix = (p.format == TxFormat::Legacy).then_some(usize::from(p.nonce.is_some()) + 1);
         let tip_ix = p.tip_account.map(|_| pre + 3);
-        Ok(finish(&keys, bytes, layout, pre + 1, price_ix, tip_ix, p.format, p.cu_limit, TemplateKind::AmmSell, &PLACEHOLDERS))
+        Ok(finish(
+            &keys,
+            bytes,
+            layout,
+            pre + 1,
+            price_ix,
+            tip_ix,
+            p.format,
+            p.cu_limit,
+            TemplateKind::AmmSell,
+            &PLACEHOLDERS,
+        ))
     }
 
     /// Serialized transaction.
@@ -471,10 +576,11 @@ impl Template {
     #[inline]
     pub fn set_priority(&mut self, total_lamports: u64) {
         match self.table.priority {
-            PriorityField::LegacyPrice { offset, cu_limit } => {
-                self.buf[offset..offset + 8].copy_from_slice(&legacy_price(total_lamports, cu_limit).to_le_bytes())
+            PriorityField::LegacyPrice { offset, cu_limit } => self.buf[offset..offset + 8]
+                .copy_from_slice(&legacy_price(total_lamports, cu_limit).to_le_bytes()),
+            PriorityField::V1Total { offset } => {
+                self.buf[offset..offset + 8].copy_from_slice(&total_lamports.to_le_bytes())
             }
-            PriorityField::V1Total { offset } => self.buf[offset..offset + 8].copy_from_slice(&total_lamports.to_le_bytes()),
             PriorityField::None => {}
         }
     }
@@ -510,7 +616,9 @@ impl Template {
 
     /// First signature (the transaction id).
     pub fn signature(&self) -> [u8; 64] {
-        self.buf[self.table.sigs..self.table.sigs + 64].try_into().unwrap()
+        self.buf[self.table.sigs..self.table.sigs + 64]
+            .try_into()
+            .unwrap()
     }
 }
 
@@ -543,12 +651,24 @@ pub struct AmmSellParams {
 
 /// Canonical-pool per-mint keys for a SOL-quoted coin.
 pub fn amm_mint_keys(mint: &Pubkey, user: &Pubkey, base_token_program: &Pubkey) -> MintKeys {
-    amm_mint_keys_for_quote(mint, &c::WSOL_MINT, user, base_token_program, &c::SPL_TOKEN_PROGRAM_ID)
+    amm_mint_keys_for_quote(
+        mint,
+        &c::WSOL_MINT,
+        user,
+        base_token_program,
+        &c::SPL_TOKEN_PROGRAM_ID,
+    )
 }
 
 /// Canonical-pool per-mint keys for any quote mint (`["pool", 0u16,
 /// pool_authority(mint), mint, quote]`; the pool's vaults are its ATAs).
-pub fn amm_mint_keys_for_quote(mint: &Pubkey, quote: &Pubkey, user: &Pubkey, base_token_program: &Pubkey, quote_token_program: &Pubkey) -> MintKeys {
+pub fn amm_mint_keys_for_quote(
+    mint: &Pubkey,
+    quote: &Pubkey,
+    user: &Pubkey,
+    base_token_program: &Pubkey,
+    quote_token_program: &Pubkey,
+) -> MintKeys {
     let pool = pda::canonical_pump_swap_pool(mint, quote);
     MintKeys::amm(
         pool,
@@ -560,7 +680,12 @@ pub fn amm_mint_keys_for_quote(mint: &Pubkey, quote: &Pubkey, user: &Pubkey, bas
 }
 
 /// `sell_v2` on the canonical pool (17 accounts, pump_amm IDL order).
-pub fn amm_sell_v2(p: &AmmSellParams, k: &MintKeys, base_amount_in: u64, min_quote_amount_out: u64) -> Instruction {
+pub fn amm_sell_v2(
+    p: &AmmSellParams,
+    k: &MintKeys,
+    base_amount_in: u64,
+    min_quote_amount_out: u64,
+) -> Instruction {
     let w = |k: Pubkey| AccountMeta::new(k, false);
     let ro = |k: Pubkey| AccountMeta::new_readonly(k, false);
     let mut data = Vec::with_capacity(24);
@@ -593,21 +718,36 @@ pub fn amm_sell_v2(p: &AmmSellParams, k: &MintKeys, base_amount_in: u64, min_quo
 }
 
 /// The PumpSwap sell from scratch: create wSOL ATA, `sell_v2`, unwrap.
-pub fn amm_sell_instructions(p: &AmmSellParams, k: &MintKeys, tokens: u64, min_out: u64, priority_lamports: u64, tip: u64) -> Vec<Instruction> {
+pub fn amm_sell_instructions(
+    p: &AmmSellParams,
+    k: &MintKeys,
+    tokens: u64,
+    min_out: u64,
+    priority_lamports: u64,
+    tip: u64,
+) -> Vec<Instruction> {
     let mut v = prelude(p.format, p.nonce, p.cu_limit, p.lads_bytes);
     if p.format == TxFormat::Legacy {
-        v[usize::from(p.nonce.is_some()) + 1] = ixs::set_compute_unit_price(legacy_price(priority_lamports, p.cu_limit));
+        v[usize::from(p.nonce.is_some()) + 1] =
+            ixs::set_compute_unit_price(legacy_price(priority_lamports, p.cu_limit));
     }
     let wsol_ata = pda::ata_spl(&p.user, &c::WSOL_MINT);
-    v.push(ixs::create_associated_token_account_idempotent_with_address(
-        &p.user,
-        &p.user,
-        &c::WSOL_MINT,
+    v.push(
+        ixs::create_associated_token_account_idempotent_with_address(
+            &p.user,
+            &p.user,
+            &c::WSOL_MINT,
+            &c::SPL_TOKEN_PROGRAM_ID,
+            &wsol_ata,
+        ),
+    );
+    v.push(amm_sell_v2(p, k, tokens, min_out));
+    v.push(close_account(
         &c::SPL_TOKEN_PROGRAM_ID,
         &wsol_ata,
+        &p.user,
+        &p.user,
     ));
-    v.push(amm_sell_v2(p, k, tokens, min_out));
-    v.push(close_account(&c::SPL_TOKEN_PROGRAM_ID, &wsol_ata, &p.user, &p.user));
     if let Some(t) = p.tip_account {
         v.push(ixs::system_transfer(&p.user, &t, tip));
     }

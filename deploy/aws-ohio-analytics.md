@@ -110,14 +110,18 @@ laptop$ ssh -i ~/.ssh/<your-key>.pem ubuntu@18.188.14.68 \
           "sudo sqlite3 -readonly /var/lib/rugsnipe/analytics.db '.tables'"
 ```
 
-Run a script ad hoc as the service user, so it shares the caches and the RPC budget:
+Run a script ad hoc as the service user, so it shares the caches and the config:
 
 ```bash
 ohio1$ sudo -u rugsnipe /opt/rugsnipe/venv/bin/python -I /opt/rugsnipe/src/analysis/scripts/pull_dataset.py --stages stats
 ohio1$ sudo -u rugsnipe /opt/rugsnipe/bin/rugsnipe-pyrun selftest
 ```
 
-Public RPC allows about 4 req/s per method per IP. The collector and backfill share that budget (`[rpc_budget]`).
+Public RPC allows about 4 req/s per method per IP. `[rpc_budget]` buckets are **per process**, not per IP: the collector
+and a backfill each pace themselves to `per_method` (default 4) req/s, so together they run 8 req/s per method and hit 429s.
+The collector itself averages ~2 req/s, so run the backfill with its own file, e.g. `--config /var/lib/rugsnipe/backfill.toml`
+containing `[rpc_budget]` `backfill = 2` and `per_method = 2`. Keep `per_method`/`per_host`/`[rpc_budget.methods]` out of
+`/etc/rugsnipe/rugsnipe.toml`: they are Python-only knobs and the Rust config parser rejects unknown keys.
 Do not run heavy pulls from your laptop through the same IP at the same time.
 
 ## 6. Latency reference (optional)

@@ -1888,6 +1888,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rugsnipe-ctl"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "bs58",
+ "ed25519-dalek",
+ "pump-codec",
+ "rugsnipe-core",
+ "rugsnipe-tx",
+]
+
+[[package]]
 name = "rugsnipe-exit"
 version = "0.1.0"
 dependencies = [
@@ -1918,6 +1930,18 @@ dependencies = [
  "tokio-rustls",
  "tokio-tungstenite",
  "xxhash-rust",
+]
+
+[[package]]
+name = "rugsnipe-sim"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "bs58",
+ "pump-codec",
+ "rugsnipe-core",
+ "rugsnipe-tx",
+ "serde_json",
 ]
 
 [[package]]

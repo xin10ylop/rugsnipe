@@ -84,3 +84,13 @@ Fetched with `getAccountInfo(address, {"encoding":"base64","commitment":"confirm
 | `api/coins_completed.json` | `https://frontend-api-v3.pump.fun/coins?offset=0&limit=10&sort=created_timestamp&order=DESC&includeNsfw=true&complete=true` | 2026-10-14T09:10:23Z |
 | `api/coin_worked.json` | `https://frontend-api-v3.pump.fun/coins-v2/2mFxK8mUNr4MExKZ79t4wL3Z62yj8S3hDPTPZLbFpump` | 2026-10-14T09:10:24Z |
 | `api/trades_worked.json` | `https://frontend-api-v3.pump.fun/trades/solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp/2mFxK8mUNr4MExKZ79t4wL3Z62yj8S3hDPTPZLbFpump?limit=100` | 2026-10-14T09:10:24Z |
+
+## Alpenglow block components (`alpenglow/`)
+
+`alpenglow/solana_entry_4_3_1.json` holds byte vectors serialized by the real `solana-entry =4.3.1`
+(`BlockComponent`, `wincode 0.6.1`) with the generator in `scripts/alpenglow_oracle/`: an entry
+batch of three entries carrying the `legacy_buy18`, `v0_create_v2_buy_v3` and `v1_create_v2_buy`
+wire transactions plus a tick, a `BlockHeader`, an `UpdateParent`, a `BlockFooter` and the
+8-byte abort batch. `tests/alpenglow_vectors.rs` checks `src/alpenglow.rs` against them; the
+three `SE_*` vectors in `src/alpenglow.rs` come from the earlier scratch run documented in
+`docs/research/speed-gap-2.md` section 4.

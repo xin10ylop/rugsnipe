@@ -23,33 +23,47 @@ pub struct HttpTarget {
 
 impl HttpTarget {
     pub fn parse(url: &str) -> Result<Self, String> {
-        let rest = url
-            .strip_prefix("http://")
-            .ok_or_else(|| format!("{url:?}: only http:// is supported by the fixed-buffer client"))?;
+        let rest = url.strip_prefix("http://").ok_or_else(|| {
+            format!("{url:?}: only http:// is supported by the fixed-buffer client")
+        })?;
         let (hostport, path) = match rest.find(['/', '?']) {
             Some(i) if rest.as_bytes()[i] == b'/' => (&rest[..i], rest[i..].to_string()),
             Some(i) => (&rest[..i], format!("/{}", &rest[i..])),
             None => (rest, "/".to_string()),
         };
         let (host, port) = match hostport.rsplit_once(':') {
-            Some((h, p)) => (h, p.parse::<u16>().map_err(|_| format!("bad port in {url:?}"))?),
+            Some((h, p)) => (
+                h,
+                p.parse::<u16>()
+                    .map_err(|_| format!("bad port in {url:?}"))?,
+            ),
             None => (hostport, 80),
         };
         if host.is_empty() || host.contains(['@', ' ']) {
             return Err(format!("bad host in {url:?}"));
         }
-        Ok(Self { host: host.to_string(), port, path })
+        Ok(Self {
+            host: host.to_string(),
+            port,
+            path,
+        })
     }
 
     /// Same target with extra query parameters appended.
     pub fn with_query(&self, extra: &str) -> Self {
         let sep = if self.path.contains('?') { '&' } else { '?' };
-        Self { path: format!("{}{}{}", self.path, sep, extra), ..self.clone() }
+        Self {
+            path: format!("{}{}{}", self.path, sep, extra),
+            ..self.clone()
+        }
     }
 
     /// Same host with another path.
     pub fn with_path(&self, path: &str) -> Self {
-        Self { path: path.to_string(), ..self.clone() }
+        Self {
+            path: path.to_string(),
+            ..self.clone()
+        }
     }
 }
 
@@ -68,7 +82,15 @@ pub struct HttpConn {
 
 impl HttpConn {
     pub fn new(target: HttpTarget, timeout: Duration) -> Self {
-        Self { target, stream: None, timeout, req: Vec::with_capacity(8 * 1024), resp: Box::new([0u8; 16 * 1024]), last_len: 0, last_body: (0, 0) }
+        Self {
+            target,
+            stream: None,
+            timeout,
+            req: Vec::with_capacity(8 * 1024),
+            resp: Box::new([0u8; 16 * 1024]),
+            last_len: 0,
+            last_body: (0, 0),
+        }
     }
 
     pub fn target(&self) -> &HttpTarget {
@@ -81,7 +103,8 @@ impl HttpConn {
             .map_err(|e| SendError::Io(e.to_string()))?
             .next()
             .ok_or_else(|| SendError::Io("no address".into()))?;
-        let s = TcpStream::connect_timeout(&addr, self.timeout).map_err(|e| SendError::Io(e.to_string()))?;
+        let s = TcpStream::connect_timeout(&addr, self.timeout)
+            .map_err(|e| SendError::Io(e.to_string()))?;
         let _ = s.set_nodelay(true);
         let _ = s.set_read_timeout(Some(self.timeout));
         let _ = s.set_write_timeout(Some(self.timeout));
@@ -103,7 +126,13 @@ impl HttpConn {
 
     /// `POST path` with `body`; returns the HTTP status. The response body
     /// is available from [`HttpConn::last_body`] until the next request.
-    pub fn post(&mut self, path: &str, content_type: &str, headers: &[(&str, &str)], body: &[u8]) -> Result<u16, SendError> {
+    pub fn post(
+        &mut self,
+        path: &str,
+        content_type: &str,
+        headers: &[(&str, &str)],
+        body: &[u8],
+    ) -> Result<u16, SendError> {
         self.req.clear();
         let w = &mut self.req;
         w.extend_from_slice(b"POST ");
@@ -169,15 +198,21 @@ impl HttpConn {
         let status = parse_status(head).ok_or_else(|| SendError::Io("bad status line".into()))?;
         let lower_has = |name: &str| header_value(head, name);
         let close = lower_has("connection").is_some_and(|v| v.eq_ignore_ascii_case(b"close"));
-        let chunked = lower_has("transfer-encoding").is_some_and(|v| v.eq_ignore_ascii_case(b"chunked"));
-        let clen = lower_has("content-length").and_then(|v| core::str::from_utf8(v).ok()?.trim().parse::<usize>().ok());
+        let chunked =
+            lower_has("transfer-encoding").is_some_and(|v| v.eq_ignore_ascii_case(b"chunked"));
+        let clen = lower_has("content-length")
+            .and_then(|v| core::str::from_utf8(v).ok()?.trim().parse::<usize>().ok());
         let mut total = n;
         let mut sink = [0u8; 1024];
         match (clen, chunked) {
             (Some(len), _) => {
                 let want = head_end + len;
                 while total < want {
-                    let buf: &mut [u8] = if total < self.resp.len() { &mut self.resp[total..] } else { &mut sink };
+                    let buf: &mut [u8] = if total < self.resp.len() {
+                        &mut self.resp[total..]
+                    } else {
+                        &mut sink
+                    };
                     let k = s.read(buf).map_err(io)?;
                     if k == 0 {
                         return Err(SendError::Io("body truncated".into()));
@@ -187,8 +222,17 @@ impl HttpConn {
                 self.last_body = (head_end, want.min(self.resp.len()));
             }
             (None, true) => {
-                while find(&self.resp[head_end..total.min(self.resp.len())], b"0\r\n\r\n").is_none() {
-                    let buf: &mut [u8] = if total < self.resp.len() { &mut self.resp[total..] } else { &mut sink };
+                while find(
+                    &self.resp[head_end..total.min(self.resp.len())],
+                    b"0\r\n\r\n",
+                )
+                .is_none()
+                {
+                    let buf: &mut [u8] = if total < self.resp.len() {
+                        &mut self.resp[total..]
+                    } else {
+                        &mut sink
+                    };
                     let k = s.read(buf).map_err(io)?;
                     if k == 0 {
                         break;
@@ -200,7 +244,11 @@ impl HttpConn {
             (None, false) => {
                 // read to EOF, then the connection is gone
                 loop {
-                    let buf: &mut [u8] = if total < self.resp.len() { &mut self.resp[total..] } else { &mut sink };
+                    let buf: &mut [u8] = if total < self.resp.len() {
+                        &mut self.resp[total..]
+                    } else {
+                        &mut sink
+                    };
                     let k = s.read(buf).map_err(io)?;
                     if k == 0 {
                         break;
@@ -257,10 +305,15 @@ fn parse_status(head: &[u8]) -> Option<u16> {
 fn header_value<'a>(head: &'a [u8], name: &str) -> Option<&'a [u8]> {
     for line in head.split(|&b| b == b'\n') {
         let line = line.strip_suffix(b"\r").unwrap_or(line);
-        let Some(colon) = line.iter().position(|&b| b == b':') else { continue };
+        let Some(colon) = line.iter().position(|&b| b == b':') else {
+            continue;
+        };
         if line[..colon].eq_ignore_ascii_case(name.as_bytes()) {
             let v = &line[colon + 1..];
-            let start = v.iter().position(|b| !b.is_ascii_whitespace()).unwrap_or(v.len());
+            let start = v
+                .iter()
+                .position(|b| !b.is_ascii_whitespace())
+                .unwrap_or(v.len());
             return Some(&v[start..]);
         }
     }
@@ -278,7 +331,9 @@ pub fn json_rpc_send_body(out: &mut Vec<u8>, method: &str, tx: &[u8], opts_json:
     let start = out.len();
     let enc = base64::encoded_len(tx.len(), true).unwrap_or(0);
     out.resize(start + enc, 0);
-    let n = base64::engine::general_purpose::STANDARD.encode_slice(tx, &mut out[start..]).unwrap_or(0);
+    let n = base64::engine::general_purpose::STANDARD
+        .encode_slice(tx, &mut out[start..])
+        .unwrap_or(0);
     out.truncate(start + n);
     out.extend_from_slice(b"\",");
     out.extend_from_slice(opts_json.as_bytes());
@@ -292,7 +347,10 @@ mod tests {
     #[test]
     fn parse_urls() {
         let t = HttpTarget::parse("http://fra-sender.helius-rpc.com/fast").unwrap();
-        assert_eq!((t.host.as_str(), t.port, t.path.as_str()), ("fra-sender.helius-rpc.com", 80, "/fast"));
+        assert_eq!(
+            (t.host.as_str(), t.port, t.path.as_str()),
+            ("fra-sender.helius-rpc.com", 80, "/fast")
+        );
         let t = HttpTarget::parse("http://127.0.0.1:8080?c=k").unwrap();
         assert_eq!((t.port, t.path.as_str()), (8080, "/?c=k"));
         assert_eq!(t.with_query("x=1").path, "/?c=k&x=1");
@@ -310,7 +368,12 @@ mod tests {
         assert_eq!(header_value(head, "content-length"), Some(&b"5"[..]));
         assert_eq!(header_value(head, "Connection"), Some(&b"Close"[..]));
         let mut out = Vec::new();
-        json_rpc_send_body(&mut out, "sendTransaction", &[1, 2, 3], r#"{"encoding":"base64"}"#);
+        json_rpc_send_body(
+            &mut out,
+            "sendTransaction",
+            &[1, 2, 3],
+            r#"{"encoding":"base64"}"#,
+        );
         assert_eq!(
             std::str::from_utf8(&out).unwrap(),
             r#"{"jsonrpc":"2.0","id":1,"method":"sendTransaction","params":["AQID",{"encoding":"base64"}]}"#

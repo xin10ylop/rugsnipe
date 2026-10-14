@@ -3,15 +3,15 @@
 Why Frankfurt: it produces 32-35% of leader slots and is the home of almost every low-latency vendor, all in
 TeraSwitch (AS20326). P(same slot) is 0.78 from Frankfurt and 0.51 from Ohio (docs/03-speed-infra.md
 sections 2-4). fra1 runs `rugsnipe-hot`, `rugsnipe-guard` and `rugsnipe-keeper` (docs/06 section 12). Phase 1 is fra1
-alone until the gate passes. ams1 comes in phase 2.
+alone until the gate passes. A second box comes in phase 2 (docs/03 section 4: Tokyo TYO2 first; docs/06 section 11 still says ams1).
 
 ## 1. Choose the provider
 
 | Option | Price (list) | Notes |
 |---|---|---|
 | **TeraSwitch FRA** bare metal (Ryzen 9 9950X) | **~$425/mo** | Best building. It holds Jito FRA, Helius `fra-sender`/LaserStream, Nozomi, NextBlock, bloXroute, Triton and the DZ device `dz100a-fra2-tsw`. The price is from an aggregator (the vendor page returned 403), so get a quote |
-| **Latitude.sh FRA** | **~$400/mo** | Good alternative; check that it is in or next to the TeraSwitch building |
-| Cherry Servers FRA | quote | Alternative |
+| **Cherry Servers FRA** (EPYC 9375F 32-core) | **€989/mo or €1.69/h** | Same campus as TeraSwitch FRA2 (0.09 ms) and in stock: the immediate fallback (docs/03 section 4) |
+| Latitude.sh FRA | ~$400/mo | A different building, 0.7 ms away: fails the in-building target below; last resort |
 | Hetzner | excluded | Its terms have a crypto clause |
 | Equinix Metal | gone | Closed June 2026 |
 
@@ -25,19 +25,19 @@ Ask for:
 - an IPMI/KVM console;
 - Ubuntu 24.04 installed.
 
-## 2. Test IP before you sign: accept only below 1 ms
+## 2. Test IP before you sign: accept only below 0.2 ms
 
 Ask for a test IP or a trial server **in the same facility**. Then run:
 
 ```bash
 test$ git clone <repo> && cd rugsnipe     # or scp deploy/latency_probe.sh
 test$ bash deploy/latency_probe.sh 30 | tee latency-fra-candidate.txt
-test$ for ip in 64.130.50.88 64.130.50.91 198.13.140.105 198.13.140.227; do
+test$ for ip in 64.130.50.88 64.130.50.91 198.13.140.105 198.13.140.227 198.13.140.16; do
         ping -c 100 -i 0.2 -q $ip | tail -2; done
 test$ mtr -rwc 50 64.130.50.88          # path should stay inside AS20326 (TeraSwitch)
 ```
 
-**Acceptance: average RTT < 1 ms, max < 2 ms, 0% loss to all four targets.**
+**Acceptance: average RTT < 0.2 ms (docs/03 section 4), max < 2 ms, 0% loss to all five targets.**
 
 | Target | IP |
 |---|---|
@@ -45,6 +45,7 @@ test$ mtr -rwc 50 64.130.50.88          # path should stay inside AS20326 (TeraS
 | Helius `fra-sender` | 64.130.50.91 |
 | Harmonic Frankfurt remote TPU | 198.13.140.105 |
 | BAM Frankfurt node | 198.13.140.227 |
+| DoubleZero device `fra2-tsw` | 198.13.140.16 |
 
 These in-building targets are not measured yet (docs/research/critique-speed.md section 4, item 10). Your probe is the first
 measurement. Keep `latency-fra-candidate.txt`. If a candidate box fails, it is not in the building: reject it.
@@ -53,7 +54,7 @@ measurement. Keep `latency-fra-candidate.txt`. If a candidate box fails, it is n
 
 - Instance: `c7i.4xlarge` or `c7i.2xlarge` (Intel), or `c8g.4xlarge` / `c8g.2xlarge` (Graviton4, aarch64; install.sh supports it). Take at least 2xlarge so the ENA gets its full queue count.
 - An Elastic IP, a public subnet, and **no NAT gateway**. ENA Express and placement groups do nothing for traffic to leaders.
-- Expect +0.5-2 ms compared with the TeraSwitch building. Re-run the probe. Accept below ~2.5 ms to the four targets.
+- Expect +0.5-2 ms compared with the TeraSwitch building. Re-run the probe. Accept below ~2.5 ms to the five targets.
 - **DoubleZero Edge will most likely not work** (EC2 public IPs are 1:1 NAT, and DZ needs GRE/BGP/PIM). Helius shreds and the gRPC feeds do work.
 
 ## 3. Bring the box up
@@ -156,7 +157,7 @@ HC_URL = "https://hc-ping.com/<uuid>"
 
 ## 7. Acceptance summary
 
-- [ ] Probe: < 1 ms to 64.130.50.88, 64.130.50.91, 198.13.140.105 and 198.13.140.227 (AWS fallback: < ~2.5 ms).
+- [ ] Probe: < 0.2 ms to 64.130.50.88, 64.130.50.91, 198.13.140.105, 198.13.140.227 and 198.13.140.16 (AWS fallback: < ~2.5 ms).
 - [ ] `install.sh --role hot` completes. `tune-hot.sh --check` shows no DIFF. `isolated` is non-empty after reboot.
 - [ ] `chronyc tracking` offset < 1 ms against `ntp.frankfurt.jito.wtf`.
 - [ ] Keys are in `/etc/rugsnipe/keys` with mode 0400 root, and install.sh accepts them.

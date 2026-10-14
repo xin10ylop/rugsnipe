@@ -1,0 +1,28 @@
+[package]
+name = "rugsnipe-sim"
+version = "0.1.0"
+description = "Template legality, CU and loaded-bytes checks: builds the legacy and v1 buy templates for a mint and simulates them (sigVerify=false) against a live curve via public RPC (feature `rpc`)."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+rpc = ["rugsnipe-tx/rpc"]
+
+[dependencies]
+pump-codec = { workspace = true }
+rugsnipe-core = { path = "../rugsnipe-core" }
+rugsnipe-tx = { path = "../rugsnipe-tx" }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+bs58 = { workspace = true }
+
+[[bin]]
+name = "rugsnipe-sim"
+path = "src/bin/rugsnipe-sim.rs"
+required-features = ["rpc"]
+
+[lints.clippy]
+too_many_arguments = "allow"

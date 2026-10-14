@@ -35,7 +35,7 @@ It implements docs/06-architecture.md sections 2, 6, 10, 12 and 13, and docs/03-
 | this container | tests, paper runs, reports | none (run by hand) | none |
 | **ohio1** (exists) | `sudo deploy/install.sh --role analytics` | `rugsnipe-collector.service`, `rugsnipe-discover.timer`/`.service`, `rugsnipe.target` | `armset-signing.key`, `api-keys.toml`. **Never** wallets (install.sh refuses) |
 | **fra1** (to rent) | `sudo deploy/install.sh --role hot`, then `deploy/tune-hot.sh` | `rugsnipe-keeper`, `rugsnipe-guard`, `rugsnipe-hot`, optional `rugsnipe-tune`, `rugsnipe.target` | `hot-keypair.json`, `probe-keypair.json`, `api-keys.toml`. **Never** the ArmSet signing key (install.sh refuses) |
-| ams1 | phase 2, after the gate | same as fra1 | same as fra1 |
+| second box | phase 2, after the gate. docs/06 section 11 says ams1; docs/03 section 4 now recommends Tokyo (TeraSwitch TYO2) first | same as fra1 | same as fra1 |
 
 Step-by-step guides:
 - `deploy/aws-ohio-analytics.md` for ohio1;
@@ -60,7 +60,7 @@ Reference tools: `deploy/latency_probe.sh` (RTT from a candidate box) and `deplo
 
 ### Contracts the code must honour
 
-- **Credentials.** Each unit loads `hot-keypair`, `probe-keypair`, `api-keys` and `armset-signing-key` from `$CREDENTIALS_DIRECTORY/<name>`.
+- **Credentials.** Units read their credentials from `$CREDENTIALS_DIRECTORY/<name>`: hot loads `hot-keypair`, `probe-keypair` and `api-keys`; guard and keeper load `hot-keypair` and `api-keys`; the collector loads `api-keys`; discover loads `armset-signing-key` and `api-keys`.
   - A missing file yields the literal content `ABSENT` (`SetCredential=` fallback). The binary must treat that as "no key", and config validation must refuse probe/live.
   - `api-keys` is a TOML table whose keys are the names in the config (`NOZOMI_KEY`, `GRPC_TOKEN`, `TG_TOKEN`, `HC_URL`, ...).
 - **Rust services.** Each is started as `<bin> --config /etc/rugsnipe/rugsnipe.toml` with `RUGSNIPE_CONFIG` set.
@@ -70,8 +70,8 @@ Reference tools: `deploy/latency_probe.sh` (RTT from a candidate box) and `deplo
   - Exit code 78 means "not deployed / misconfigured", and the unit does not restart.
 - **Writable paths.** Only `/var/lib/rugsnipe` and `/run/rugsnipe` (`ProtectSystem=strict`).
 - **Hardening.**
-  - Every unit runs with `NoNewPrivileges`, an empty `CapabilityBoundingSet` and a syscall filter. `systemd-analyze security` scores 1.3-1.8 ("OK").
-  - `rugsnipe-hot` alone keeps `CAP_SYS_NICE` (for SCHED_FIFO and affinity) and `LimitMEMLOCK=infinity`, so it can `mlockall` the keys.
+  - Every service runs with `NoNewPrivileges`, an empty `CapabilityBoundingSet` and a syscall filter, except `rugsnipe-tune` (a root one-shot that applies the OS tuning). `systemd-analyze security` scores 1.3-1.8 ("OK").
+  - `rugsnipe-hot` alone keeps `CAP_SYS_NICE` (for SCHED_FIFO and affinity). Hot, guard and keeper all hold the hot key and have `LimitMEMLOCK=infinity`, so they can `mlockall` it.
   - When the `Shreds` feed strips DZ Edge GRE in XDP, add `AF_XDP`/`AF_PACKET` and `CAP_BPF`/`CAP_NET_ADMIN` through a drop-in, never in the base unit.
   - `rugsnipe-hot` is pinned with `CPUAffinity=` to the isolated cores. Guard and keeper are pinned to the housekeeping cores. install.sh writes the `20-cpus.conf` drop-ins from `/sys/devices/system/cpu/isolated`.
 
@@ -104,8 +104,9 @@ Re-run the feed and decoder tests that week. Unfreezing needs decode-miss < 1% f
 | Item | $/month | When | Source |
 |---|---|---|---|
 | AWS Ohio (ohio1) | existing | now | your bill |
-| **TeraSwitch FRA** bare metal (9950X) | **~425** | shadow+ | docs/03 section 4 (aggregator price, get a quote) |
-| Latitude.sh FRA (alternative) | ~400 | shadow+ | docs/03 section 4 |
+| **TeraSwitch FRA2** bare metal (9950X) | **~425** | shadow+ | docs/03 section 4 (list price; stock on request from sales) |
+| Cherry Servers FRA (same campus, 0.09 ms; EPYC 9375F, in stock) | €989 (or €1.69/h) | shadow+, immediate fallback | docs/03 section 4 |
+| Latitude.sh FRA (different building, 0.7 ms away) | ~400 | only if neither of the above | docs/03 section 4 |
 | AWS eu-central-1 fallback (c7i/c8g 2xlarge-4xlarge) | on-demand pricing | only if bare metal is impossible | docs/03 section 4 |
 | **SVS Yellowstone gRPC** (shadow feed) | **150** | shadow | docs/06 section 12 |
 | **Helius LaserStream** fra/ams (post-exec gRPC) | **499-999** | probe (alternative to SVS) | docs/03 section 5 |
@@ -120,7 +121,7 @@ Totals:
 - paper: **$0** extra;
 - shadow: **~$575/mo**;
 - probe: **~$575-1,425/mo** + ≤ 0.5 SOL;
-- live feed stack: box + DZ + Helius shreds ≈ **$2,700-2,925/mo** + tips.
+- live: box + DZ + Helius shreds + the post-exec gRPC feed that probe/live require (SVS $150 or LaserStream $499-999) ≈ **$2,850-3,925/mo** + tips.
 
 ## 5. Install and update
 
@@ -168,7 +169,7 @@ sudo systemctl kill -s USR1 rugsnipe-hot        # signal latch
 # Telegram: /kill to the alert bot
 ```
 
-Per docs/06 section 5.1 the latch is also recorded in `state.db` (`risk.killed`), so it survives a restart and a reboot (which clears `/run`). **Unkill is local only.** Log in to fra1, remove the file and clear the
+Per docs/06 section 5.1 the latch is also to be recorded in `state.db` (`risk.killed`), so that it survives a restart and a reboot (which clears `/run`). This is not implemented yet (M3+): until then a reboot clears the file latch. **Unkill is local only.** Log in to fra1, remove the file and clear the
 latch with `rugsnipe-ctl` (M3+). A Telegram message can kill but never unkill.
 
 ### Automatic kill triggers (docs/06 section 13)

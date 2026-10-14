@@ -101,9 +101,7 @@ def frames(paths):
         text = "\n".join(logs)
         if "Log truncated" in text:
             return "truncated"
-        n_buys = text.count("Instruction: Buy") + text.count("Instruction: BuyExactSolIn") + \
-            text.count("Instruction: BuyV3") + text.count("Instruction: BuyExactQuoteInV3") + \
-            text.count("Instruction: BuyV2") + text.count("Instruction: BuyExactQuoteInV2")
+        n_buys = sum(1 for line in logs if line.startswith("Program log: Instruction: Buy"))
         legacy = "Program log: Instruction: Create\n" in text + "\n"
         return f"create_buys{min(n_buys, 2)}" + ("_legacy" if legacy else "")
 

@@ -38,7 +38,9 @@ pub struct HotSigner {
 
 impl core::fmt::Debug for HotSigner {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("HotSigner").field("pubkey", &self.pubkey.to_string()).finish_non_exhaustive()
+        f.debug_struct("HotSigner")
+            .field("pubkey", &self.pubkey.to_string())
+            .finish_non_exhaustive()
     }
 }
 
@@ -65,7 +67,10 @@ impl HotSigner {
     /// Parse a `[u8; 64]` JSON array (solana-keygen file content).
     pub fn from_keypair_json(text: &Zeroizing<String>) -> Result<Self, KeyError> {
         let t = text.trim();
-        let inner = t.strip_prefix('[').and_then(|r| r.strip_suffix(']')).ok_or(KeyError::Format)?;
+        let inner = t
+            .strip_prefix('[')
+            .and_then(|r| r.strip_suffix(']'))
+            .ok_or(KeyError::Format)?;
         let mut bytes = Zeroizing::new([0u8; 64]);
         let mut n = 0usize;
         for part in inner.split(',') {
@@ -115,7 +120,9 @@ impl HotSigner {
 /// Verify a signature (tests, `ctl`).
 pub fn verify(pubkey: &Pubkey, message: &[u8], sig: &[u8; 64]) -> bool {
     match ed25519_dalek::VerifyingKey::from_bytes(&pubkey.to_bytes()) {
-        Ok(vk) => vk.verify_strict(message, &ed25519_dalek::Signature::from_bytes(sig)).is_ok(),
+        Ok(vk) => vk
+            .verify_strict(message, &ed25519_dalek::Signature::from_bytes(sig))
+            .is_ok(),
         Err(_) => false,
     }
 }
@@ -128,7 +135,13 @@ mod tests {
         let s = HotSigner::from_seed(&Zeroizing::new(seed));
         let mut all = seed.to_vec();
         all.extend_from_slice(s.pubkey().as_ref());
-        Zeroizing::new(format!("[{}]", all.iter().map(|b| b.to_string()).collect::<Vec<_>>().join(",")))
+        Zeroizing::new(format!(
+            "[{}]",
+            all.iter()
+                .map(|b| b.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        ))
     }
 
     #[test]
@@ -146,8 +159,14 @@ mod tests {
 
     #[test]
     fn rejects_bad_keypairs() {
-        assert_eq!(HotSigner::from_keypair_json(&Zeroizing::new("[1,2,3]".into())).unwrap_err(), KeyError::Format);
-        assert_eq!(HotSigner::from_keypair_json(&Zeroizing::new("nope".into())).unwrap_err(), KeyError::Format);
+        assert_eq!(
+            HotSigner::from_keypair_json(&Zeroizing::new("[1,2,3]".into())).unwrap_err(),
+            KeyError::Format
+        );
+        assert_eq!(
+            HotSigner::from_keypair_json(&Zeroizing::new("nope".into())).unwrap_err(),
+            KeyError::Format
+        );
         let mut t = json_for([1u8; 32]).to_string();
         // corrupt the last public-key byte
         let cut = t.rfind(',').unwrap();
@@ -165,7 +184,10 @@ mod tests {
         let p = std::env::temp_dir().join(format!("rugsnipe-key-{}.json", std::process::id()));
         std::fs::write(&p, json_for([3u8; 32]).as_bytes()).unwrap();
         std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
-        assert_eq!(HotSigner::load_file(&p).unwrap_err(), KeyError::Permissions(0o644));
+        assert_eq!(
+            HotSigner::load_file(&p).unwrap_err(),
+            KeyError::Permissions(0o644)
+        );
         std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o400)).unwrap();
         assert!(HotSigner::load_file(&p).is_ok());
         let _ = std::fs::remove_file(&p);

@@ -88,7 +88,9 @@ impl PumpPortal {
                         {
                             continue;
                         }
-                        let mut ping = tokio::time::interval(Duration::from_millis(cfg.ping_ms));
+                        let mut ping = tokio::time::interval(Duration::from_millis(
+                            cfg.ping_ms.min(cfg.stale_ms / 3).max(500),
+                        ));
                         let mut check = tokio::time::interval(Duration::from_millis(250));
                         loop {
                             if stop.load(Ordering::Acquire) {
@@ -105,7 +107,7 @@ impl PumpPortal {
                                         dec.pp_frame(FeedSrc::PumpPortal, recv, t.as_str(), &health, &mut |ev| { sink.push(ev); });
                                     }
                                     Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
-                                    Some(Ok(_)) => {}
+                                    Some(Ok(_)) => health.last_frame_ns.store(mono_ns(), Ordering::Relaxed),
                                 },
                                 _ = ping.tick() => {
                                     if ws.send(Message::Ping(Vec::new().into())).await.is_err() { break; }

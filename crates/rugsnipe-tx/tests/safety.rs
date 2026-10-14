@@ -10,18 +10,34 @@ use rugsnipe_tx::senders::*;
 use std::collections::BTreeMap;
 
 fn example() -> Config {
-    let p = concat!(env!("CARGO_MANIFEST_DIR"), "/../../config/rugsnipe.example.toml");
+    let p = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/rugsnipe.example.toml"
+    );
     Config::from_toml_str(&std::fs::read_to_string(p).unwrap()).unwrap()
 }
 
 fn variant(i: u8) -> Variant {
-    Variant::from_bytes(&[i; 300], [i; 64], 7, i, VariantKind::Buy, 1_000, 1_000_000, Some(pump_codec::constants::JITO_TIP_ACCOUNTS[0]))
+    Variant::from_bytes(
+        &[i; 300],
+        [i; 64],
+        7,
+        i,
+        VariantKind::Buy,
+        1_000,
+        1_000_000,
+        Some(pump_codec::constants::JITO_TIP_ACCOUNTS[0]),
+    )
 }
 
 /// Socket file descriptors of this process (Linux).
 fn sockets() -> usize {
     std::fs::read_dir("/proc/self/fd")
-        .map(|d| d.filter_map(|e| std::fs::read_link(e.ok()?.path()).ok()).filter(|l| l.to_string_lossy().starts_with("socket:")).count())
+        .map(|d| {
+            d.filter_map(|e| std::fs::read_link(e.ok()?.path()).ok())
+                .filter(|l| l.to_string_lossy().starts_with("socket:"))
+                .count()
+        })
         .unwrap_or(0)
 }
 
@@ -38,8 +54,18 @@ fn paper_sender_never_opens_a_socket() {
     assert_eq!(sockets(), before);
     // and its source has no networking code
     let src = include_str!("../src/senders/paper.rs");
-    for banned in ["std::net", "TcpStream", "UdpSocket", "ureq", "http::", "connect("] {
-        let code: String = src.lines().filter(|l| !l.trim_start().starts_with("//")).collect();
+    for banned in [
+        "std::net",
+        "TcpStream",
+        "UdpSocket",
+        "ureq",
+        "http::",
+        "connect(",
+    ] {
+        let code: String = src
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect();
         assert!(!code.contains(banned), "paper.rs mentions {banned}");
     }
 }
@@ -61,7 +87,11 @@ fn paper_mode_builds_only_paper_even_with_real_senders_enabled() {
 
 fn good_env(c: &Config) -> ValidateEnv {
     let mut creds = BTreeMap::new();
-    for n in [&c.secrets.hot_keypair, &c.secrets.probe_keypair, &c.secrets.api_keys] {
+    for n in [
+        &c.secrets.hot_keypair,
+        &c.secrets.probe_keypair,
+        &c.secrets.api_keys,
+    ] {
         creds.insert(n.clone(), Some(0o400));
     }
     ValidateEnv {
@@ -93,17 +123,25 @@ fn real_modes_refused_without_signed_gate_or_caps() {
         let mut env = good_env(&c);
         env.armset = ArmSetGate::Unsigned;
         match SenderSet::build(&c, &env, &ApiKeys::default()) {
-            Err(BuildError::Refused(r)) => assert!(r.contains(&Refusal::ArmSet(ArmSetGate::Unsigned))),
+            Err(BuildError::Refused(r)) => {
+                assert!(r.contains(&Refusal::ArmSet(ArmSetGate::Unsigned)))
+            }
             other => panic!("{other:?}"),
         }
         // gate not passed
         let mut env = good_env(&c);
         env.armset = ArmSetGate::Verified { gate_passed: false };
-        assert!(matches!(SenderSet::build(&c, &env, &ApiKeys::default()), Err(BuildError::Refused(_))));
+        assert!(matches!(
+            SenderSet::build(&c, &env, &ApiKeys::default()),
+            Err(BuildError::Refused(_))
+        ));
         // a cap missing
         let mut c2 = c.clone();
         c2.risk.max_daily_loss_lamports = 0;
-        assert!(matches!(SenderSet::build(&c2, &good_env(&c2), &ApiKeys::default()), Err(BuildError::Refused(_))));
+        assert!(matches!(
+            SenderSet::build(&c2, &good_env(&c2), &ApiKeys::default()),
+            Err(BuildError::Refused(_))
+        ));
         // everything set, no real sender enabled: builds, nothing real
         let set = SenderSet::build(&c, &good_env(&c), &ApiKeys::default()).unwrap();
         assert!(set.real().is_empty());
@@ -121,7 +159,13 @@ fn enabled_real_sender_needs_its_feature() {
         assert_eq!(set.real()[0].id(), SenderId::Helius);
         assert_eq!(set.real()[0].min_tip(), 5_000, "swqos_only minimum");
     } else {
-        assert_eq!(r.unwrap_err(), BuildError::FeatureMissing { sender: "helius", feature: "senders" });
+        assert_eq!(
+            r.unwrap_err(),
+            BuildError::FeatureMissing {
+                sender: "helius",
+                feature: "senders"
+            }
+        );
     }
     let mut c = armable(Mode::Live);
     c.senders.rpcsend.enabled = true;
@@ -129,7 +173,13 @@ fn enabled_real_sender_needs_its_feature() {
     if cfg!(feature = "rpc") {
         assert_eq!(r.unwrap().real()[0].id(), SenderId::Rpc);
     } else {
-        assert_eq!(r.unwrap_err(), BuildError::FeatureMissing { sender: "rpcsend", feature: "rpc" });
+        assert_eq!(
+            r.unwrap_err(),
+            BuildError::FeatureMissing {
+                sender: "rpcsend",
+                feature: "rpc"
+            }
+        );
     }
 }
 
@@ -143,7 +193,13 @@ fn tip_checks_happen_before_any_network() {
     v.tip_account = None;
     assert_eq!(check_tip(&v, &jito, 1_000), Err(SendError::WrongTipAccount));
     let v = variant(2);
-    assert_eq!(check_tip(&v, &jito, 2_000_000), Err(SendError::TipTooLow { min: 2_000_000, got: 1_000_000 }));
+    assert_eq!(
+        check_tip(&v, &jito, 2_000_000),
+        Err(SendError::TipTooLow {
+            min: 2_000_000,
+            got: 1_000_000
+        })
+    );
     let big = Variant::from_bytes(&[0; 1_300], [0; 64], 1, 0, VariantKind::Buy, 0, 0, None);
     assert_eq!(check_tip(&big, &[], 0), Err(SendError::TooLarge));
 }
@@ -164,7 +220,10 @@ fn breaker_opens_and_recovers() {
 
 #[test]
 fn api_keys_parse_and_never_print() {
-    let k = ApiKeys::parse(&zeroize::Zeroizing::new("# keys\nNOZOMI_KEY = \"abc-secret\"\nJITO = \"x\"\n".into())).unwrap();
+    let k = ApiKeys::parse(&zeroize::Zeroizing::new(
+        "# keys\nNOZOMI_KEY = \"abc-secret\"\nJITO = \"x\"\n".into(),
+    ))
+    .unwrap();
     assert_eq!(k.get("NOZOMI_KEY"), Some("abc-secret"));
     assert!(!format!("{k:?}").contains("abc-secret"));
     assert!(ApiKeys::parse(&zeroize::Zeroizing::new("A = unquoted".into())).is_err());

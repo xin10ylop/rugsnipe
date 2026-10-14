@@ -170,3 +170,51 @@ python3 -I analysis/scripts/collector.py --config /etc/rugsnipe/rugsnipe.toml   
 * A source silent for 30 s (logs) / 60 s (PumpPortal) is force-reconnected; every outage is an
   `ingest_gaps` row (time and slot range); reconnects back off 1-60 s with jitter; a restart writes a
   `collector_down` gap.  The run summary is printed and stored as a `box_events` row.
+
+**Measured here (2026-10-14 10:17-11:06 UTC: one 40 min run plus an 8 min resume run, `data/analytics.db`):**
+
+| | |
+|---|---|
+| creates seen | 1,149 total: `logsSubscribe` 1,147, PumpPortal 603 (2 PumpPortal-only), plus 49 failed creates seen by logs; 0 ingest gaps, 0 reconnects |
+| **PumpPortal misses every v1 create** | of decoded creates, PumpPortal reported 577/602 v0 and 19/19 legacy but **0/518 v1** (v1 = 45%). PumpPortal alone is not a population feed |
+| lead, PumpPortal vs logs (both seen, n = 601) | median +1.4 ms (PumpPortal first in 57%), p10 -62 ms, p90 +100 ms: the same within noise from this container |
+| funding (fresh signers first) | first run: 264 traced `ok` (188 fresh signers, median funding-to-create lag 135 s), 96 `serial` (>= 1000 prior txs), 35 deferred; 963 creates came from 443 distinct signers (one bot made 77) |
+| rivals | 3,984 txs touching the curve in slots s..s+1 for 894 creates, 1,594 of them failed |
+| tapes | 960 scheduled in the first run, 300 fetched so far (93% `full` coverage); the rest are pending in `jobs` and resume on the next start |
+| RPC (first run, 2,411 s) | 2,627 `getTransaction` + 1,685 `getSignaturesForAddress` (1.8 req/s average, within the 12 req/s collector budget); 457 retries on 429s, because other processes on this IP share mainnet-beta |
+
+`funding_deep` (non-fresh signers) only runs when the pool is idle, so it lags at daytime rates.
+
+### Backfill
+
+```bash
+.venv/bin/python -I analysis/scripts/backfill.py --local --days 2 --pct 0.5 --blocks 2 \
+    --candidates <pubkey,pubkey | file>        # smoke
+.venv/bin/python -I analysis/scripts/backfill.py --local --days 28 --pct 5 --blocks 2 --seed-gap1   # study set B
+```
+
+* `SigIndex` (`data/cache/backfill/TSLvdd…/`): contiguous newest-first `[sig, slot, blockTime, err]`
+  JSONL segments plus `state.json`.  It grows backwards (`before=oldest`) and forwards from the head
+  (`until=newest`), saves after every page and survives interruption.  `--seed-gap1` starts it from
+  the 16-day gap-1 index.
+* Design `B_<days>d_p<p>_s<seed>`: a signature is sampled if `sha256("<seed>:<sig>") / 2^64 < p`.
+  The draw is order-independent and deterministic, and a larger `p` gives a superset.  Failed
+  creates are never drawn.  `--candidates` adds every create *signed* by those wallets in the
+  window (`arm='candidate'`).  The window `[t_from, t_to)` is frozen in `design_<id>.json`.
+* Fetch: `getTransaction` (disk cache, archive endpoint) -> `createtx` rows; `--blocks N` ->
+  `getBlock(accounts)` for slots s..s+N-1 -> `tx_attempts` with real `tx_index` (failed included),
+  `creates.tx_index`, `slot0.bundle_owners_json` (token-account owners).  `getBlock` defaults to
+  1 req/s: a block is ~1.7 MB, and mainnet-beta caps a single IP at ~100 MB per 30 s.
+* Regimes come from `store.regime_for`; the `samples.status` column makes the fetch resumable.
+
+**Smoke run (2 days at 0.5%, 2 candidate creators, `--blocks 2`, budget 2 req/s because the collector
+ran at the same time):**
+* Index: 101 pages, 67 s, 101,114 signatures over 2.02 days (8.3% failed).
+* Sample: 466 uniform + 57 candidate creates.
+* `getTransaction`: 521 decoded + 2 non-creates, 547 calls in 274 s.
+* `getBlock`: 1,041 calls in ~18 min at 1/s, giving 3,983 curve transactions in s..s+1 (2,117 failed).
+* Regime: all `slot200`.
+* Total 1,591 calls in 22 min, with 108 retries on 429s.
+
+The full set B (28 days, 5%, 2 blocks) extrapolates to ~70k creates: 70k `getTransaction` + 140k
+`getBlock` + 1.4k index pages, about **44 h** at 4 + 1 req/s.

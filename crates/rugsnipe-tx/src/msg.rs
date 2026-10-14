@@ -43,7 +43,11 @@ pub struct KeySpec {
 
 impl KeySpec {
     pub const fn new(key: Pubkey, signer: bool, writable: bool) -> Self {
-        Self { key, signer, writable }
+        Self {
+            key,
+            signer,
+            writable,
+        }
     }
 }
 
@@ -142,7 +146,12 @@ pub fn compile(
         let p = idx(&ix.program_id).ok_or(CompileError::MissingKey(ix.program_id))?;
         used[p] = true;
         let mut accts = Vec::with_capacity(ix.accounts.len());
-        for AccountMeta { pubkey, is_signer, is_writable } in &ix.accounts {
+        for AccountMeta {
+            pubkey,
+            is_signer,
+            is_writable,
+        } in &ix.accounts
+        {
             let i = idx(pubkey).ok_or(CompileError::MissingKey(*pubkey))?;
             used[i] = true;
             need[i].0 |= *is_signer;
@@ -262,7 +271,12 @@ mod tests {
 
     #[test]
     fn compact_encoding() {
-        for (v, want) in [(0usize, vec![0u8]), (127, vec![0x7f]), (128, vec![0x80, 1]), (16384, vec![0x80, 0x80, 1])] {
+        for (v, want) in [
+            (0usize, vec![0u8]),
+            (127, vec![0x7f]),
+            (128, vec![0x80, 1]),
+            (16384, vec![0x80, 0x80, 1]),
+        ] {
             let mut o = vec![];
             compact_u16(&mut o, v);
             assert_eq!(o, want);
@@ -271,15 +285,56 @@ mod tests {
 
     #[test]
     fn rejects_bad_orders_and_flags() {
-        let (a, b, p) = (Pubkey::new_unique(), Pubkey::new_unique(), Pubkey::new_unique());
-        let ix = Instruction { program_id: p, accounts: vec![AccountMeta::new(b, false)], data: vec![1] };
-        let ok = [KeySpec::new(a, true, true), KeySpec::new(b, false, true), KeySpec::new(p, false, false)];
-        assert!(compile(&ok, &[ix.clone()], &[0; 32], Format::Legacy).is_ok());
-        let bad_order = [KeySpec::new(a, true, true), KeySpec::new(p, false, false), KeySpec::new(b, false, true)];
-        assert_eq!(compile(&bad_order, &[ix.clone()], &[0; 32], Format::Legacy).unwrap_err(), CompileError::ClassOrder(2));
-        let escalated = [KeySpec::new(a, true, true), KeySpec::new(b, true, true), KeySpec::new(p, false, false)];
-        assert_eq!(compile(&escalated, &[ix.clone()], &[0; 32], Format::Legacy).unwrap_err(), CompileError::FlagMismatch(b));
+        let (a, b, p) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let ix = Instruction {
+            program_id: p,
+            accounts: vec![AccountMeta::new(b, false)],
+            data: vec![1],
+        };
+        let ok = [
+            KeySpec::new(a, true, true),
+            KeySpec::new(b, false, true),
+            KeySpec::new(p, false, false),
+        ];
+        assert!(compile(&ok, std::slice::from_ref(&ix), &[0; 32], Format::Legacy).is_ok());
+        let bad_order = [
+            KeySpec::new(a, true, true),
+            KeySpec::new(p, false, false),
+            KeySpec::new(b, false, true),
+        ];
+        assert_eq!(
+            compile(
+                &bad_order,
+                std::slice::from_ref(&ix),
+                &[0; 32],
+                Format::Legacy
+            )
+            .unwrap_err(),
+            CompileError::ClassOrder(2)
+        );
+        let escalated = [
+            KeySpec::new(a, true, true),
+            KeySpec::new(b, true, true),
+            KeySpec::new(p, false, false),
+        ];
+        assert_eq!(
+            compile(
+                &escalated,
+                std::slice::from_ref(&ix),
+                &[0; 32],
+                Format::Legacy
+            )
+            .unwrap_err(),
+            CompileError::FlagMismatch(b)
+        );
         let missing = [KeySpec::new(a, true, true), KeySpec::new(p, false, false)];
-        assert_eq!(compile(&missing, &[ix], &[0; 32], Format::Legacy).unwrap_err(), CompileError::MissingKey(b));
+        assert_eq!(
+            compile(&missing, &[ix], &[0; 32], Format::Legacy).unwrap_err(),
+            CompileError::MissingKey(b)
+        );
     }
 }

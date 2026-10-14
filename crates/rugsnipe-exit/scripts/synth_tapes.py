@@ -83,7 +83,7 @@ def tape(i, rng):
     opened = False
     n_events = rng.randint(60, 160)
     for n in range(n_events):
-        step = rng.choice([1, 1, 1, 2, 3]) if sc == 1 else rng.choice([0, 0, 1, 1, 2, 3, 8, 40])
+        step = rng.choice([0, 1, 1]) if sc == 1 else rng.choice([0, 0, 1, 1, 2, 3, 8, 40])
         slot += step
         ms += 400 * step + rng.randint(0, 300)
         if not opened and n >= 3:

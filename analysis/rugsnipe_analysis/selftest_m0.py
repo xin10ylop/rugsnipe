@@ -206,6 +206,46 @@ def test_collector_handlers() -> None:
         con.close()
 
 
+def test_collector_untrusted_frames() -> None:
+    """PumpPortal's mint is not trusted; junk frames parse to non-creates; relay keeps one frame per line."""
+    assert C.parse_logs_frame("[1,2]") == {"kind": "other"} and C.parse_logs_frame("null") == {"kind": "other"}
+    d, p = _tmpdb()
+    with d:
+        col = C.Collector(C.CollectorConfig(db_path=str(p), workers=1), rpc=object(), api=object())
+        wrong = json.loads(_FIX["pp_create"])
+        wrong["mint"] = "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh"    # PP named another token (seen live)
+        t = time.time_ns()
+        col.handle_pp(json.dumps(wrong), t)
+        con = col.con
+        assert con.execute("SELECT COUNT(*) FROM creates").fetchone()[0] == 0
+        assert dict(con.execute("SELECT kind, COUNT(*) FROM jobs GROUP BY kind").fetchall()) == {"decode": 1}
+        col.handle_logs(_FIX["logs_create"], t + 5_000_000)
+        real = con.execute("SELECT mint FROM feed_seen WHERE src='logs'").fetchone()[0]
+        assert [r[0] for r in con.execute("SELECT mint FROM creates")] == [real] != [wrong["mint"]]
+        keys = {(k, key) for k, key in con.execute("SELECT kind, key FROM jobs WHERE kind != 'decode'")}
+        assert keys == {("funding", real), ("rivals", real), ("tape", real)}
+        assert con.execute("SELECT mint FROM feed_seen WHERE src='pp'").fetchone()[0] == wrong["mint"]
+
+        class _W:
+            def __init__(self) -> None:
+                self.buf, self.transport = b"", self
+
+            def is_closing(self) -> bool:
+                return False
+
+            def get_write_buffer_size(self) -> int:
+                return 0
+
+            def write(self, b: bytes) -> None:
+                self.buf += b
+        w = _W()
+        col.relay_clients.add(w)  # type: ignore[arg-type]
+        col.relay('{\n "a": 1\r\n}', 123)
+        assert w.buf == b'123\t{  "a": 1  }\n'
+        col.pool.shutdown()
+        con.close()
+
+
 def test_collector_scheduler() -> None:
     import asyncio
     d, p = _tmpdb()

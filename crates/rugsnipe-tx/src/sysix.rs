@@ -27,7 +27,15 @@ pub fn nonce_seed(pool: &str, i: usize) -> String {
 }
 
 /// System `CreateAccountWithSeed` (tag 3).
-pub fn create_account_with_seed(from: &Pubkey, to: &Pubkey, base: &Pubkey, seed: &str, lamports: u64, space: u64, owner: &Pubkey) -> Instruction {
+pub fn create_account_with_seed(
+    from: &Pubkey,
+    to: &Pubkey,
+    base: &Pubkey,
+    seed: &str,
+    lamports: u64,
+    space: u64,
+    owner: &Pubkey,
+) -> Instruction {
     let mut data = Vec::with_capacity(4 + 32 + 8 + seed.len() + 8 + 8 + 32);
     data.extend_from_slice(&3u32.to_le_bytes());
     data.extend_from_slice(base.as_ref());
@@ -40,7 +48,11 @@ pub fn create_account_with_seed(from: &Pubkey, to: &Pubkey, base: &Pubkey, seed:
     if base != from {
         accounts.push(AccountMeta::new_readonly(*base, true));
     }
-    Instruction { program_id: SYSTEM_PROGRAM_ID, accounts, data }
+    Instruction {
+        program_id: SYSTEM_PROGRAM_ID,
+        accounts,
+        data,
+    }
 }
 
 /// System `InitializeNonceAccount` (tag 6).
@@ -59,7 +71,12 @@ pub fn initialize_nonce_account(nonce: &Pubkey, authority: &Pubkey) -> Instructi
 }
 
 /// System `WithdrawNonceAccount` (tag 5): withdrawing the full balance closes it.
-pub fn withdraw_nonce_account(nonce: &Pubkey, authority: &Pubkey, to: &Pubkey, lamports: u64) -> Instruction {
+pub fn withdraw_nonce_account(
+    nonce: &Pubkey,
+    authority: &Pubkey,
+    to: &Pubkey,
+    lamports: u64,
+) -> Instruction {
     let mut data = 5u32.to_le_bytes().to_vec();
     data.extend_from_slice(&lamports.to_le_bytes());
     Instruction {
@@ -76,13 +93,26 @@ pub fn withdraw_nonce_account(nonce: &Pubkey, authority: &Pubkey, to: &Pubkey, l
 }
 
 /// Instructions creating nonce `i` of `pool` owned by `authority` (payer = authority).
-pub fn nonce_init_instructions(authority: &Pubkey, pool: &str, i: usize, lamports: u64) -> (Pubkey, [Instruction; 2]) {
+pub fn nonce_init_instructions(
+    authority: &Pubkey,
+    pool: &str,
+    i: usize,
+    lamports: u64,
+) -> (Pubkey, [Instruction; 2]) {
     let seed = nonce_seed(pool, i);
     let addr = create_with_seed(authority, &seed, &SYSTEM_PROGRAM_ID);
     (
         addr,
         [
-            create_account_with_seed(authority, &addr, authority, &seed, lamports, NONCE_ACCOUNT_LEN, &SYSTEM_PROGRAM_ID),
+            create_account_with_seed(
+                authority,
+                &addr,
+                authority,
+                &seed,
+                lamports,
+                NONCE_ACCOUNT_LEN,
+                &SYSTEM_PROGRAM_ID,
+            ),
             initialize_nonce_account(&addr, authority),
         ],
     )
@@ -90,5 +120,7 @@ pub fn nonce_init_instructions(authority: &Pubkey, pool: &str, i: usize, lamport
 
 /// Every nonce address of a pool.
 pub fn pool_addresses(authority: &Pubkey, pool: &str, n: usize) -> Vec<Pubkey> {
-    (0..n).map(|i| create_with_seed(authority, &nonce_seed(pool, i), &SYSTEM_PROGRAM_ID)).collect()
+    (0..n)
+        .map(|i| create_with_seed(authority, &nonce_seed(pool, i), &SYSTEM_PROGRAM_ID))
+        .collect()
 }

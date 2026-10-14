@@ -123,7 +123,9 @@ pub enum NonceSkip {
     /// The slot is InFlight / Burning / Quarantined.
     NotFree(NonceState),
     /// The value changed at or after the create slot (or is unknown).
-    ChangedSinceCreate { last_change_slot: u64 },
+    ChangedSinceCreate {
+        last_change_slot: u64,
+    },
     /// Another thread claimed it first.
     Raced,
     EmptyPool,
@@ -155,7 +157,13 @@ impl NoncePool {
             .map(|(i, a)| NonceSlot {
                 account: *a,
                 word: AtomicU64::new(
-                    Packed { last_change_slot: UNKNOWN_SLOT, idx: i as u16, state: NonceState::Free, burn_tries: 0 }.pack(),
+                    Packed {
+                        last_change_slot: UNKNOWN_SLOT,
+                        idx: i as u16,
+                        state: NonceState::Free,
+                        burn_tries: 0,
+                    }
+                    .pack(),
                 ),
                 seq: AtomicU64::new(0),
                 value: Default::default(),
@@ -210,7 +218,13 @@ impl NoncePool {
     /// The word and the value are read inside one seqlock window; a
     /// concurrent value update (odd or changed sequence) makes the claim
     /// fail as `Raced` and nothing is sent.
-    pub fn try_claim(&self, mint: &Pubkey, create_slot: u64, intent: u64, now_slot: u64) -> Result<Claim, NonceSkip> {
+    pub fn try_claim(
+        &self,
+        mint: &Pubkey,
+        create_slot: u64,
+        intent: u64,
+        now_slot: u64,
+    ) -> Result<Claim, NonceSkip> {
         if self.slots.is_empty() {
             return Err(NonceSkip::EmptyPool);
         }
@@ -226,13 +240,19 @@ impl NoncePool {
             return Err(NonceSkip::NotFree(p.state));
         }
         if p.last_change_slot == UNKNOWN_SLOT || p.last_change_slot >= create_slot {
-            return Err(NonceSkip::ChangedSinceCreate { last_change_slot: p.last_change_slot });
+            return Err(NonceSkip::ChangedSinceCreate {
+                last_change_slot: p.last_change_slot,
+            });
         }
         let mut value = [0u8; 32];
         for (i, v) in s.value.iter().enumerate() {
             value[8 * i..8 * i + 8].copy_from_slice(&v.load(SeqCst).to_le_bytes());
         }
-        let claimed = Packed { state: NonceState::InFlight, ..p }.pack();
+        let claimed = Packed {
+            state: NonceState::InFlight,
+            ..p
+        }
+        .pack();
         if s.word.compare_exchange(w, claimed, SeqCst, SeqCst).is_err() {
             return Err(NonceSkip::Raced);
         }
@@ -242,7 +262,12 @@ impl NoncePool {
         }
         s.since_slot.store(now_slot, Release);
         s.intent.store(intent, Release);
-        Ok(Claim { idx, account: s.account, value, last_change_slot: p.last_change_slot })
+        Ok(Claim {
+            idx,
+            account: s.account,
+            value,
+            last_change_slot: p.last_change_slot,
+        })
     }
 
     /// Give a claim back without sending (e.g. signing failed). Only valid
@@ -251,8 +276,15 @@ impl NoncePool {
         let s = &self.slots[c.idx];
         let _ = s.word.fetch_update(AcqRel, Acquire, |w| {
             let p = Packed::unpack(w);
-            (p.state == NonceState::InFlight && p.last_change_slot == c.last_change_slot)
-                .then(|| Packed { state: NonceState::Free, ..p }.pack())
+            (p.state == NonceState::InFlight && p.last_change_slot == c.last_change_slot).then(
+                || {
+                    Packed {
+                        state: NonceState::Free,
+                        ..p
+                    }
+                    .pack()
+                },
+            )
         });
     }
 
@@ -266,12 +298,27 @@ impl NoncePool {
             .word
             .fetch_update(SeqCst, SeqCst, |w| {
                 let p = Packed::unpack(w);
-                let state = if p.state == NonceState::Quarantined { p.state } else { NonceState::Free };
-                Some(Packed { last_change_slot: slot.min(SLOT_MASK - 1), state, burn_tries: 0, ..p }.pack())
+                let state = if p.state == NonceState::Quarantined {
+                    p.state
+                } else {
+                    NonceState::Free
+                };
+                Some(
+                    Packed {
+                        last_change_slot: slot.min(SLOT_MASK - 1),
+                        state,
+                        burn_tries: 0,
+                        ..p
+                    }
+                    .pack(),
+                )
             })
             .unwrap();
         for (i, v) in s.value.iter().enumerate() {
-            v.store(u64::from_le_bytes(value[8 * i..8 * i + 8].try_into().unwrap()), SeqCst);
+            v.store(
+                u64::from_le_bytes(value[8 * i..8 * i + 8].try_into().unwrap()),
+                SeqCst,
+            );
         }
         s.seq.fetch_add(1, SeqCst);
         Packed::unpack(prev).state
@@ -293,7 +340,13 @@ impl NoncePool {
             .word
             .fetch_update(AcqRel, Acquire, |w| {
                 let p = Packed::unpack(w);
-                (p.state == NonceState::InFlight).then(|| Packed { state: NonceState::Burning, ..p }.pack())
+                (p.state == NonceState::InFlight).then(|| {
+                    Packed {
+                        state: NonceState::Burning,
+                        ..p
+                    }
+                    .pack()
+                })
             })
             .is_ok()
     }
@@ -307,8 +360,19 @@ impl NoncePool {
                 return None;
             }
             let tries = p.burn_tries + 1;
-            let state = if tries >= MAX_BURN_TRIES { NonceState::Quarantined } else { NonceState::Burning };
-            Some(Packed { burn_tries: tries, state, ..p }.pack())
+            let state = if tries >= MAX_BURN_TRIES {
+                NonceState::Quarantined
+            } else {
+                NonceState::Burning
+            };
+            Some(
+                Packed {
+                    burn_tries: tries,
+                    state,
+                    ..p
+                }
+                .pack(),
+            )
         });
         self.packed(idx).state
     }
@@ -317,7 +381,14 @@ impl NoncePool {
     pub fn unquarantine(&self, idx: usize) {
         let _ = self.slots[idx].word.fetch_update(AcqRel, Acquire, |w| {
             let p = Packed::unpack(w);
-            (p.state == NonceState::Quarantined).then(|| Packed { state: NonceState::Free, burn_tries: 0, ..p }.pack())
+            (p.state == NonceState::Quarantined).then(|| {
+                Packed {
+                    state: NonceState::Free,
+                    burn_tries: 0,
+                    ..p
+                }
+                .pack()
+            })
         });
     }
 

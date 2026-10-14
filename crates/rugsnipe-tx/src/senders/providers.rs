@@ -11,7 +11,9 @@
 //! | NextBlock | `POST /api/v2/submit`, `Authorization: KEY`, JSON `{"transaction":{"content":b64},"frontRunningProtection":false}` | 0.001 SOL |
 
 use super::http::{json_rpc_send_body, HttpConn, HttpTarget};
-use super::{check_tip, now_ms, ApiKeys, Breaker, SendError, SendResult, Sender, SenderId, Variant};
+use super::{
+    check_tip, now_ms, ApiKeys, Breaker, SendError, SendResult, Sender, SenderId, Variant,
+};
 use pump_codec::Pubkey;
 use rugsnipe_core::config::HttpSenderCfg;
 use std::sync::atomic::{AtomicU64, Ordering::*};
@@ -128,13 +130,24 @@ pub struct HttpSender {
 impl core::fmt::Debug for HttpSender {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         // never print headers or the path: they can hold API keys
-        f.debug_struct("HttpSender").field("id", &self.id).field("min_tip", &self.min_tip).finish_non_exhaustive()
+        f.debug_struct("HttpSender")
+            .field("id", &self.id)
+            .field("min_tip", &self.min_tip)
+            .finish_non_exhaustive()
     }
 }
 
 impl HttpSender {
     /// Low-level constructor (tests, custom endpoints).
-    pub fn new(id: SenderId, wire: Wire, target: HttpTarget, tips: &'static [Pubkey], min_tip: u64, headers: Vec<(String, String)>, max_rps: u32) -> Self {
+    pub fn new(
+        id: SenderId,
+        wire: Wire,
+        target: HttpTarget,
+        tips: &'static [Pubkey],
+        min_tip: u64,
+        headers: Vec<(String, String)>,
+        max_rps: u32,
+    ) -> Self {
         let opts = match id {
             SenderId::Jito => r#"{"encoding":"base64"}"#,
             _ => r#"{"encoding":"base64","skipPreflight":true,"maxRetries":0}"#,
@@ -147,9 +160,16 @@ impl HttpSender {
             path: target.path.clone(),
             headers,
             opts,
-            conn: Mutex::new((HttpConn::new(target, Duration::from_millis(1_500)), Vec::with_capacity(4_096))),
+            conn: Mutex::new((
+                HttpConn::new(target, Duration::from_millis(1_500)),
+                Vec::with_capacity(4_096),
+            )),
             breaker: Breaker::new(5, 10_000),
-            min_interval_ms: if max_rps == 0 { 0 } else { 1_000 / max_rps as u64 },
+            min_interval_ms: if max_rps == 0 {
+                0
+            } else {
+                1_000 / max_rps as u64
+            },
             last_ms: AtomicU64::new(0),
         }
     }
@@ -168,7 +188,9 @@ impl HttpSender {
             return true;
         }
         self.last_ms
-            .fetch_update(AcqRel, Acquire, |last| (now >= last + self.min_interval_ms).then_some(now))
+            .fetch_update(AcqRel, Acquire, |last| {
+                (now >= last + self.min_interval_ms).then_some(now)
+            })
             .is_ok()
     }
 
@@ -214,7 +236,11 @@ impl HttpSender {
             Wire::NozomiBatch | Wire::Raw => "application/octet-stream",
             _ => "application/json",
         };
-        let hdrs: Vec<(&str, &str)> = self.headers.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let hdrs: Vec<(&str, &str)> = self
+            .headers
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
         let t0 = Instant::now();
         let r = conn.post(&self.path, ct, &hdrs, body);
         let latency_ns = t0.elapsed().as_nanos() as u64;
@@ -223,7 +249,10 @@ impl HttpSender {
                 // JSON-RPC errors come back as 200 with an "error" member
                 if matches!(self.wire, Wire::JsonRpc) && contains(conn.last_body(), b"\"error\"") {
                     self.breaker.on_failure(now_ms());
-                    let msg = String::from_utf8_lossy(conn.last_body()).chars().take(200).collect();
+                    let msg = String::from_utf8_lossy(conn.last_body())
+                        .chars()
+                        .take(200)
+                        .collect();
                     return SendResult::Failed(SendError::Rpc(msg));
                 }
                 self.breaker.on_success();
@@ -231,7 +260,11 @@ impl HttpSender {
             }
             Ok(s) => {
                 self.breaker.on_failure(now_ms());
-                SendResult::Failed(if s == 429 { SendError::RateLimited } else { SendError::Http(s) })
+                SendResult::Failed(if s == 429 {
+                    SendError::RateLimited
+                } else {
+                    SendError::Http(s)
+                })
             }
             Err(e) => {
                 self.breaker.on_failure(now_ms());
@@ -261,7 +294,9 @@ impl Sender for HttpSender {
         }
         let opts = self.opts;
         match self.wire {
-            Wire::JsonRpc => self.request(|b| json_rpc_send_body(b, "sendTransaction", v.bytes(), opts)),
+            Wire::JsonRpc => {
+                self.request(|b| json_rpc_send_body(b, "sendTransaction", v.bytes(), opts))
+            }
             Wire::NozomiBatch => self.request(|b| {
                 b.clear();
                 b.extend_from_slice(&(v.bytes().len() as u16).to_be_bytes());
@@ -276,8 +311,13 @@ impl Sender for HttpSender {
                 b.clear();
                 b.extend_from_slice(br#"{"transaction":{"content":""#);
                 let start = b.len();
-                b.resize(start + base64::encoded_len(v.bytes().len(), true).unwrap_or(0), 0);
-                let n = base64::engine::general_purpose::STANDARD.encode_slice(v.bytes(), &mut b[start..]).unwrap_or(0);
+                b.resize(
+                    start + base64::encoded_len(v.bytes().len(), true).unwrap_or(0),
+                    0,
+                );
+                let n = base64::engine::general_purpose::STANDARD
+                    .encode_slice(v.bytes(), &mut b[start..])
+                    .unwrap_or(0);
                 b.truncate(start + n);
                 b.extend_from_slice(br#""},"frontRunningProtection":false}"#);
             }),
@@ -297,7 +337,9 @@ pub fn jito_bundle_body(out: &mut Vec<u8>, txs: &[&[u8]]) {
         out.push(b'"');
         let start = out.len();
         out.resize(start + base64::encoded_len(t.len(), true).unwrap_or(0), 0);
-        let n = base64::engine::general_purpose::STANDARD.encode_slice(t, &mut out[start..]).unwrap_or(0);
+        let n = base64::engine::general_purpose::STANDARD
+            .encode_slice(t, &mut out[start..])
+            .unwrap_or(0);
         out.truncate(start + n);
         out.push(b'"');
     }
@@ -310,9 +352,17 @@ pub fn build(name: &str, c: &HttpSenderCfg, keys: &ApiKeys) -> Result<Box<dyn Se
         if c.key.is_empty() {
             return Err(format!("{what}: `key` (credential name) missing"));
         }
-        keys.get(&c.key).map(str::to_string).ok_or_else(|| format!("{what}: api key {:?} not in the api-keys credential", c.key))
+        keys.get(&c.key)
+            .map(str::to_string)
+            .ok_or_else(|| format!("{what}: api key {:?} not in the api-keys credential", c.key))
     };
-    let url = |default: &str| if c.url.is_empty() { default.to_string() } else { c.url.clone() };
+    let url = |default: &str| {
+        if c.url.is_empty() {
+            default.to_string()
+        } else {
+            c.url.clone()
+        }
+    };
     let s = match name {
         "helius" => {
             let mut t = HttpTarget::parse(&url(endpoints::HELIUS))?;
@@ -322,19 +372,52 @@ pub fn build(name: &str, c: &HttpSenderCfg, keys: &ApiKeys) -> Result<Box<dyn Se
             if !c.key.is_empty() {
                 t = t.with_query(&format!("api-key={}", key("helius")?));
             }
-            let min = if c.min_tip > 0 { c.min_tip } else if c.swqos_only { 5_000 } else { 1_000_000 };
-            HttpSender::new(SenderId::Helius, Wire::JsonRpc, t, &HELIUS_TIP_ACCOUNTS, min, vec![], c.max_rps)
+            let min = if c.min_tip > 0 {
+                c.min_tip
+            } else if c.swqos_only {
+                5_000
+            } else {
+                1_000_000
+            };
+            HttpSender::new(
+                SenderId::Helius,
+                Wire::JsonRpc,
+                t,
+                &HELIUS_TIP_ACCOUNTS,
+                min,
+                vec![],
+                c.max_rps,
+            )
         }
         "nozomi" => {
             let t = HttpTarget::parse(&url(endpoints::NOZOMI))?;
             let t = t.with_path(&format!("/api/sendBatch?c={}", key("nozomi")?));
-            HttpSender::new(SenderId::Nozomi, Wire::NozomiBatch, t, &NOZOMI_TIP_ACCOUNTS, c.min_tip.max(1_000_000), vec![], c.max_rps)
+            HttpSender::new(
+                SenderId::Nozomi,
+                Wire::NozomiBatch,
+                t,
+                &NOZOMI_TIP_ACCOUNTS,
+                c.min_tip.max(1_000_000),
+                vec![],
+                c.max_rps,
+            )
         }
         "astralane" => {
             let t = HttpTarget::parse(&url(endpoints::ASTRALANE))?;
-            let t = t.with_query(&format!("api-key={}&method=sendTransaction", key("astralane")?));
+            let t = t.with_query(&format!(
+                "api-key={}&method=sendTransaction",
+                key("astralane")?
+            ));
             let min = if c.min_tip > 0 { c.min_tip } else { 1_000_000 };
-            HttpSender::new(SenderId::Astralane, Wire::Raw, t, &ASTRALANE_TIP_ACCOUNTS, min, vec![], c.max_rps)
+            HttpSender::new(
+                SenderId::Astralane,
+                Wire::Raw,
+                t,
+                &ASTRALANE_TIP_ACCOUNTS,
+                min,
+                vec![],
+                c.max_rps,
+            )
         }
         "jito" => {
             let base = if c.region.is_empty() || c.region == "auto" {
@@ -343,14 +426,34 @@ pub fn build(name: &str, c: &HttpSenderCfg, keys: &ApiKeys) -> Result<Box<dyn Se
                 format!("http://{}.mainnet.block-engine.jito.wtf", c.region)
             };
             let t = HttpTarget::parse(&base)?.with_path("/api/v1/transactions?bundleOnly=true");
-            let headers = if c.key.is_empty() { vec![] } else { vec![("x-jito-auth".to_string(), key("jito")?)] };
+            let headers = if c.key.is_empty() {
+                vec![]
+            } else {
+                vec![("x-jito-auth".to_string(), key("jito")?)]
+            };
             let min = if c.min_tip > 0 { c.min_tip } else { 1_000 };
-            HttpSender::new(SenderId::Jito, Wire::JsonRpc, t, &pump_codec::constants::JITO_TIP_ACCOUNTS, min, headers, c.max_rps.max(1))
+            HttpSender::new(
+                SenderId::Jito,
+                Wire::JsonRpc,
+                t,
+                &pump_codec::constants::JITO_TIP_ACCOUNTS,
+                min,
+                headers,
+                c.max_rps.max(1),
+            )
         }
         "nextblock" => {
             let t = HttpTarget::parse(&url(endpoints::NEXTBLOCK))?.with_path("/api/v2/submit");
             let min = if c.min_tip > 0 { c.min_tip } else { 1_000_000 };
-            HttpSender::new(SenderId::NextBlock, Wire::NextBlock, t, &NEXTBLOCK_TIP_ACCOUNTS, min, vec![("Authorization".to_string(), key("nextblock")?)], c.max_rps)
+            HttpSender::new(
+                SenderId::NextBlock,
+                Wire::NextBlock,
+                t,
+                &NEXTBLOCK_TIP_ACCOUNTS,
+                min,
+                vec![("Authorization".to_string(), key("nextblock")?)],
+                c.max_rps,
+            )
         }
         other => return Err(format!("unknown sender {other}")),
     };

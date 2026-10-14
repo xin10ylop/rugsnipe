@@ -101,6 +101,21 @@ def render(res: dict[str, Any]) -> str:
                     and "SL" in e["label"] and "SLfloor" in e["label"] and "eos1" not in e["label"]:
                 L.append(_row(e))
         L.append("")
+    LB = res.get("late_hit_bound")
+    if LB:
+        L.append("## Hits after the horizon (window sample)\n")
+        L.append("The simulation sees 900 s of trades. Launches whose all-time ATH (coin API) reached the TP "
+                 "multiple of the end-of-slot-0 price but that did not hit TP in the simulation are re-scored "
+                 "as TP wins at the average simulated TP payoff (an upper bound: it ignores the idle exit and "
+                 "the dump before a late ATH).\n")
+        L.append("| variant | n | TP in horizon | late ATH hits | expectancy | if late hits were TP | hit-rate upper bound |\n"
+                 "|---|---|---|---|---|---|---|")
+        for b in LB:
+            if b:
+                L.append(f"| {b['label']} | {b['n']} | {b['tp_in_horizon']} | {b['late_ath_hits']} | "
+                         f"{_sol(b['expectancy_sol'])} | {_sol(b['expectancy_if_late_hits_were_tp_sol'])} | "
+                         f"{_pct(b['hit_rate_upper'])} |")
+        L.append("")
     C = res.get("clusters")
     if C:
         L.append("## Clusters\n")

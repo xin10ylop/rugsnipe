@@ -158,7 +158,7 @@ def build_rows(recs: list[dict], tmeta: dict[str, dict], fund: dict[str, dict]) 
             continue
         tm = tmeta.get(r["mint"])
         row = D.build_token_row(r, tm["s0"] if tm else None, fund.get(r["create_user"]))
-        row["trades_mode"] = tm["mode"] if tm else "skipped_ath"
+        row["trades_mode"] = tm["mode"] if tm else ("not_pulled" if W.could_be_bundled(r) else "skipped_ath")
         row["covered_until"] = tm["covered_until"] if tm else None
         rows.append(row)
     return rows
@@ -223,7 +223,11 @@ def summary(rows: list[dict], clusters: list[dict], meta: dict, tmeta: dict, fun
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "window_hours": args.hours, "n_sol_quoted_launches": n,
         "n_trades_pulled": len(tmeta), "n_bundled": len(bundled),
-        "bundled_share": round(len(bundled) / n, 4) if n else 0,
+        "trades_modes": dict(Counter(r["trades_mode"] for r in rows)),
+        "bundled_share_known": round(len(bundled) / max(1, sum(1 for r in rows if r["trades_mode"] != "not_pulled")), 4),
+        "bundled_share_known_nonmayhem": round(
+            sum(1 for r in bundled if not r.get("mayhem")) /
+            max(1, sum(1 for r in rows if r["trades_mode"] != "not_pulled" and not r.get("mayhem"))), 4),
         "n_signers_traced": len(fund), "n_fresh_launches": len(fresh),
         "fresh_funder_kinds": dict(fk),
         "clustering": meta,

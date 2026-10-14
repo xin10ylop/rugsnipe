@@ -24,11 +24,20 @@ pub struct Paper {
 
 impl Paper {
     pub fn new(cap: usize) -> Self {
-        Self { cap: cap.max(1), log: Mutex::new(VecDeque::with_capacity(cap.min(4_096))), total: Default::default() }
+        Self {
+            cap: cap.max(1),
+            log: Mutex::new(VecDeque::with_capacity(cap.min(4_096))),
+            total: Default::default(),
+        }
     }
     /// Records still held.
     pub fn records(&self) -> Vec<PaperRecord> {
-        self.log.lock().unwrap_or_else(|e| e.into_inner()).iter().cloned().collect()
+        self.log
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .cloned()
+            .collect()
     }
     /// Variants recorded since start.
     pub fn total(&self) -> u64 {
@@ -48,8 +57,12 @@ impl Sender for Paper {
         if log.len() == self.cap {
             log.pop_front();
         }
-        log.push_back(PaperRecord { variant: v.clone(), recorded_wall_ms: super::now_ms() });
-        self.total.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        log.push_back(PaperRecord {
+            variant: v.clone(),
+            recorded_wall_ms: super::now_ms(),
+        });
+        self.total
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         SendResult::Recorded
     }
 }

@@ -6,7 +6,8 @@ One process (docs/06-architecture.md sections 2, 4 and 9.1, data set F):
   ``logsSubscribe(mentions: TSLvdd..., processed)``.  Each create signature gets a
   ``feed_seen`` row per source with the local receive time (ns), so the feed lead is
   measured for free.  The logs path decodes the CreateEvent and in-tx TradeEvents
-  (:func:`createtx.rows_from_logs`); PumpPortal frames give a partial row.
+  (:func:`createtx.rows_from_logs`).  A PumpPortal sighting only schedules the decode job:
+  its ``mint`` is not trusted (it can name a different token than the CreateEvent).
 * **Jobs** (persistent ``jobs`` table, resumed after a restart, run in a thread pool
   inside the ``[rpc_budget] collector`` budget):
 
@@ -129,6 +130,8 @@ def parse_logs_frame(raw: str | bytes) -> dict | None:
         d = json.loads(raw)
     except (TypeError, ValueError):
         return None
+    if not isinstance(d, dict):
+        return {"kind": "other"}
     if d.get("method") == "logsNotification":
         res = (d.get("params") or {}).get("result") or {}
         v = res.get("value") or {}
@@ -147,7 +150,9 @@ def has_create_ix(logs: list[str]) -> bool:
 
 
 def pp_rows(p: dict) -> dict:
-    """Partial ``creates`` row from a parsed PumpPortal create (PP's numbers are floats: lamports rounded)."""
+    """Partial ``creates`` row from a parsed PumpPortal create (PP's numbers are floats: lamports rounded).
+
+    Not written by the collector (PumpPortal's mint is unverified); kept for analysis of PP frames."""
     return {"mint": p["mint"], "sig": p["sig"], "signer": p.get("user"), "bonding_curve": p.get("bonding_curve"),
             "name": (p.get("name") or "")[:64] or None, "symbol": (p.get("symbol") or "")[:32] or None,
             "uri_host": store.uri_host(p.get("uri")), "is_mayhem": p.get("is_mayhem"),
@@ -252,8 +257,14 @@ class Collector:
 
     # ---------------------------------------------------------------- feed handling
     def on_create(self, src: str, sig: str, mint: str | None, slot: int | None, recv_ns: int, err: Any = None,
-                  rows: tuple[dict, list[dict]] | None = None, partial: dict | None = None) -> None:
-        """Record one sighting of a create signature and (first time) schedule its jobs."""
+                  rows: tuple[dict, list[dict]] | None = None) -> None:
+        """Record one sighting of a create signature and schedule its jobs.
+
+        Only an on-chain decode (``rows`` from the logs CreateEvent, or the decode job's
+        ``getTransaction``) writes ``creates`` and schedules the mint-keyed jobs.  PumpPortal's
+        ``mint`` is kept in ``feed_seen`` but not trusted: for some non-SOL-quoted creates it reports
+        the quote mint (an xStock ``Xs...`` or PUMP) instead of the new token (9 cases on 2026-10-14).
+        """
         cur = self.con.execute("INSERT OR IGNORE INTO feed_seen(sig, src, recv_ns, slot, mint, err) "
                                "VALUES(?,?,?,?,?,?)", (sig, src, recv_ns, slot, mint, 1 if err else 0))
         if not cur.rowcount:
@@ -262,26 +273,18 @@ class Collector:
         if err:
             self.bump("failed_creates_logs")
             return
-        if mint is None:   # undecodable: decode first, it schedules the rest
+        if mint is None or rows is None:   # undecodable logs or PumpPortal: decode first, it schedules the rest
             self.schedule("decode", sig, self.cfg.decode_delay_s, {"mint": None})
             return
         first = self.con.execute("SELECT MIN(recv_ns) FROM feed_seen WHERE sig=?", (sig,)).fetchone()[0]
-        if rows is not None:
-            row, buys = rows
-            row["first_seen_ms"] = first // 1_000_000
-            store.upsert(self.con, "creates", row)
-            store.upsert(self.con, "create_buys", buys)
-        elif partial is not None:
-            if first == recv_ns:   # PumpPortal floats only when no exact source has written the row yet
-                partial["first_seen_ms"] = first // 1_000_000
-                store.upsert(self.con, "creates", partial)
-        else:
-            store.upsert(self.con, "creates", {"mint": mint, "sig": sig, "slot": slot, "first_seen_ms": first // 1_000_000,
-                                               "src": "collector", "updated_at": int(time.time())})
-        if self.schedule("decode", sig, self.cfg.decode_delay_s, {"mint": mint}):
-            self.schedule("funding", mint, self.cfg.funding_delay_s, {"sig": sig})
-            self.schedule("rivals", mint, self.cfg.rivals_delay_s, {"sig": sig})
-            self.schedule("tape", mint, self.cfg.tape_delay_s, {"sig": sig})
+        row, buys = rows
+        row["first_seen_ms"] = first // 1_000_000
+        store.upsert(self.con, "creates", row)
+        store.upsert(self.con, "create_buys", buys)
+        self.schedule("decode", sig, self.cfg.decode_delay_s, {"mint": mint})
+        self.schedule("funding", mint, self.cfg.funding_delay_s, {"sig": sig})   # (kind, key) dedups
+        self.schedule("rivals", mint, self.cfg.rivals_delay_s, {"sig": sig})
+        self.schedule("tape", mint, self.cfg.tape_delay_s, {"sig": sig})
 
     def handle_pp(self, raw: str, recv_ns: int) -> None:
         self.relay(raw, recv_ns)
@@ -294,7 +297,7 @@ class Collector:
         s.creates += 1
         s.last_sig = p["sig"]
         self._close_gap(s, None)
-        self.on_create("pp", p["sig"], p["mint"], None, recv_ns, partial=pp_rows(p))
+        self.on_create("pp", p["sig"], p["mint"], None, recv_ns)
 
     def handle_logs(self, raw: str, recv_ns: int) -> None:
         p = parse_logs_frame(raw)
@@ -335,6 +338,8 @@ class Collector:
     def relay(self, raw: str, recv_ns: int) -> None:
         if not self.relay_clients:
             return
+        if "\n" in raw or "\r" in raw:   # keep one frame per line (JSON whitespace only)
+            raw = raw.replace("\r", " ").replace("\n", " ")
         line = f"{recv_ns}\t{raw}\n".encode()
         for w in list(self.relay_clients):
             if w.is_closing() or w.transport.get_write_buffer_size() > 1 << 20:
@@ -520,8 +525,16 @@ class Collector:
         if rows is None:
             return {"state": "not_create", "note": "failed or not a create"}
         row, buys = rows
+        con = self._ro()
+        try:
+            first = con.execute("SELECT MIN(recv_ns) FROM feed_seen WHERE sig=? AND src IN ('pp','logs')",
+                                (sig,)).fetchone()[0]
+        finally:
+            con.close()
+        if first:
+            row["first_seen_ms"] = first // 1_000_000
         out: dict[str, Any] = {"rows": {"creates": [row], "create_buys": buys}}
-        if not payload.get("mint"):   # undecodable logs / repair: schedule the rest now
+        if not payload.get("mint"):   # PumpPortal / undecodable logs / repair: schedule the rest now
             out["schedule"] = [("funding", row["mint"], self.cfg.funding_delay_s, {"sig": sig}),
                                ("rivals", row["mint"], self.cfg.rivals_delay_s, {"sig": sig}),
                                ("tape", row["mint"], self.cfg.tape_delay_s, {"sig": sig})]

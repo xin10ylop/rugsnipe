@@ -20,7 +20,10 @@ impl RpcSend {
         if !(url.starts_with("https://") || url.starts_with("http://")) {
             return Err(format!("bad rpc url {url:?}"));
         }
-        Ok(Self { client: RpcClient::new(url), breaker: Breaker::new(5, 10_000) })
+        Ok(Self {
+            client: RpcClient::new(url),
+            breaker: Breaker::new(5, 10_000),
+        })
     }
 }
 
@@ -44,7 +47,9 @@ impl Sender for RpcSend {
         match r {
             Ok(_) => {
                 self.breaker.on_success();
-                SendResult::Accepted { latency_ns: t0.elapsed().as_nanos() as u64 }
+                SendResult::Accepted {
+                    latency_ns: t0.elapsed().as_nanos() as u64,
+                }
             }
             Err(e) => {
                 self.breaker.on_failure(now_ms());

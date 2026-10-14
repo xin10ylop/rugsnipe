@@ -121,6 +121,7 @@ def load_window(args, api: PumpApi) -> tuple[list[tuple[dict, list[dict]]], dict
             continue
         t = token_from_row(r, res, "window")
         if t:
+            t[0]["ath_usd"] = r.get("ath_usd")
             out.append(t)
     stats["loaded"] = len(out)
     ds.log(f"window: {stats}")
@@ -322,6 +323,26 @@ def potential(tokens) -> dict:
     return {"n_bundled": n, "reach_2x_eos0": k, "rate": round(p, 4), "ci95": [round(lo, 4), round(hi, 4)]}
 
 
+def late_hit_bound(tokens, strat: B.Strategy, sol_usd: float = 107.7) -> dict:
+    """Upper bound for TPs the 900 s horizon / idle exit misses: launches whose all-time ATH
+    (coin API, USD) is >= (1+tp) x eos0 but that did not hit TP in the simulation are
+    re-scored as TP wins at the average simulated TP payoff."""
+    res = [(tok, B.simulate(tok, tr, strat)) for tok, tr in tokens]
+    res = [(t, r) for t, r in res if r.get("entered")]
+    tp = [r["pnl_sol"] for _, r in res if r["hit"]]
+    if not res or not tp:
+        return {}
+    avg_tp = sum(tp) / len(tp)
+    late = [(t, r) for t, r in res if not r["hit"] and t.get("ath_usd")
+            and t["ath_usd"] / sol_usd >= (1 + strat.tp) * t["s0"]["eos0_mcap"]]
+    pn = [r["pnl_sol"] for _, r in res]
+    adj = sum(pn) + sum(avg_tp - r["pnl_sol"] for _, r in late)
+    return {"label": strat.label(), "n": len(res), "tp_in_horizon": len(tp), "late_ath_hits": len(late),
+            "expectancy_sol": round(sum(pn) / len(pn), 5),
+            "expectancy_if_late_hits_were_tp_sol": round(adj / len(pn), 5),
+            "hit_rate_upper": round((len(tp) + len(late)) / len(res), 4)}
+
+
 def main() -> None:
     args = parse_args()
     t0 = time.time()
@@ -368,6 +389,10 @@ def main() -> None:
         for e in ranked[:5]:
             ds.log(f"[{name}]   top {e['label']}: n={e['n_trades']} hit={e['hit_rate']:.1%} "
                    f"exp={e['expectancy_sol']:+.4f} SOL ({e['expectancy_pct']:+.1f}%) CI {e['expectancy_ci95']}")
+    if window:
+        results["late_hit_bound"] = [late_hit_bound(window, s) for s in
+                                     (base, B.variant(base, tp=1.5), B.variant(base, tp=2.0))]
+        ds.log(f"late-hit bound: {results['late_hit_bound'][0]}")
     if members:
         wf = []
         for s in [base, B.variant(base, tp=0.5), B.variant(base, tp=1.0, sl=0.3), B.variant(base, entry="eos1")]:

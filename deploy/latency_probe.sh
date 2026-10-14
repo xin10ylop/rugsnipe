@@ -45,7 +45,7 @@ for entry in "${HOSTS[@]}"; do
   host=$(echo "$entry" | awk '{print $2}')
   times=()
   ok=0
-  for i in $(seq 1 "$N"); do
+  for _ in $(seq 1 "$N"); do
     # time_connect = TCP connect only; resolves DNS once per call (first call warms the cache)
     case "$host" in http://*|https://*) url="$host";; *) url="https://$host/";; esac
     t=$(curl -s -o /dev/null --max-time 3 -w "%{time_connect}" "$url" 2>/dev/null || echo "")
@@ -72,11 +72,12 @@ echo "hubs are < 10 ms away (e.g. Frankfurt/Amsterdam for the EU hubs) beats one
 
 # ---- ICMP ping to the in-building targets (what to demand from a Frankfurt provider) ----
 # Jito FRA block engine 64.130.50.88, Helius fra-sender 64.130.50.91, Harmonic FRA remote TPU
-# 198.13.140.105, BAM FRA node 198.13.140.227 (all TeraSwitch AS20326). Goal for a FRA box: < 1 ms.
+# 198.13.140.105, BAM FRA node 198.13.140.227, DZ device fra2-tsw 198.13.140.16 (all TeraSwitch
+# AS20326). Goal for a FRA box: < 0.2 ms (docs/03 section 4).
 if command -v ping >/dev/null 2>&1; then
   echo
   printf "%-22s %-18s %s\n" "target" "ip" "ping (min/avg/max ms)"
-  for t in "jito-fra 64.130.50.88" "helius-fra-sender 64.130.50.91" "harmonic-fra-tpu 198.13.140.105" "bam-fra-node 198.13.140.227" "jito-ams 64.130.52.157"; do
+  for t in "jito-fra 64.130.50.88" "helius-fra-sender 64.130.50.91" "harmonic-fra-tpu 198.13.140.105" "bam-fra-node 198.13.140.227" "dz-fra2-tsw 198.13.140.16" "jito-ams 64.130.52.157"; do
     name=$(echo "$t" | awk '{print $1}'); ip=$(echo "$t" | awk '{print $2}')
     r=$(ping -c 5 -i 0.2 -W 1 "$ip" 2>/dev/null | awk -F'/' '/rtt|round-trip/ {print $4"/"$5"/"$6}')
     printf "%-22s %-18s %s\n" "$name" "$ip" "${r:-no reply (ICMP may be filtered)}"

@@ -38,6 +38,7 @@ TOKEN_UNIT = 1_000_000
 # it once the cutover slot is observed.  v1 transactions exist from Sep 15 2026.
 SEP15_2026 = 1789430400          # 2026-09-15T00:00:00Z
 SLOT_200MS_FROM = 454_896_000
+SLOT_200MS_FROM_TIME = 1791556858  # blockTime of slot 454,896,000 (2026-10-09T14:40:58Z, gap-1 index)
 ALPENGLOW_FROM_SLOT = 459_648_000
 ALPENGLOW_FROM_TIME = 1792540800  # 2026-10-21T00:00:00Z, used when the slot is unknown
 REGIMES = ("pre_v1", "slot400", "slot200", "alpenglow")
@@ -53,7 +54,7 @@ def regime_for(slot: int | None, block_time: int | None = None) -> str | None:
         return "slot200" if slot < ALPENGLOW_FROM_SLOT else "alpenglow"
     if block_time is None:
         return None
-    if block_time < 1791504000:      # 2026-10-09T00:00:00Z (approximate when only time is known)
+    if block_time < SLOT_200MS_FROM_TIME:
         return "slot400"
     return "slot200" if block_time < ALPENGLOW_FROM_TIME else "alpenglow"
 

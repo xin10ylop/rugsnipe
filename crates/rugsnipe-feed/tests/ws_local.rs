@@ -120,8 +120,10 @@ fn local_server_creates_funding_stale_and_reconnect() {
                     ws.send(Message::Text(funder_notification(funder_sub, &fsig).into()))
                         .await
                         .unwrap();
-                    // silence: the client's stale detector must reconnect; answer pings meanwhile
-                    while let Some(Ok(_)) = ws.next().await {}
+                    // dead silence (not even pongs: the socket is not read any more):
+                    // the client's stale detector must reconnect
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    drop(ws);
                 });
             }
         });
@@ -180,4 +182,49 @@ fn local_server_creates_funding_stale_and_reconnect() {
     );
     assert!(funds >= 2, "funding events {funds}");
     assert_eq!(h.decode_miss, 0);
+}
+
+#[test]
+fn quiet_but_alive_connection_is_not_stale() {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    let addr = rt.block_on(async {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = l.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((s, _)) = l.accept().await {
+                tokio::spawn(async move {
+                    let mut ws = tokio_tungstenite::accept_async(s).await.unwrap();
+                    // ack the subscription, then send nothing; reading answers the pings
+                    if let Some(Ok(Message::Text(t))) = ws.next().await {
+                        let v: serde_json::Value = serde_json::from_str(t.as_str()).unwrap();
+                        let id = v["id"].as_u64().unwrap();
+                        let ack = format!(r#"{{"jsonrpc":"2.0","result":7,"id":{id}}}"#);
+                        ws.send(Message::Text(ack.into())).await.unwrap();
+                    }
+                    while let Some(Ok(_)) = ws.next().await {}
+                });
+            }
+        });
+        addr
+    });
+    let mut feed = LogsWs::spawn(LogsWsConfig {
+        url: format!("ws://{addr}"),
+        stale_ms: 900,
+        rpc_url: None,
+        ..Default::default()
+    })
+    .unwrap();
+    std::thread::sleep(Duration::from_millis(3500));
+    let h = feed.health().unwrap().snapshot();
+    feed.shutdown();
+    assert!(h.connected, "{h:?}");
+    assert_eq!(
+        h.stale_reconnects, 0,
+        "pongs keep a quiet socket fresh: {h:?}"
+    );
+    assert_eq!(h.reconnects, 0);
 }

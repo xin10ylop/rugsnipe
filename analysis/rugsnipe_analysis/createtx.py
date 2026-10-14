@@ -23,7 +23,7 @@ from typing import Any
 from . import events as E
 from . import labels as L
 from .dataset import creation_record
-from .funding import account_keys, signers, sol_transfers
+from .funding import signers, sol_transfers
 from .store import launcher_of, regime_for, uri_host
 
 DISC_CREATE_V2 = bytes.fromhex("d6904cec5f8b31b4")

@@ -35,6 +35,7 @@ SOL_MINT = "11111111111111111111111111111111"
 MAX_FUNDER_TXS = 300      # decode at most this many mother-wallet txs
 MAX_FUNDER_SIG_PAGES = 3  # a mother with > 3000 txs in the window is treated as exchange-like
 MAX_WALLET_CANDIDATES = 30
+MAX_KEYS_PER_KIND = 4
 
 
 class CreateIndex:
@@ -195,35 +196,43 @@ def expand_clusters(clusters: list[dict], rows: list[dict], api: PumpApi, rpc: R
     for c in clusters:
         if n >= top:
             break
-        kind = _dominant(c)
-        if kind is None or sum(1 for t in c["tokens"] if t.get("bundled")) < max(2, min_bundled_share * c["n_tokens"]):
-            continue  # nothing tradable for the guru's rule in this cluster
+        kinds = [k for k in sorted(("d", "a_mother", "c"), key=lambda k: -c["edges"].get(k, 0)) if c["edges"].get(k)]
+        if not kinds or sum(1 for t in c["tokens"] if t.get("bundled")) < max(2, min_bundled_share * c["n_tokens"]):
+            continue  # nothing followable / nothing tradable for the guru's rule
         n += 1
-        key = sorted(c["keys"].get(kind, []))[0] if c["keys"].get(kind) else None
-        ck = f"{kind}:{key}:{hours}:{per}"
-        if ck in done:
-            out[c["cluster"]] = done[ck]
-            continue
-        if time.time() > deadline:
-            out[c["cluster"]] = {"status": "deadline"}
-            continue
-        try:
-            if kind == "d":
-                res = expand_by_creator(api, key, t_lo, t_hi, known, per, horizon_s, seed=len(c["mints"]))
-            elif kind == "a_mother":
-                amts = sorted({round(t["fund_amount"], 4) for t in c["tokens"] if t.get("fund_amount")})
-                res = expand_by_mother(api, rpc, idx, key, amts, known, per, horizon_s)
-            else:
-                res = expand_by_bundle_wallet(api, rpc, idx, key, known, per, horizon_s)
-            res.setdefault("status", "ok")
-        except Exception as e:  # noqa: BLE001 - logged, cluster stays unexpanded
-            res = {"status": f"error: {type(e).__name__}: {str(e)[:120]}", "tokens": []}
-        res["n_found"] = len(res.get("tokens", []))
-        known |= {t["mint"] for t in res.get("tokens", [])}
-        out[c["cluster"]] = res
-        done[ck] = res
-        cache_path.write_text(json.dumps(done))
-        log(f"expand {c['cluster']} via {kind} {str(key)[:8]}: {res['status']} +{res['n_found']} launches")
+        agg: dict[str, Any] = {"method": "+".join(kinds), "keys": [], "tokens": [], "status": "ok"}
+        for kind in kinds:
+            for key in sorted(c["keys"].get(kind, []))[:MAX_KEYS_PER_KIND]:
+                if len(agg["tokens"]) >= per:
+                    break
+                ck = f"{kind}:{key}:{hours}:{per}"
+                if ck in done:
+                    res = done[ck]
+                elif time.time() > deadline:
+                    agg["status"] = "deadline"
+                    continue
+                else:
+                    try:
+                        if kind == "d":
+                            res = expand_by_creator(api, key, t_lo, t_hi, known, per, horizon_s, seed=len(c["mints"]))
+                        elif kind == "a_mother":
+                            amts = sorted({round(t["fund_amount"], 4) for t in c["tokens"] if t.get("fund_amount")})
+                            res = expand_by_mother(api, rpc, idx, key, amts, known, per, horizon_s)
+                        else:
+                            res = expand_by_bundle_wallet(api, rpc, idx, key, known, per, horizon_s)
+                        res.setdefault("status", "ok")
+                    except Exception as e:  # noqa: BLE001 - logged, key stays unexpanded
+                        res = {"status": f"error: {type(e).__name__}: {str(e)[:120]}", "tokens": []}
+                    done[ck] = res
+                    cache_path.write_text(json.dumps(done))
+                new = [t for t in res.get("tokens", []) if t["mint"] not in known]
+                agg["tokens"] += new[: per - len(agg["tokens"])]
+                known |= {t["mint"] for t in new}
+                agg["keys"].append({"kind": kind, "key": key, "status": res.get("status"), "found": len(new)})
+        agg["n_found"] = len(agg["tokens"])
+        out[c["cluster"]] = agg
+        log(f"expand {c['cluster']} via {agg['method']}: {agg['status']} +{agg['n_found']} launches "
+            f"({sum(1 for t in agg['tokens'] if (t.get('s0') or {}).get('bundled'))} bundled)")
     log(f"expand: {sum(v.get('n_found', 0) for v in out.values())} extra launches over {len(out)} clusters "
         f"({dict(Counter(v.get('method', '-') for v in out.values()))})")
     return out

@@ -16,7 +16,11 @@ struct Chain {
 
 impl Chain {
     fn new(n: usize) -> Self {
-        Self { values: (0..n).map(|i| next_value(&[i as u8; 32])).collect(), changed_at: vec![100; n], landed: vec![] }
+        Self {
+            values: (0..n).map(|i| next_value(&[i as u8; 32])).collect(),
+            changed_at: vec![100; n],
+            landed: vec![],
+        }
     }
     fn submit(&mut self, idx: usize, lifetime: [u8; 32], mint: Pubkey, slot: u64) -> bool {
         if self.values[idx] != lifetime {
@@ -40,7 +44,9 @@ impl Chain {
 }
 
 fn pool(n: usize) -> NoncePool {
-    let accts: Vec<Pubkey> = (0..n).map(|i| Pubkey::new_from_array([i as u8 + 1; 32])).collect();
+    let accts: Vec<Pubkey> = (0..n)
+        .map(|i| Pubkey::new_from_array([i as u8 + 1; 32]))
+        .collect();
     NoncePool::new(Pubkey::new_from_array([0xaa; 32]), &accts)
 }
 
@@ -68,7 +74,10 @@ fn two_boxes_same_pre_create_value_fire_at_most_once() {
     chain.sync(&b);
     assert_eq!(a.packed(ca.idx).state, NonceState::Free);
     for p in [&a, &b] {
-        assert!(matches!(p.try_claim(&mint, create_slot, 2, create_slot + 5), Err(NonceSkip::ChangedSinceCreate { .. })));
+        assert!(matches!(
+            p.try_claim(&mint, create_slot, 2, create_slot + 5),
+            Err(NonceSkip::ChangedSinceCreate { .. })
+        ));
     }
 }
 
@@ -77,12 +86,23 @@ fn a_change_at_slot_ge_create_disqualifies() {
     let p = pool(1);
     p.on_value(0, [1; 32], 500);
     let m = Pubkey::new_unique();
-    assert!(p.try_claim(&m, 500, 1, 500).is_err(), "change at == create slot");
-    assert!(matches!(p.try_claim(&m, 499, 1, 500), Err(NonceSkip::ChangedSinceCreate { last_change_slot: 500 })));
+    assert!(
+        p.try_claim(&m, 500, 1, 500).is_err(),
+        "change at == create slot"
+    );
+    assert!(matches!(
+        p.try_claim(&m, 499, 1, 500),
+        Err(NonceSkip::ChangedSinceCreate {
+            last_change_slot: 500
+        })
+    ));
     let c = p.try_claim(&m, 501, 1, 501).unwrap();
     assert_eq!(c.value, [1; 32]);
     // InFlight: a second claim (another mint colliding on the slot) is skipped
-    assert_eq!(p.try_claim(&Pubkey::new_unique(), 600, 2, 600), Err(NonceSkip::NotFree(NonceState::InFlight)));
+    assert_eq!(
+        p.try_claim(&Pubkey::new_unique(), 600, 2, 600),
+        Err(NonceSkip::NotFree(NonceState::InFlight))
+    );
     // landed -> value changes -> Free with the new slot
     assert_eq!(p.on_value(0, [2; 32], 502), NonceState::InFlight);
     assert_eq!(p.packed(0).state, NonceState::Free);
@@ -94,7 +114,12 @@ fn a_change_at_slot_ge_create_disqualifies() {
 fn unknown_value_never_fires_and_no_probing() {
     let p = pool(8);
     let m = Pubkey::new_unique();
-    assert!(matches!(p.try_claim(&m, u64::MAX >> 30, 1, 0), Err(NonceSkip::ChangedSinceCreate { last_change_slot: UNKNOWN_SLOT })));
+    assert!(matches!(
+        p.try_claim(&m, u64::MAX >> 30, 1, 0),
+        Err(NonceSkip::ChangedSinceCreate {
+            last_change_slot: UNKNOWN_SLOT
+        })
+    ));
     for i in 0..8 {
         p.on_value(i, [i as u8; 32], 10);
     }
@@ -106,7 +131,10 @@ fn unknown_value_never_fires_and_no_probing() {
             assert_eq!(p.packed(i).state, NonceState::Free);
         }
     }
-    assert_eq!(p.try_claim(&m, 20, 1, 20), Err(NonceSkip::NotFree(NonceState::InFlight)));
+    assert_eq!(
+        p.try_claim(&m, 20, 1, 20),
+        Err(NonceSkip::NotFree(NonceState::InFlight))
+    );
     assert_eq!(p.free_count(), 7);
 }
 
@@ -115,7 +143,10 @@ fn burn_lifecycle_and_quarantine() {
     let p = pool(2);
     p.on_value(0, [1; 32], 10);
     p.on_value(1, [1; 32], 10);
-    let m = (0..).map(|_| Pubkey::new_unique()).find(|m| p.index_for(m) == 0).unwrap();
+    let m = (0..)
+        .map(|_| Pubkey::new_unique())
+        .find(|m| p.index_for(m) == 0)
+        .unwrap();
     p.try_claim(&m, 20, 77, 20).unwrap();
     assert_eq!(p.intent(0), 77);
     assert!(p.due_for_burn(22, 3).is_empty());
@@ -212,7 +243,10 @@ fn randomized_two_box_interleavings_never_double_buy() {
         for (m, _) in &chain.landed {
             *per_mint.entry(*m).or_insert(0) += 1;
         }
-        assert!(per_mint.values().all(|&c| c <= 1), "round {round}: double buy {per_mint:?}");
+        assert!(
+            per_mint.values().all(|&c| c <= 1),
+            "round {round}: double buy {per_mint:?}"
+        );
     }
 }
 
@@ -220,7 +254,9 @@ fn randomized_two_box_interleavings_never_double_buy() {
 fn next_value_matches_solana_nonce() {
     for seed in 0..20u8 {
         let bh = [seed.wrapping_mul(37); 32];
-        let theirs = solana_nonce::state::DurableNonce::from_blockhash(&solana_hash::Hash::new_from_array(bh));
+        let theirs = solana_nonce::state::DurableNonce::from_blockhash(
+            &solana_hash::Hash::new_from_array(bh),
+        );
         assert_eq!(next_value(&bh), theirs.as_hash().to_bytes());
     }
 }
@@ -228,14 +264,19 @@ fn next_value_matches_solana_nonce() {
 #[test]
 fn nonce_account_layout_matches_solana_nonce() {
     let auth = Pubkey::new_unique();
-    let dn = solana_nonce::state::DurableNonce::from_blockhash(&solana_hash::Hash::new_from_array([5; 32]));
+    let dn = solana_nonce::state::DurableNonce::from_blockhash(&solana_hash::Hash::new_from_array(
+        [5; 32],
+    ));
     let data = solana_nonce::state::Data::new(solana_pubkey_from(&auth), dn, 5_000);
     let v = solana_nonce::versions::Versions::new(solana_nonce::state::State::Initialized(data));
     let bytes = bincode::serialize(&v).unwrap();
     assert_eq!(bytes.len(), 80);
     let (a, val, lps) = parse_nonce_account(&bytes).unwrap();
     assert_eq!((a, val, lps), (auth, dn.as_hash().to_bytes(), 5_000));
-    let un = bincode::serialize(&solana_nonce::versions::Versions::new(solana_nonce::state::State::Uninitialized)).unwrap();
+    let un = bincode::serialize(&solana_nonce::versions::Versions::new(
+        solana_nonce::state::State::Uninitialized,
+    ))
+    .unwrap();
     assert!(parse_nonce_account(&un).is_none());
 }
 
@@ -248,18 +289,41 @@ fn nonce_management_instructions_match_system_interface() {
     use solana_system_interface::instruction as si;
     let auth = Pubkey::new_unique();
     let (addr, ixs) = sysix::nonce_init_instructions(&auth, "buy", 3, sysix::NONCE_RENT_LAMPORTS);
-    assert_eq!(addr, sysix::create_with_seed(&auth, "rs-buy-3", &pump_codec::constants::SYSTEM_PROGRAM_ID));
-    let theirs = si::create_nonce_account_with_seed(&solana_pubkey_from(&auth), &solana_pubkey_from(&addr), &solana_pubkey_from(&auth), "rs-buy-3", &solana_pubkey_from(&auth), sysix::NONCE_RENT_LAMPORTS);
+    assert_eq!(
+        addr,
+        sysix::create_with_seed(&auth, "rs-buy-3", &pump_codec::constants::SYSTEM_PROGRAM_ID)
+    );
+    let theirs = si::create_nonce_account_with_seed(
+        &solana_pubkey_from(&auth),
+        &solana_pubkey_from(&addr),
+        &solana_pubkey_from(&auth),
+        "rs-buy-3",
+        &solana_pubkey_from(&auth),
+        sysix::NONCE_RENT_LAMPORTS,
+    );
     assert_eq!(theirs.len(), 2);
     for (ours, t) in ixs.iter().zip(&theirs) {
         assert_eq!(ours.data, t.data);
-        let om: Vec<_> = ours.accounts.iter().map(|m| (m.pubkey.to_bytes(), m.is_signer, m.is_writable)).collect();
-        let tm: Vec<_> = t.accounts.iter().map(|m| (m.pubkey.to_bytes(), m.is_signer, m.is_writable)).collect();
+        let om: Vec<_> = ours
+            .accounts
+            .iter()
+            .map(|m| (m.pubkey.to_bytes(), m.is_signer, m.is_writable))
+            .collect();
+        let tm: Vec<_> = t
+            .accounts
+            .iter()
+            .map(|m| (m.pubkey.to_bytes(), m.is_signer, m.is_writable))
+            .collect();
         assert_eq!(om, tm);
     }
     let to = Pubkey::new_unique();
     let w = sysix::withdraw_nonce_account(&addr, &auth, &to, 42);
-    let tw = si::withdraw_nonce_account(&solana_pubkey_from(&addr), &solana_pubkey_from(&auth), &solana_pubkey_from(&to), 42);
+    let tw = si::withdraw_nonce_account(
+        &solana_pubkey_from(&addr),
+        &solana_pubkey_from(&auth),
+        &solana_pubkey_from(&to),
+        42,
+    );
     assert_eq!(w.data, tw.data);
     assert_eq!(w.accounts.len(), tw.accounts.len());
     // advance (template ix) vs system interface

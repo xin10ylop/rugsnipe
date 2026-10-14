@@ -11,8 +11,12 @@
 //! No I/O, no clock reads, no floating point: every ratio is in basis points
 //! and every amount in lamports or token base units, so the Python backtest
 //! (`outcome.py`) can mirror it bit for bit. Conformance runs on JSONL tapes
-//! ([`tape`]); 20 tapes built from real pump.fun trade histories live in
-//! `fixtures/tapes/` with their expected outputs.
+//! ([`tape`]): 20 tapes built from real pump.fun trade histories
+//! (`fixtures/tapes/`, `scripts/pumpapi_tapes.py`) and 12 seeded synthetic
+//! ones for retries, escalation, transfers and migration
+//! (`fixtures/tapes_synth/`), with checked-in expected outputs that
+//! `scripts/exit_mirror.py`, an integer-only Python port of [`decide`] and the
+//! harness, reproduces exactly.
 //!
 //! ## Position lifecycle
 //!

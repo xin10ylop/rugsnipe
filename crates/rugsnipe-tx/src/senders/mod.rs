@@ -95,18 +95,58 @@ impl core::fmt::Debug for Variant {
 
 impl Variant {
     /// Snapshot a patched (and normally signed) template.
-    pub fn from_template(t: &Template, intent: u64, idx: u8, kind: VariantKind, priority_lamports: u64, tip_lamports: u64, tip_account: Option<Pubkey>) -> Self {
-        Self::from_bytes(t.bytes(), t.signature(), intent, idx, kind, priority_lamports, tip_lamports, tip_account)
+    pub fn from_template(
+        t: &Template,
+        intent: u64,
+        idx: u8,
+        kind: VariantKind,
+        priority_lamports: u64,
+        tip_lamports: u64,
+        tip_account: Option<Pubkey>,
+    ) -> Self {
+        Self::from_bytes(
+            t.bytes(),
+            t.signature(),
+            intent,
+            idx,
+            kind,
+            priority_lamports,
+            tip_lamports,
+            tip_account,
+        )
     }
 
     /// From raw bytes (must be <= [`MAX_TX_LEN`]; longer input is truncated
     /// and then refused by every sender as `TooLarge`).
-    pub fn from_bytes(bytes: &[u8], sig: [u8; 64], intent: u64, idx: u8, kind: VariantKind, priority_lamports: u64, tip_lamports: u64, tip_account: Option<Pubkey>) -> Self {
+    pub fn from_bytes(
+        bytes: &[u8],
+        sig: [u8; 64],
+        intent: u64,
+        idx: u8,
+        kind: VariantKind,
+        priority_lamports: u64,
+        tip_lamports: u64,
+        tip_account: Option<Pubkey>,
+    ) -> Self {
         let mut buf = [0u8; MAX_TX_LEN];
         let n = bytes.len().min(MAX_TX_LEN);
         buf[..n].copy_from_slice(&bytes[..n]);
-        let len = if bytes.len() > MAX_TX_LEN { u16::MAX } else { n as u16 };
-        Self { intent, idx, kind, priority_lamports, tip_lamports, tip_account, sig, buf, len }
+        let len = if bytes.len() > MAX_TX_LEN {
+            u16::MAX
+        } else {
+            n as u16
+        };
+        Self {
+            intent,
+            idx,
+            kind,
+            priority_lamports,
+            tip_lamports,
+            tip_account,
+            sig,
+            buf,
+            len,
+        }
     }
 
     pub fn bytes(&self) -> &[u8] {
@@ -127,7 +167,10 @@ pub enum SendError {
     RateLimited,
     TooLarge,
     /// Tip below the provider minimum.
-    TipTooLow { min: u64, got: u64 },
+    TipTooLow {
+        min: u64,
+        got: u64,
+    },
     /// Tip account is not one of the provider's.
     WrongTipAccount,
     /// Non-2xx HTTP status.
@@ -143,7 +186,9 @@ pub enum SendResult {
     /// Paper: recorded, nothing sent.
     Recorded,
     /// The provider accepted the request.
-    Accepted { latency_ns: u64 },
+    Accepted {
+        latency_ns: u64,
+    },
     Failed(SendError),
 }
 
@@ -193,7 +238,10 @@ pub fn check_tip(v: &Variant, accounts: &[Pubkey], min: u64) -> Result<(), SendE
         _ => return Err(SendError::WrongTipAccount),
     }
     if v.tip_lamports < min {
-        return Err(SendError::TipTooLow { min, got: v.tip_lamports });
+        return Err(SendError::TipTooLow {
+            min,
+            got: v.tip_lamports,
+        });
     }
     Ok(())
 }
@@ -209,7 +257,12 @@ pub struct Breaker {
 
 impl Breaker {
     pub fn new(threshold: u32, cooldown_ms: u64) -> Self {
-        Self { threshold: threshold.max(1), cooldown_ms, fails: AtomicU32::new(0), open_until_ms: AtomicU64::new(0) }
+        Self {
+            threshold: threshold.max(1),
+            cooldown_ms,
+            fails: AtomicU32::new(0),
+            open_until_ms: AtomicU64::new(0),
+        }
     }
     /// May a request go out at `now_ms`? (After the cooldown one probe is allowed.)
     pub fn allow(&self, now_ms: u64) -> bool {
@@ -248,7 +301,9 @@ pub struct ApiKeys(BTreeMap<String, Zeroizing<String>>);
 
 impl core::fmt::Debug for ApiKeys {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("ApiKeys").field(&self.0.keys().collect::<Vec<_>>()).finish()
+        f.debug_tuple("ApiKeys")
+            .field(&self.0.keys().collect::<Vec<_>>())
+            .finish()
     }
 }
 
@@ -261,9 +316,14 @@ impl ApiKeys {
             if l.is_empty() || l.starts_with('#') {
                 continue;
             }
-            let (k, v) = l.split_once('=').ok_or(format!("line {}: expected name = \"value\"", n + 1))?;
+            let (k, v) = l
+                .split_once('=')
+                .ok_or(format!("line {}: expected name = \"value\"", n + 1))?;
             let v = v.trim();
-            let v = v.strip_prefix('"').and_then(|x| x.strip_suffix('"')).ok_or(format!("line {}: value must be quoted", n + 1))?;
+            let v = v
+                .strip_prefix('"')
+                .and_then(|x| x.strip_suffix('"'))
+                .ok_or(format!("line {}: value must be quoted", n + 1))?;
             m.insert(k.trim().to_string(), Zeroizing::new(v.to_string()));
         }
         Ok(Self(m))
@@ -272,7 +332,8 @@ impl ApiKeys {
         self.0.get(name).map(|s| s.as_str())
     }
     pub fn insert(&mut self, name: &str, value: &str) {
-        self.0.insert(name.to_string(), Zeroizing::new(value.to_string()));
+        self.0
+            .insert(name.to_string(), Zeroizing::new(value.to_string()));
     }
 }
 
@@ -282,7 +343,10 @@ pub enum BuildError {
     /// `Config::validate` refused probe/live.
     Refused(Vec<Refusal>),
     /// A sender is enabled but this binary was built without its feature.
-    FeatureMissing { sender: &'static str, feature: &'static str },
+    FeatureMissing {
+        sender: &'static str,
+        feature: &'static str,
+    },
     /// A sender's configuration is unusable (bad URL, missing key...).
     Config { sender: &'static str, why: String },
 }
@@ -298,7 +362,10 @@ impl core::fmt::Debug for SenderSet {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SenderSet")
             .field("mode", &self.mode)
-            .field("real", &self.real.iter().map(|s| s.id().name()).collect::<Vec<_>>())
+            .field(
+                "real",
+                &self.real.iter().map(|s| s.id().name()).collect::<Vec<_>>(),
+            )
             .finish()
     }
 }
@@ -312,7 +379,11 @@ impl SenderSet {
         let paper = Arc::new(paper::Paper::new(4_096));
         let mode = cfg.mode.mode;
         if !mode.is_real() {
-            return Ok(Self { mode, paper, real: vec![] });
+            return Ok(Self {
+                mode,
+                paper,
+                real: vec![],
+            });
         }
         let v = cfg.validate(env);
         if !v.ok() {
@@ -346,21 +417,46 @@ fn build_real(cfg: &Config, keys: &ApiKeys) -> Result<Vec<Box<dyn Sender>>, Buil
     let s = &cfg.senders;
     if s.rpcsend.enabled {
         #[cfg(feature = "rpc")]
-        out.push(Box::new(rpc_send::RpcSend::new(&s.rpcsend.url).map_err(|why| BuildError::Config { sender: "rpcsend", why })?));
+        out.push(Box::new(rpc_send::RpcSend::new(&s.rpcsend.url).map_err(
+            |why| BuildError::Config {
+                sender: "rpcsend",
+                why,
+            },
+        )?));
         #[cfg(not(feature = "rpc"))]
-        return Err(BuildError::FeatureMissing { sender: "rpcsend", feature: "rpc" });
+        return Err(BuildError::FeatureMissing {
+            sender: "rpcsend",
+            feature: "rpc",
+        });
     }
-    for (name, c) in [("helius", &s.helius), ("nozomi", &s.nozomi), ("astralane", &s.astralane), ("jito", &s.jito), ("nextblock", &s.nextblock)] {
+    for (name, c) in [
+        ("helius", &s.helius),
+        ("nozomi", &s.nozomi),
+        ("astralane", &s.astralane),
+        ("jito", &s.jito),
+        ("nextblock", &s.nextblock),
+    ] {
         if !c.enabled {
             continue;
         }
         #[cfg(feature = "senders")]
-        out.push(providers::build(name, c, keys).map_err(|why| BuildError::Config { sender: name_static(name), why })?);
+        out.push(
+            providers::build(name, c, keys).map_err(|why| BuildError::Config {
+                sender: name_static(name),
+                why,
+            })?,
+        );
         #[cfg(not(feature = "senders"))]
-        return Err(BuildError::FeatureMissing { sender: name_static(name), feature: "senders" });
+        return Err(BuildError::FeatureMissing {
+            sender: name_static(name),
+            feature: "senders",
+        });
     }
     if s.tpu.enabled {
-        return Err(BuildError::FeatureMissing { sender: "tpu", feature: "tpu (not implemented yet)" });
+        return Err(BuildError::FeatureMissing {
+            sender: "tpu",
+            feature: "tpu (not implemented yet)",
+        });
     }
     Ok(out)
 }
