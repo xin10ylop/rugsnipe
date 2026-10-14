@@ -1,0 +1,106 @@
+{
+ "window": {
+  "flat 0.5 SOL, every launch": {
+   "attempt_share": 1.0,
+   "trades_per_day_at_100pct": 3750.0,
+   "sol_per_launch": 0.01253428177659508,
+   "ev_per_trade": 0.02506856355319016,
+   "ev_per_sol": 0.02506856355319016,
+   "land10": -5.424644333776846,
+   "land20": 0.4007113324463091,
+   "land50": 17.876778331115773
+  },
+  "rule 3 frozen: skip low, 0.5 mid, 1.0 high": {
+   "attempt_share": 0.7837541163556532,
+   "trades_per_day_at_100pct": 2939.077936333699,
+   "sol_per_launch": 0.027122422347400837,
+   "ev_per_trade": 0.03639852864531713,
+   "ev_per_sol": 0.04124962730965303,
+   "land10": 2.2353979521743264,
+   "land20": 13.288029713349749,
+   "land50": 46.44592499687602
+  },
+  "post-hoc: skip low, 0.25 mid, 0.5 high": {
+   "attempt_share": 0.7837541163556532,
+   "trades_per_day_at_100pct": 2939.077936333699,
+   "sol_per_launch": 0.011795574369538214,
+   "ev_per_trade": 0.0305396745408398,
+   "ev_per_sol": 0.03587902587862876,
+   "land10": -3.512170039524157,
+   "land20": 1.7928937299527823,
+   "land50": 17.708085038383604
+  },
+  "post-hoc: 0.5 SOL on the high tertile only": {
+   "attempt_share": 0.531284302963776,
+   "trades_per_day_at_100pct": 1992.3161361141601,
+   "sol_per_launch": 0.011623350922303866,
+   "ev_per_trade": 0.0437556722736315,
+   "ev_per_sol": 0.0437556722736315,
+   "land10": -1.0204969716442827,
+   "land20": 3.935954465053916,
+   "land50": 18.805308775148507
+  },
+  "post-hoc: 0.5 SOL on mid + high": {
+   "attempt_share": 0.7837541163556532,
+   "trades_per_day_at_100pct": 2939.077936333699,
+   "sol_per_launch": 0.013028425229959492,
+   "ev_per_trade": 0.03324620555880419,
+   "ev_per_sol": 0.03324620555880419,
+   "land10": -3.0498509668661784,
+   "land20": 2.7175318752687403,
+   "land50": 20.0196804016735
+  }
+ },
+ "all_post": {
+  "flat 0.5 SOL, every launch": {
+   "attempt_share": 1.0,
+   "trades_per_day_at_100pct": 3750.0,
+   "sol_per_launch": 0.013387152273979491,
+   "ev_per_trade": 0.026774304547958983,
+   "ev_per_sol": 0.026774304547958983,
+   "land10": -5.104817897257691,
+   "land20": 1.040364205484619,
+   "land50": 19.475910513711547
+  },
+  "rule 3 frozen: skip low, 0.5 mid, 1.0 high": {
+   "attempt_share": 0.7771520514883347,
+   "trades_per_day_at_100pct": 2914.320193081255,
+   "sol_per_launch": 0.028369145619573644,
+   "ev_per_trade": 0.03893988799076196,
+   "ev_per_sol": 0.04399606738007491,
+   "land10": 2.769765086020728,
+   "land20": 14.282490751285222,
+   "land50": 48.8206677470787
+  },
+  "post-hoc: skip low, 0.25 mid, 0.5 high": {
+   "attempt_share": 0.7771520514883347,
+   "trades_per_day_at_100pct": 2914.320193081255,
+   "sol_per_launch": 0.012432148328172,
+   "ev_per_trade": 0.033007350797847924,
+   "ev_per_sol": 0.038560599805159815,
+   "land10": -3.2066088982548893,
+   "land20": 2.3297427827339883,
+   "land50": 18.938797825700618
+  },
+  "post-hoc: 0.5 SOL on the high tertile only": {
+   "attempt_share": 0.5124698310539019,
+   "trades_per_day_at_100pct": 1921.761866452132,
+   "sol_per_launch": 0.012038431462972683,
+   "ev_per_trade": 0.04698201038767675,
+   "ev_per_sol": 0.04698201038767675,
+   "land10": -0.674345240806,
+   "land20": 4.416595117744396,
+   "land50": 19.689416193395584
+  },
+  "post-hoc: 0.5 SOL on mid + high": {
+   "attempt_share": 0.7771520514883347,
+   "trades_per_day_at_100pct": 2914.320193081255,
+   "sol_per_launch": 0.013931499680145659,
+   "ev_per_trade": 0.03585270000501253,
+   "ev_per_sol": 0.03585270000501253,
+   "land10": -2.6443521412647675,
+   "land20": 3.454256296714232,
+   "land50": 21.750081610651225
+  }
+ }
+}
