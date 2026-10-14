@@ -1,18 +1,18 @@
 {
- "generated_at": "2026-10-14T12:13:12Z",
+ "generated_at": "2026-10-14T12:42:16Z",
  "window_hours": 6.0,
  "n_sol_quoted_launches": 7049,
- "n_trades_pulled": 1797,
- "n_bundled": 579,
+ "n_trades_pulled": 3612,
+ "n_bundled": 985,
  "trades_modes": {
   "skipped_ath": 1652,
-  "not_pulled": 3600,
-  "full_1page": 1340,
-  "full": 209,
-  "prefix60": 248
+  "not_pulled": 1785,
+  "full_1page": 2671,
+  "prefix60": 586,
+  "full": 355
  },
- "bundled_share_known": 0.1679,
- "bundled_share_known_nonmayhem": 0.1911,
+ "bundled_share_known": 0.1871,
+ "bundled_share_known_nonmayhem": 0.2321,
  "n_signers_traced": 1982,
  "n_fresh_launches": 1374,
  "fresh_funder_kinds": {
@@ -25,47 +25,46 @@
  },
  "clustering": {
   "services": 76,
-  "bundle_wallet_keys": 225,
-  "sniper_like_bundle_wallets": 24,
+  "bundle_wallet_keys": 334,
+  "sniper_like_bundle_wallets": 26,
   "edges": {
    "d": 4139,
-   "a_cex": 2276,
-   "a_cex_shape": 99,
+   "a_cex": 2037,
+   "a_cex_shape": 338,
    "a_mother": 1507,
-   "c": 701,
-   "b_strong": 716,
-   "b_weak": 210
+   "c": 1396,
+   "b_strong": 2298,
+   "b_weak": 599
   },
   "n_rows": 7049,
   "components_by_size": {
-   "1": 1917,
-   "2": 245,
-   "3": 86,
+   "1": 1738,
+   "2": 239,
+   "3": 85,
    "4": 66,
-   "5": 34,
-   "6": 32,
-   "7": 19,
-   "8": 15,
-   "9": 20,
-   "10": 13,
-   "11": 8,
-   "12": 8,
+   "5": 33,
+   "6": 29,
+   "7": 23,
+   "8": 17,
+   "9": 23,
+   "10": 10,
+   "11": 6,
+   "12": 7,
    "13": 9,
-   "14": 7,
-   "15": 1,
-   "16": 4,
+   "14": 5,
+   "16": 8,
    "17": 5,
    "18": 3,
-   "19": 4,
-   "20": 7,
-   "21": 4,
-   "22": 1,
+   "19": 5,
+   "20": 10,
+   "21": 5,
+   "22": 2,
    "23": 4,
-   "24": 2,
+   "24": 4,
    "25": 1,
    "27": 2,
    "28": 3,
-   "29": 2,
+   "29": 1,
    "31": 3,
    "34": 1,
    "35": 1,
@@ -76,6 +75,7 @@
    "42": 2,
    "43": 1,
    "45": 1,
+   "48": 1,
    "51": 2,
    "52": 1,
    "53": 1,
@@ -92,36 +92,40 @@
    "336": 1
   }
  },
- "n_clusters": 389,
+ "n_clusters": 396,
  "cluster_sizes": {
-  "29": 2,
+  "48": 1,
+  "22": 2,
+  "24": 4,
   "34": 1,
-  "19": 4,
-  "14": 7,
+  "20": 10,
+  "21": 5,
+  "16": 8,
   "17": 5,
-  "15": 1,
-  "336": 1,
+  "14": 5,
+  "11": 6,
+  "6": 29,
   "13": 9,
-  "18": 3,
-  "6": 32,
-  "11": 8,
-  "12": 8,
-  "9": 20,
-  "127": 1,
-  "115": 1,
-  "110": 1,
-  "10": 13,
+  "336": 1,
   "23": 4,
-  "84": 1,
-  "8": 15,
+  "9": 23,
+  "7": 23,
+  "10": 10,
+  "127": 1,
+  "8": 17,
+  "19": 5,
+  "115": 1,
   "4": 66,
-  "7": 19,
+  "110": 1,
+  "18": 3,
+  "84": 1,
   "66": 1,
   "64": 1,
   "63": 1,
   "60": 2,
   "59": 1,
   "58": 1,
+  "5": 33,
   "53": 1,
   "52": 1,
   "51": 2,
@@ -131,28 +135,25 @@
   "40": 1,
   "39": 1,
   "37": 1,
-  "5": 34,
   "36": 1,
   "35": 1,
   "31": 3,
-  "3": 86,
+  "3": 85,
+  "29": 1,
   "28": 3,
   "27": 2,
   "25": 1,
-  "24": 2,
-  "22": 1,
-  "21": 4,
-  "20": 7,
-  "16": 4
+  "12": 7
  },
- "launches_in_clusters": 4642,
- "bundled_in_clusters": 375,
+ "launches_in_clusters": 4833,
+ "bundled_in_clusters": 692,
  "clusters_by_dominant_edge": {
-  "b_strong": 2,
-  "d": 347,
-  "c": 24,
+  "b_strong": 3,
+  "c": 41,
+  "d": 333,
   "a_mother": 14,
-  "a_cex_shape": 2
+  "a_cex_shape": 4,
+  "b_weak": 1
  },
  "scheme": {
   "n_traced": 6354,
@@ -209,30 +210,34 @@
     5
    ]
   ],
-  "bundled_fresh_share": 0.4525,
+  "bundled_fresh_share": 0.4518,
   "bundle_wallet_count_dist": {
-   "3": 210,
-   "2": 178,
-   "4": 55,
-   "1": 114,
-   "6": 3,
+   "3": 360,
+   "1": 209,
+   "2": 279,
+   "4": 96,
+   "6": 5,
    "22": 1,
-   "7": 2,
-   "5": 13,
-   "9": 2,
-   "15": 1
+   "7": 3,
+   "8": 1,
+   "5": 23,
+   "9": 4,
+   "10": 1,
+   "15": 1,
+   "20": 1,
+   "21": 1
   },
   "bundle_sol_quantiles": {
-   "p10": 2.4,
+   "p10": 2.37,
    "p50": 5.926,
    "p90": 11.0,
-   "n": 579
+   "n": 985
   },
   "eos0_mcap_quantiles": {
-   "p10": 33.452,
-   "p50": 41.973,
-   "p90": 59.279,
-   "n": 579
+   "p10": 33.784,
+   "p50": 41.824,
+   "p90": 59.671,
+   "n": 985
   }
  },
  "signal_a_chance": [
@@ -327,25 +332,19 @@
   "end": null,
   "horizon": 900,
   "rpc_rps": 8.0,
-  "api_rps": 2.0,
+  "api_rps": 3.0,
   "workers": 8,
   "funding_scope": "tradable",
   "min_cluster": 3,
   "expand_top": 30,
   "expand_per": 25,
   "expand_hours": 72.0,
-  "max_minutes": 38.0
+  "max_minutes": 3.0
  },
  "expansion": {
   "C001": {
-   "method": "a_mother+d",
+   "method": "d+a_mother",
    "keys": [
-    {
-     "kind": "a_mother",
-     "key": "64wbopqaUeAENaMiXwozvsqgZMgftGidundhSm4XF6md",
-     "status": "ok",
-     "found": 0
-    },
     {
      "kind": "d",
      "key": "4WWBZpVu3WQoPjVYKEhDdq78S9xqvJu2tX9pS7eYJ5yk",
@@ -354,7 +353,19 @@
     },
     {
      "kind": "d",
+     "key": "5DjDF5GZbK7rvxsD34VBtiGF5g4AshWjANCEh9C7bURi",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
      "key": "9B2jKRQBnmNPKd6NgkNi3Z3B9wT6RR3qezp8CEGekye9",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "a_mother",
+     "key": "64wbopqaUeAENaMiXwozvsqgZMgftGidundhSm4XF6md",
      "status": "ok",
      "found": 0
     }
@@ -362,7 +373,7 @@
    "status": "ok",
    "n_found": 0
   },
-  "C004": {
+  "C002": {
    "method": "c+d",
    "keys": [
     {
@@ -394,14 +405,38 @@
      "key": "7BNKbm2KMDtF329hq3utXNSNhEkN5HAvV7LbynLZkD5J",
      "status": "ok",
      "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "BxNU9hktKVMY4T3MfXrdAhjsZq3tthTcLjQ9GpuyXUc2",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "GULH753bBjg7ZQA7zMxfKezM4vW6fXhCxLPVfDrYzu57",
+     "status": "ok",
+     "found": 0
     }
    ],
    "status": "ok",
    "n_found": 4
   },
-  "C011": {
+  "C006": {
    "method": "c",
    "keys": [
+    {
+     "kind": "c",
+     "key": "6uTXofhFF5rBYqnLhW518KWHEW6QE66asC1NaELYLYG4",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "8ApgAwyhZvzfnpxpVJ2rp4htNH5vDdr9hQsFTkWiSyu1",
+     "status": "ok",
+     "found": 0
+    },
     {
      "kind": "c",
      "key": "8hoff6aFPGfTE1zQ2CrpUxvdwenswZJXJsnbThEKc2rp",
@@ -413,19 +448,50 @@
      "key": "AwTf1KyStmXBif3XS6hT9P8qZD8qVBXB6VYZkUrpinex",
      "status": "ok",
      "found": 7
-    },
-    {
-     "kind": "c",
-     "key": "BDyjZec1cUkRLnHUjxMRmUxjvzkwhHF9zNPUEpU5gqUh",
-     "status": "ok",
-     "found": 2
     }
    ],
    "status": "ok",
-   "n_found": 9
+   "n_found": 7
+  },
+  "C012": {
+   "method": "d+c",
+   "keys": [
+    {
+     "kind": "d",
+     "key": "6UDa2n542Ap8naVzWiXieuYhmEGn512bAjsyePZpVHk9",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "J2dsUJHqpc8iWJhVmpfmPVun8NTAHJj4DBbWDU4DoDTG",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "6EaXeYSg1uagYTVDtYuu1DxgYphAR824ELccpGNHddK8",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "AZVqY8nGfaWAFHyzNxWzqQU7my9Tyjita9SrcRYf99f7",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "HPj4dTYrLd4dytLMmAB3Axx9RszwNkeFqgjHubutGDGY",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
+   "n_found": 0
   },
   "C014": {
-   "method": "a_mother+d+c",
+   "method": "a_mother+c+d",
    "keys": [
     {
      "kind": "a_mother",
@@ -437,7 +503,44 @@
    "status": "ok",
    "n_found": 25
   },
-  "C017": {
+  "C018": {
+   "method": "c+d",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "2HAEG9hfgevQtaqGnUd7UL4rnup7kA5okQfo3iJZ5mAh",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "9mYSL8yVahDPNRaR9KLZSFpxrvjhkFk3CB67ko7LgSHF",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "5LWtpGmwibCTE3J7Mbxt14FGo8dzuK5e45qaXmN6L3vV",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "BhYBQXbLrwCGFnfp1E7ZnM71L76oB8fmfntLxS7gfebJ",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "FB164C16iJtUwfDD4HFcrkdUXh7J15SR1XEAYf57pLCF",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
+   "n_found": 0
+  },
+  "C025": {
    "method": "a_mother+c",
    "keys": [
     {
@@ -474,7 +577,32 @@
    "status": "ok",
    "n_found": 17
   },
-  "C028": {
+  "C034": {
+   "method": "c+d",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "8uKDtj3Bmc3sGBjMxfzvn4sBobNfmNmrjikek6erE73E",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "12UwnWB2KxuHWjURJ2SYrHLwEHaZUmj48MXM8KGgjav9",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "h23Vu6cn2TkTsvF8ixdDK3tcRpge1LsrYrr87hT62eX",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
+   "n_found": 0
+  },
+  "C036": {
    "method": "c+d",
    "keys": [
     {
@@ -499,63 +627,7 @@
    "status": "ok",
    "n_found": 2
   },
-  "C029": {
-   "method": "d+c",
-   "keys": [
-    {
-     "kind": "d",
-     "key": "6UDa2n542Ap8naVzWiXieuYhmEGn512bAjsyePZpVHk9",
-     "status": "ok",
-     "found": 0
-    },
-    {
-     "kind": "c",
-     "key": "6EaXeYSg1uagYTVDtYuu1DxgYphAR824ELccpGNHddK8",
-     "status": "ok",
-     "found": 0
-    },
-    {
-     "kind": "c",
-     "key": "AZVqY8nGfaWAFHyzNxWzqQU7my9Tyjita9SrcRYf99f7",
-     "status": "ok",
-     "found": 0
-    },
-    {
-     "kind": "c",
-     "key": "HPj4dTYrLd4dytLMmAB3Axx9RszwNkeFqgjHubutGDGY",
-     "status": "ok",
-     "found": 0
-    }
-   ],
-   "status": "ok",
-   "n_found": 0
-  },
-  "C034": {
-   "method": "c+d",
-   "keys": [
-    {
-     "kind": "c",
-     "key": "9mYSL8yVahDPNRaR9KLZSFpxrvjhkFk3CB67ko7LgSHF",
-     "status": "ok",
-     "found": 0
-    },
-    {
-     "kind": "d",
-     "key": "5LWtpGmwibCTE3J7Mbxt14FGo8dzuK5e45qaXmN6L3vV",
-     "status": "ok",
-     "found": 0
-    },
-    {
-     "kind": "d",
-     "key": "BhYBQXbLrwCGFnfp1E7ZnM71L76oB8fmfntLxS7gfebJ",
-     "status": "ok",
-     "found": 0
-    }
-   ],
-   "status": "ok",
-   "n_found": 0
-  },
-  "C041": {
+  "C038": {
    "method": "c",
    "keys": [
     {
@@ -580,7 +652,7 @@
    "status": "ok",
    "n_found": 8
   },
-  "C056": {
+  "C041": {
    "method": "c",
    "keys": [
     {
@@ -611,18 +683,98 @@
    "status": "ok",
    "n_found": 0
   },
-  "C062": {
+  "C044": {
+   "method": "c",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "5zFqvGj3x1Ubp7Zn7SACZnUFfm2DKMnbvG8zWscSMR3b",
+     "status": "ok",
+     "found": 15
+    },
+    {
+     "kind": "c",
+     "key": "7MxmPPV4LY8tMu1rJ3PMFBuECPGhGpUcmr835meXcytz",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "7uWDAcGhsLJfwgHQ4bt3SmdiEopcqbS9zGP9ZKZfDP8c",
+     "status": "ok",
+     "found": 1
+    },
+    {
+     "kind": "c",
+     "key": "DBwE9B8HxVGd8bBfqF26wJqQX2gHzWtvBK9AYZxmUAK8",
+     "status": "ok",
+     "found": 1
+    }
+   ],
+   "status": "ok",
+   "n_found": 17
+  },
+  "C049": {
    "method": "c+d",
    "keys": [
     {
      "kind": "c",
-     "key": "8uKDtj3Bmc3sGBjMxfzvn4sBobNfmNmrjikek6erE73E",
+     "key": "242fa4ne7VKkjJdB866DWqujMGK1vNZg1uRXbMZuSoTi",
+     "status": "ok",
+     "found": 5
+    },
+    {
+     "kind": "c",
+     "key": "EzrcmEu3VC5WoC8xcrKdSuBC9frbGchLMRJxZDn2QWBh",
+     "status": "ok",
+     "found": 9
+    },
+    {
+     "kind": "c",
+     "key": "G4tFdxs3xGLqAh7oN47v9EPba9fX8gq3d2tUVFbDwL7T",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "ypnQLY2y3Jrh8y5Akgn7ndNuygXCKPXuMJhpipDy6kN",
      "status": "ok",
      "found": 0
     },
     {
      "kind": "d",
-     "key": "12UwnWB2KxuHWjURJ2SYrHLwEHaZUmj48MXM8KGgjav9",
+     "key": "APnp8r33asR2KsE8RuRxtgowqncTo4tmLKyqgyS3KSoY",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "DnFsgpK8LSc6Pr4R79vkjAy93TiM73CN3nWBWeiDcqh",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
+   "n_found": 14
+  },
+  "C068": {
+   "method": "c",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "33CNJEUTpi1zisZpig4JroY1cnVjdPaUZKr1DNxQ5ijD",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "CPH9FL5TL9njcSen6JxzBks7Ety72xKxgWCZ7XHSGY4",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "D57TdtmSj337mWB3wxrKAS1zm4CgJ41F5xgLt9d9XopM",
      "status": "ok",
      "found": 0
     }
@@ -630,7 +782,38 @@
    "status": "ok",
    "n_found": 0
   },
-  "C064": {
+  "C076": {
+   "method": "c",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "5UzKo2kpZbPzAq6spGgALheT9KnbjBsbThDZBrR19fED",
+     "status": "ok",
+     "found": 5
+    },
+    {
+     "kind": "c",
+     "key": "5hPoRfKeW6eTayu53g2sQcXUtcRXTyJobx35ajMGsEAT",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "7SMMArd9nUUe7NJzAnDD6NE5Uhwx5EJKRnzZGKDMFtPN",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "8kv18zFrsCfV3KMKNxB5qbawEDWYpyfENvERTgconA3r",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
+   "n_found": 5
+  },
+  "C080": {
    "method": "c+d",
    "keys": [
     {
@@ -667,7 +850,7 @@
    "status": "ok",
    "n_found": 9
   },
-  "C072": {
+  "C089": {
    "method": "d+c",
    "keys": [
     {
@@ -692,100 +875,38 @@
    "status": "ok",
    "n_found": 0
   },
-  "C084": {
+  "C099": {
    "method": "c",
    "keys": [
     {
      "kind": "c",
-     "key": "5zFqvGj3x1Ubp7Zn7SACZnUFfm2DKMnbvG8zWscSMR3b",
-     "status": "ok",
-     "found": 15
-    },
-    {
-     "kind": "c",
-     "key": "7MxmPPV4LY8tMu1rJ3PMFBuECPGhGpUcmr835meXcytz",
+     "key": "2T3c5uHGjPePtWPbJXcRRMHeAKAaRYJoWLZTRDbvE7RP",
      "status": "ok",
      "found": 0
     },
     {
      "kind": "c",
-     "key": "7uWDAcGhsLJfwgHQ4bt3SmdiEopcqbS9zGP9ZKZfDP8c",
+     "key": "3cqaWAYp4ZT9JmAQCG1SZo2mAtXBUykvHUNkLTG6NoD1",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "4f3ghG5bobqyEq2dmE49M53xz2ty47LjR52WWjhsPP3v",
      "status": "ok",
      "found": 1
     },
     {
      "kind": "c",
-     "key": "DBwE9B8HxVGd8bBfqF26wJqQX2gHzWtvBK9AYZxmUAK8",
-     "status": "ok",
-     "found": 1
-    }
-   ],
-   "status": "ok",
-   "n_found": 17
-  },
-  "C100": {
-   "method": "c",
-   "keys": [
-    {
-     "kind": "c",
-     "key": "33CNJEUTpi1zisZpig4JroY1cnVjdPaUZKr1DNxQ5ijD",
-     "status": "ok",
-     "found": 0
-    },
-    {
-     "kind": "c",
-     "key": "CPH9FL5TL9njcSen6JxzBks7Ety72xKxgWCZ7XHSGY4",
-     "status": "ok",
-     "found": 0
-    },
-    {
-     "kind": "c",
-     "key": "D57TdtmSj337mWB3wxrKAS1zm4CgJ41F5xgLt9d9XopM",
+     "key": "8hUxWRXBbEuAZwP6SKwnubEY3anaEmjd6PKUhDuUsh2b",
      "status": "ok",
      "found": 0
     }
    ],
    "status": "ok",
-   "n_found": 0
+   "n_found": 1
   },
-  "C108": {
-   "method": "d+c",
-   "keys": [
-    {
-     "kind": "d",
-     "key": "DnFsgpK8LSc6Pr4R79vkjAy93TiM73CN3nWBWeiDcqh",
-     "status": "ok",
-     "found": 0
-    },
-    {
-     "kind": "c",
-     "key": "242fa4ne7VKkjJdB866DWqujMGK1vNZg1uRXbMZuSoTi",
-     "status": "ok",
-     "found": 5
-    },
-    {
-     "kind": "c",
-     "key": "EzrcmEu3VC5WoC8xcrKdSuBC9frbGchLMRJxZDn2QWBh",
-     "status": "ok",
-     "found": 9
-    },
-    {
-     "kind": "c",
-     "key": "G4tFdxs3xGLqAh7oN47v9EPba9fX8gq3d2tUVFbDwL7T",
-     "status": "ok",
-     "found": 0
-    },
-    {
-     "kind": "c",
-     "key": "ypnQLY2y3Jrh8y5Akgn7ndNuygXCKPXuMJhpipDy6kN",
-     "status": "ok",
-     "found": 0
-    }
-   ],
-   "status": "ok",
-   "n_found": 14
-  },
-  "C109": {
+  "C104": {
    "method": "c",
    "keys": [
     {
@@ -816,45 +937,64 @@
    "status": "ok",
    "n_found": 25
   },
-  "C183": {
+  "C131": {
+   "method": "a_mother+c",
+   "keys": [
+    {
+     "kind": "a_mother",
+     "key": "B48kNVXs4YK4amkBCH2XokQiv1SeiVQGHDR17xDeKAAn",
+     "status": "busy_funder",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "3qArJAZr8Xnbei9FMPkhQNiLJZdxrHxCatyWKMnecMac",
+     "status": "ok",
+     "found": 3
+    }
+   ],
+   "status": "ok",
+   "n_found": 3
+  },
+  "C144": {
    "method": "c",
    "keys": [
     {
      "kind": "c",
-     "key": "2HAEG9hfgevQtaqGnUd7UL4rnup7kA5okQfo3iJZ5mAh",
+     "key": "7VwYwR92jSwDDRBrgeJzQrCuZzKX7jUPma3QmmQDDdqS",
+     "status": "ok",
+     "found": 10
+    },
+    {
+     "kind": "c",
+     "key": "CMBoqKbdKpJx2DCFmSuqwSvEGDRewFiMB4YfVLUSAtgc",
+     "status": "ok",
+     "found": 5
+    },
+    {
+     "kind": "c",
+     "key": "EvavJJcUyzQ4W89GQaxHdjBgKsJVB9qMEVLDPcd6qdnw",
      "status": "ok",
      "found": 0
     }
    ],
    "status": "ok",
-   "n_found": 0
+   "n_found": 15
   },
-  "C222": {
+  "C161": {
    "method": "c",
    "keys": [
     {
      "kind": "c",
-     "key": "6uVUur5QDNJ91KDY2Jze5fhu4r6q2mvC4AHjMW2qChXf",
+     "key": "BwpYzBhi8nr9HA98LsaCc1gjJybhBtwDGMrmAgcSRc6N",
      "status": "ok",
-     "found": 2
-    },
-    {
-     "kind": "c",
-     "key": "D5KapXqMGmjsjmDcB7ygQjWDoypKqma7URTZrCj4jDTn",
-     "status": "ok",
-     "found": 0
-    },
-    {
-     "kind": "c",
-     "key": "FZza8vArCCCaaBu2XxJAULGyhzE4aZyM3R5d3sJbceBf",
-     "status": "ok",
-     "found": 0
+     "found": 3
     }
    ],
    "status": "ok",
-   "n_found": 2
+   "n_found": 3
   },
-  "C256": {
+  "C175": {
    "method": "c",
    "keys": [
     {
@@ -867,15 +1007,71 @@
    "status": "ok",
    "n_found": 13
   },
-  "C311": {
+  "C205": {
    "method": "c",
-   "keys": [],
-   "status": "deadline",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "5rgibD5SAzXGEU1sVYsUzSpT9sa3srrfSTRzTZXpWtEF",
+     "status": "ok",
+     "found": 4
+    },
+    {
+     "kind": "c",
+     "key": "6uVUur5QDNJ91KDY2Jze5fhu4r6q2mvC4AHjMW2qChXf",
+     "status": "ok",
+     "found": 2
+    },
+    {
+     "kind": "c",
+     "key": "BZ3v4S653NbC4mnk2TryzhogAfqbttCSSnDiHFnaigR",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "D5KapXqMGmjsjmDcB7ygQjWDoypKqma7URTZrCj4jDTn",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
+   "n_found": 6
+  },
+  "C242": {
+   "method": "d",
+   "keys": [
+    {
+     "kind": "d",
+     "key": "2ksromyvNo8VsNwAKC1PK9rScXboy8WLJerkVPu7gbEe",
+     "status": "ok",
+     "found": 0
+    }
+   ],
+   "status": "ok",
    "n_found": 0
   },
   "C003": {
-   "method": "d+c",
+   "method": "c+d",
    "keys": [
+    {
+     "kind": "c",
+     "key": "7z5Dafu71d9fJCGoTsDxjqz1EJSfpCv1LKX2AzmWEhCZ",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "8St6ePWvBtv7os65P5W5jmb7HVgyueR6FDKqEehFtnom",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "KGYWF8zASU6jDdyVvL2eXhbEBXPM4q3CMbFWRTLQT46",
+     "status": "ok",
+     "found": 0
+    },
     {
      "kind": "d",
      "key": "DqeVuNmymZEqzNQmFUvMGAL6xaB49TN7yCmx3h3FpYaK",
@@ -936,52 +1132,91 @@
      "key": "AaNmgcFtXYxaYQn22RdJroZYS8s6pVG9PvbFaDfTZ2JZ",
      "status": "ok",
      "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "BjeWM94PT2F3LRnCq4VvfqJ9PcfTHgUBfGWHPkYvZ9rH",
+     "status": "ok",
+     "found": 19
     }
    ],
-   "status": "deadline",
-   "n_found": 20
+   "status": "ok",
+   "n_found": 25
   },
-  "C006": {
-   "method": "d+c",
-   "keys": [],
-   "status": "deadline",
-   "n_found": 0
+  "C007": {
+   "method": "c+d",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "4dmtSBr4cvNaFcXh3sMaaC5idqnRjELcKbD2TjDTvsCP",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "8TVKncCuwQGDTSQZiPxXtNHFE2QMn6KDLez49mcndhxv",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "c",
+     "key": "FXb4XbE4xe2BVgEYQtKgaDvotXCNGzHMae2KsLtpDGJj",
+     "status": "ok",
+     "found": 0
+    },
+    {
+     "kind": "d",
+     "key": "EdNcBDUFQaTxuaaiFfp5Ss4EanvuXtpGV9ZZvFFVRayd",
+     "status": "ok",
+     "found": 16
+    }
+   ],
+   "status": "ok",
+   "n_found": 16
   },
   "C008": {
-   "method": "d+c",
-   "keys": [],
-   "status": "deadline",
-   "n_found": 0
+   "method": "c+d",
+   "keys": [
+    {
+     "kind": "c",
+     "key": "9LMeW9Sx3xRHc2zSTFZ4AXPq3rTSA8zfoz8vTNi45PtU",
+     "status": "ok",
+     "found": 3
+    },
+    {
+     "kind": "c",
+     "key": "Etgb4nx83tpHNohttTqUGvSj6LZhPjEczF6WGbEdeshX",
+     "status": "ok",
+     "found": 1
+    },
+    {
+     "kind": "d",
+     "key": "2F6p8TXy3DXDx8zygmMJXXvpCJVBPznq9jaqbNVQpT18",
+     "status": "ok",
+     "found": 17
+    }
+   ],
+   "status": "ok",
+   "n_found": 21
   },
   "C009": {
    "method": "d+c",
-   "keys": [],
-   "status": "deadline",
-   "n_found": 0
-  },
-  "C010": {
-   "method": "d+c",
-   "keys": [],
-   "status": "deadline",
-   "n_found": 0
-  },
-  "C012": {
-   "method": "d+c",
-   "keys": [],
-   "status": "deadline",
-   "n_found": 0
-  },
-  "C013": {
-   "method": "d+c",
-   "keys": [],
-   "status": "deadline",
-   "n_found": 0
-  },
-  "C015": {
-   "method": "d+c",
-   "keys": [],
-   "status": "deadline",
-   "n_found": 0
+   "keys": [
+    {
+     "kind": "d",
+     "key": "CALQ1EwjARtaW6FW6KQDZj4jhye9Vt4NvTzFwmg4JHqC",
+     "status": "ok",
+     "found": 24
+    },
+    {
+     "kind": "c",
+     "key": "55mTsu1FCfC2CPUWVGczAtsVrwE99Nfy7gZHsdFUipfs",
+     "status": "ok",
+     "found": 12
+    }
+   ],
+   "status": "ok",
+   "n_found": 25
   }
  }
 }

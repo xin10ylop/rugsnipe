@@ -137,6 +137,14 @@ def render(res: dict[str, Any]) -> str:
                      f"{_pct(w['hit_rate'])} | {_sol(w['expectancy_sol'])} ({w['expectancy_pct']:+.1f}%) | "
                      f"{w['expectancy_ci95']} |")
         L.append("")
+        H = C.get("heterogeneity") or {}
+        if H:
+            L.append(f"Are some clusters really better? Among {H['clusters']} clusters with >= 5 snipes "
+                     f"({H['trades']} snipes, pooled TP hit {_pct(H['pooled_hit_rate'])}), "
+                     f"{H['observed_clusters_hit_ge_33']} reach the guru's 33 % hit rate; "
+                     f"{H['expected_under_chance']} would by pure chance if every cluster had the pooled rate. "
+                     f"{H['clusters_with_binomial_p_lt_0.05']} clusters have a binomial p < 0.05 "
+                     f"(~{H['expected_false_positives']} expected false positives).\n")
         L.append("Per cluster, guru base rule (in-sample, top 25 by expectancy):\n")
         L.append("| cluster | score | members (tradable) | edges | n | TP hit | W/L | expectancy | total SOL | "
                  "guru 33% | guru 3:1 |\n|---|---|---|---|---|---|---|---|---|---|---|")

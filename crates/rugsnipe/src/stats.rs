@@ -25,7 +25,9 @@ pub mod code {
     pub const ALREADY_FIRED: u8 = 0x48;
     pub const BAD_OP: u8 = 0x49;
     pub const NO_POSITION_SLOT: u8 = 0x4a;
-    pub const FROZEN_NO_ARMSET: u8 = 0x4b;
+    /// Metrics only: a paper decision that a real mode would have skipped
+    /// (rslog keeps the RiskGate code and the `would_skip` reason).
+    pub const PAPER_WOULD_SKIP: u8 = 0x1f;
 }
 
 /// `(code, label)` of every decision outcome.
@@ -35,6 +37,7 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (0x12, "paper_regime_frozen"),
     (0x13, "paper_op_not_armed"),
     (0x14, "paper_armset_gate"),
+    (code::PAPER_WOULD_SKIP, "paper_would_skip"),
     (0x21, "skip_killed"),
     (0x22, "skip_spend_cap"),
     (0x23, "skip_bid_cap"),
@@ -57,7 +60,6 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (code::ALREADY_FIRED, "already_fired"),
     (code::BAD_OP, "bad_op"),
     (code::NO_POSITION_SLOT, "no_position_slot"),
-    (code::FROZEN_NO_ARMSET, "no_armset"),
 ];
 
 /// Label of a decision code.

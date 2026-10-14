@@ -181,8 +181,20 @@ def mark_exchange_like(rows: list[dict], rpc: RpcClient, min_recipients: int = 3
 
 
 def compact_row(r: dict) -> dict:
-    out = {k: v for k, v in r.items() if k not in ("third_wallets", "name")}
+    """Row for data/window_tokens.jsonl (< 5 MB): drop redundant fields, round floats.
+
+    `creator` / `fee_payer` are omitted when equal to `signer` (readers default to it).
+    """
+    out = {k: v for k, v in r.items() if k not in ("third_wallets", "name", "symbol") and v is not None}
     out["third_n"] = len(r.get("third_wallets") or [])
+    for k in ("creator", "fee_payer"):
+        if out.get(k) == r["signer"]:
+            out.pop(k)
+    if not r.get("bundled"):
+        out.pop("create_sig", None)  # only tradable (bundled) rows need it for the backtest
+    for k, v in list(out.items()):
+        if isinstance(v, float):
+            out[k] = round(v, 4)
     return out
 
 

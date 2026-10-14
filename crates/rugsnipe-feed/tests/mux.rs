@@ -208,6 +208,9 @@ fn collector_relay_keeps_a_partial_line_across_read_timeouts() {
     }
     server.join().unwrap();
     feed.shutdown();
-    assert_eq!(hits, 3, "all 3 creates decoded although every line was split across a timeout");
+    assert_eq!(
+        hits, 3,
+        "all 3 creates decoded although every line was split across a timeout"
+    );
     let _ = std::fs::remove_dir_all(dir);
 }

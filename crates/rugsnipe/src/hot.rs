@@ -414,7 +414,12 @@ impl HotLoop {
         nonce_idx: u16,
     ) {
         self.counters.decisions += 1;
-        self.stats.decision(code);
+        self.stats
+            .decision(if code & 0xf0 == 0x10 && would_skip != 0 {
+                code::PAPER_WOULD_SKIP
+            } else {
+                code
+            });
         self.rslog.push(Rec::Decision {
             intent,
             mint: hit.mint,

@@ -115,7 +115,7 @@ fn run(args: &[String]) -> Result<(), String> {
             .map(|a| match a {
                 GuardAction::Idle(w) => format!("idle: {w}"),
                 GuardAction::HotAlive { owner, age_ms } => {
-                    format!("hot alive: {owner} ({age_ms} ms)")
+                    format!("exits lease held by {owner} (heartbeat {age_ms} ms ago)")
                 }
                 GuardAction::TookOver { epoch, from } => {
                     format!("TOOK OVER exits lease epoch {epoch} from {from:?}")

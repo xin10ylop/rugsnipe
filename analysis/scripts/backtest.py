@@ -107,6 +107,9 @@ def load_window(args, api: PumpApi) -> tuple[list[tuple[dict, list[dict]]], dict
         ds.log(f"window: {path} missing (run discover_ruggers.py first)")
         return [], {}
     rows = W.read_jsonl(path)
+    for r in rows:  # compact rows omit creator / fee_payer when equal to the signer
+        r.setdefault("creator", r["signer"])
+        r.setdefault("fee_payer", r["signer"])
     stats = {"rows": len(rows), "bundled_rows": sum(1 for r in rows if r.get("bundled"))}
     out = []
     for r in rows:
@@ -179,7 +182,8 @@ def cluster_type(c: dict) -> str:
     if k == "d" and c.get("fresh_share", 0) < 0.5:
         return "serial_signer"
     return {"d": "rotating_signer", "a_mother": "mother_funded", "a_cex_shape": "cex_funded_same_shape",
-            "c": "shared_bundle_wallets", "b_strong": "same_bundle_shape"}.get(k, k)
+            "c": "shared_bundle_wallets", "b_strong": "same_bundle_shape",
+            "b_weak": "same_round_bundle_shape"}.get(k, k)
 
 
 def by_group(tokens, strat: B.Strategy) -> list[dict]:
@@ -325,6 +329,31 @@ def per_cluster(members: dict[str, list], strat: B.Strategy, meta: dict) -> list
     return out
 
 
+def heterogeneity(pc: list[dict], min_trades: int = 5, guru_hit: float = 0.33) -> dict:
+    """Do clusters differ in TP hit rate more than chance?
+
+    Under H0 every snipe hits TP with the pooled probability p.  Compares the
+    observed number of clusters with hit rate >= 33 % to its expectation under H0,
+    and counts clusters whose own binomial upper-tail p-value < 0.05.
+    """
+    from math import ceil, comb
+    big = [c for c in pc if c["n_trades"] >= min_trades]
+    n = sum(c["n_trades"] for c in big)
+    k = sum(c["tp_hits"] for c in big)
+    if not n:
+        return {}
+    p = k / n
+
+    def tail(m: int, j: int) -> float:
+        return sum(comb(m, i) * p ** i * (1 - p) ** (m - i) for i in range(j, m + 1))
+    exp_33 = sum(tail(c["n_trades"], ceil(guru_hit * c["n_trades"])) for c in big)
+    obs_33 = sum(1 for c in big if c["hit_rate"] >= guru_hit)
+    sig = sum(1 for c in big if tail(c["n_trades"], c["tp_hits"]) < 0.05 and c["tp_hits"] > 0)
+    return {"clusters": len(big), "trades": n, "pooled_hit_rate": round(p, 4),
+            "observed_clusters_hit_ge_33": obs_33, "expected_under_chance": round(exp_33, 2),
+            "clusters_with_binomial_p_lt_0.05": sig, "expected_false_positives": round(0.05 * len(big), 2)}
+
+
 def split_half(tokens, strats, min_n: int) -> dict:
     """Pick the best variant on the first half (time-ordered), report it on the second half."""
     toks = sorted(tokens, key=lambda x: x[0]["create_time"])
@@ -434,7 +463,9 @@ def main() -> None:
         for s in [base, B.variant(base, tp=0.5), B.variant(base, tp=1.0, sl=0.3), B.variant(base, entry="eos1")]:
             for mp, mh in ((2, 0.33), (3, 0.33), (5, 0.33), (3, 0.5)):
                 wf.append({"label": s.label(), **walk_forward(members, s, mp, mh)})
-        results["clusters"] = {"per_cluster_base": per_cluster(members, base, cmeta), "walk_forward": wf}
+        pcb = per_cluster(members, base, cmeta)
+        results["clusters"] = {"per_cluster_base": pcb, "walk_forward": wf, "heterogeneity": heterogeneity(pcb)}
+        ds.log(f"[clusters] heterogeneity: {results['clusters']['heterogeneity']}")
         for w in wf[:4]:
             ds.log(f"[walk-forward] {w['label']} prev>={w['min_prev']} hit>={w['min_hit']}: n={w['n_trades']} "
                    f"hit={w['hit_rate']:.1%} exp={w['expectancy_sol']:+.4f}")
