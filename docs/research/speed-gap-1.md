@@ -30,7 +30,7 @@ Scripts and raw data are in the session scratchpad, `g1/` (`fetch.py`, `final.py
 | **Rakurai** (1.3%) | Jito-solana fork with a "heuristics-based" scheduler. A SOL tip to 8 Rakurai PDAs is a "virtual priority boost" ([docs.rakurai.io](https://docs.rakurai.io)). The formula is UNVERIFIED | Continuous (LIKELY) | Own IP, 100% (VERIFIED) | frankfurt 1.10%, others 0.17% | **Arrival**: 0.51 overall, 0.53 block-0. 49% of its reactive buys failed |
 
 **Bottom line.**
-- **Arrival decides on about 30% of stake:** Jito-Agave, BAM in maintenance, Rakurai, and Harmonic FIFO.
+- **Arrival decides on about 30% of stake:** Jito-Agave, Rakurai and Harmonic FIFO. Counting the Firedancer stake that migrates to Agave, it is about 37%. During BAM maintenance it is about two thirds.
 - **Fee decides within a 20 ms round on BAM.**
 - **Fee decides within an FBA batch on about 14% of stake** (Harmonic). The batch is as narrow as BAM's in block-index terms.
 - Across rounds and batches, arrival decides on every class: agreement falls to 0.45–0.55 beyond about 5% of block distance.
@@ -149,8 +149,8 @@ P(earlier has higher CU price) as a function of the pair's distance in the block
   - Even on Jito-Agave, fee has weak power (0.60): near-simultaneous arrivals sit in the scheduler buffer together.
 - **Batching does not reduce block-0 reach.**
   - Harmonic and BAM leaders get same-slot reactive buys at least as often as Jito-Agave (23–26% versus 21%).
-  - Creates in the first fifth of the block get reactions 27–33% of the time. Creates in the last fifth get them 7–9% (Harmonic-Salsa 15/176).
-- **Jito-tipped snipers land later** than untipped ones: 0.26–0.41 on every class except Firedancer. The first reactive buyer carried a Jito tip in only 14% of cases (Jito-Agave 21/147).
+  - Creates in the first fifth of the block get reactions 30–38% of the time. Creates in the last fifth get them 7–9% (e.g. Jito-Agave 23/255, Harmonic-Salsa 15/176).
+- **Jito-tipped snipers land later** than untipped ones: 0.26–0.41 on every class except Firedancer. These rest on only 21–72 groups per class, so the result is LIKELY. In the first 13 h subsample, the first reactive buyer carried a Jito tip in only 14% of cases (Jito-Agave 21/147).
   - Third-party sender-tipped transactions were also not earlier (0.25–0.49; pair-weighted, indicative).
   - Implication: for block-0 the bundle path costs position. Use the direct or TPU path, with the bid in priority fee. (LIKELY)
 
@@ -164,7 +164,7 @@ Re-keyed by DZ client, the 87.1% came from **pure Firedancer** (9 leaders, 91.9%
   - FireBAM (1.6%) is told "do not run" during the transition, so it becomes Jito-Agave or Agave-BAM in maintenance ([changelog](https://bam.dev/blog/bam-changelog-sept-23-oct-9/)).
   - Firedancer (6.9%) moves to Agave or Jito-Agave. Its measured profile already matches Jito-Agave.
 - **BAM maintenance mode** runs "during the days leading up to activation" and comes back "gradually" after it. **As of 09:00 UTC Oct 14, BAM is not yet in maintenance**: all 36.28% AgaveBam still advertises BAM-node TPUs.
-  - In maintenance, BAM leaders should be treated as Jito-Agave: arrival decides, Jito BE region is specific, and the TPU is their own or a relayer's. That makes about 65% of stake arrival-ordered for those days.
+  - In maintenance, BAM leaders should be treated as Jito-Agave: arrival decides, Jito BE region is specific, and the TPU is their own or a relayer's. That makes about two thirds of stake arrival-ordered for those days.
   - Watch for it via `getClusterNodes` (`clientId` flips AgaveBam→JitoLabs, and the `tpuQuic` IP changes). The flip takes effect within one state-machine tick, `DEFAULT_MS_PER_SLOT` (source above).
 - **Alpenglow votes are not transactions,** so the vote-run fingerprint (§2.3, item 4) disappears. Use `clientId` instead.
 - **BAM cadence** is tied to slot length, so it moves again if slot time changes (changelog).
@@ -204,7 +204,7 @@ Every BAM node except sqq and hkg is on TeraSwitch AS20326 (ipinfo).
 
 1. **The "colocation > fan-out > CU trimming > fees" rule holds for position *across* windows on every class.**
    - Inside a window, fee decides on BAM (strictly) and on Harmonic-FBA.
-   - For block-0 snipers, who all react to the same shred, the window *is* the race. On BAM and Harmonic leaders (about 63% of stake, about 54% of slots until maintenance) the bid matters as much as latency.
+   - For block-0 snipers, who all react to the same shred, the window *is* the race. On BAM and Harmonic leaders (about 63% of stake and of leader slots until maintenance starts) the bid matters as much as latency.
 2. **Latency model.** Replace `c = 5 ms` with a per-class model:
    - Jito-Agave and Rakurai: continuous; `c` ≈ 5 ms.
    - BAM: 20 ms rounds, a 10 ms expected wait, and fee ordering within the round.
