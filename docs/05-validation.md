@@ -180,7 +180,9 @@ settles with the policy sweep, the operator-conditioned walk-forward and the cop
 | Copy-trading pump wallets or wave wallets | −3% to −20% on 905 fresh launches | loses |
 | Mayhem coins | −11% to −22% | excluded |
 | Per-operator arming (his selection idea) | no lift on the fresh holdout (−0.2 points) | logged only |
-| **Rank-1 micro-scalp** (his entry, our 1-3 s exit) | **+2.5% to +3.7%** on four independent sets (n = 915, 427, 222, 150); +9 to +12% on the hot third, −0.5% on the rest; ≈ 0 at rank 2 or under stacked realistic fill costs | the only edge; a latency race |
+| **Rank-1 micro-scalp** (his entry, our 1-3 s exit) | **+2.5% to +3.7%** on five independent sets (n = 915, 480, 427, 222, 150); +9 to +12% on the hot third, −0.5% on the rest; ≈ 0 at rank 2 or under stacked realistic fill costs | the only edge; a latency race |
+| Post-entry refinements (scale-out, runners, re-entry, ladders), graduation momentum, second scalp, hour-of-day | at or below the plain policy; screens negative | no gain |
+| **Entry selection by a frozen P(take-profit) model** (operator history + bundle shape), skip the bottom tertile | **+4.6% vs +3.2%** on 480 pre-registered fresh launches, keeps 74%; tighter cuts +7.9% / +9.7% on 30% / 15% | adopted for shadow and probe |
 
 ### 5.6 The funding trigger as a pre-arm (gap-4)
 

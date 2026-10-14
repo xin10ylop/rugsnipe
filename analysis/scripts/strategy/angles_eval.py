@@ -56,10 +56,29 @@ def _recs(d: Path) -> dict:
     return out
 
 
+def hb_block() -> tuple[int, int]:
+    """HB's dense block [L, H]: every eligible create in it was decoded and prescreened (L >= the prescreen frontier)
+    and every multi / unknown launch in it was pulled (walk newest first until the first one not pulled)."""
+    import angles_holdout as AH
+    pulled = {json.loads(l)["sig"] for l in open(HB / "tapes.jsonl")}
+    pre = sorted((json.loads(l) for l in open(HB / "prescreen.jsonl")), key=lambda x: -x["bt"])
+    F = AH.frontier()
+    L = H = None
+    for x in pre:
+        if x["multi"] is False:
+            continue
+        if x["sig"] not in pulled:
+            break
+        H = H or x["bt"]
+        L = x["bt"]
+    return max(L, F), H
+
+
 def load_sets() -> list[dict]:
     """[{set, group, t (Tape), rec}] for every complete multi-wallet tape of HA / HB / HC (deduped by mint)."""
     table = {json.loads(l)["mint"] for l in open(M.TABLE)}
     out, seen = [], set(table)
+    hb_lo, hb_hi = hb_block() if (HB / "tapes.jsonl").exists() else (0, 0)
     for name, d, path in (("HA", HA, HA / "tapes.jsonl"), ("HB", HB, HB / "tapes.jsonl"), ("HC", HC, HC / "trades.jsonl")):
         if not path.exists():
             continue
@@ -69,6 +88,8 @@ def load_sets() -> list[dict]:
             if r["mint"] in seen or not r["complete"] or not r["trades"]:
                 continue
             if name == "HC" and r["bt"] <= TABLE_END:
+                continue
+            if name == "HB" and not (hb_lo <= r["bt"] <= hb_hi):
                 continue
             t = build_tape(r["mint"], name, 1.0, r["slot"], r["bt"], r["sig"], {r["creator"], r["user"], r["fee_payer"]},
                            r["trades"], r["hor"], True)
@@ -473,8 +494,38 @@ def evaluate():
                               int(m.sum()), g[m])
         res["refine"]["ladder"][sn] = dict(n=int(m.sum()), ev=float(per_sol), ev_flat=float(per_sol_flat), diff=float(per_sol - per_sol_flat),
                                            diff_ci=(lo, hi), p_diff=p, flat_size=Sflat)
+    res["refine"]["ladder"]["sol_per_launch"] = dict(ladder=float(lad_pnl.mean()), lead=float(0.5 * base.mean()), flat=float(flat.mean()))
+    # survivorship probe on HB: launches whose first 10 s did not fit in one page (> 100 trades) vs the rest
+    n10 = dA.n10
+    hb_ = src == "HB"
+    hot = hb_ & (np.isnan(n10) | (n10 > 100))
+    res["hb_hot"] = dict(n_hot=int(hot.sum()), ev_hot=float(base[hot].mean()) if hot.any() else None,
+                         n_rest=int((hb_ & ~hot).sum()), ev_rest=float(base[hb_ & ~hot].mean()) if (hb_ & ~hot).any() else None)
+    log("HB hot (>100 trades in 10 s)", res["hb_hot"])
     b = res["refine"]["ladder"]["pooled"]
     log(f"G2 ladder per SOL {b['ev']*100:+.2f} vs flat {Sflat:.3f} SOL {b['ev_flat']*100:+.2f} diff {b['diff']*100:+.2f} p={b['p_diff']:.3f}")
+    # score skill: TP AUC of the frozen and refitted scores, with / without operator history
+    hist = dA.X[:, dA.names.index("op_has_hist")] > 0
+    res["auc"] = {}
+    for nm, sc in (("G1-R3", s3), ("G1-RT-gbt3-tp", sc_g), ("G1-RT-ridge-ret", sc_r), ("G1-R3-nometa", s3l)):
+        res["auc"][nm] = {}
+        for sn, m in sets.items():
+            if m.sum() < 20:
+                continue
+            res["auc"][nm][sn] = dict(all=M.auc(dA.tp[m], sc[m]), hist=M.auc(dA.tp[m & hist], sc[m & hist]) if (m & hist).sum() > 10 else None,
+                                      nohist=M.auc(dA.tp[m & ~hist], sc[m & ~hist]) if (m & ~hist).sum() > 10 else None,
+                                      n_hist=int((m & hist).sum()), pos=M.auc((base[m] > 0).astype(float), sc[m]))
+        a = res["auc"][nm]["pooled"]
+        log(f"AUC TP {nm:16s} pooled {a['all']:.3f} (with history {a['hist']} n={a['n_hist']}, first-seen {a['nohist']}) "
+            + " ".join(f"{sn}:{res['auc'][nm][sn]['all']:.2f}" for sn in ("HA", "HB", "HC") if sn in res["auc"][nm]))
+    # EV by frozen tertile per set
+    res["tertiles"] = {}
+    for sn, m in sets.items():
+        lo_, mid_, hi_ = m & (s3 < r3["t1"]), m & (s3 >= r3["t1"]) & (s3 < r3["t2"]), m & (s3 >= r3["t2"])
+        res["tertiles"][sn] = {k: dict(n=int(v.sum()), share=float(v.sum() / max(1, m.sum())), ev=float(base[v].mean()) if v.any() else None,
+                                       tp=float(dA.tp[v].mean()) if v.any() else None, followers=float(s0t[v].mean()) if v.any() else None)
+                               for k, v in (("low", lo_), ("mid", mid_), ("high", hi_))}
+        log("tertiles", sn, {k: (v["n"], round((v["ev"] or 0) * 100, 2)) for k, v in res["tertiles"][sn].items()})
     # BH over the primary family (pooled)
     prim = [("G1-R3-high", "select"), ("G1-R3-skip", "select"), ("G1-RT-gbt3-tp-top20", "select"), ("G1-RT-ridge-ret-top40", "select"),
             ("gate", "refine"), ("reentry", "refine"), ("ladder", "refine"), ("k0-bail", "refine")]
@@ -510,7 +561,74 @@ def evaluate():
             f"{out['L20']['sol_day']:+6.1f} (3,750/day: {out['L20']['sol_day_3750']:+5.1f}) break-even L1 {out['break_even_L1']*100:.1f}% "
             f"contested x{lm:.2f}: {out['sol_day_L20_contested']:+.1f}")
     json.dump(res, open(OUT / "angles_holdout.json", "w"), indent=1, default=float)
+    np.savez(HB / "selections.npz", mints=np.array([r["mint"] for r in rows]), **{k.replace(":", "_"): v for k, v in S.items()})
     log("wrote", OUT / "angles_holdout.json")
+
+
+def compete():
+    """Diagnostic (after the one-shot evaluation): competition for rank 1 on the selected HB launches, from the chain-only
+    prescreen (failed slot-0 / slot+1 transactions on the curve; 'saturated' = >= 1000 curve signatures in ~5 s)."""
+    z = np.load(HB / "selections.npz")
+    rows = {json.loads(l)["mint"]: json.loads(l) for l in open(ROWS)}
+    pre = {json.loads(l)["mint"]: json.loads(l) for l in open(HB / "prescreen.jsonl")}
+    mints = z["mints"]
+    hb = np.array([rows[m]["src"] == "HB" for m in mints])
+    fol = np.array([rows[m]["s0_third"] for m in mints], float)
+    sat = np.array([bool(pre.get(m) and not pre[m]["reached"]) for m in mints])
+    fail = np.array([pre[m]["n_s0_fail"] if (pre.get(m) and pre[m]["reached"]) else np.nan for m in mints], float)
+    ret = np.array([rows[m]["ret_base"] for m in mints])
+    out = {}
+    for k in z.files:
+        if k == "mints" or k.endswith("_mask"):
+            continue
+        sel = z[k].astype(bool) & hb
+        if sel.sum() < 5:
+            continue
+        def stat(m):
+            return dict(n=int(m.sum()), saturated=float(sat[m].mean()), fails=float(np.nanmean(fail[m])), followers=float(fol[m].mean()),
+                        p_first=float(np.mean(1.0 / (1.0 + fol[m] + np.where(np.isnan(fail[m]), np.nanmean(fail[hb & sat]) if (hb & sat & ~np.isnan(fail)).any() else 10.0, fail[m])))),
+                        ev=float(ret[m].mean()))
+        out[k] = dict(kept=stat(sel), all=stat(hb))
+        a, b = out[k]["kept"], out[k]["all"]
+        log(f"{k:28s} HB kept {a['n']:3d}: saturated {a['saturated']*100:4.0f}% vs {b['saturated']*100:4.0f}% | failed slot-0 txs {a['fails']:.2f} vs {b['fails']:.2f} "
+            f"| followers {a['followers']:.2f} vs {b['followers']:.2f}")
+    # EV by competition on HB
+    for nm, m in (("saturated", hb & sat), ("fails>=5", hb & ~sat & (fail >= 5)), ("fails 1-4", hb & ~sat & (fail >= 1) & (fail < 5)), ("fails 0", hb & ~sat & (fail == 0))):
+        log(f"HB {nm:10s} n={m.sum():3d} LEAD EV {ret[m].mean()*100:+.2f}")
+        out[f"ev_{nm}"] = dict(n=int(m.sum()), ev=float(ret[m].mean()) if m.any() else None)
+    json.dump(out, open(OUT / "angles_compete.json", "w"), indent=1)
+
+
+def describe():
+    """HB coverage: the contiguous block actually pulled, creates in it, eligible, multi-wallet share."""
+    idx = json.load(open(HB / "index.json"))
+    lo, hi = hb_block()
+    tp = [t for t in (json.loads(l) for l in open(HB / "tapes.jsonl")) if lo <= t["bt"] <= hi]
+    pre = {json.loads(l)["sig"]: json.loads(l) for l in open(HB / "prescreen.jsonl")}
+    creates = [s for s in idx["sigs"] if not s["err"] and s["bt"] and lo <= s["bt"] <= hi]
+    recs = {}
+    for line in open(HB / "creates.jsonl"):
+        r = json.loads(line)
+        if r.get("rec") and lo <= r["rec"]["create_time"] <= hi:
+            recs[r["rec"]["create_sig"]] = r["rec"]
+    import angles_holdout as AH
+    elig = [r for r in recs.values() if AH.eligible(r)]
+    pres = [pre[r["create_sig"]] for r in elig if r["create_sig"] in pre]
+    kinds = collections.Counter()
+    for r in tp:
+        if not r["complete"]:
+            kinds["incomplete"] += 1
+            continue
+        t = build_tape(r["mint"], "HB", 1.0, r["slot"], r["bt"], r["sig"], {r["creator"], r["user"], r["fee_payer"]},
+                       r["trades"], r["hor"], True) if r["trades"] else None
+        kinds["none" if t is None else t.kind] += 1
+    out = dict(block=(time.strftime("%H:%M:%S", time.gmtime(lo)), time.strftime("%H:%M:%S", time.gmtime(hi))), minutes=(hi - lo) / 60,
+               creates=len(creates), decoded=len(recs), eligible=len(elig), prescreened=len(pres),
+               pre_multi=collections.Counter(str(x["multi"]) for x in pres), pulled=len(tp), calls=sum(t["calls"] for t in tp),
+               kinds=dict(kinds), multi_share_of_creates=kinds["multi"] / max(1, len(creates)),
+               multi_per_day_at_this_rate=kinds["multi"] / max(1e-9, (hi - lo) / 86400))
+    print(json.dumps(out, indent=1, default=str))
+    json.dump(out, open(OUT / "angles_hb_coverage.json", "w"), indent=1, default=str)
 
 
 if __name__ == "__main__":

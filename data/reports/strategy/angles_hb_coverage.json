@@ -1,0 +1,25 @@
+{
+ "block": [
+  "15:20:04",
+  "16:00:14"
+ ],
+ "minutes": 40.166666666666664,
+ "creates": 1707,
+ "decoded": 1695,
+ "eligible": 967,
+ "prescreened": 967,
+ "pre_multi": {
+  "False": 620,
+  "True": 204,
+  "None": 143
+ },
+ "pulled": 347,
+ "calls": 482,
+ "kinds": {
+  "multi": 307,
+  "dev_only": 30,
+  "none": 10
+ },
+ "multi_share_of_creates": 0.17984768599882836,
+ "multi_per_day_at_this_rate": 11006.141078838175
+}

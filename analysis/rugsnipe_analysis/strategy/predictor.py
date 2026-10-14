@@ -296,10 +296,17 @@ class Funding:
         for line in open(REPO / "data/cache/window/funding.jsonl"):
             r = json.loads(line)
             self.by_wallet[r["wallet"]] = r
+        # window records are as of the signer's FIRST window create (Oct 14); never use them for an earlier launch
+        self.win_asof = {}
+        for line in open(REPO / "data/cache/window/creates.jsonl"):
+            r = json.loads(line)
+            self.win_asof[r["create_user"]] = min(self.win_asof.get(r["create_user"], 1 << 62), r["create_time"])
+        self.extra = {}
         extra = CACHE / "funding_extra.jsonl"     # deep / fresh signers (predictor_funding.py)
         if extra.exists():
             for line in open(extra):
                 r = json.loads(line)
+                self.extra.setdefault(r["wallet"], r)
                 self.by_wallet.setdefault(r["wallet"], r)
         self.by_asof = {}
         pool = CACHE / "funding_pool.jsonl"       # operator-pool launches, as of each create (angle B)
@@ -313,6 +320,7 @@ class Funding:
         for row in db.execute("select wallet, status, funder, amount, block_time, n_prior, fresh, as_of_mint, "
                               "funder_category, main_funder from funding"):
             self.db[row[0]] = row
+        self.db_asof = {m: t for m, t in db.execute("select mint, block_time from creates")}
         self.fc = {}
         p = REPO / "data/funding_creators.jsonl"
         if p.exists():
@@ -335,14 +343,14 @@ class Funding:
             funder, amount, ftime = f.get("funder"), f.get("amount"), f.get("ftime")
             if status == "busy":
                 status = "serial"
-        elif sig in self.by_asof or signer in self.by_wallet:
-            r = self.by_asof.get(sig) or self.by_wallet[signer]
+        elif sig in self.by_asof or (signer in self.by_wallet and (self.win_asof.get(signer, 0) <= bt or signer in self.extra)):
+            r = self.by_asof.get(sig) or (self.by_wallet[signer] if self.win_asof.get(signer, 0) <= bt else self.extra[signer])
             src = "window"
             n_prior = r.get("n_prior")
             status = r["status"]
             f = r.get("main") or r.get("first") or {}
             funder, amount, ftime = f.get("funder"), f.get("amount"), f.get("time")
-        elif signer in self.db:
+        elif signer in self.db and (self.db_asof.get(self.db[signer][7]) or 0) <= bt:
             row = self.db[signer]
             src = "db"
             status = row[1] or "unknown"

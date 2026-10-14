@@ -163,11 +163,22 @@ def prescreen():
     log("decoded", len(recs), "eligible todo", len(todo), "done", len(done))
     fo = open(out_p, "a")
     for n, r in enumerate(todo):
+        try:
+            _prescreen_one(r, rpc, allsig, slots, fo, E, bisect)
+        except Exception as e:  # noqa: BLE001  (rate limits: skip, the next run retries)
+            log("prescreen skip", r["create_sig"][:10], str(e)[:80])
+        if (n + 1) % 100 == 0:
+            log("prescreened", n + 1, rpc.stats)
+    log("prescreen done", rpc.stats)
+
+
+def _prescreen_one(r, rpc, allsig, slots, fo, E, bisect):
+    if True:
         S0, csig = r["create_slot"], r["create_sig"]
         C = {r["creator"], r["create_user"], r["fee_payer"]}
         j = bisect.bisect_left(slots, S0 + 25)
         if j >= len(allsig):
-            continue
+            return
         before = allsig[j]["sig"]
         res = rpc.call("getSignaturesForAddress", [r["bonding_curve"], {"limit": 1000, "before": before}],
                        cache_key=f"pre:{r['bonding_curve']}:{before}") or []
@@ -208,9 +219,28 @@ def prescreen():
                                  n_s0_fail=s0_fail, n_s1_fail=s1_fail, n_sigs=len(res), ctx=ctx, run=run, multi=multi),
                             separators=(",", ":")) + "\n")
         fo.flush()
-        if (n + 1) % 100 == 0:
-            log("prescreened", n + 1, rpc.stats)
-    log("prescreen done", rpc.stats)
+
+
+def frontier() -> int:
+    """Oldest create time F such that every successful create of the index with F <= bt <= anchor - 45 min is
+    decoded and, if eligible and new, prescreened. Pulling only bt >= F keeps HB a dense, contiguous block."""
+    idx = json.load(open(HD / "index.json"))
+    a = idx["anchor"]
+    dec = {}
+    for line in open(HD / "creates.jsonl"):
+        r = json.loads(line)
+        dec[r["q_sig"]] = r.get("rec")
+    pre = {json.loads(l)["sig"] for l in open(HD / "prescreen.jsonl")}
+    seen = seen_mints()
+    F = a - 45 * 60
+    for s_ in sorted((x for x in idx["sigs"] if not x["err"] and x["bt"] and x["bt"] <= a - 45 * 60), key=lambda x: -x["bt"]):
+        if s_["sig"] not in dec:
+            break
+        r = dec[s_["sig"]]
+        if r and eligible(r) and r["mint"] not in seen and r["create_sig"] not in pre:
+            break
+        F = s_["bt"]
+    return F
 
 
 def pull():
@@ -237,9 +267,8 @@ def pull():
     while True:
         pre = [json.loads(l) for l in open(HD / "prescreen.jsonl")]
         pre.sort(key=lambda x: (-x["bt"], x["sig"]))
-        todo = [x for x in pre if x["multi"] is not False and x["mint"] not in done]
-        if last_bt is not None:
-            todo = [x for x in todo if x["bt"] <= last_bt]   # keep the block contiguous
+        F = frontier()
+        todo = [x for x in pre if x["multi"] is not False and x["mint"] not in done and x["bt"] >= F]
         if not todo:
             idle_rounds += 1
             if idle_rounds > 30:
@@ -250,7 +279,8 @@ def pull():
         for x in todo:
             if calls0 + api.stats["calls"] + 4 > REQ_CAP:
                 log("request cap reached", calls0 + api.stats["calls"])
-                log("pull done", len(done), api.stats, "oldest bt", last_bt)
+                log("pull done", len(done), api.stats, "oldest bt", last_bt, "frontier", F)
+                json.dump({"frontier": F, "oldest_pulled_in_block": last_bt}, open(HD / "hb_block.json", "w"))
                 return
             r = by_sig.get(x["sig"])
             if r is None:

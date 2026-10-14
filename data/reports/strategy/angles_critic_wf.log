@@ -1,1 +1,11 @@
 17:04:43 rand configs 828
+17:16:05 pool configs 302
+17:16:05 Oct 12-14 OOS 1207 {'A': 576, 'B': 631} {'A': 3.1, 'B': 2.29}
+17:16:05 selection configs 970
+17:16:05 pick on A, read on B: top-1 mdl:rand:all:lr_0.5:tp:keep0.2 +11.77 -> +4.73 (all +2.29); top-10 mean on B: +5.04
+17:16:05 pick on B, read on A: top-1 mdl:rand:all:gbt_3:tp:keep0.2 +9.20 -> +9.60 (all +3.10); top-10 mean on A: +7.46
+17:16:06 mdl:rand:all:gbt_3:tp:keep0.2            n=248 keep=20% EV=+9.40 CI(signer) [+7.2,+11.7] lift +6.73 [+4.8,+8.6] halves A=+9.60, B=+9.20 window +9.89 other +7.91 (other all +3.15)
+17:16:06 mdl:rand:core:lr_0.5:tp:keep0.2          n=292 keep=24% EV=+7.57 CI(signer) [+5.6,+9.7] lift +4.89 [+3.2,+6.6] halves A=+9.17, B=+5.51 window +7.70 other +7.31 (other all +3.15)
+17:16:06 mdl:pool:all:lr_0.5:ret:keep0.4          n=493 keep=41% EV=+6.55 CI(signer) [+5.0,+8.1] lift +3.88 [+2.8,+5.0] halves A=+8.27, B=+5.10 window +7.08 other +5.32 (other all +3.15)
+17:16:06 mdl:pool:all:lr_0.5:ret:keep0.6          n=734 keep=61% EV=+5.47 CI(signer) [+4.3,+6.7] lift +2.80 [+2.1,+3.5] halves A=+7.20, B=+3.98 window +5.59 other +5.20 (other all +3.15)
+17:16:06 mdl:rand:all:gbt_3:tp:keep0.4            n=588 keep=49% EV=+4.95 CI(signer) [+3.6,+6.3] lift +2.27 [+1.3,+3.2] halves A=+5.89, B=+4.05 window +5.02 other +4.79 (other all +3.15)

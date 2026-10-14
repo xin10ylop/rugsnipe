@@ -20,6 +20,8 @@ price measured in `gap-2.md` (+1.1% median for the first reactive buyer).
 | Per-rugger arming (his idea of following operators, with our exit)? | **No.** It looked like +9% per trade on the historical operator sets, but on a fresh holdout pulled after the rules were frozen the armed launches make +2.9% against +3.2% unarmed (lift −0.2 points, p = 0.54). The historical lift came from how those operators were sampled. His own "3 of the last 10 hit +100%" rule: +2.1% [−2.0, +6.0], not significant. Arming stays as logged fields only. | VERIFIED by the critic |
 | Mayhem coins? | **No.** The agent is a fee-free near-random walk that stops after a median 43 s; 87.5% of mayhem coins trade below the standard floor within 15 min; every policy loses out of sample (−11% to −22%). Excluded. | VERIFIED |
 | Does the edge survive realistic fills? | **Only at rank 1, and thinly.** Rank 2 (one sniper ahead of us): +0.0% to +0.8%. All of the money sits on the third of launches where the first follower lifts the price by more than 2% (+11.7%, holdout +9.1%); the rest is −0.5%. Stacking the mean premium, SOL-fixed impact, 0.01 SOL costs and one follower in three failing gives −0.4% [−2.0, +1.3] on the fresh holdout, before failed-attempt costs. | VERIFIED by the critic |
+| Can the per-trade number be raised? | **Yes, by choosing launches, not by changing exits.** A frozen model of P(take-profit) built from the operator's history and the bundle's shape, applied as "skip the bottom tertile", lifts the policy from +3.2% to **+4.6%** per trade on 480 fresh launches (keeps 74% of them; the dropped ones lose −0.8%; BH q = 0.001, positive on each of three sets). Tighter cuts reach +7.9% (keep 30%) and +9.7% (keep 15%) but concentrate on the most contested launches. Every exit, scale-out, runner, re-entry and sizing refinement is at or below the plain policy (q ≥ 0.99). | VERIFIED on a pre-registered holdout |
+| What does it make per day? | At 0.5 SOL and a 20% rank-1 landing rate, about +9 SOL/day [−5, +20] on ~1,150 landed trades; break-even landing rate 12%. At 0.25 SOL it loses at 20% (break-even 26.5%). **The cost of a failed attempt decides the business**: a bid that only pays on success (in-transaction tip) instead of a priority fee paid on failure moves break-even landing from 12% to 2% and doubles SOL/day. | model, not a measurement |
 | What happens next? | Shadow mode on the Frankfurt box, no money: record our would-be landing index against the first follower's real index and the premium, score the policy at that position, split hot/quiet. Go/no-go rule fixed now (§7). Then, only if it passes, a capped probe of about 200 trades at 0.25 SOL with a kill switch. | |
 
 ## 1. His method versus ours, on the same tapes
@@ -97,9 +99,40 @@ agent's arithmetic is right given its model. (`analysis/scripts/strategy/orchest
 6-hour window, launches whose whole 15-minute history fits in one API page (≤100 trades; 614 of
 them) give **−0.9% [−1.9, +0.1]**, while the 300 busier launches give **+9.4% [+7.8, +11.0]** with a
 65% hit rate. The policy pays only where other snipers follow us in; on quiet launches it is a
-small, fast loss. Nothing visible in slot 0 tells the two apart in this data, which is what the
-operator-conditioned stage tests next. The busiest launches (full history not reachable in 15
-pages) are missing from the window set, which biases its number downward.
+small, fast loss. Of the window's 154 multi-wallet launches without a usable tape, only 6 are
+"too hot"; 101 have no buy in the create transaction (outside the tested class, about 9% of
+multi-wallet launches, EV unknown) and 47 are slot-0 graduations or non-standard curves.
+
+### 3a. Raising the per-trade number: entry selection (strategy-predictor, strategy-angles-critic)
+
+A table of 1,620 multi-wallet bundled launches with 84 features observable at the slot-0 decision
+instant was built (bundle structure, create transaction fields, uri host, signer funding class,
+point-in-time operator history, time, create rate). Findings:
+
+- **"Busy" is the wrong target.** Its predictable part is bundle size (AUC 0.65-0.72 for busy),
+  and big bundles do not pay (top bundle-SOL quartile −0.1%). Selecting on P(busy) adds at most
+  +2 points (q ≥ 0.13).
+- **P(take-profit) is the right target, and the skill sits in operator history** (AUC 0.80 for
+  signers seen before, 0.57-0.59 for first-seen signers) **and bundle shape** (an operator
+  fingerprint). Funding, time, create rate and name style add about nothing; metadata JSON adds
+  nothing and takes 449 ms to fetch, too slow for slot 0.
+- **Pre-registered fresh holdout** (480 launches no study had seen: 114 random from 08:43-13:43,
+  307 from a complete 40-minute block at 15:20-16:00, 59 from the copy-trade critic):
+
+| Rule (frozen before the pull) | Kept | EV kept | Lift over the plain policy [90% CI, signer-clustered] | q |
+|---|---|---|---|---|
+| plain policy | 100% | +3.2% [+1.9, +4.5] | | |
+| **skip the bottom tertile of the frozen P(TP) score** | 74% | **+4.6%** | **+1.4 [+0.7, +2.1]**, positive on all 3 sets; dropped launches −0.8% | 0.001 |
+| frozen top tertile | 45% | +6.7% | +3.5 [+2.1, +5.0], but negative on the 59-launch set | 0.001 |
+| refitted gradient-boosted P(TP), top 20% | 15% | +9.7% | +6.5 [+3.3, +9.8] | 0.001 |
+| refitted ridge on expected return, top 40% | 30% | +7.9% | +4.7 [+2.6, +7.0] | 0.001 |
+
+  Winner's-curse check: the best configuration chosen on one half of the data shrinks from +11.8%
+  to +4.7% on the other half, so read the in-period lifts as +2 to +6 points. The tighter cuts
+  pick the launches where rank 1 is most contested (5.6-6.2 failed rival transactions per launch
+  against 3.0 on all launches); the skip-bottom-tertile rule raises competition only modestly and
+  is the one adopted for shadow mode and the probe. It needs a live per-signer store of our own
+  outcomes and a re-freeze without the metadata and execution features.
 
 **Direction of bias in the fresh holdout.** It is the uniform light sample minus the deep sample.
 The deep sample took the random arm and every launch with an all-time-high market cap above the
@@ -125,8 +158,8 @@ Pre-Oct-9 (268 ms slots) +4.8%, post-Oct-9 (200 ms) +3.6%. Positive on 16 of 17 
 
 **Where the money is.** On the 32% of launches where the first third-party buyer after the bundle
 lifts the curve by more than 2% ("hot"), rank-1 EV is **+11.7%** (holdout +9.1%); on the other 68%
-it is **−0.5%** (holdout +0.3%). Nothing visible in slot 0 before our buy separated the two in the
-sweep's filters. The hot launches are where rival bots bid hardest (gap-2: the first slot-0
+it is **−0.5%** (holdout +0.3%). The sweep's simple filters (post-bundle cap, bundle wallets, dev
+buy) did not separate the two; the learned entry filter of §3a does, partly. The hot launches are where rival bots bid hardest (gap-2: the first slot-0
 winner's median bid 0.0034 SOL, p90 0.068, and the earlier winner had the higher bid in 73% of
 contested pairs). The policy is therefore a bet on being directly in front of a big sniper.
 
@@ -159,7 +192,8 @@ full day is noise.
 | Fixed cost | +3.6% at 0.004 SOL, +2.4% at 0.01, +0.4% at 0.02 (base premium). |
 | Exit latency | 0 / 1 / 2 / 4 slots: +4.2 / +3.7 / +2.8 / +1.2% on the fresh holdout. A shred feed and a pre-signed exit matter. |
 | Fees | 1.25% per side is in the model; any fee change moves EV one for one. |
-| Capacity | ≈3,750 multi-wallet bundled launches per day. If we win rank 1 on 10-20% at ≤ +2% premium, that is 375-750 trades/day × 0.5 SOL × 2.6-3.6%: an upper-bound illustration, not a forecast. |
+| Capacity | The in-class multi-wallet share is time-varying: 12.5% of creates in the 02-08 UTC window (≈5,300/day in class) and 18% in a 15:20-16:00 block (≈11,000/day at that rate); earlier estimates used 3,750/day. |
+| SOL per day (strategy-pnl-and-screens, `pnl_model.py`) | 0.5 SOL, 20% landing: +9.0 SOL/day [−5.0, +20.3], ≈1,150 landed trades; break-even landing 12.1%. 0.25 SOL: −3.4 SOL/day at 20%, break-even 26.5%. Skip-bottom-tertile filter: +11.5 SOL/day at 20% (+8.2 with a competition haircut). The critic's "combined realistic" fills: −17 SOL/day. A failed attempt at 0.003 SOL (priority fee paid on failure) versus 0.0005 SOL (tip paid only on success) moves break-even landing from 12% to 2%. |
 
 ## 5. What else was tried, and lost
 
@@ -177,6 +211,11 @@ full day is noise.
 | The guru's own arming rule (≥ 3 of the last 10 hit +100%) on top of our exit | +2.1% [−2.0, +6.0], n = 67, not significant; on top of his own +100% hold: −20.5% | same |
 | Any "repeat operator" filter without a track record | +4.0% vs a +5.2% control: adds nothing | strategy-operators |
 | Top-15 policies ranked on the test set | q = 1.00, negative on train and holdout (the winner's curse made visible) | strategy-sweep §2c |
+| Post-entry refinements of the policy: scale-out, follow-through gate, sell on third-party selling, re-entry on a dip, size ladder, bail when nobody follows, sell at slot+1 | all at or below the plain policy on 427 pooled, 915 window and 480 fresh launches (q ≥ 0.99); after our +15% fill the price falls (−7% at +10 slots), so runners lose; a perfect post-entry bail is worth only +1 point | strategy-refinements, -angles-critic |
+| Graduation momentum (buy at curve completion or the first PumpSwap trade) | −2.6% [−3.7, −1.5], 0 of 18 configs positive | strategy-pnl-and-screens |
+| Second scalp on the pullback after a take-profit | −0.9% pooled, −5.6% window | same |
+| Hour-of-day (18-21 UTC) and create-rate conditioning | artefact: +11% on the sets that suggested it, 6 points worse on independent sets | same |
+| Predicting "busy" launches, create position in the block | lift −0.3 and −1.1 on fresh data | strategy-angles-critic |
 | **First buyer in slot+1** (same exits as §2, for creates too late in the block to reach in slot 0) | **−3.3% / −1.8% / −4.2%** on test / deep / fresh at the +1.1% premium (orchestrator's own run). The edge is strictly the creation slot. | this doc |
 | §2 policy at the +3.6% premium (rank-1 median on CEX-fresh bundled launches) | +0.9% / +0.2% / +1.3%: thin. The +2% slippage cap is part of the policy, not an option. | this doc |
 
@@ -229,6 +268,13 @@ Config (docs/06 §6 names): `exit.default.tp = [[1.15, 1.0]]`, `exit.default.ins
    per attempt: noise, as the hourly swings predict, and with no latency information because this
    container sees the chain about a second late. The measurement that matters needs the Frankfurt
    box and a shred-level feed.
+   *Entry filter:* run the frozen P(TP) score in log mode from day one and in skip mode
+   (bottom tertile) for the probe; shadow mode must measure the landing rate separately on
+   selected and unselected launches (adopt the top-tertile cut only if its landing rate is at least
+   0.73× the all-launch rate).
+   *Bid path:* put the bid in a tip that only pays on success wherever the leader class honours
+   it, and keep the priority fee at the scheduling minimum; log the realised cost of every failed
+   attempt.
 2. **Probe (capped live).** About 200 trades at 0.25 SOL, `max_sol_cost` +2%, exits as in §2.
    Standard error at 200 trades is 1.4%. **Kill** if the mean is below 0 after 100 trades
    (about 4% false-kill probability if the true EV is +3.5%), if the median realised premium
