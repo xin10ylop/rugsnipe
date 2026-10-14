@@ -146,7 +146,13 @@ impl TradeEvent<'_> {
     }
 
     /// `true` when the trader is the coin creator (one dev-sell signal; see the
-    /// critique note C5: ~19% of creates have creator != signer).
+    /// critique note C5: ~19% of creates have creator != signer). `creator`
+    /// is the curve's *fee* creator, which is not always the dev: holder-reward
+    /// coins record a rotating pump-controlled address, and
+    /// `migrate_bonding_curve_creator` (pump-fees) switches it to
+    /// `pda::fee_sharing_config(mint)`, even inside the create transaction
+    /// (fixtures `fresh_v0alt_create_v2_buy_v3`, `v1_create_v2_buy`). Track the
+    /// create signer and the `create` argument as well.
     pub fn is_creator_trade(&self) -> bool {
         self.creator == Some(self.user)
     }

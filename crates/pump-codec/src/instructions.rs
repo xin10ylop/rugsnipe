@@ -85,7 +85,10 @@ pub struct CreateArgs<'a> {
     pub name: &'a str,
     pub symbol: &'a str,
     pub uri: &'a str,
-    /// Fee recipient / "creator" argument (can differ from the signer).
+    /// Fee recipient / "creator" argument (can differ from the signer). Not
+    /// the curve's creator on holder-reward coins (`is_holder_reward ==
+    /// Some(true)`): the program records a pump-controlled address instead, so
+    /// never derive `creator_vault` from this argument (v3 trades need none).
     pub creator: Pubkey,
     /// `create_v2` only (always `false` for legacy `create`).
     pub is_mayhem_mode: bool,
@@ -936,7 +939,10 @@ pub struct LegacyTradeKeys {
 }
 
 impl LegacyTradeKeys {
-    /// Derive every PDA. `creator` is `BondingCurve.creator` (or `CreateEvent.creator`).
+    /// Derive every PDA. `creator` is the *current* `BondingCurve.creator`:
+    /// `CreateEvent.creator` right after the create (not the `create`
+    /// argument, which holder-reward coins override), until a pump-fees
+    /// `migrate_bonding_curve_creator` moves it to `pda::fee_sharing_config(mint)`.
     pub fn derive(
         mint: Pubkey,
         user: Pubkey,

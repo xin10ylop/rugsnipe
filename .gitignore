@@ -8,3 +8,13 @@ data/cache/
 data/raw/
 node_modules/
 target/
+# secrets and real configs (docs/06-architecture.md section 13)
+keys/
+secrets/
+*.keypair.json
+*-keypair.json
+id.json
+config/*.toml
+!config/*.example.toml
+deploy/*.local.conf
+wg0.conf

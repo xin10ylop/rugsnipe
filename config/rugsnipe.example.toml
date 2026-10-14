@@ -1,0 +1,103 @@
+# rugsnipe example configuration (docs/06-architecture.md section 6).
+#
+# Copy to /etc/rugsnipe/rugsnipe.toml (root:rugsnipe 0640); deploy/install.sh does this once
+# and never overwrites an existing file. Real configs are gitignored (config/*.toml except
+# *.example.toml). This file holds NO secrets: [secrets] lists systemd credential NAMES that
+# the units load with LoadCredential= from /etc/rugsnipe/keys/ (root 0700, files 0400/0600).
+#
+# Validation refuses probe or live if any cap is 0 or missing, cu_limit = 0, a key credential
+# is group- or world-readable, clock offset > 5 ms, no healthy post-exec feed, the ArmSet is
+# unsigned or gate_passed = false, or the [rpc_budget] sum is > 32.
+[box]
+id = "fra1"
+role = "hot"
+singleton = true
+[mode]
+mode = "paper"                                     # paper | probe | live
+regime_freeze_slots = [[459_640_000, 459_869_000]] # Alpenglow: buys forced to paper
+max_age_slots = 2
+[secrets]                                          # systemd credential NAMES, never key material
+hot_keypair = "hot-keypair"
+probe_keypair = "probe-keypair"
+api_keys = "api-keys"
+armset_pubkey = "<base58>"
+cold_wallet = "<base58>"
+[risk]
+max_snipe_lamports = 250_000_000
+max_probe_lamports = 20_000_000
+max_probes_per_day = 20
+max_open_positions = 4
+max_daily_loss_lamports = 1_000_000_000            # chain-derived, marked to the sell quote
+max_consec_losses_per_op = 5
+max_buys_per_op_per_day = 10
+max_buys_per_hour = 20
+max_bid_lamports = 25_000_000
+max_sell_spend_lamports = 20_000_000
+max_entry_vsol_lamports = 40_000_000_000
+max_hot_balance_lamports = 5_000_000_000
+min_hot_balance_lamports = 1_000_000_000
+kill_file = "/run/rugsnipe/KILL"
+armset_max_age_s = 21_600
+decode_miss_kill_ratio = 0.01
+send_error_kill_ratio = 0.20
+max_clock_offset_ms = 5
+[feeds]
+logsws = { enabled = true, url = "wss://api.mainnet-beta.solana.com", stale_ms = 10_000 }
+relay = { enabled = false, socket = "/run/rugsnipe/pp.sock" }    # collector's PumpPortal frames
+grpc = { enabled = false, endpoint = "", token = "GRPC_TOKEN", stale_ms = 2_000 }
+shreds = { enabled = false, bind = "0.0.0.0:7733", sources = ["dz_edge", "helius"] }
+probe_live_require = "post_exec"
+[senders]
+paper = { enabled = true }
+rpcsend = { enabled = true, url = "https://api.mainnet-beta.solana.com", sells_only = true }
+helius = { enabled = false, url = "http://fra-sender.helius-rpc.com/fast", swqos_only = true, min_tip = 5_000 }
+nozomi = { enabled = false, url = "http://fra2.nozomi.temporal.xyz", key = "NOZOMI_KEY", min_tip = 1_000_000 }
+astralane = { enabled = false, key = "ASTRALANE_KEY", min_tip = 1_000_000 }
+jito = { enabled = false, region = "auto", max_rps = 1 }
+nextblock = { enabled = false, key = "NEXTBLOCK_KEY" }
+tpu = { enabled = false, leaders_ahead = 2 }
+[rpc_budget]
+hot = 4
+guard = 4
+keeper = 8
+collector = 12
+backfill = 4
+[tx]
+format = "legacy"
+cu_limit = 0                                       # 0 = probe/live refused until `ctl sim` sets p99 x 1.05
+lads_bytes = 0
+nonce_pool = 32
+sell_nonce_pool = 8
+burn_after_slots = 3
+partial_fill = false
+[bid]
+quantile = 0.75
+split = { jito_agave = [0.7, 0.3], harmonic = [1.0, 0.0], bam = [0.5, 0.5] }   # [priority, tip]
+[exit.default]
+tp = [[2.0, 0.5], [3.0, 1.0]]
+tp_slip_bps = 1500
+trail = { activate = 1.5, retrace_bps = 2500 }
+phantom_sl = { after_ms = 10_000, bps = 4000 }
+no_activity_ms = 150_000
+max_hold_ms = 1_800_000
+bundle_sell_min_lamports = 100_000_000
+consolidation_pct = 20
+big_buy_lamports = [0, 0]
+sell_retry = { every_slots = 2, max_tries = 15, tip_mult = 2.0 }
+[guard]
+takeover_after_ms = 5_000
+drop_from_peak_bps = 3000
+grace_s = 60
+[watch]
+default_ttl_s = 1800
+remove_if_no_launch_s = 3600
+last_transfer_min_frac = 0.9
+[obs]
+metrics_listen = ["127.0.0.1:9464", "10.77.0.2:9464"]
+rslog_dir = "/var/lib/rugsnipe/rslog"
+alert = { telegram = "TG_TOKEN", deadman = "HC_URL" }   # credential names
+[ab]                                               # probe/live only
+skip_p = 0.2
+small_arm = [0.2, 0.35]
+small_lamports = 50_000_000
+size_jitter = 0.10
