@@ -279,7 +279,7 @@ def test_sig_index_resumable() -> None:
         got = [r[0] for r in idx2.rows()]
         assert got == [s["signature"] for s in allsigs[:5_000]] and len(set(got)) == len(got)
         assert idx2.state["newest"]["sig"] == "s00000"
-        assert len(idx2.window(100_000 - 100, 100_001)) == 100
+        assert len(idx2.window(100_000 - 100, 100_000)) == 100
 
 
 def test_block_rows() -> None:
