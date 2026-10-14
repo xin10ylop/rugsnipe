@@ -1,0 +1,47 @@
+launches by source: {'exp': 714, 'opB': 472, 'opA': 329, 'gap3': 674, 'ops': 68, 'fresh': 244, 'deep': 133}
+14:54:50 truncation 900s: EV +0.0443 n=488 mean|diff| 0.0000 share changed 0.000
+14:54:51 truncation  25s: EV +0.0443 n=488 mean|diff| 0.0000 share changed 0.000
+14:54:51 truncation   4s: EV +0.0443 n=488 mean|diff| 0.0000 share changed 0.000
+14:54:51 truncation   2s: EV +0.0443 n=488 mean|diff| 0.0000 share changed 0.000
+14:54:51 LEAD_0.5 gap3:+0.035(n=200) ops:+0.131(n=41) deep:+0.032(n=77) fresh:+0.037(n=150) exp:+0.059(n=632) opA:-0.050(n=233) opB:+0.034(n=440)
+14:54:51 LEAD_0.25 gap3:+0.026(n=200) ops:+0.122(n=41) deep:+0.024(n=77) fresh:+0.028(n=150) exp:+0.051(n=632) opA:-0.058(n=233) opB:+0.026(n=440)
+14:54:52 F1_0.5 gap3:+0.006(n=161) ops:+0.217(n=22) deep:+0.009(n=92) fresh:+0.031(n=171) opA:-0.081(n=294) opB:-0.039(n=209)
+14:54:52 F2_0.5 gap3:+0.001(n=199) ops:+0.074(n=41) deep:+0.022(n=101) fresh:+0.030(n=199) opA:-0.072(n=322) opB:-0.033(n=278)
+14:54:52 GURU_TP100 gap3:-0.108(n=268) ops:-0.063(n=68) deep:-0.211(n=133)
+14:54:52 GURU_BOT gap3:-0.010(n=268) ops:-0.001(n=68) deep:-0.046(n=133)
+14:54:53 G3_TP40 gap3:+0.000(n=268) ops:+0.086(n=68) deep:-0.002(n=133)
+14:54:53 700 configurations
+14:54:53 0 LEAD_0.5 none/none/-/-/2d {'policy_oos': (0.0352, 1628), 'all': (0.0372, 1850), 'never_selected': (0.0354, 1428), 'no_expanded': (0.0379, 868)}
+14:55:01 50 LEAD_0.5 none/none/skip13/-/2d {'policy_oos': (0.035, 1615), 'all': (0.037, 1837), 'never_selected': (0.035, 1416), 'no_expanded': (0.0376, 857)}
+14:55:10 100 LEAD_0.25 none/none/-/-/2d {'policy_oos': (0.027, 1628), 'all': (0.0289, 1850), 'never_selected': (0.0271, 1428), 'no_expanded': (0.0296, 868)}
+14:55:18 150 LEAD_0.25 none/none/skip13/-/2d {'policy_oos': (0.0267, 1615), 'all': (0.0287, 1837), 'never_selected': (0.0268, 1416), 'no_expanded': (0.0293, 857)}
+14:55:26 200 F1_0.5 none/none/-/-/2d {'policy_oos': (-0.0133, 894), 'all': (0.0055, 1102), 'never_selected': (-0.025, 733), 'no_expanded': (0.0049, 631)}
+14:55:32 250 F1_0.5 none/none/skip13/-/2d {'policy_oos': (-0.0133, 890), 'all': (0.0055, 1098), 'never_selected': (-0.0251, 729), 'no_expanded': (0.005, 629)}
+14:55:37 300 F2_0.5 none/none/-/-/2d {'policy_oos': (-0.0126, 1068), 'all': (0.0045, 1322), 'never_selected': (-0.0203, 869), 'no_expanded': (0.0019, 781)}
+14:55:43 350 F2_0.5 none/none/skip13/-/2d {'policy_oos': (-0.0119, 1058), 'all': (0.0051, 1312), 'never_selected': (-0.0194, 859), 'no_expanded': (0.003, 773)}
+14:55:49 400 GURU_TP100 none/none/-/-/2d {'policy_oos': (-0.1219, 455), 'all': (-0.1116, 767), 'never_selected': (-0.1624, 187), 'no_expanded': (-0.1219, 455)}
+14:55:53 450 GURU_TP100 none/none/skip13/-/2d {'policy_oos': (-0.1186, 447), 'all': (-0.1096, 759), 'never_selected': (-0.1526, 180), 'no_expanded': (-0.1186, 447)}
+14:55:57 500 GURU_BOT none/none/-/-/2d {'policy_oos': (-0.0151, 455), 'all': (-0.011, 767), 'never_selected': (-0.0289, 187), 'no_expanded': (-0.0151, 455)}
+14:56:01 550 GURU_BOT none/none/skip13/-/2d {'policy_oos': (-0.0117, 447), 'all': (-0.0091, 759), 'never_selected': (-0.0181, 180), 'no_expanded': (-0.0117, 447)}
+14:56:05 600 G3_TP40 none/none/-/-/2d {'policy_oos': (0.006, 455), 'all': (0.0116, 767), 'never_selected': (0.0239, 187), 'no_expanded': (0.006, 455)}
+14:56:09 650 G3_TP40 none/none/skip13/-/2d {'policy_oos': (0.0065, 447), 'all': (0.0119, 759), 'never_selected': (0.0253, 180), 'no_expanded': (0.0065, 447)}
+14:56:12 matched controls
+14:56:50 stale 7-day windows
+14:56:50 persistence LEAD_0.5 creator {'k': 73, 'n_launches': 1467, 'spearman': 0.48753548068616565, 'pearson': 0.5834412835063393, 'p_perm': 0.0004997501249375312, 'first_top': 0.12973710351825468, 'second_top': 0.09116443953785215, 'first_bottom': -0.05026138674717142, 'second_bottom': -0.00590983681091278}
+14:56:50 persistence LEAD_0.5 bcomp {'k': 66, 'n_launches': 1390, 'spearman': 0.48631666840622073, 'pearson': 0.4943544310077516, 'p_perm': 0.0004997501249375312, 'first_top': 0.13309011278928448, 'second_top': 0.087871828726998, 'first_bottom': -0.05000674873335628, 'second_bottom': -0.011418705455021848}
+14:56:50 persistence LEAD_0.5 shape {'k': 54, 'n_launches': 1208, 'spearman': 0.25786163522012573, 'pearson': 0.356878727913927, 'p_perm': 0.031484257871064465, 'first_top': 0.10586894762879227, 'second_top': 0.06383757123844283, 'first_bottom': -0.03401088491267808, 'second_bottom': -9.666510674975296e-06}
+14:56:51 persistence F2_0.5 creator {'k': 36, 'n_launches': 575, 'spearman': 0.5536679536679537, 'pearson': 0.6156087329150813, 'p_perm': 0.0004997501249375312, 'first_top': 0.09161687501185707, 'second_top': 0.024548738493809313, 'first_bottom': -0.08761694150055511, 'second_bottom': -0.0870785611637981}
+14:56:51 persistence F2_0.5 bcomp {'k': 28, 'n_launches': 439, 'spearman': 0.5030103995621237, 'pearson': 0.4046608664439233, 'p_perm': 0.004497751124437781, 'first_top': 0.07766545497870345, 'second_top': -0.0031798191256034863, 'first_bottom': -0.07647570645327474, 'second_bottom': -0.09431475668597034}
+14:56:51 persistence F2_0.5 shape {'k': 36, 'n_launches': 715, 'spearman': 0.03191763191763192, 'pearson': -0.11535097156254667, 'p_perm': 0.4192903548225887, 'first_top': 0.0780872745730696, 'second_top': -0.039898146450147366, 'first_bottom': -0.07541979491475233, 'second_bottom': -0.010936928838376202}
+14:56:51 persistence GURU_TP100 creator {'k': 5, 'n_launches': 74, 'spearman': 0.19999999999999998, 'pearson': 0.33744897561512266, 'p_perm': 0.3953023488255872, 'first_top': 0.009384862363781048, 'second_top': 0.307916143029426, 'first_bottom': -0.4522363381150156, 'second_bottom': -0.17258152229564866}
+14:56:51 persistence GURU_TP100 bcomp {'k': 3}
+14:56:51 persistence GURU_TP100 shape {'k': 11, 'n_launches': 158, 'spearman': -0.18181818181818182, 'pearson': 0.03099112260372943, 'p_perm': 0.7161419290354822, 'first_top': -0.033741352461796666, 'second_top': -0.18186547829533023, 'first_bottom': -0.3589595712190775, 'second_bottom': -0.1353348137007784}
+14:56:51 stress LEAD_0.5 creator/EB/skip13/cap45/2d
+14:56:52 stress LEAD_0.5 creator/EB/skip13/-/2d
+14:56:53 stress LEAD_0.5 bcomp/EB/skip13/-/2d
+14:56:54 stress LEAD_0.5 creator/G100/skip13/-/2d
+14:56:55 stress LEAD_0.5 creator/GTP/skip13/-/2d
+14:56:56 stress LEAD_0.5 bcomp/EB/-/-/cont
+14:56:57 stress LEAD_0.5 bcomp/EB/skip13/-/cont
+14:56:59 stress LEAD_0.5 creator/EB/-/-/2d
+14:57:00 done 133 s

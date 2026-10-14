@@ -28,6 +28,8 @@ pub enum Write {
     },
     Send(SendRow),
     Fill(FillRow),
+    /// Upsert by intent.
+    Shadow(ShadowRow),
     /// Upsert by mint.
     Position(PositionRow),
     Exit(ExitRow),
@@ -273,7 +275,7 @@ pub fn apply(c: &Connection, w: &Write) -> rusqlite::Result<bool> {
         Write::Fill(r) => {
             c.execute(
                 "INSERT OR REPLACE INTO fills(sig, intent_id, mint, slot, tx_index, tokens, sol_delta, err, buyers_ahead,
-                   rival_sol_ahead, late) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+                   rival_sol_ahead, late, fail_reason, fail_cost) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
                 params![
                     b58(&r.sig),
                     r.intent_id,
@@ -285,7 +287,37 @@ pub fn apply(c: &Connection, w: &Write) -> rusqlite::Result<bool> {
                     r.err,
                     r.buyers_ahead,
                     r.rival_sol_ahead as i64,
-                    r.late as i64
+                    r.late as i64,
+                    r.fail_reason,
+                    r.fail_cost as i64
+                ],
+            )?;
+        }
+        Write::Shadow(r) => {
+            c.execute(
+                "INSERT OR REPLACE INTO shadow(intent_id, mint, model, outcome, create_slot, create_index, block_txs,
+                   bundle_trades, bundle_wallets, our_index, tp_ahead, tp_behind, s0_failed, premium_bps, post_bundle_v,
+                   post_bundle_t, post_bundle_mcap, cost)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
+                params![
+                    r.intent_id,
+                    r.mint.to_string(),
+                    r.model,
+                    r.outcome,
+                    r.create_slot as i64,
+                    r.create_index,
+                    r.block_txs,
+                    r.bundle_trades,
+                    r.bundle_wallets,
+                    r.our_index,
+                    r.tp_ahead,
+                    r.tp_behind,
+                    r.s0_failed,
+                    r.premium_bps,
+                    r.post_bundle_v as i64,
+                    r.post_bundle_t as i64,
+                    r.post_bundle_mcap as i64,
+                    r.cost as i64
                 ],
             )?;
         }

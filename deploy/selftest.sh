@@ -88,7 +88,7 @@ if [ -n "$PY" ]; then
 import sys, tomllib
 d = tomllib.load(open(sys.argv[1], "rb"))
 assert d["mode"]["mode"] == "paper", d["mode"]
-assert sum(d["rpc_budget"].values()) <= 32
+assert sum(d["rpc_budget"][k] for k in ("hot", "guard", "keeper", "collector", "backfill")) <= 32
 assert d["risk"]["kill_file"] == "/run/rugsnipe/KILL"
 assert d["obs"]["rslog_dir"] == "/var/lib/rugsnipe/rslog"
 for k in ("hot_keypair", "probe_keypair", "api_keys"):

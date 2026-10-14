@@ -5,11 +5,16 @@
 //! * detached ed25519 signature `armset-<ver>-<sha>.json.sig` over the same
 //!   bytes: 64 raw bytes, or the signature as base58 / hex text;
 //! * JSON = P2's schema (`operators`, `watch`, `funding_rules`) plus
-//!   `regime`, `min_hot_version`, `gate_passed`, `prereg_sha`,
-//!   `shared_fee_payers`. Unknown fields are ignored (forward compatible).
+//!   `regime`, `min_hot_version`, `gate_passed`, `probe_allowed`,
+//!   `prereg_sha`, `shared_fee_payers`, and the optional class arm
+//!   `match_all` (an operator id every unmatched create maps to). Unknown
+//!   fields are ignored (forward compatible).
 //!
 //! If the ArmSet is unsigned, stale or from the wrong regime the hot box runs
-//! exits only; `gate_passed = false` keeps buys in paper.
+//! exits only. Probe buys need `probe_allowed = true` (and every risk cap and
+//! credential check), **not** `gate_passed`: the probe measures the landing
+//! inputs the gate needs. Live buys need `gate_passed = true`. Otherwise
+//! buys stay in paper.
 
 use crate::config::ArmSetGate;
 use ed25519_dalek::{Signature, VerifyingKey};
@@ -132,8 +137,12 @@ pub struct ArmSet {
     pub regime: String,
     #[serde(default)]
     pub min_hot_version: String,
+    /// The go/no-go gate passed (docs/06 section 9.5): live may buy.
     #[serde(default)]
     pub gate_passed: bool,
+    /// Ohio allows capped probe buys (docs/06 section 10; default false).
+    #[serde(default)]
+    pub probe_allowed: bool,
     #[serde(default, with = "crate::b58::vec")]
     pub shared_fee_payers: Vec<Pubkey>,
     #[serde(default, alias = "ops")]
@@ -142,6 +151,13 @@ pub struct ArmSet {
     pub watch: Vec<WatchJson>,
     #[serde(default)]
     pub funding_rules: Vec<FundingRule>,
+    /// Class arm: every create that no watch key matches is matched to this
+    /// operator (`via = class`). The universe of the lead policy is a class
+    /// of launches, not a list of operators (docs/04 section 2); the entry
+    /// filter (`[entry] filter`) narrows it. Real modes still need the
+    /// operator's state, `probe_allowed` / `gate_passed` and a live-class feed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub match_all: Option<u32>,
 }
 
 /// Why an ArmSet was rejected.
@@ -246,6 +262,7 @@ impl VerifiedArmSet {
     pub fn gate(&self) -> ArmSetGate {
         ArmSetGate::Verified {
             gate_passed: self.armset.gate_passed,
+            probe_allowed: self.armset.probe_allowed,
         }
     }
 }
@@ -354,7 +371,13 @@ mod tests {
         assert!(v.armset.gate_passed);
         assert_eq!(v.armset.operators[0].state, OpState::Armed);
         assert_eq!(v.armset.watch[0].kind, WatchKind::Signer);
-        assert_eq!(v.gate(), ArmSetGate::Verified { gate_passed: true });
+        assert_eq!(
+            v.gate(),
+            ArmSetGate::Verified {
+                gate_passed: true,
+                probe_allowed: false
+            }
+        );
         // signature as base58 and hex text
         let b58 = bs58::encode(sig).into_string();
         assert!(verify(&bytes, Some(b58.as_bytes()), &ctx(&pk, None, 2_000)).is_ok());
@@ -430,7 +453,25 @@ mod tests {
             &ctx(&pk, None, 1_500),
         )
         .unwrap();
-        assert_eq!(v.gate(), ArmSetGate::Verified { gate_passed: false });
+        assert_eq!(
+            v.gate(),
+            ArmSetGate::Verified {
+                gate_passed: false,
+                probe_allowed: false
+            }
+        );
+        // probe_allowed is read from the JSON (default false)
+        let mut j: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        j["probe_allowed"] = serde_json::Value::Bool(true);
+        let b2 = serde_json::to_vec(&j).unwrap();
+        let v = verify(&b2, Some(&sk.sign(&b2).to_bytes()), &ctx(&pk, None, 1_500)).unwrap();
+        assert_eq!(
+            v.gate(),
+            ArmSetGate::Verified {
+                gate_passed: false,
+                probe_allowed: true
+            }
+        );
     }
 
     #[test]

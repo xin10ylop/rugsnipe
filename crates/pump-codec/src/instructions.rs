@@ -816,6 +816,21 @@ impl SolV3Keys {
         }
     }
 
+    /// The four bumps that set the snipe's compute cost (hash-only recovery
+    /// from these keys; see [`pda::SnipeBumps`]). `None` if a key is not
+    /// the canonical PDA of its seeds.
+    pub fn snipe_bumps(&self) -> Option<pda::SnipeBumps> {
+        pda::SnipeBumps::of_keys(
+            &self.mint,
+            &self.bonding_curve,
+            &self.associated_base_bonding_curve,
+            &self.associated_quote_bonding_curve,
+            &self.user,
+            &self.associated_base_user,
+            &self.base_token_program,
+        )
+    }
+
     /// [`Self::from_curve`] from a parsed create instruction; `None` if one of
     /// the needed accounts is unresolved (ALT) or the coin is not SOL-quoted.
     pub fn from_create(

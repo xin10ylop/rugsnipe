@@ -29,8 +29,13 @@ use std::time::{Duration, Instant};
 const USAGE: &str = "usage: rugsnipe-hot --config <toml> [--mode paper|probe|live] [--live]
     [--armset <armset-V-SHA.json>] [--paper-unsigned-armset] [--regime <name>]
     [--state <state.db>] [--rslog-dir <dir>] [--duration-s N] [--record <dir>]
-    [--max-watches N] [--rpc-url <https url>] [--no-e2] [--no-metrics]
-    [--pin-core N|none] [--busy-poll] [--fill-timeout-slots N] [--summary <json>]";
+    [--max-watches N] [--rpc-url <https url>] [--no-e2] [--lane-rps R] [--no-metrics]
+    [--pin-core N|none] [--busy-poll] [--fill-timeout-slots N] [--summary <json>]
+
+  --no-e2      no paper fill lane (every model falls back to E2 from buffered trades)
+  --lane-rps   total requests/s of the E1 lane (default 3.5, or 2 when the ArmSet has
+               funders, whose lookups share the 4 req/s public budget); the E2 lane
+               uses rpc_budget.hot / 2 per method";
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -175,9 +180,16 @@ fn run(args: &[String]) -> Result<(), String> {
     let state_path = Some(PathBuf::from(
         opt(args, "--state").unwrap_or("/var/lib/rugsnipe/state.db"),
     ));
+    let e1 = cfg.paper.fill_model == rugsnipe_core::config::FillModel::E1;
+    let lane_rps = if e1 {
+        let default: f64 = if funders.is_empty() { 3.5 } else { 2.0 };
+        num(args, "--lane-rps", default)?.min(cfg.rpc_budget.hot as f64)
+    } else {
+        cfg.rpc_budget.hot.min(4) as f64 / 2.0
+    };
     let e2 = (!flag(args, "--no-e2")).then(|| E2Cfg {
         rpc_url: rpc_url.clone(),
-        budget: Arc::new(RpcBudget::new(cfg.rpc_budget.hot.min(4) as f64 / 2.0)),
+        budget: Arc::new(RpcBudget::new(lane_rps)),
         delay_ms: 20_000,
         max_tx: 12,
     });
@@ -193,7 +205,12 @@ fn run(args: &[String]) -> Result<(), String> {
         healths: healths.clone(),
         e2,
         metrics: !flag(args, "--no-metrics"),
-        fill_timeout_slots: num(args, "--fill-timeout-slots", 300u64)?,
+        // E1 verdicts wait for confirmed history plus the lane's queue
+        fill_timeout_slots: num(
+            args,
+            "--fill-timeout-slots",
+            if e1 { 1_500u64 } else { 300 },
+        )?,
         lease: true,
         sigusr1: usr1,
         paper_balance,
@@ -281,8 +298,20 @@ fn run(args: &[String]) -> Result<(), String> {
                     )
                 })
                 .collect();
+            let paper = {
+                let r = app.report.lock().unwrap_or_else(|e| e.into_inner());
+                format!(
+                    "lane {}/{} calls {} | {:?} | landing {:.2} net {} lamports",
+                    r.e1_resolved,
+                    r.e1_requested,
+                    r.e1_rpc_calls,
+                    r.paper.outcomes,
+                    r.paper.landing_rate,
+                    r.paper.net_lamports
+                )
+            };
             eprintln!(
-                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {} | {}",
+                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {} | {} | {}",
                 t0.elapsed().as_secs(),
                 c.events,
                 c.creates,
@@ -292,6 +321,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 c.sells,
                 c.closed,
                 app.hot.positions(),
+                paper,
                 h.join("; ")
             );
         }

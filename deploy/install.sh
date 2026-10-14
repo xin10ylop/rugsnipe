@@ -19,7 +19,8 @@
 #   --dry-run | --check    print what would be done; change nothing; runs without root
 #   --force                continue on a non-Ubuntu or unknown Ubuntu release
 #
-# What it does: apt packages; system user; rustup with the toolchain pinned in
+# What it does: `git config core.hooksPath .githooks` in the checkout (pre-commit hook that
+# refuses key material); apt packages; system user; rustup with the toolchain pinned in
 # rust-toolchain.toml; `cargo build --release --locked` (if the workspace exists); a Python
 # venv with the analysis package; chrony (Jito regional NTP on hot, Amazon Time Sync on EC2);
 # /etc/rugsnipe (0750) with rugsnipe.toml from config/rugsnipe.example.toml (never
@@ -296,6 +297,18 @@ RSYNC_EXCLUDES=(--exclude=/.git/ --exclude=/.venv/ --exclude=/target/ --exclude=
                 --exclude=__pycache__/ --exclude='*.egg-info/' --exclude=/keys/ --exclude=/secrets/
                 --exclude='*.keypair.json' --exclude='*-keypair.json' --exclude='*.pem'
                 --exclude=/config/rugsnipe.toml)
+# The checkout's tracked pre-commit hook refuses key material (files under keys/, keypair
+# JSON arrays, PEM private keys; docs/06 section 13). Enable it as the checkout's owner (root
+# writing .git/config would leave it root-owned, and git refuses repos owned by someone else).
+if [ -d "$REPO/.git" ] && [ -x "$REPO/.githooks/pre-commit" ]; then
+  REPO_OWNER=$(stat -c %U "$REPO/.git")
+  if [ "$(id -u)" = 0 ] && [ "$REPO_OWNER" != root ]; then
+    run runuser -u "$REPO_OWNER" -- git -C "$REPO" config core.hooksPath .githooks
+  else
+    run git -C "$REPO" config core.hooksPath .githooks
+  fi
+  log "git: core.hooksPath = .githooks (pre-commit refuses key material)"
+fi
 log "syncing $REPO -> $SRC"
 run rsync -a --delete "${RSYNC_EXCLUDES[@]}" "$REPO/" "$SRC/"
 REV=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo unknown)

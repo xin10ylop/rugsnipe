@@ -33,7 +33,8 @@ crates/     Rust workspace (docs/06 section 3)
   rugsnipe-ctl     operator CLI: config validate, template dump, nonce init/close (dry run), armset verify/keygen/sign
   rugsnipe         binaries: rugsnipe-hot, rugsnipe-replay, rugsnipe-guard
 deploy/     server setup, latency probes, systemd units
-config/     example configuration (rugsnipe.example.toml = production template, paper.example.toml = local paper runs)
+config/     example configuration (rugsnipe.example.toml = production template, paper.example.toml = local paper runs,
+            paper-lead.example.toml = the docs/04 lead policy in shadow mode: E1 fills, lead exits, failed-attempt costs)
 data/       committed small datasets and reports (raw caches, data/raw/ and state are gitignored)
 docs/       documentation
 ```
@@ -45,10 +46,13 @@ wallet at start, the only sender is the paper recorder (it never opens a socket)
 `CreateHit` and a `Decision` record in rslog, intents/sends/fills/positions/exits go to `state.db`, and
 paper positions open at the E2 state (end of slot+1) and are exited by the exit engine with simulated
 sell fills. Probe and live are refused unless every check of docs/06 section 6 passes (caps, cu_limit,
-credentials, clock, post-exec feed, signed `gate_passed` ArmSet, `--live` + arm-live token), and real
-senders are only compiled with the `real-senders` feature.
+credentials, clock, post-exec feed, a signed fresh ArmSet carrying `probe_allowed` for probe or
+`gate_passed` for live, `--live` + arm-live token for live), and real senders are only compiled with the
+`real-senders` feature.
 
 ```sh
+git config core.hooksPath .githooks   # once per clone: the pre-commit hook refuses key material
+                                      # (keys/, keypair JSON arrays, PEM private keys); install.sh does it too
 cargo build --release -j 2
 # 1. a dev ArmSet signing key OUTSIDE git (keygen refuses paths inside the repo except keys/)
 target/release/rugsnipe-ctl armset keygen --out /secure/armset-dev.key      # prints the pubkey
@@ -63,6 +67,13 @@ target/release/rugsnipe-hot --config config/paper.example.toml \
     --state data/raw/paper/state.db --rslog-dir data/raw/paper/rslog \
     --record data/raw/feed --duration-s 1200 --summary data/raw/paper/summary.json
 #    metrics: curl -s 127.0.0.1:9464   kill (buys stop, exits continue): touch data/raw/paper/KILL or kill -USR1 <pid>
+#    the lead policy (docs/04) in shadow mode: a class ArmSet (every create) + config/paper-lead.example.toml;
+#    the summary's cold.paper block has landing rate, premium, exits by reason, net P&L and EV per attempt
+python -I analysis/scripts/make_paper_armset.py --kind class --ver 3 --out /tmp/class.json
+target/release/rugsnipe-ctl armset sign --key /secure/armset-dev.key --in /tmp/class.json --out-dir data/raw/paper-lead
+target/release/rugsnipe-hot --config config/paper-lead.example.toml --armset data/raw/paper-lead/armset-3-<sha>.json \
+    --state data/raw/paper-lead/state.db --rslog-dir data/raw/paper-lead/rslog --duration-s 1200
+python -I analysis/scripts/paper_vs_sim.py --run data/raw/paper-lead --out data/reports/paper_lead/vs_sim.json
 # 4. replay a recording through the same hot loop (counting allocator + latency histograms)
 target/release/rugsnipe-replay --frames data/raw/feed/logsws-<ts>-0000.jsonl \
     --state none --rslog-dir /tmp/replay-rslog --assert-zero-alloc --p99-max-us 100
@@ -70,7 +81,8 @@ target/release/rugsnipe-replay --frames data/raw/feed/logsws-<ts>-0000.jsonl \
 target/release/rugsnipe-guard --config config/paper.example.toml --state data/raw/paper/state.db
 # operator CLI
 target/release/rugsnipe-ctl config validate config/paper.example.toml
-target/release/rugsnipe-ctl template dump --mint <MINT> --wallet <WALLET> --format v1
+target/release/rugsnipe-ctl template dump --mint <MINT> --wallet <WALLET> --format v1   # per-mint CU limit
+cargo run --release -p rugsnipe-ctl --features rpc -- sim --n 3 [--nonce <ACCT>]       # read-only CU fit
 target/release/rugsnipe-ctl nonce init --authority <WALLET> --count 32          # unsigned, dry run
 ```
 

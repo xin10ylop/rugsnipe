@@ -9,13 +9,19 @@
 //! * a key credential is missing, or group- or world-readable;
 //! * the clock offset is unknown or above `max_clock_offset_ms`;
 //! * no healthy post-execution feed;
-//! * the ArmSet is unsigned / bad / stale / wrong regime, or `gate_passed = false`;
-//! * the `[rpc_budget]` sum is above 32;
+//! * the ArmSet is unsigned / bad / stale / wrong regime;
+//! * probe: the ArmSet does not carry `probe_allowed = true`; live: it does
+//!   not carry `gate_passed = true` (probe does **not** need the gate: the
+//!   probe is how the gate's landing inputs get measured);
+//! * the `[rpc_budget]` role sum is above 32;
 //! * (live only) no `--live` CLI flag or no valid local `ctl arm-live` token.
 //!
 //! Unknown keys are rejected (`deny_unknown_fields`) so a misspelled cap
 //! cannot silently read as "missing"; `[exit]` is passed through raw to the
-//! exit engine. Parsing is pure (`from_toml_str`); the caller reads the file.
+//! exit engine. The same file also carries the Python-only knobs
+//! (`[rpc_budget] per_host / per_method / methods`, `[collector]`), typed
+//! and validated here so one file serves both sides. Parsing is pure
+//! (`from_toml_str`); the caller reads the file.
 
 use crate::mode::Mode;
 use serde::{Deserialize, Serialize};
@@ -43,6 +49,13 @@ pub struct Config {
     pub watch: WatchCfg,
     pub obs: ObsCfg,
     pub ab: AbCfg,
+    /// Entry rule of the lead policy (docs/04 sections 2 and 6).
+    pub entry: EntryCfg,
+    /// Paper (shadow) fill model and cost accounting (docs/04 section 7).
+    pub paper: PaperCfg,
+    /// Python collector knobs (`analysis/rugsnipe_analysis/collector.py`);
+    /// unused by the Rust binaries.
+    pub collector: CollectorCfg,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -342,6 +355,10 @@ impl SendersCfg {
     }
 }
 
+/// Requests/s per role against public RPC (per egress IP), plus the
+/// per-host / per-(host, method) caps the Python token buckets apply
+/// (`analysis/rugsnipe_analysis/rpcbudget.py`). Only the five roles count
+/// toward the sum rule (<= [`RPC_BUDGET_MAX`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct RpcBudgetCfg {
@@ -350,6 +367,12 @@ pub struct RpcBudgetCfg {
     pub keeper: u32,
     pub collector: u32,
     pub backfill: u32,
+    /// Cap per (endpoint host, method), req/s (public mainnet-beta allows 40 / 10 s per method).
+    pub per_method: f64,
+    /// Cap per endpoint host, all methods, req/s.
+    pub per_host: f64,
+    /// Per-method overrides of `per_method` (`[rpc_budget.methods]`, e.g. `getBlock = 2`).
+    pub methods: BTreeMap<String, f64>,
 }
 impl Default for RpcBudgetCfg {
     fn default() -> Self {
@@ -359,13 +382,59 @@ impl Default for RpcBudgetCfg {
             keeper: 8,
             collector: 12,
             backfill: 4,
+            per_method: 4.0,
+            per_host: 10.0,
+            methods: BTreeMap::new(),
         }
     }
 }
 impl RpcBudgetCfg {
+    /// Sum of the five role budgets (the sum rule).
     pub fn sum(&self) -> u32 {
         self.hot + self.guard + self.keeper + self.collector + self.backfill
     }
+    /// The role names the Python budget accepts.
+    pub const ROLES: [&'static str; 5] = ["hot", "guard", "keeper", "collector", "backfill"];
+}
+
+/// `[collector]`: overrides of the Python collector's `CollectorConfig`
+/// (`analysis/rugsnipe_analysis/collector.py`). Every key is optional; an
+/// absent key keeps the Python default. Unknown keys are refused here, so a
+/// typo that Python would silently ignore is caught by `ctl config validate`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields, default)]
+pub struct CollectorCfg {
+    /// SQLite path of `analytics.db`.
+    pub db_path: Option<String>,
+    /// Stop after this many seconds (unset = run forever).
+    pub duration_s: Option<f64>,
+    #[serde(rename = "box")]
+    pub box_: Option<String>,
+    /// Unix socket the collector relays PumpPortal frames on.
+    pub relay_socket: Option<String>,
+    pub pp_url: Option<String>,
+    pub logs_url: Option<String>,
+    pub rpc_endpoints: Option<Vec<String>>,
+    /// `[rpc_budget]` role the collector draws from (default `collector`).
+    pub budget_role: Option<String>,
+    pub config_path: Option<String>,
+    pub pp_stale_s: Option<f64>,
+    pub logs_stale_s: Option<f64>,
+    pub decode_delay_s: Option<f64>,
+    pub funding_delay_s: Option<f64>,
+    pub rivals_delay_s: Option<f64>,
+    pub tape_delay_s: Option<f64>,
+    pub tape_early_s: Option<u64>,
+    pub tape_early_pages: Option<u64>,
+    /// 0 = the signer's own funding only; N = trace N hops up.
+    pub funding_hops: Option<u64>,
+    /// Oldest pre-create transactions scanned for incoming SOL.
+    pub funding_scan: Option<u64>,
+    pub cache_tx: Option<bool>,
+    pub workers: Option<u64>,
+    /// pump.fun frontend API requests/s.
+    pub api_rps: Option<f64>,
+    pub stats_every_s: Option<f64>,
 }
 
 /// Wire format of the buy template.
@@ -381,7 +450,12 @@ pub enum TxFormat {
 #[serde(deny_unknown_fields, default)]
 pub struct TxCfg {
     pub format: TxFormat,
-    /// 0 = probe/live refused until `ctl sim` sets p99 x 1.05 (72,150 with a nonce).
+    /// **Floor** of the per-mint compute-unit limit: the hot path patches
+    /// `65,000 + 1,500*S` per mint (S = Σ (255 - bump) over the four snipe
+    /// PDAs, docs/research/gap-5.md), clamped to `[cu_limit, 1,400,000]`;
+    /// sells use it as their static limit. 88,000 recommended (a static
+    /// 88,000 fails 0.075% of mints; the per-mint value covers those). 0 =
+    /// probe/live refused until `rugsnipe-ctl sim` confirms the fit.
     pub cu_limit: u32,
     /// Loaded-accounts data size limit (12,124,160 = 370 pages).
     pub lads_bytes: u32,
@@ -514,6 +588,109 @@ impl Default for AbCfg {
     }
 }
 
+/// Which launches the entry takes (`entry.filter`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EntryFilter {
+    /// Every create that matches the watchlist.
+    #[default]
+    Any,
+    /// The creation slot holds a bundle with at least one wallet outside the
+    /// creator set (docs/04 section 2; gap-3 bundle definition).
+    MultiBundle,
+}
+
+/// `[entry]` (docs/04 section 6).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct EntryCfg {
+    /// Fill cap over the post-bundle price (`max_sol_cost` bound): a fill
+    /// that would pay more fails (cheaply) instead.
+    pub max_premium: f64,
+    pub filter: EntryFilter,
+}
+impl Default for EntryCfg {
+    fn default() -> Self {
+        Self {
+            max_premium: 0.02,
+            filter: EntryFilter::Any,
+        }
+    }
+}
+
+/// Paper fill model (`paper.fill_model`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FillModel {
+    /// We land in the creation slot right behind the creator's bundle and
+    /// pay `entry_premium` over the post-bundle state (docs/04 section 2).
+    #[default]
+    E1,
+    /// The curve state at the end of slot+1 (what a free feed can reach).
+    E2,
+}
+
+impl FillModel {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::E1 => "e1",
+            Self::E2 => "e2",
+        }
+    }
+}
+
+/// `[paper]`: how paper buys and sells are filled and costed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct PaperCfg {
+    pub fill_model: FillModel,
+    /// E1 premium over the post-bundle price (gap-2: +1.1% median for the
+    /// first reactive buyer). A third-party buy interleaved in the bundle run
+    /// raises it to that buy's price impact.
+    pub entry_premium: f64,
+    /// Priority fee a failed buy still pays (lost race, slippage cap).
+    pub failed_attempt_lamports: u64,
+    /// Fixed cost of a landed round trip (priority + tips), charged in the
+    /// session summary's net P&L (docs/04: 0.004 SOL base).
+    pub round_trip_lamports: u64,
+    /// A paper sell fills at the curve state at the end of trigger slot + N.
+    pub exit_latency_slots: u64,
+    /// E1 positions are replayed from confirmed history on a slot clock:
+    /// `ms = (slot - landing slot) * slot_ms` (gap-3 tapes: 217 ms after Oct 9).
+    pub slot_ms: u64,
+    /// Slots after the creation slot the E1 lane fetches (the exits of the
+    /// lead policy all fire by landing + 5 and fill one slot later).
+    pub replay_slots: u64,
+    /// Wait after the decision before reading confirmed history.
+    pub delay_ms: u64,
+    /// A create in the last fraction of its block cannot be followed in the
+    /// same slot (gap-2): the attempt fails as `not_in_slot0`.
+    pub late_block_frac: f64,
+    /// Transactions fetched per intent (slot 0 first, then the replay slots).
+    pub max_tx: u32,
+    /// A fill needs its tape complete through `s + min_replay_slots` (the
+    /// lead exits fire by landing + 5 and fill one slot later); a shorter
+    /// tape (fetch cap, RPC errors) makes the intent `unresolved`.
+    pub min_replay_slots: u64,
+}
+impl Default for PaperCfg {
+    fn default() -> Self {
+        Self {
+            fill_model: FillModel::E1,
+            entry_premium: 0.011,
+            failed_attempt_lamports: 3_000_000,
+            round_trip_lamports: 4_000_000,
+            exit_latency_slots: 1,
+            slot_ms: 217,
+            replay_slots: 12,
+            delay_ms: 8_000,
+            late_block_frac: 0.10,
+            max_tx: 100,
+            min_replay_slots: 7,
+        }
+    }
+}
+
 // ------------------------------------------------------------- validation
 
 /// What the caller learned about the ArmSet (see [`crate::armset`]).
@@ -528,7 +705,11 @@ pub enum ArmSetGate {
     WrongRegime,
     /// Signature and sha verified, fresh, right regime.
     Verified {
+        /// The go/no-go gate passed (docs/06 section 9.5): required for live.
         gate_passed: bool,
+        /// Ohio allows capped probe buys (docs/06 section 10): required
+        /// for probe; the gate is not.
+        probe_allowed: bool,
     },
 }
 
@@ -571,6 +752,7 @@ pub enum Refusal {
     NoPostExecFeed,
     ArmSet(ArmSetGate),
     GateNotPassed,
+    ProbeNotAllowed,
     RpcBudget {
         sum: u32,
     },
@@ -586,7 +768,10 @@ impl core::fmt::Display for Refusal {
         match self {
             Self::Invalid { field, why } => write!(f, "{field}: {why}"),
             Self::CapMissing(n) => write!(f, "risk.{n} is 0 or missing"),
-            Self::CuLimitZero => write!(f, "tx.cu_limit = 0 (run `rugsnipe-ctl sim` first)"),
+            Self::CuLimitZero => write!(
+                f,
+                "tx.cu_limit = 0 (the per-mint CU floor; run `rugsnipe-ctl sim`, then set 88,000)"
+            ),
             Self::LadsZero => write!(f, "tx.lads_bytes = 0"),
             Self::CredentialMissing(n) => write!(f, "credential {n:?} missing"),
             Self::CredentialPermissive { name, mode } => {
@@ -599,7 +784,11 @@ impl core::fmt::Display for Refusal {
             Self::ClockOffset { ms, max } => write!(f, "clock offset {ms} ms > {max} ms"),
             Self::NoPostExecFeed => write!(f, "no healthy post-execution feed"),
             Self::ArmSet(s) => write!(f, "ArmSet not usable: {s:?}"),
-            Self::GateNotPassed => write!(f, "ArmSet gate_passed = false"),
+            Self::GateNotPassed => write!(
+                f,
+                "ArmSet gate_passed = false (live needs the go/no-go gate)"
+            ),
+            Self::ProbeNotAllowed => write!(f, "ArmSet probe_allowed = false (probe needs it)"),
             Self::RpcBudget { sum } => write!(f, "rpc_budget sum {sum} > {RPC_BUDGET_MAX}"),
             Self::BadPubkey { field } => write!(f, "{field} is not a base58 pubkey"),
             Self::LiveFlagMissing => write!(f, "live mode needs the --live CLI flag"),
@@ -674,6 +863,27 @@ impl Config {
         if !(0.0..1.0).contains(&self.ab.skip_p) {
             inv(&mut r, "ab.skip_p", "must be in [0, 1)");
         }
+        if !(0.0..1.0).contains(&self.entry.max_premium) {
+            inv(&mut r, "entry.max_premium", "must be in [0, 1)");
+        }
+        if !(0.0..1.0).contains(&self.paper.entry_premium) {
+            inv(&mut r, "paper.entry_premium", "must be in [0, 1)");
+        }
+        if !(0.0..1.0).contains(&self.paper.late_block_frac) {
+            inv(&mut r, "paper.late_block_frac", "must be in [0, 1)");
+        }
+        if self.paper.slot_ms == 0 {
+            inv(&mut r, "paper.slot_ms", "must be >= 1");
+        }
+        if self.paper.exit_latency_slots > 16 {
+            inv(&mut r, "paper.exit_latency_slots", "must be <= 16");
+        }
+        if self.paper.replay_slots == 0 || self.paper.replay_slots > 150 {
+            inv(&mut r, "paper.replay_slots", "must be in [1, 150]");
+        }
+        if self.paper.min_replay_slots > self.paper.replay_slots {
+            inv(&mut r, "paper.min_replay_slots", "must be <= replay_slots");
+        }
         if self.feeds.logsws.enabled && !self.feeds.logsws.url.starts_with("wss://") {
             inv(&mut r, "feeds.logsws.url", "must be wss://");
         }
@@ -691,6 +901,90 @@ impl Config {
         }
         if self.tx.lads_bytes > 64 * 1024 * 1024 {
             inv(&mut r, "tx.lads_bytes", "above 64 MiB");
+        }
+        let rb = &self.rpc_budget;
+        for (field, v) in [
+            ("rpc_budget.per_method", rb.per_method),
+            ("rpc_budget.per_host", rb.per_host),
+        ] {
+            if !(v.is_finite() && v > 0.0) {
+                inv(&mut r, field, "must be > 0 req/s");
+            }
+        }
+        if rb.methods.values().any(|v| !(v.is_finite() && *v > 0.0)) {
+            inv(
+                &mut r,
+                "rpc_budget.methods",
+                "every per-method cap must be > 0 req/s",
+            );
+        }
+        if rb
+            .methods
+            .keys()
+            .any(|k| k.is_empty() || !k.chars().all(|c| c.is_ascii_alphanumeric()))
+        {
+            inv(
+                &mut r,
+                "rpc_budget.methods",
+                "keys must be RPC method names (e.g. getBlock)",
+            );
+        }
+        if rb.per_method > rb.per_host && rb.per_host > 0.0 {
+            w.push(format!(
+                "rpc_budget.per_method {} > per_host {}: the host cap binds first",
+                rb.per_method, rb.per_host
+            ));
+        }
+        let co = &self.collector;
+        if co.workers == Some(0) {
+            inv(&mut r, "collector.workers", "must be >= 1");
+        }
+        if co.api_rps.is_some_and(|v| !(v.is_finite() && v > 0.0)) {
+            inv(&mut r, "collector.api_rps", "must be > 0");
+        }
+        for (field, v) in [
+            ("collector.duration_s", co.duration_s),
+            ("collector.pp_stale_s", co.pp_stale_s),
+            ("collector.logs_stale_s", co.logs_stale_s),
+            ("collector.decode_delay_s", co.decode_delay_s),
+            ("collector.funding_delay_s", co.funding_delay_s),
+            ("collector.rivals_delay_s", co.rivals_delay_s),
+            ("collector.tape_delay_s", co.tape_delay_s),
+            ("collector.stats_every_s", co.stats_every_s),
+        ] {
+            if v.is_some_and(|x| !(x.is_finite() && x >= 0.0)) {
+                inv(&mut r, field, "must be a finite number of seconds >= 0");
+            }
+        }
+        if let Some(role) = &co.budget_role {
+            if !RpcBudgetCfg::ROLES.contains(&role.as_str()) {
+                inv(
+                    &mut r,
+                    "collector.budget_role",
+                    "must be one of hot, guard, keeper, collector, backfill",
+                );
+            }
+        }
+        if co.rpc_endpoints.as_ref().is_some_and(|v| {
+            v.is_empty()
+                || v.iter()
+                    .any(|u| !u.starts_with("https://") && !u.starts_with("http://"))
+        }) {
+            inv(
+                &mut r,
+                "collector.rpc_endpoints",
+                "must be a non-empty list of http(s) URLs",
+            );
+        }
+        for (field, u) in [
+            ("collector.pp_url", &co.pp_url),
+            ("collector.logs_url", &co.logs_url),
+        ] {
+            if u.as_ref()
+                .is_some_and(|u| !u.starts_with("wss://") && !u.starts_with("ws://"))
+            {
+                inv(&mut r, field, "must be a ws(s):// URL");
+            }
         }
         if self.feeds.pumpportal.enabled {
             w.push(
@@ -779,10 +1073,24 @@ impl Config {
         if !env.post_exec_feed_healthy {
             r.push(Refusal::NoPostExecFeed);
         }
-        match env.armset {
-            ArmSetGate::Verified { gate_passed: true } => {}
-            ArmSetGate::Verified { gate_passed: false } => r.push(Refusal::GateNotPassed),
-            other => r.push(Refusal::ArmSet(other)),
+        // probe: a signed, fresh ArmSet with probe_allowed (not gate_passed);
+        // live: gate_passed
+        match (mode, env.armset) {
+            (
+                Mode::Probe,
+                ArmSetGate::Verified {
+                    probe_allowed: false,
+                    ..
+                },
+            ) => r.push(Refusal::ProbeNotAllowed),
+            (
+                Mode::Live,
+                ArmSetGate::Verified {
+                    gate_passed: false, ..
+                },
+            ) => r.push(Refusal::GateNotPassed),
+            (_, ArmSetGate::Verified { .. }) => {}
+            (_, other) => r.push(Refusal::ArmSet(other)),
         }
         if self.rpc_budget.sum() > RPC_BUDGET_MAX {
             r.push(Refusal::RpcBudget {

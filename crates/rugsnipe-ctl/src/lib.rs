@@ -5,7 +5,10 @@
 //! rugsnipe-ctl config validate <file> [--creds DIR] [--clock-offset-ms X] [--post-exec-healthy]
 //!                                     [--armset FILE [--sig FILE]] [--regime R] [--now UNIX] [--live]
 //! rugsnipe-ctl template dump --mint M --wallet W [--format legacy|v1] [--nonce ACCT [--nonce-authority A]]
-//!                            [--tip-account T] [--cu N] [--lads N] [--spend L] [--min-out N] [--prio L] [--tip L]
+//!                            [--tip-account T] [--cu N | --cu-floor F] [--lads N] [--spend L] [--min-out N] [--prio L] [--tip L]
+//!                            (default CU = the hot path's per-mint 65,000 + 1,500*S over --cu-floor, default 88,000)
+//! rugsnipe-ctl sim [--n 3] [--rpc URL] [--wallet W] [--nonce N] [--max-age S] [--spend L] [--legacy]
+//!                  (feature `rpc`; read-only simulateTransaction, sigVerify false: measured vs formula CU per mint)
 //! rugsnipe-ctl nonce init  --authority A [--count N] [--pool buy|sell] [--blockhash B58] [--lamports L]
 //! rugsnipe-ctl nonce close --authority A --to T [--count N] [--pool buy|sell] [--blockhash B58] [--lamports L]
 //! rugsnipe-ctl armset verify <file> --pubkey PK [--sig FILE] [--regime R] [--max-age S] [--now UNIX]
@@ -14,7 +17,8 @@
 //! ```
 //!
 //! Nothing here signs or sends: nonce init/close print **unsigned**
-//! transactions (dry run) for review and offline signing.
+//! transactions (dry run) for review and offline signing; `sim` only calls
+//! `simulateTransaction` (read-only, `sigVerify: false`).
 
 use base64::Engine as _;
 use pump_codec::constants as c;
@@ -23,6 +27,7 @@ use pump_codec::tx::TxView;
 use pump_codec::Pubkey;
 use rugsnipe_core::armset::{self, VerifyCtx};
 use rugsnipe_core::config::{ArmSetGate, Config, TxFormat, ValidateEnv};
+use rugsnipe_tx::cu::{snipe_cu_limit, RECOMMENDED_CU_FLOOR};
 use rugsnipe_tx::msg::{compile, Format, KeySpec};
 use rugsnipe_tx::sysix;
 use rugsnipe_tx::template::{CurveParams, MintKeys, NonceKeys, Patch, Template};
@@ -79,6 +84,7 @@ pub fn run(args: &[String]) -> Out {
     let r = match a.as_slice() {
         ["config", "validate", file, ..] => config_validate(file, &args[3..]),
         ["template", "dump", ..] => template_dump(&args[2..]),
+        ["sim", ..] => sim(&args[1..]),
         ["nonce", "init", ..] => nonce_txs(&args[2..], true),
         ["nonce", "close", ..] => nonce_txs(&args[2..], false),
         ["armset", "verify", file, ..] => armset_verify(file, &args[3..]),
@@ -89,7 +95,7 @@ pub fn run(args: &[String]) -> Out {
     r.unwrap_or_else(err)
 }
 
-pub const USAGE: &str = "usage: rugsnipe-ctl <config validate FILE | template dump | nonce init | nonce close | armset verify FILE | armset keygen | armset sign> [options]\n(see `rugsnipe-ctl` crate docs for options)";
+pub const USAGE: &str = "usage: rugsnipe-ctl <config validate FILE | template dump | sim | nonce init | nonce close | armset verify FILE | armset keygen | armset sign> [options]\n(see `rugsnipe-ctl` crate docs for options)";
 
 /// Mode bits of a credential file (`None` if missing).
 fn mode_of(p: &Path) -> Option<u32> {
@@ -134,8 +140,8 @@ fn armset_gate(cfg: &Config, args: &[String]) -> Result<(ArmSetGate, String), St
         Ok(v) => (
             v.gate(),
             format!(
-                "ArmSet ver {} sha {} gate_passed={}",
-                v.armset.ver, v.sha256, v.armset.gate_passed
+                "ArmSet ver {} sha {} gate_passed={} probe_allowed={}",
+                v.armset.ver, v.sha256, v.armset.gate_passed, v.armset.probe_allowed
             ),
         ),
         Err(e) => (e.gate(), format!("ArmSet rejected: {e}")),
@@ -257,11 +263,27 @@ pub fn template_dump(args: &[String]) -> Result<Out, String> {
         }),
         None => None,
     };
+    let keys = MintKeys::from_v3(&SolV3Keys::derive(
+        mint,
+        wallet,
+        c::TOKEN_2022_PROGRAM_ID,
+        c::BUYBACK_FEE_RECIPIENTS[0],
+    ));
+    // the hot path's per-mint limit (gap-5) unless --cu pins one
+    let floor: u32 = num(args, "--cu-floor", RECOMMENDED_CU_FLOOR)?;
+    let s_missing = keys
+        .snipe_bumps(&wallet, &c::TOKEN_2022_PROGRAM_ID)
+        .map(|b| b.missing())
+        .ok_or("derived keys are not canonical PDAs (cannot happen)")?;
+    let explicit_cu: Option<u32> = opt(args, "--cu")
+        .map(|_| num(args, "--cu", 0))
+        .transpose()?;
+    let per_mint = snipe_cu_limit(s_missing, floor);
     let p = CurveParams {
         format,
         user: wallet,
         nonce,
-        cu_limit: num(args, "--cu", if nonce.is_some() { 72_150 } else { 72_000 })?,
+        cu_limit: explicit_cu.unwrap_or(floor.max(1)),
         lads_bytes: num(args, "--lads", 12_124_160)?,
         tip_account: Some(pk_opt(args, "--tip-account")?.unwrap_or(c::JITO_TIP_ACCOUNTS[0])),
         buyback_fee_recipient: c::BUYBACK_FEE_RECIPIENTS[0],
@@ -269,12 +291,6 @@ pub fn template_dump(args: &[String]) -> Result<Out, String> {
         partial_fill: Some(false),
     };
     let mut t = Template::buy(&p).map_err(|e| e.to_string())?;
-    let keys = MintKeys::from_v3(&SolV3Keys::derive(
-        mint,
-        wallet,
-        p.base_token_program,
-        p.buyback_fee_recipient,
-    ));
     let lifetime: [u8; 32] = match opt(args, "--blockhash") {
         Some(b) => bs58::decode(b)
             .into_vec()
@@ -290,12 +306,24 @@ pub fn template_dump(args: &[String]) -> Result<Out, String> {
         limit: num(args, "--min-out", 1)?,
         priority_lamports: num(args, "--prio", 10_000)?,
         tip_lamports: num(args, "--tip", 1_000_000)?,
+        cu_limit: explicit_cu.is_none().then_some(per_mint),
     });
     let mut s = String::new();
     let _ = writeln!(
         s,
         "buy template ({format:?}{}), unsigned",
         if nonce.is_some() { " + nonce" } else { "" }
+    );
+    let _ = writeln!(
+        s,
+        "cu_limit {} ({}; S = {s_missing}, per-mint 65,000 + 1,500*S = {}, floor {floor})",
+        t.cu_limit(),
+        if explicit_cu.is_some() {
+            "--cu"
+        } else {
+            "per-mint"
+        },
+        snipe_cu_limit(s_missing, 0)
     );
     let _ = writeln!(s, "patch table: {:?}", t.table);
     s.push_str(&describe(t.bytes()));
@@ -305,6 +333,104 @@ pub fn template_dump(args: &[String]) -> Result<Out, String> {
         base64::engine::general_purpose::STANDARD.encode(t.bytes())
     );
     Ok(Out { text: s, code: 0 })
+}
+
+/// `sim`: measured vs formula CU of the per-mint limit on a few live mints
+/// (read-only `simulateTransaction`, `sigVerify: false`; feature `rpc`).
+/// Exit code 1 if a tight (per-mint limit) run fails or a measured cost is
+/// above its limit.
+#[cfg(feature = "rpc")]
+pub fn sim(args: &[String]) -> Result<Out, String> {
+    use rugsnipe_sim::live;
+    let rpc = rugsnipe_tx::rpc::RpcClient::new(
+        opt(args, "--rpc").unwrap_or("https://api.mainnet-beta.solana.com"),
+    );
+    let n: usize = num(args, "--n", 3)?;
+    let spend: u64 = num(args, "--spend", 10_000_000)?;
+    let max_age: u64 = num(args, "--max-age", 300)?;
+    let now_ms = now_unix() * 1_000;
+    let formats: Vec<TxFormat> = if flag(args, "--legacy") {
+        vec![TxFormat::V1, TxFormat::Legacy]
+    } else {
+        vec![TxFormat::V1]
+    };
+    let wallet = match pk_opt(args, "--wallet")? {
+        Some(w) => w,
+        None => {
+            let coin = live::fresh_coin(&rpc, now_ms, max_age)?;
+            let fallback: Pubkey = "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9"
+                .parse()
+                .unwrap();
+            live::pick_wallet(&rpc, &coin.bonding_curve, spend + 50_000_000, &fallback)?.0
+        }
+    };
+    let nonce = match pk_opt(args, "--nonce")? {
+        Some(acct) => {
+            let (auth, value) = live::read_nonce(&rpc, &acct)?;
+            Some((acct, auth, value))
+        }
+        None => None,
+    };
+    let (mints, skipped) =
+        live::fit_live(&rpc, now_ms, max_age, n, &wallet, nonce, &formats, spend)?;
+    Ok(sim_report(&wallet, &mints, &skipped))
+}
+
+/// `sim` without the `rpc` feature.
+#[cfg(not(feature = "rpc"))]
+pub fn sim(_args: &[String]) -> Result<Out, String> {
+    Err("`rugsnipe-ctl sim` needs the `rpc` feature: cargo run -p rugsnipe-ctl --features rpc -- sim [--n 3] [--nonce N] [--wallet W] [--rpc URL]".into())
+}
+
+/// Render a `sim` run (also used by tests with synthetic rows).
+#[cfg(feature = "rpc")]
+fn sim_report(wallet: &Pubkey, mints: &[rugsnipe_sim::live::MintFit], skipped: &[String]) -> Out {
+    let mut s = String::new();
+    let _ = writeln!(
+        s,
+        "ctl sim (read-only, sigVerify false): wallet {wallet}; limit = 65,000 + 1,500*S, model = 62,310 + 1,500*S + 1,185 (v1+nonce; -150 without nonce, +450 legacy)"
+    );
+    let mut fits = vec![];
+    let mut failures = vec![];
+    for m in mints {
+        let _ = writeln!(
+            s,
+            "mint {} ({}) S = {}",
+            m.coin.mint,
+            m.coin.symbol,
+            m.rows.first().map(|(r, _)| r.s).unwrap_or(0)
+        );
+        for (r, _) in &m.rows {
+            let _ = writeln!(
+                s,
+                "  {:<18} cu_limit {:>9} used {:>7} {}",
+                r.label,
+                r.cu_limit,
+                r.units_consumed
+                    .map(|v| v.to_string())
+                    .unwrap_or("-".into()),
+                r.err.clone().unwrap_or_else(|| "ok".into())
+            );
+        }
+        fits.extend(m.fits.iter().map(|f| (m.coin.mint, f.clone())));
+        failures.extend(
+            m.tight_failures
+                .iter()
+                .map(|f| format!("{}: {f}", m.coin.mint)),
+        );
+    }
+    for k in skipped {
+        let _ = writeln!(s, "skipped {k}");
+    }
+    s.push_str(&rugsnipe_sim::fit_report(&fits));
+    for f in &failures {
+        let _ = writeln!(s, "TIGHT FAILED {f}");
+    }
+    let bad = !failures.is_empty() || fits.is_empty() || fits.iter().any(|(_, f)| f.headroom <= 0);
+    Out {
+        text: s,
+        code: i32::from(bad),
+    }
 }
 
 /// `nonce init|close`: print the unsigned transactions (dry run).
@@ -409,11 +535,12 @@ pub fn armset_verify(file: &str, args: &[String]) -> Result<Out, String> {
     Ok(match armset::verify(&bytes, sig.as_deref(), &ctx) {
         Ok(v) => Out {
             text: format!(
-                "OK: ArmSet ver {} sha256 {} regime {} gate_passed={} operators={} watch={} funding_rules={}{}\n",
+                "OK: ArmSet ver {} sha256 {} regime {} gate_passed={} probe_allowed={} operators={} watch={} funding_rules={}{}\n",
                 v.armset.ver,
                 v.sha256,
                 v.armset.regime,
                 v.armset.gate_passed,
+                v.armset.probe_allowed,
                 v.armset.operators.len(),
                 v.armset.watch.len(),
                 v.armset.funding_rules.len(),
@@ -525,13 +652,14 @@ pub fn armset_sign(args: &[String]) -> Result<Out, String> {
     }
     Ok(Out {
         text: format!(
-            "{}\n{sig_file}\nver {} sha256 {sha} signer {pk} operators {} watch {} funding_rules {} gate_passed={}\n",
+            "{}\n{sig_file}\nver {} sha256 {sha} signer {pk} operators {} watch {} funding_rules {} gate_passed={} probe_allowed={}\n",
             file.display(),
             set.ver,
             set.operators.len(),
             set.watch.len(),
             set.funding_rules.len(),
-            set.gate_passed
+            set.gate_passed,
+            set.probe_allowed
         ),
         code: 0,
     })

@@ -10,12 +10,14 @@
 //! * funding watcher: feed funding transfers -> `Watchlist::on_funding`
 //!   (copy-on-write, so it stays off the hot thread) -> `watch_dyn`;
 //! * held mints: LogsWs per-address subscriptions (watch / unwatch);
-//! * paper E2 lane ([`crate::e2`]) inside the RPC budget;
+//! * paper fill lane inside the RPC budget: E1 verdicts and replay tapes
+//!   ([`crate::e1`]) or E2 states ([`crate::e2`]); shadow rows, failed
+//!   attempts and the session's paper totals ([`PaperReport`]);
 //! * ArmSet reload on file change; feed health -> rslog + decode-miss kill;
 //! * Prometheus text endpoint on the configured listen addresses.
 
 use crate::hot::Shared;
-use crate::msgs::{ColdMsg, HotIn};
+use crate::msgs::{ColdMsg, HotIn, ShadowInfo};
 use crate::setup::{load_armset_file, ArmState};
 use crate::stats::HotStats;
 use arc_swap::ArcSwap;
@@ -24,7 +26,7 @@ use pump_codec::Pubkey;
 use rugsnipe_core::config::Config;
 use rugsnipe_core::kill::KillFile;
 use rugsnipe_core::risk::{KillReason, RiskGate};
-use rugsnipe_core::rslog::{Rec, RslogProducer};
+use rugsnipe_core::rslog::{Rec, RslogProducer, ShadowOutcome};
 use rugsnipe_core::watchlist::Watchlist;
 use rugsnipe_core::Mode;
 use rugsnipe_exit::{PositionState, Venue};
@@ -34,6 +36,7 @@ use rugsnipe_state::rows::*;
 use rugsnipe_state::{Ledger, RpcBudget, Write};
 use rugsnipe_tx::nonce::{next_value, NoncePool, NonceState};
 use serde::Serialize;
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering::*};
 use std::sync::{Arc, Mutex};
@@ -69,6 +72,10 @@ pub struct ColdCfg {
     /// `(state.db path, lease owner name, takeover_after_ms)`.
     pub lease: Option<(PathBuf, String, u64)>,
     pub e2: Option<E2Cfg>,
+    /// E1 lane (`paper.fill_model = "e1"`); takes precedence over `e2`.
+    pub e1: Option<crate::e1::E1Cfg>,
+    /// Fixed cost of a landed round trip (summary net P&L).
+    pub round_trip_lamports: u64,
     pub armset: Option<ArmReload>,
     pub armset_max_age_s: u64,
     pub burn_after_slots: u64,
@@ -102,6 +109,201 @@ pub struct ColdReport {
     pub armset_reloads: u64,
     pub metrics_listening: Vec<String>,
     pub e2_errors: Vec<String>,
+    /// E1 lane: requests, verdicts, RPC calls, errors (first few).
+    pub e1_requested: u64,
+    pub e1_resolved: u64,
+    pub e1_rpc_calls: u64,
+    pub e1_errors: Vec<String>,
+    /// Shadow-mode totals of the session (docs/04 section 7).
+    pub paper: PaperReport,
+}
+
+/// Paper (shadow) totals: verdicts, landing rate, premium, exits, P&L and
+/// EV per attempt with the failed attempts' cost (docs/04 sections 3 and 7).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct PaperReport {
+    /// Resolved paper intents by outcome (`filled`, `premium`, `slippage`,
+    /// `not_in_slot0`, `class`, `unresolved`).
+    pub outcomes: BTreeMap<String, u64>,
+    /// Intents in the entry class (resolved, not `class`, not `unresolved`).
+    pub in_class: u64,
+    /// Sends that would have been made: fills + failed attempts.
+    pub attempts: u64,
+    pub fills: u64,
+    pub failed_attempts: u64,
+    /// fills / attempts.
+    pub landing_rate: f64,
+    /// Mean premium over the post-bundle price, fills and all attempts (bps).
+    pub mean_premium_bps_fills: f64,
+    pub mean_premium_bps_attempts: f64,
+    /// Priority fees of the failed attempts.
+    pub failed_cost_lamports: u64,
+    pub closed: u64,
+    pub exits_by_reason: BTreeMap<String, u64>,
+    /// Realized P&L of the closed positions (proceeds - cost, before fixed costs).
+    pub realized_lamports: i64,
+    /// `closed x paper.round_trip_lamports`.
+    pub round_trip_cost_lamports: u64,
+    /// realized - round trips - failed attempts.
+    pub net_lamports: i64,
+    /// Stake of the closed positions.
+    pub closed_spend_lamports: u64,
+    /// Mean realized return per closed position (fraction of the stake), gross
+    /// and net of the round-trip cost.
+    pub return_per_fill_gross: f64,
+    pub return_per_fill_net: f64,
+    /// EV per attempt: net / (closed + failed attempts), as a fraction of the
+    /// mean stake.
+    pub ev_per_attempt: f64,
+    #[serde(skip)]
+    premium_sum_fills: u64,
+    #[serde(skip)]
+    premium_sum_attempts: u64,
+    #[serde(skip)]
+    spend_of: HashMap<Pubkey, u64>,
+    #[serde(skip)]
+    spend_sum_attempts: u64,
+}
+
+impl PaperReport {
+    /// One resolved intent.
+    pub fn on_shadow(
+        &mut self,
+        mint: Pubkey,
+        outcome: ShadowOutcome,
+        premium_bps: u32,
+        spend: u64,
+        cost: u64,
+    ) {
+        *self.outcomes.entry(outcome.as_str().into()).or_default() += 1;
+        if !matches!(outcome, ShadowOutcome::Class | ShadowOutcome::Unresolved) {
+            self.in_class += 1;
+        }
+        if outcome == ShadowOutcome::Filled {
+            self.fills += 1;
+            self.premium_sum_fills += premium_bps as u64;
+            self.spend_of.insert(mint, spend);
+        }
+        if outcome == ShadowOutcome::Filled || outcome.is_failed_attempt() {
+            self.attempts += 1;
+            self.premium_sum_attempts += premium_bps as u64;
+        }
+        if outcome.is_failed_attempt() {
+            self.failed_attempts += 1;
+            self.failed_cost_lamports += cost;
+            self.spend_sum_attempts += spend;
+        }
+    }
+
+    pub fn on_exit(&mut self, reason: &str) {
+        *self.exits_by_reason.entry(reason.into()).or_default() += 1;
+    }
+
+    pub fn on_closed(&mut self, mint: &Pubkey, pnl: i64) {
+        if let Some(spend) = self.spend_of.remove(mint) {
+            self.closed += 1;
+            self.realized_lamports += pnl;
+            self.closed_spend_lamports += spend;
+            self.spend_sum_attempts += spend;
+        }
+    }
+
+    /// Recompute the derived numbers.
+    pub fn derive(&mut self, round_trip_lamports: u64) {
+        let f = |a: f64, b: f64| if b > 0.0 { a / b } else { 0.0 };
+        self.landing_rate = f(self.fills as f64, self.attempts as f64);
+        self.mean_premium_bps_fills = f(self.premium_sum_fills as f64, self.fills as f64);
+        self.mean_premium_bps_attempts = f(self.premium_sum_attempts as f64, self.attempts as f64);
+        self.round_trip_cost_lamports = self.closed * round_trip_lamports;
+        self.net_lamports = self.realized_lamports
+            - self.round_trip_cost_lamports as i64
+            - self.failed_cost_lamports as i64;
+        let stake = self.closed_spend_lamports as f64;
+        self.return_per_fill_gross = f(self.realized_lamports as f64, stake);
+        self.return_per_fill_net = f(
+            (self.realized_lamports - self.round_trip_cost_lamports as i64) as f64,
+            stake,
+        );
+        let n = (self.closed + self.failed_attempts) as f64;
+        let mean_stake = f(self.spend_sum_attempts as f64, n);
+        self.ev_per_attempt = f(f(self.net_lamports as f64, n), mean_stake);
+    }
+}
+
+/// An E1 verdict as the hot loop's messages, in order.
+pub fn e1_messages(r: &crate::e1::E1Res) -> Vec<HotIn> {
+    let req = r.req;
+    let mut info = ShadowInfo {
+        create_slot: req.slot,
+        s0_failed: r.s0_failed,
+        premium_bps: r.premium_bps,
+        bundle_trades: r.intx_trades,
+        ..Default::default()
+    };
+    if let Some(s0) = &r.slot0 {
+        info.create_index = Some(s0.create_index);
+        info.block_txs = Some(s0.block_txs);
+        info.bundle_trades = s0.bundle_trades;
+        info.bundle_wallets = s0.bundle_wallets.len() as u32;
+        info.our_index = Some(s0.our_index);
+        info.tp_ahead = s0.tp_ahead;
+        info.tp_behind = s0.tp_behind;
+        info.post_bundle_v = s0.ref_v;
+        info.post_bundle_t = s0.ref_t;
+        info.post_bundle_mcap = s0.mcap();
+    }
+    let outcome = if r.outcome == ShadowOutcome::Filled && r.slot0.is_none() {
+        ShadowOutcome::Unresolved
+    } else {
+        r.outcome
+    };
+    let mut out = vec![HotIn::E1Open {
+        intent: req.intent,
+        mint: req.mint,
+        outcome,
+        info,
+    }];
+    if outcome != ShadowOutcome::Filled {
+        return out;
+    }
+    if let Some(s0) = &r.slot0 {
+        for k in &s0.bundle_wallets {
+            out.push(HotIn::E1Insider {
+                intent: req.intent,
+                key: *k,
+                creator: false,
+            });
+        }
+        for k in &s0.creator_set {
+            out.push(HotIn::E1Insider {
+                intent: req.intent,
+                key: *k,
+                creator: true,
+            });
+        }
+    }
+    for t in &r.tape {
+        out.push(HotIn::E1Trade {
+            intent: req.intent,
+            trade: rugsnipe_exit::Trade {
+                venue: Venue::Curve,
+                mint: req.mint,
+                user: t.user,
+                is_buy: t.is_buy,
+                sol_amount: t.sol,
+                token_amount: t.tok,
+                fee_lamports: t.sol * 125 / 10_000,
+                reserve_sol: t.v,
+                reserve_token: t.t,
+                slot: t.slot,
+            },
+        });
+    }
+    out.push(HotIn::E1End {
+        intent: req.intent,
+        horizon: r.horizon,
+    });
+    out
 }
 
 /// Everything the cold thread owns.
@@ -151,6 +353,12 @@ struct Cold {
     e2_tx: tokio::sync::mpsc::UnboundedSender<(u64, Pubkey, Result<crate::e2::E2, String>, u64)>,
     e2_rx: tokio::sync::mpsc::UnboundedReceiver<(u64, Pubkey, Result<crate::e2::E2, String>, u64)>,
     e2_pending: usize,
+    e1_tx: tokio::sync::mpsc::UnboundedSender<crate::e1::E1Res>,
+    e1_rx: tokio::sync::mpsc::UnboundedReceiver<crate::e1::E1Res>,
+    /// Session set of third-party slot-0 buyers (E1 sniper detection).
+    snipers: Arc<Mutex<HashSet<Pubkey>>>,
+    /// Messages for the hot loop waiting for ring space (in order).
+    to_hot_q: VecDeque<HotIn>,
     last_hb: u64,
     was_killed: bool,
     armset_mtime: Option<std::time::SystemTime>,
@@ -174,6 +382,7 @@ fn pos_state(s: PositionState) -> Option<PosState> {
 impl Cold {
     fn new(p: ColdParts) -> Self {
         let (e2_tx, e2_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (e1_tx, e1_rx) = tokio::sync::mpsc::unbounded_channel();
         let n = p.nonces.len();
         Self {
             p,
@@ -181,6 +390,10 @@ impl Cold {
             e2_tx,
             e2_rx,
             e2_pending: 0,
+            e1_tx,
+            e1_rx,
+            snipers: Arc::new(Mutex::new(HashSet::new())),
+            to_hot_q: VecDeque::new(),
             last_hb: 0,
             was_killed: false,
             armset_mtime: None,
@@ -360,7 +573,27 @@ impl Cold {
                     }
                 }
             };
-            let _ = self.p.to_hot.push(msg);
+            self.to_hot_q.push_back(msg);
+        }
+        while let Ok(r) = self.e1_rx.try_recv() {
+            {
+                let mut rep = lock(&self.p.report);
+                rep.e1_resolved += 1;
+                rep.e1_rpc_calls += r.calls as u64;
+                if let Some(e) = &r.error {
+                    if rep.e1_errors.len() < 8 {
+                        rep.e1_errors.push(e.clone());
+                    }
+                }
+            }
+            self.to_hot_q.extend(e1_messages(&r));
+        }
+        // in order, as ring space allows (a full ring waits for the next drain)
+        while let Some(m) = self.to_hot_q.front() {
+            if self.p.to_hot.push(*m).is_err() {
+                break;
+            }
+            self.to_hot_q.pop_front();
         }
     }
 
@@ -405,6 +638,7 @@ impl Cold {
                         via: match via {
                             2 => Via::FeePayer,
                             3 => Via::Funding,
+                            4 => Via::Class,
                             _ => Via::Signer,
                         },
                         feed_class: src.name().into(),
@@ -463,6 +697,8 @@ impl Cold {
                 late,
                 buyers_ahead,
                 rival_sol_ahead,
+                fail,
+                fail_cost,
             } => {
                 {
                     let mut r = lock(&self.p.report);
@@ -482,10 +718,16 @@ impl Cold {
                             tx_index: None,
                             tokens,
                             sol_delta,
-                            err: (!filled).then(|| "unfilled: E2 above v_max".to_string()),
+                            err: match (filled, fail) {
+                                (true, _) => None,
+                                (false, Some(f)) => Some(format!("failed: {}", f.as_str())),
+                                (false, None) => Some("unfilled: E2 above v_max".to_string()),
+                            },
                             buyers_ahead,
                             rival_sol_ahead,
                             late,
+                            fail_reason: fail.map(|f| f.as_str().to_string()),
+                            fail_cost,
                         },
                         None,
                     );
@@ -531,7 +773,11 @@ impl Cold {
                 owner,
                 try_no,
             } => {
-                lock(&self.p.report).exits += 1;
+                {
+                    let mut r = lock(&self.p.report);
+                    r.exits += 1;
+                    r.paper.on_exit(&reason.label());
+                }
                 if let Some(l) = &ledger {
                     l.exit(ExitRow {
                         sig,
@@ -571,7 +817,30 @@ impl Cold {
                 v0,
                 t0,
                 decided_unix_ms,
+                creator,
+                user,
+                intx_buys,
             } => {
+                if let Some(e1) = self.p.cfg.e1.clone() {
+                    lock(&self.p.report).e1_requested += 1;
+                    let tx = self.e1_tx.clone();
+                    let snipers = self.snipers.clone();
+                    let req = crate::e1::E1Req {
+                        intent,
+                        mint,
+                        bc,
+                        create_sig,
+                        slot,
+                        creator,
+                        user,
+                        decided_unix_ms,
+                    };
+                    tokio::spawn(async move {
+                        let r = crate::e1::resolve(&e1, req, intx_buys as u32, snipers).await;
+                        let _ = tx.send(r);
+                    });
+                    return;
+                }
                 let Some(e2) = self.p.cfg.e2.clone() else {
                     return;
                 };
@@ -622,10 +891,50 @@ impl Cold {
                     self.burn(i);
                 }
             }
-            ColdMsg::Closed { pnl, .. } => {
+            ColdMsg::Closed { mint, pnl, .. } => {
                 let mut r = lock(&self.p.report);
                 r.positions_closed += 1;
                 r.realized_lamports += pnl;
+                r.paper.on_closed(&mint, pnl);
+                r.paper.derive(self.p.cfg.round_trip_lamports);
+            }
+            ColdMsg::Shadow {
+                intent,
+                mint,
+                e1,
+                outcome,
+                info,
+                spend,
+                cost,
+            } => {
+                {
+                    let mut r = lock(&self.p.report);
+                    r.paper
+                        .on_shadow(mint, outcome, info.premium_bps, spend, cost);
+                    r.paper.derive(self.p.cfg.round_trip_lamports);
+                }
+                if let Some(l) = &ledger {
+                    l.shadow(ShadowRow {
+                        intent_id: intent as i64,
+                        mint,
+                        model: if e1 { "e1" } else { "e2" }.into(),
+                        outcome: outcome.as_str().into(),
+                        create_slot: info.create_slot,
+                        create_index: info.create_index,
+                        block_txs: info.block_txs,
+                        bundle_trades: info.bundle_trades,
+                        bundle_wallets: info.bundle_wallets,
+                        our_index: info.our_index,
+                        tp_ahead: info.tp_ahead,
+                        tp_behind: info.tp_behind,
+                        s0_failed: info.s0_failed,
+                        premium_bps: info.premium_bps,
+                        post_bundle_v: info.post_bundle_v,
+                        post_bundle_t: info.post_bundle_t,
+                        post_bundle_mcap: info.post_bundle_mcap,
+                        cost,
+                    });
+                }
             }
         }
     }
@@ -827,6 +1136,7 @@ impl Cold {
             let mut a = (**arm).clone();
             a.verified = false;
             a.gate_passed = false;
+            a.probe_allowed = false;
             self.p.arm.store(Arc::new(a));
             eprintln!("armset: v{} is stale: buys stay out of real modes", arm.ver);
         }
@@ -888,5 +1198,145 @@ fn watch_row(e: &rugsnipe_core::watchlist::DynEntry) -> WatchDynRow {
         keep: e.keep,
         parent: e.parent,
         state: if e.launched { "launched" } else { "active" }.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::e1::{E1Req, E1Res, Slot0};
+    use crate::e2::TradeObs;
+
+    fn res(outcome: ShadowOutcome, slot0: Option<Slot0>, tape: Vec<TradeObs>) -> E1Res {
+        E1Res {
+            req: E1Req {
+                intent: 7,
+                mint: Pubkey::new_unique(),
+                bc: Pubkey::new_unique(),
+                create_sig: [1; 64],
+                slot: 500,
+                creator: Pubkey::new_unique(),
+                user: Pubkey::new_unique(),
+                decided_unix_ms: 0,
+            },
+            outcome,
+            slot0,
+            premium_bps: 110,
+            s0_failed: 2,
+            intx_trades: 1,
+            tape,
+            horizon: 512,
+            calls: 9,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn e1_verdict_becomes_ordered_hot_messages() {
+        let (b, c) = (Pubkey::new_unique(), Pubkey::new_unique());
+        let s0 = Slot0 {
+            create_index: 40,
+            block_txs: 900,
+            bundle_trades: 3,
+            bundle_wallets: vec![b],
+            creator_set: vec![c],
+            our_index: 43,
+            tp_behind: 2,
+            ref_v: 33_000_000_000,
+            ref_t: 975_000_000_000_000,
+            ..Default::default()
+        };
+        let t = TradeObs {
+            slot: 501,
+            is_buy: true,
+            sol: 1_000_000,
+            tok: 10,
+            v: 1,
+            t: 2,
+            user: b,
+        };
+        let m = e1_messages(&res(ShadowOutcome::Filled, Some(s0.clone()), vec![t, t]));
+        assert_eq!(m.len(), 6);
+        match m[0] {
+            HotIn::E1Open { outcome, info, .. } => {
+                assert_eq!(outcome, ShadowOutcome::Filled);
+                assert_eq!(
+                    (
+                        info.create_index,
+                        info.our_index,
+                        info.bundle_wallets,
+                        info.tp_behind
+                    ),
+                    (Some(40), Some(43), 1, 2)
+                );
+                assert_eq!((info.premium_bps, info.s0_failed), (110, 2));
+                assert_eq!(info.post_bundle_mcap, s0.mcap());
+            }
+            x => panic!("{x:?}"),
+        }
+        assert!(matches!(m[1], HotIn::E1Insider { key, creator: false, .. } if key == b));
+        assert!(matches!(m[2], HotIn::E1Insider { key, creator: true, .. } if key == c));
+        assert!(
+            matches!(m[3], HotIn::E1Trade { trade, .. } if trade.slot == 501 && trade.reserve_token == 2)
+        );
+        assert!(matches!(m[5], HotIn::E1End { horizon: 512, .. }));
+        // a failure is one message; a fill without a creation slot is unresolved
+        let f = e1_messages(&res(ShadowOutcome::Premium, Some(s0), vec![t]));
+        assert_eq!(f.len(), 1);
+        let u = e1_messages(&res(ShadowOutcome::Filled, None, vec![]));
+        assert!(matches!(
+            u[..],
+            [HotIn::E1Open {
+                outcome: ShadowOutcome::Unresolved,
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn paper_totals_count_failures_into_the_ev_per_attempt() {
+        let mut p = PaperReport::default();
+        let (a, b) = (Pubkey::new_unique(), Pubkey::new_unique());
+        p.on_shadow(a, ShadowOutcome::Filled, 110, 500_000_000, 0);
+        p.on_shadow(b, ShadowOutcome::Filled, 150, 500_000_000, 0);
+        p.on_shadow(
+            Pubkey::new_unique(),
+            ShadowOutcome::Premium,
+            340,
+            500_000_000,
+            3_000_000,
+        );
+        p.on_shadow(
+            Pubkey::new_unique(),
+            ShadowOutcome::Class,
+            110,
+            500_000_000,
+            0,
+        );
+        p.on_shadow(
+            Pubkey::new_unique(),
+            ShadowOutcome::Unresolved,
+            110,
+            500_000_000,
+            0,
+        );
+        p.on_exit("tp0");
+        p.on_closed(&a, 50_000_000);
+        p.on_closed(&Pubkey::new_unique(), 1); // not a paper fill of this session
+        p.derive(4_000_000);
+        assert_eq!(
+            (p.attempts, p.fills, p.failed_attempts, p.in_class),
+            (3, 2, 1, 3)
+        );
+        assert!((p.landing_rate - 2.0 / 3.0).abs() < 1e-12);
+        assert_eq!(p.mean_premium_bps_fills, 130.0);
+        assert_eq!(p.mean_premium_bps_attempts, 200.0);
+        // b is still open: it counts in neither the numerator nor the denominator
+        assert_eq!(p.closed, 1);
+        assert_eq!(p.net_lamports, 50_000_000 - 4_000_000 - 3_000_000);
+        assert!((p.return_per_fill_gross - 0.1).abs() < 1e-12);
+        assert!((p.return_per_fill_net - 0.092).abs() < 1e-12);
+        assert!((p.ev_per_attempt - 43_000_000.0 / 2.0 / 500_000_000.0).abs() < 1e-12);
+        assert_eq!(p.exits_by_reason.get("tp0"), Some(&1));
     }
 }

@@ -1,0 +1,163 @@
+# rugsnipe PAPER configuration of the LEAD policy (docs/04 sections 2, 6 and 7): the rank-1
+# micro-scalp in shadow mode. Same schema as rugsnipe.example.toml / paper.example.toml.
+#
+#   python -I analysis/scripts/make_paper_armset.py --kind class --ver 3 --out <dir>/class.json
+#   rugsnipe-ctl armset sign --key <dev key> --in <dir>/class.json      # -> armset-3-<sha>.json(.sig)
+#   rugsnipe-hot --config config/paper-lead.example.toml --armset <armset-3-SHA.json> \
+#       --state data/raw/paper-lead/state.db --rslog-dir data/raw/paper-lead/rslog --duration-s 1200
+#
+# The class ArmSet matches every create (`match_all`); `[entry] filter = "multi_bundle"` keeps
+# the launches whose creation slot holds a bundle with a wallet outside the creator set. Each
+# paper intent is resolved by the E1 lane from confirmed history (getSignaturesForAddress,
+# getBlock, getTransaction; at most --lane-rps requests/s, 3.5 by default): where the create
+# sat in its block, the bundle, our would-be index, third-party buyers ahead/behind, the
+# premium, then a fill at the post-bundle price + entry_premium or a failed attempt that pays
+# failed_attempt_lamports; fills replay the next slots through the exits below. The session
+# summary carries the totals (`cold.paper`: landing rate, mean premium, exits by reason, net
+# P&L, EV per attempt including failures); state.db has a `shadow` row per intent and
+# `fills.fail_reason` / `fail_cost`.
+#
+# Paper caps are opened wide so the risk gate never drops a paper decision (would_skip); a
+# real mode is refused anyway (no keys, the class operator is `shadow`, free feeds are paper).
+[box]
+id = "paper-lead"
+role = "hot"
+singleton = true
+[mode]
+mode = "paper"                                     # paper | probe | live
+regime_freeze_slots = [[459_640_000, 459_869_000]] # Alpenglow: buys forced to paper
+max_age_slots = 2
+[secrets]                                          # systemd credential NAMES, never key material
+hot_keypair = "hot-keypair"
+probe_keypair = "probe-keypair"
+api_keys = "api-keys"
+armset_pubkey = "26d9xuCcQ3Xk7WZ5aA7f7Ff6HjTgEjo3eAwMnzMAX2Wq"   # DEV paper signing key (not the ohio1 key)
+cold_wallet = "<base58>"
+[risk]
+max_snipe_lamports = 500_000_000                  # docs/04 section 4: cap at 0.5 SOL
+max_probe_lamports = 20_000_000
+max_probes_per_day = 20
+max_open_positions = 64                            # paper: never the binding constraint
+max_daily_loss_lamports = 100_000_000_000          # paper
+max_consec_losses_per_op = 1_000_000               # paper (live: 5 per operator class)
+max_buys_per_op_per_day = 1_000_000                # paper (one class operator)
+max_buys_per_hour = 1_000_000                      # paper
+max_bid_lamports = 25_000_000
+max_sell_spend_lamports = 20_000_000
+max_entry_vsol_lamports = 115_000_000_000          # no entry-cap filter beyond slot-0 graduation (gap-3)
+max_hot_balance_lamports = 5_000_000_000
+min_hot_balance_lamports = 1_000_000_000
+kill_file = "data/raw/paper-lead/KILL"
+armset_max_age_s = 21_600
+decode_miss_kill_ratio = 0.01
+send_error_kill_ratio = 0.20
+max_clock_offset_ms = 5
+[feeds]
+logsws = { enabled = true, url = "wss://api.mainnet-beta.solana.com", stale_ms = 10_000 }
+relay = { enabled = false, socket = "/run/rugsnipe/pp.sock" }    # collector's PumpPortal frames
+grpc = { enabled = false, endpoint = "", token = "GRPC_TOKEN", stale_ms = 2_000 }
+shreds = { enabled = false, bind = "0.0.0.0:7733", sources = ["dz_edge", "helius"] }
+probe_live_require = "post_exec"
+[senders]
+paper = { enabled = true }
+rpcsend = { enabled = false, url = "https://api.mainnet-beta.solana.com", sells_only = true }
+helius = { enabled = false, url = "http://fra-sender.helius-rpc.com/fast", swqos_only = true, min_tip = 5_000 }
+nozomi = { enabled = false, url = "http://fra2.nozomi.temporal.xyz", key = "NOZOMI_KEY", min_tip = 1_000_000 }
+astralane = { enabled = false, key = "ASTRALANE_KEY", min_tip = 1_000_000 }
+jito = { enabled = false, region = "auto", max_rps = 1 }
+nextblock = { enabled = false, key = "NEXTBLOCK_KEY" }
+tpu = { enabled = false, leaders_ahead = 2 }
+[rpc_budget]                                       # req/s per public-RPC egress IP; roles sum <= 32
+hot = 4
+guard = 4
+keeper = 8
+collector = 12
+backfill = 4
+per_method = 4                                     # Python buckets: cap per (endpoint host, method)
+per_host = 10                                      # Python buckets: cap per endpoint host, all methods
+# methods = { getBlock = 2 }                       # per-method overrides of per_method (Python)
+[tx]
+format = "legacy"
+cu_limit = 0                                       # FLOOR of the per-mint CU limit: the hot path patches 65,000 + 1,500*S per mint
+                                                   # (S = sum of 255 - bump over bc, curve base ATA, curve wSOL ATA, our ATA;
+                                                   # research/gap-5), clamped to [cu_limit, 1,400,000]; sells use it as is.
+                                                   # 88_000 recommended; 0 = probe/live refused until `rugsnipe-ctl sim`
+                                                   # confirms the fit (paper falls back to 88,000)
+lads_bytes = 0
+nonce_pool = 32
+sell_nonce_pool = 8
+burn_after_slots = 3
+partial_fill = false
+[bid]
+quantile = 0.75
+split = { jito_agave = [0.7, 0.3], harmonic = [1.0, 0.0], bam = [0.5, 0.5] }   # [priority, tip]
+[entry]
+max_premium = 0.02                                 # max_sol_cost = post-bundle price + 2%: a rank-3 fill fails cheaply
+filter = "multi_bundle"                            # >= 1 bundle wallet outside the creator set (gap-3 definition)
+[paper]
+fill_model = "e1"                                  # e1: creation slot, right behind the bundle | e2: end of slot+1
+entry_premium = 0.011                              # gap-2: rank-1 median premium over the post-bundle price
+failed_attempt_lamports = 3_000_000                # priority fee a failed (slippage-capped) buy still pays
+round_trip_lamports = 4_000_000                    # fixed cost per landed round trip (docs/04, base level)
+exit_latency_slots = 1                             # a sell fills at the end of trigger slot + 1
+slot_ms = 217                                      # slot clock of the replay (gap-3 tapes after Oct 9)
+replay_slots = 12                                  # history fetched after the creation slot (exits fire by +5)
+delay_ms = 8_000                                   # wait for confirmed history
+late_block_frac = 0.10                             # a create in the last 10% of its block: not_in_slot0 (gap-2)
+max_tx = 100                                       # getTransaction calls per intent
+min_replay_slots = 7                               # a fill needs its tape complete through s+7, else unresolved
+[exit.default]                                     # docs/04 section 2, first of:
+tp = [[1.15, 1.0]]                                 # 1. realised value >= +15% of the stake -> sell all
+tp_basis = "value"                                 #    (after fees and our own impact, not the price multiple)
+fire_on = "trade"                                  #    sent on the first event that shows a trigger
+insider_sell = "bundle"                            # 2. any sell by a bundle wallet or the creator set
+bundle_sell_min_lamports = 0
+no_activity_ms = 1_000                             # 3. 1 s without a trade, counted from the landing slot
+phantom_sl = { after_ms = 1_000, drop = 0.15 }     # 4. -15% from the post-bundle price, armed after 1 s
+max_hold_slots = 5                                 # 5. hard exit at landing slot + 5 (fills one slot later)
+max_hold_ms = 0
+tp_slip_bps = 2500                                 # normal sells refuse a fill > 25% below the trigger quote
+trail = { activate = 0.0, retrace_bps = 0 }        # off
+consolidation_pct = 0                              # off (needs a paid feed)
+big_buy_lamports = [0, 0]                          # off (not in the frozen policy)
+sell_retry = { every_slots = 2, max_tries = 15, tip_mult = 2.0 }
+[guard]
+takeover_after_ms = 5_000
+drop_from_peak_bps = 3000
+grace_s = 60
+[watch]
+default_ttl_s = 1800
+remove_if_no_launch_s = 3600
+last_transfer_min_frac = 0.9
+[obs]
+metrics_listen = ["127.0.0.1:9465"]
+rslog_dir = "data/raw/paper-lead/rslog"
+alert = { telegram = "TG_TOKEN", deadman = "HC_URL" }   # credential names
+[ab]                                               # probe/live only
+skip_p = 0.2
+small_arm = [0.2, 0.35]
+small_lamports = 50_000_000
+size_jitter = 0.10
+[collector]                                        # Python collector overrides (collector.py CollectorConfig); all optional
+# db_path = "data/analytics.db"                    # (default: repo data/analytics.db)
+# box = "ohio1"
+# relay_socket = "/run/rugsnipe/pp.sock"           # also set by [feeds] relay.enabled
+# pp_url = "wss://pumpportal.fun/api/data"
+# logs_url = "wss://api.mainnet-beta.solana.com"
+# rpc_endpoints = ["https://api.mainnet-beta.solana.com"]
+# budget_role = "collector"                        # an [rpc_budget] role
+# duration_s = 3600                                # unset = run forever
+# pp_stale_s = 60.0
+# logs_stale_s = 30.0
+# decode_delay_s = 8.0
+# funding_delay_s = 45.0
+# rivals_delay_s = 90.0
+# tape_delay_s = 2100.0                            # tapes at T+35 min
+# tape_early_s = 300
+# tape_early_pages = 10
+# funding_hops = 1                                 # 0 = signer's own funding only
+# funding_scan = 4
+# cache_tx = false
+# workers = 10
+# api_rps = 3.0                                    # pump.fun frontend API
+# stats_every_s = 60.0

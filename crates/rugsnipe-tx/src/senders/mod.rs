@@ -375,8 +375,9 @@ impl core::fmt::Debug for SenderSet {
 
 impl SenderSet {
     /// Paper mode: only the paper sender, whatever the config enables.
-    /// Probe/live: `cfg.validate(env)` must pass (signed `gate_passed`
-    /// ArmSet, every cap, credentials, clock, post-exec feed, budget) and
+    /// Probe/live: `cfg.validate(env)` must pass (signed ArmSet with
+    /// `probe_allowed` for probe or `gate_passed` for live, every cap,
+    /// credentials, clock, post-exec feed, budget) and
     /// every enabled real sender must be compiled in.
     pub fn build(cfg: &Config, env: &ValidateEnv, keys: &ApiKeys) -> Result<Self, BuildError> {
         let paper = Arc::new(paper::Paper::new(4_096));

@@ -20,7 +20,10 @@ fn good_env(cfg: &Config) -> ValidateEnv {
     ValidateEnv {
         clock_offset_ms: Some(0.4),
         post_exec_feed_healthy: true,
-        armset: ArmSetGate::Verified { gate_passed: true },
+        armset: ArmSetGate::Verified {
+            gate_passed: true,
+            probe_allowed: true,
+        },
         credential_modes: creds,
         live_cli_flag: true,
         arm_live_token: true,
@@ -88,7 +91,10 @@ fn every_refusal_is_reported_at_once() {
         .insert(c.secrets.hot_keypair.clone(), Some(0o644));
     env.clock_offset_ms = Some(7.0);
     env.post_exec_feed_healthy = false;
-    env.armset = ArmSetGate::Verified { gate_passed: false };
+    env.armset = ArmSetGate::Verified {
+        gate_passed: false,
+        probe_allowed: false,
+    };
     env.live_cli_flag = false;
     env.arm_live_token = false;
     let v = c.validate(&env);
@@ -317,13 +323,21 @@ fn each_section6_refusal_alone_refuses_probe_and_live() {
             env.armset = g;
             only(&base, &env, vec![Refusal::ArmSet(g)], &format!("{g:?}"));
         }
+        // probe needs probe_allowed (not the gate); live needs gate_passed
         let mut env = env0.clone();
-        env.armset = ArmSetGate::Verified { gate_passed: false };
+        env.armset = ArmSetGate::Verified {
+            gate_passed: false,
+            probe_allowed: false,
+        };
         only(
             &base,
             &env,
-            vec![Refusal::GateNotPassed],
-            "gate_passed = false",
+            vec![if mode == Mode::Probe {
+                Refusal::ProbeNotAllowed
+            } else {
+                Refusal::GateNotPassed
+            }],
+            "ArmSet does not allow this mode",
         );
         // (6) RPC budget sum > 32 (32 itself is allowed)
         let mut c = base.clone();
@@ -335,5 +349,233 @@ fn each_section6_refusal_alone_refuses_probe_and_live() {
             vec![Refusal::RpcBudget { sum: 33 }],
             "rpc budget 33",
         );
+    }
+}
+
+#[test]
+fn probe_needs_probe_allowed_not_the_gate_and_live_needs_the_gate() {
+    let gate = |gate_passed, probe_allowed| ArmSetGate::Verified {
+        gate_passed,
+        probe_allowed,
+    };
+    // probe: probe_allowed is enough, gate_passed alone is not
+    let c = armable(example(), Mode::Probe);
+    let mut env = good_env(&c);
+    env.armset = gate(false, true);
+    assert!(c.validate(&env).ok(), "{:?}", c.validate(&env).refusals);
+    env.armset = gate(true, false);
+    assert_eq!(c.validate(&env).refusals, vec![Refusal::ProbeNotAllowed]);
+    // probe still needs every cap and credential
+    let mut c2 = c.clone();
+    c2.risk.max_probe_lamports = 0;
+    env.armset = gate(false, true);
+    assert_eq!(
+        c2.validate(&env).refusals,
+        vec![Refusal::CapMissing("max_probe_lamports")]
+    );
+    env.credential_modes.remove(&c.secrets.probe_keypair);
+    assert_eq!(
+        c.validate(&env).refusals,
+        vec![Refusal::CredentialMissing(c.secrets.probe_keypair.clone())]
+    );
+    // probe still needs a signed, fresh ArmSet
+    let mut env = good_env(&c);
+    env.armset = ArmSetGate::Stale;
+    assert_eq!(
+        c.validate(&env).refusals,
+        vec![Refusal::ArmSet(ArmSetGate::Stale)]
+    );
+    // live: gate_passed is required, probe_allowed does not substitute
+    let c = armable(example(), Mode::Live);
+    let mut env = good_env(&c);
+    env.armset = gate(false, true);
+    assert_eq!(c.validate(&env).refusals, vec![Refusal::GateNotPassed]);
+    env.armset = gate(true, false);
+    assert!(c.validate(&env).ok());
+}
+
+#[test]
+fn python_side_sections_parse_and_validate() {
+    let toml = r#"
+[rpc_budget]
+hot = 4
+guard = 4
+keeper = 8
+collector = 12
+backfill = 4
+per_method = 4
+per_host = 10.5
+[rpc_budget.methods]
+getBlock = 2
+getSignaturesForAddress = 3.5
+
+[collector]
+db_path = "/var/lib/rugsnipe/analytics.db"
+box = "ohio1"
+workers = 6
+api_rps = 2
+tape_delay_s = 2100
+funding_hops = 2
+cache_tx = true
+budget_role = "collector"
+rpc_endpoints = ["https://api.mainnet-beta.solana.com"]
+logs_url = "wss://api.mainnet-beta.solana.com"
+"#;
+    let c = Config::from_toml_str(toml).unwrap();
+    assert_eq!(c.rpc_budget.per_method, 4.0);
+    assert_eq!(c.rpc_budget.per_host, 10.5);
+    assert_eq!(c.rpc_budget.methods.get("getBlock"), Some(&2.0));
+    assert_eq!(c.rpc_budget.sum(), 32, "only roles count toward the sum");
+    assert_eq!(c.collector.box_.as_deref(), Some("ohio1"));
+    assert_eq!(c.collector.workers, Some(6));
+    assert_eq!(c.collector.api_rps, Some(2.0));
+    assert_eq!(c.collector.cache_tx, Some(true));
+    assert_eq!(c.collector.duration_s, None);
+    assert!(c.validate(&ValidateEnv::default()).ok());
+    // defaults when absent
+    let d = Config::from_toml_str("").unwrap();
+    assert_eq!(
+        (d.rpc_budget.per_method, d.rpc_budget.per_host),
+        (4.0, 10.0)
+    );
+    assert!(d.rpc_budget.methods.is_empty());
+    assert_eq!(d.collector, Default::default());
+    // typos are refused (Python would silently ignore them)
+    assert!(Config::from_toml_str("[collector]\nworker = 3\n").is_err());
+    assert!(Config::from_toml_str("[rpc_budget]\nper_hosts = 3\n").is_err());
+    // validation
+    let bad = |t: &str| -> Vec<String> {
+        Config::from_toml_str(t)
+            .unwrap()
+            .validate(&ValidateEnv::default())
+            .refusals
+            .iter()
+            .map(|r| r.to_string())
+            .collect()
+    };
+    for (t, field) in [
+        ("[rpc_budget]\nper_method = 0\n", "rpc_budget.per_method"),
+        ("[rpc_budget]\nper_host = -1\n", "rpc_budget.per_host"),
+        ("[rpc_budget.methods]\ngetBlock = 0\n", "rpc_budget.methods"),
+        ("[collector]\nworkers = 0\n", "collector.workers"),
+        ("[collector]\napi_rps = 0\n", "collector.api_rps"),
+        ("[collector]\ntape_delay_s = -5\n", "collector.tape_delay_s"),
+        (
+            "[collector]\nbudget_role = \"hotbox\"\n",
+            "collector.budget_role",
+        ),
+        (
+            "[collector]\nrpc_endpoints = []\n",
+            "collector.rpc_endpoints",
+        ),
+        (
+            "[collector]\npp_url = \"https://pumpportal.fun\"\n",
+            "collector.pp_url",
+        ),
+    ] {
+        let r = bad(t);
+        assert!(r.len() == 1 && r[0].starts_with(field), "{t:?}: {r:?}");
+    }
+    // the budget sum rule is unchanged: roles only, <= 32 for probe/live
+    let mut c = armable(example(), Mode::Probe);
+    c.rpc_budget.per_host = 1_000.0;
+    c.rpc_budget.methods.insert("getBlock".into(), 500.0);
+    assert!(c.validate(&good_env(&c)).ok());
+    c.rpc_budget.hot += 1;
+    assert_eq!(
+        c.validate(&good_env(&c)).refusals,
+        vec![Refusal::RpcBudget { sum: 33 }]
+    );
+}
+
+#[test]
+fn example_collector_and_budget_comments_are_valid_keys() {
+    // every commented-out key of the examples' [collector] table (and the
+    // commented `methods` line) is a real, valid key: uncomment and parse
+    for f in [
+        "rugsnipe.example.toml",
+        "paper.example.toml",
+        "paper-lead.example.toml",
+    ] {
+        let p = format!("{}/../../config/{f}", env!("CARGO_MANIFEST_DIR"));
+        let text = std::fs::read_to_string(p).unwrap();
+        let mut out = String::new();
+        let mut in_collector = false;
+        for l in text.lines() {
+            if l.starts_with('[') {
+                in_collector = l.starts_with("[collector]");
+            }
+            let uncomment = (in_collector && l.starts_with("# ")) || l.starts_with("# methods = ");
+            out.push_str(if uncomment { &l[2..] } else { l });
+            out.push('\n');
+        }
+        let c = Config::from_toml_str(&out).unwrap_or_else(|e| panic!("{f}: {e}"));
+        assert_eq!(c.collector.workers, Some(10), "{f}");
+        assert_eq!(c.collector.tape_delay_s, Some(2_100.0), "{f}");
+        assert_eq!(c.rpc_budget.methods.get("getBlock"), Some(&2.0), "{f}");
+        assert!(c.validate(&ValidateEnv::default()).ok(), "{f}");
+    }
+}
+
+#[test]
+fn entry_and_paper_sections_default_parse_and_validate() {
+    use rugsnipe_core::config::{EntryFilter, FillModel};
+    // defaults (docs/04 sections 2, 6 and 7)
+    let d = Config::default();
+    assert_eq!(d.paper.fill_model, FillModel::E1);
+    assert_eq!(d.paper.entry_premium, 0.011);
+    assert_eq!(d.paper.failed_attempt_lamports, 3_000_000);
+    assert_eq!(d.paper.exit_latency_slots, 1);
+    assert_eq!(d.entry.max_premium, 0.02);
+    assert_eq!(d.entry.filter, EntryFilter::Any);
+    // the lead example
+    let p = format!(
+        "{}/../../config/paper-lead.example.toml",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let c = Config::from_toml_str(&std::fs::read_to_string(p).unwrap()).unwrap();
+    assert_eq!(c.entry.filter, EntryFilter::MultiBundle);
+    assert_eq!(c.paper.fill_model, FillModel::E1);
+    assert_eq!(c.risk.max_snipe_lamports, 500_000_000);
+    assert!(c.validate(&ValidateEnv::default()).ok());
+    let ex = c.exit["default"].as_table().unwrap();
+    assert_eq!(ex["max_hold_slots"].as_integer(), Some(5));
+    assert_eq!(ex["insider_sell"].as_str(), Some("bundle"));
+    assert_eq!(ex["no_activity_ms"].as_integer(), Some(1_000));
+    // e2 and the filter names parse; unknown values and keys are refused
+    let c =
+        Config::from_toml_str("[paper]\nfill_model = \"e2\"\n[entry]\nfilter = \"any\"\n").unwrap();
+    assert_eq!(
+        (c.paper.fill_model, c.entry.filter),
+        (FillModel::E2, EntryFilter::Any)
+    );
+    assert!(Config::from_toml_str("[paper]\nfill_model = \"e3\"\n").is_err());
+    assert!(Config::from_toml_str("[entry]\nmax_premuim = 0.02\n").is_err());
+    // out-of-range values are refused in every mode
+    let mut bad = example();
+    bad.entry.max_premium = 1.5;
+    bad.paper.entry_premium = -0.1;
+    bad.paper.late_block_frac = 1.0;
+    bad.paper.slot_ms = 0;
+    bad.paper.replay_slots = 0;
+    bad.paper.min_replay_slots = 7;
+    let v = bad.validate(&ValidateEnv::default());
+    let fields: Vec<&str> = v
+        .refusals
+        .iter()
+        .filter_map(|r| match r {
+            Refusal::Invalid { field, .. } => Some(*field),
+            _ => None,
+        })
+        .collect();
+    for f in [
+        "entry.max_premium",
+        "paper.entry_premium",
+        "paper.late_block_frac",
+        "paper.slot_ms",
+        "paper.replay_slots",
+        "paper.min_replay_slots",
+    ] {
+        assert!(fields.contains(&f), "{f}: {fields:?}");
     }
 }

@@ -17,11 +17,12 @@ use std::io::Read;
 use std::path::Path;
 use zeroize::Zeroizing;
 
-/// Static CU limit when `tx.cu_limit = 0` in paper: docs/03 section 6 (gap-5)
+/// CU floor when `tx.cu_limit = 0` in paper: docs/03 section 6 (gap-5)
 /// puts the static floor at 88,000 (a static 72,150 fails ~16% of mints:
-/// CU is `62,310 + 1,500*S` with a nonce, S up to 14) until the hot path
-/// patches the per-mint limit.
-pub const PAPER_CU_LIMIT: u32 = 88_000;
+/// CU is `62,310 + 1,500*S` with a nonce, S up to 14). The hot path patches
+/// the per-mint limit `65,000 + 1,500*S` over this floor
+/// ([`rugsnipe_tx::cu::snipe_cu_limit`]).
+pub const PAPER_CU_LIMIT: u32 = rugsnipe_tx::cu::RECOMMENDED_CU_FLOOR;
 /// 370 pages.
 pub const PAPER_LADS_BYTES: u32 = 12_124_160;
 /// Fallback `max_sell_spend` when `[risk]` leaves it 0 (paper only).
@@ -46,7 +47,10 @@ pub struct ArmState {
     pub ver: u64,
     /// Signature, sha, freshness and regime verified.
     pub verified: bool,
+    /// Live may buy (signed `gate_passed`).
     pub gate_passed: bool,
+    /// Probe may buy (signed `probe_allowed`; the gate is not required).
+    pub probe_allowed: bool,
     pub created_at: u64,
     pub sha: String,
     pub ops: HashMap<u32, OpInfo>,
@@ -78,6 +82,7 @@ impl ArmState {
             ver: a.ver,
             verified,
             gate_passed: verified && a.gate_passed,
+            probe_allowed: verified && a.probe_allowed,
             created_at: a.created_at,
             sha: sha.to_string(),
             ops,
@@ -88,6 +93,7 @@ impl ArmState {
         if self.verified {
             ArmSetGate::Verified {
                 gate_passed: self.gate_passed,
+                probe_allowed: self.probe_allowed,
             }
         } else {
             ArmSetGate::Unsigned
@@ -204,10 +210,14 @@ pub struct Templates {
     pub sell_final: Template,
     pub sell_partial: Template,
     pub tip_account: Pubkey,
+    /// `tx.cu_limit` (or [`PAPER_CU_LIMIT`]): the floor of the per-mint CU
+    /// limit, and the static limit of the sells.
+    pub cu_floor: u32,
 }
 
-/// Build the templates. `cu_limit`/`lads_bytes` fall back to the research
-/// values in paper mode (real modes are refused by validation when 0).
+/// Build the templates. `cu_limit` (the per-mint limit's floor) and
+/// `lads_bytes` fall back to the research values in paper mode (real modes
+/// are refused by validation when 0).
 pub fn templates(cfg: &Config, owner: Pubkey, pool: &NoncePool) -> Result<Templates, String> {
     let paper = !cfg.mode.mode.is_real();
     let cu = match cfg.tx.cu_limit {
@@ -252,6 +262,7 @@ pub fn templates(cfg: &Config, owner: Pubkey, pool: &NoncePool) -> Result<Templa
         sell_final: Template::sell(&sell, true).map_err(|e| format!("sell template: {e}"))?,
         sell_partial: Template::sell(&sell, false).map_err(|e| format!("sell template: {e}"))?,
         tip_account,
+        cu_floor: cu,
     })
 }
 

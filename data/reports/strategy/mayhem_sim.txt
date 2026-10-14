@@ -1,0 +1,26 @@
+27:ENTRIES = [Entry('eos', 0), Entry('eos', 1), Entry('eos', 10), Entry('eos', 50),
+37:EXITS += [Exit(agent_steps=k, max_hold=h) for k in (1, 2, 3, 5, 10, 20) for h in (60.0, 900.0)]
+38:EXITS += [Exit(tp=t, sl=s_, max_hold=900.0) for t in (0.1, 0.2, 0.3) for s_ in (0.1, 0.2)]
+39:EXITS += [Exit(sl=0.3, max_hold=900.0), Exit(tp=0.5, sl=0.3, max_hold=900.0),
+configs 3434 launches 2430 train 1458 elapsed 294
+n test BH05 0 bonf 0 all BH05 0
+TRAIN-BEST         dip0.8 | sl30_h900                    train +0.049 (n=1145)  test -0.118 [-0.208,-0.007] n=805 p=0.988
+TRAIN-BEST     agent1_buy | h60                          train +0.036 (n=723)  test -0.107 [-0.231,+0.031] n=465 p=0.945
+TRAIN-BEST       eos<28.5 | h60                          train +0.032 (n=1042)  test -0.126 [-0.236,-0.007] n=666 p=0.982
+TRAIN-BEST     agent1_buy | ai10_h60                     train +0.032 (n=723)  test -0.118 [-0.239,+0.013] n=465 p=0.965
+TRAIN-BEST       eos<28.5 | ai10_h60                     train +0.020 (n=1042)  test -0.125 [-0.233,-0.004] n=666 p=0.983
+TRAIN-BEST       eos<28.5 | id3_h900                     train +0.019 (n=1042)  test -0.221 [-0.308,-0.119] n=666 p=1.000
+TRAIN-BEST     agent1_buy | h900                         train +0.016 (n=723)  test -0.287 [-0.397,-0.162] n=465 p=1.000
+TRAIN-BEST     agent1_buy | id3_h900                     train +0.015 (n=723)  test -0.227 [-0.318,-0.117] n=465 p=1.000
+TRAIN-BEST       eos<28.5 | h900                         train +0.013 (n=1042)  test -0.307 [-0.412,-0.186] n=666 p=1.000
+TRAIN-BEST         dip0.8 | h60                          train +0.008 (n=1145)  test -0.192 [-0.280,-0.084] n=805 p=1.000
+-- hold-900 baselines (all launches)
+-- walk-forward folds
+pooled OOS {'n': 858, 'ev': -0.1787820332253041, 'ci': [-0.25446661579217045, -0.09550311515181278], 'median': -0.3856271219725682, 'p': 0.9999872278429857, 'win': 0.19463869463869463}
+-- cost sensitivity (test)
+
+real	4m56.000s
+user	8m41.356s
+sys	0m39.929s
+
+[exited with code 0]

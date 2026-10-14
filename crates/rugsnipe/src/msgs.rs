@@ -2,7 +2,8 @@
 //! (or a fixed-size `Template`) so the `rtrb` rings never allocate.
 
 use pump_codec::Pubkey;
-use rugsnipe_exit::{ExitReason, Position, Venue};
+use rugsnipe_core::rslog::ShadowOutcome;
+use rugsnipe_exit::{ExitReason, Position, Trade, Venue};
 use rugsnipe_feed::{FeedSrc, FundingEvent};
 use rugsnipe_tx::template::Template;
 
@@ -38,7 +39,8 @@ pub enum ColdMsg {
         sent_ns: u64,
         result: u8,
     },
-    /// Paper buy resolved (filled at the E2 state or unfilled above `v_max`).
+    /// Paper buy resolved (filled at the E1/E2 state, or failed: E2 above
+    /// `v_max`, or an E1 failure with its reason and cost).
     Fill {
         intent: u64,
         mint: Pubkey,
@@ -50,6 +52,20 @@ pub enum ColdMsg {
         late: bool,
         buyers_ahead: u32,
         rival_sol_ahead: u64,
+        /// Why the buy would have failed (`None` for a fill or an E2 miss).
+        fail: Option<ShadowOutcome>,
+        /// What the failed attempt cost (lamports).
+        fail_cost: u64,
+    },
+    /// The shadow-mode entry of a resolved paper intent (docs/04 section 7).
+    Shadow {
+        intent: u64,
+        mint: Pubkey,
+        e1: bool,
+        outcome: ShadowOutcome,
+        info: ShadowInfo,
+        spend: u64,
+        cost: u64,
     },
     /// Position snapshot (open / after a fill / closed).
     Position(Position),
@@ -68,7 +84,7 @@ pub enum ColdMsg {
     /// Watch the mint's trades (LogsWs per-address subscription).
     WatchMint(Pubkey),
     UnwatchMint(Pubkey),
-    /// Resolve the paper fill of an intent (E2 lane).
+    /// Resolve the paper fill of an intent (E1 or E2 lane).
     PaperPending {
         intent: u64,
         mint: Pubkey,
@@ -79,6 +95,10 @@ pub enum ColdMsg {
         v0: u64,
         t0: u64,
         decided_unix_ms: u64,
+        /// Creator argument and create signer (the creator set's known part).
+        creator: Pubkey,
+        user: Pubkey,
+        intx_buys: u8,
     },
     /// Funding transfer from the feed: update the watchlist (copy-on-write, cold side).
     Funding(FundingEvent),
@@ -96,9 +116,50 @@ pub enum ColdMsg {
     },
 }
 
+/// The creation slot as the E1 lane reconstructed it (`shadow` row).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ShadowInfo {
+    pub create_slot: u64,
+    pub create_index: Option<u32>,
+    pub block_txs: Option<u32>,
+    pub bundle_trades: u32,
+    pub bundle_wallets: u32,
+    pub our_index: Option<u32>,
+    pub tp_ahead: u32,
+    pub tp_behind: u32,
+    pub s0_failed: u32,
+    /// Premium the fill pays over the post-bundle price (bps).
+    pub premium_bps: u32,
+    pub post_bundle_v: u64,
+    pub post_bundle_t: u64,
+    /// Post-bundle market cap, lamports.
+    pub post_bundle_mcap: u64,
+}
+
 /// Cold thread -> hot thread.
 #[derive(Debug, Clone, Copy)]
 pub enum HotIn {
+    /// E1 verdict on a paper intent. `Filled`: the position opens at the
+    /// post-bundle state `(ref_v, ref_t)` with `info.premium_bps`, then the
+    /// lane's [`HotIn::E1Insider`], [`HotIn::E1Trade`] and [`HotIn::E1End`]
+    /// follow in order. Any other outcome closes the intent.
+    E1Open {
+        intent: u64,
+        mint: Pubkey,
+        outcome: ShadowOutcome,
+        info: ShadowInfo,
+    },
+    /// A bundle wallet (`creator = false`) or creator-set key (`true`) for
+    /// the insider-sell trigger.
+    E1Insider {
+        intent: u64,
+        key: Pubkey,
+        creator: bool,
+    },
+    /// One historical trade after our landing (reserves without us).
+    E1Trade { intent: u64, trade: Trade },
+    /// The replay tape is complete up to `horizon`.
+    E1End { intent: u64, horizon: u64 },
     /// The E2 state for a paper intent (`ok = false`: resolution failed,
     /// the hot loop falls back to its buffered trades at the deadline).
     PaperFill {

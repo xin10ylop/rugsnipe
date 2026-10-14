@@ -133,7 +133,13 @@ risk(day TEXT PRIMARY KEY, start_balance INT, deposits INT, sweeps INT, realized
 op_risk(op_id INT PRIMARY KEY, consec_losses INT, buys_today INT, disarmed_until INT);
 lease(name TEXT PRIMARY KEY, owner TEXT, hb_unix_ms INT, epoch INT);
 kv(k TEXT PRIMARY KEY, v TEXT);   -- armset_ver, last_wallet_sig, programdata slots, regime
+-- schema v2 (shadow mode, docs/04 section 7): intents.via also 'class' (ArmSet class arm),
+-- fills.fail_reason TEXT ('premium','slippage','not_in_slot0','class') + fills.fail_cost INT, and
+shadow(intent_id PK, mint, model, outcome, create_slot, create_index, block_txs, bundle_trades, bundle_wallets,
+  our_index, tp_ahead, tp_behind, s0_failed, premium_bps, post_bundle_v, post_bundle_t, post_bundle_mcap, cost);
 ```
+
+A version-1 file is upgraded in place (`schema::migrate`: columns added, `intents` copied to the new CHECK).
 
 ### 5.2 Ohio `analytics.db`
 
@@ -155,10 +161,10 @@ landing(intent_id, box, sender, leader_class, slot_offset, buyers_ahead, rival_s
 
 **rslog:**
 - Header: `magic 0x52534C47, kind u16, ver u16, len u32, mono_ns u64, wall_ns u64, box u16`.
-- Records: `FeedSeen`, `CreateHit`, `Matched`, `Decision`, `Sent`, `PosEvent`, `ExitFired`, `Risk`, `FeedHealth`, `Lease`, `Upgrade`, `NonceEvt`.
+- Records: `FeedSeen`, `CreateHit`, `Matched`, `Decision`, `Sent`, `PosEvent`, `ExitFired`, `Risk`, `FeedHealth`, `Lease`, `Upgrade`, `NonceEvt`, and for shadow mode `Shadow` (13: create index, block size, bundle trades/wallets, our would-be index, third-party buyers ahead/behind, premium, post-bundle state) and `FailedBuy` (14: reason and cost of a buy that would have failed).
 - `schema/rslog.toml` generates both decoders. A golden file is checked in CI.
 
-**ArmSet:** P2's JSON plus `regime`, `min_hot_version`, `gate_passed`, `prereg_sha` and `shared_fee_payers`. File `armset-<ver>-<sha256>.json` with a detached ed25519 `.sig`. If it is unsigned, stale or from the wrong regime, the hot box runs exits only.
+**ArmSet:** P2's JSON plus `regime`, `min_hot_version`, `gate_passed`, `probe_allowed` (default false), `prereg_sha` and `shared_fee_payers`. File `armset-<ver>-<sha256>.json` with a detached ed25519 `.sig`. If it is unsigned, stale or from the wrong regime, the hot box runs exits only. `probe_allowed` unlocks probe buys, `gate_passed` unlocks live buys (§6).
 
 ## 6. Configuration (`config/rugsnipe.example.toml` in git; real file `/etc/rugsnipe/rugsnipe.toml`, 0640, gitignored)
 
@@ -211,15 +217,17 @@ astralane = { enabled = false, key = "ASTRALANE_KEY", min_tip = 1_000_000 }
 jito = { enabled = false, region = "auto", max_rps = 1 }
 nextblock = { enabled = false, key = "NEXTBLOCK_KEY" }
 tpu = { enabled = false, leaders_ahead = 2 }
-[rpc_budget]
+[rpc_budget]                                       # roles sum <= 32 req/s per egress IP
 hot = 4
 guard = 4
 keeper = 8
 collector = 12
 backfill = 4
+per_method = 4                                     # Python buckets: per (host, method); methods = { getBlock = 2 } overrides
+per_host = 10                                      # Python buckets: per host
 [tx]
 format = "legacy"
-cu_limit = 0                                       # static floor only; the hot path patches 62,500 + 1,500*S (+1,500) per mint (gap-5); 0 = probe/live refused until `ctl sim` confirms the fit
+cu_limit = 0                                       # FLOOR: the hot path patches 65,000 + 1,500*S per mint (gap-5), clamped to [cu_limit, 1.4M]; 88_000 recommended; 0 = probe/live refused until `ctl sim` confirms the fit
 lads_bytes = 0
 nonce_pool = 32
 sell_nonce_pool = 8
@@ -256,15 +264,45 @@ skip_p = 0.2
 small_arm = [0.2, 0.35]
 small_lamports = 50_000_000
 size_jitter = 0.10
+[entry]                                            # docs/04 section 6
+max_premium = 0.02                                 # fill cap over the post-bundle price
+filter = "any"                                     # any | multi_bundle (>= 1 bundle wallet outside the creator set)
+[paper]                                            # shadow fill model (docs/04 section 7)
+fill_model = "e1"                                  # e1: creation slot behind the bundle | e2: end of slot+1
+entry_premium = 0.011                              # gap-2 rank-1 median
+failed_attempt_lamports = 3_000_000                # what a failed (capped) buy still pays
+round_trip_lamports = 4_000_000                    # fixed cost per landed round trip (summary net P&L)
+exit_latency_slots = 1                             # a paper sell fills at the end of trigger slot + 1
+slot_ms = 217                                      # slot clock of E1 replays
+replay_slots = 12
+delay_ms = 8_000
+late_block_frac = 0.10                             # create in the last 10% of its block: not_in_slot0
+max_tx = 100
+min_replay_slots = 7                               # tape must cover s+7 (exits by +5, fill +1), else unresolved
+[collector]                                        # Python collector overrides (all optional; typed and validated in Rust too)
 ```
+
+**Lead-policy exit knobs** (all off by default; `config/paper-lead.example.toml` sets docs/04 section 6):
+`tp_basis = "value"` (take-profit on the realised value of the stake after both fees and our own impact),
+`fire_on = "trade"` (normal triggers also on the first trade that shows them), `insider_sell = "bundle" |
+"bundle_only" | "creator" | "off"`, `phantom_sl = { after_ms, drop }` (measured from the post-bundle price, the
+curve marked without our own tokens; `{ after_ms, bps }` keeps the fill reference) and `max_hold_slots` (hard exit
+at landing slot + N). An ArmSet may carry `match_all = <op_id>`: a class arm that every create no key matches maps
+to (`via = class`); the lead policy's universe is a class of launches, not a list of operators.
+
+One file serves both sides: the Rust parser refuses unknown keys, so the Python-only knobs (`[rpc_budget]` `per_method`/`per_host`/`methods`, `[collector]`) are typed there as well.
+
+**Per-mint CU.** `S = Σ (255 − bump)` over `bonding_curve`, the curve's base ATA, the curve's wSOL ATA and our base ATA, recovered from keys the hot path already holds by hashing alone (no curve checks; `S + 4` SHA-256 rounds). The patch writes `65,000 + 1,500·S` (expected cost `63,500 + 1,500·S`: gap-5's `62,310 + 1,500·S` plus 1,185 for `buy_exact_quote_in_v3`) into the v1 header or the legacy `SetComputeUnitLimit`, and re-derives the legacy CU price from the same lamport total. The formula reproduces all 361 gap-5 simulations within −263/+38 CU (`rugsnipe-tx/tests/cu_gap5.rs`); `ctl sim` re-measures it on live mints. With the recommended 88,000 floor the limit only rises above the floor for S ≥ 16; a lower floor (e.g. 65,000) lets it tighten.
 
 Validation **refuses probe or live** if any of these holds:
 - a cap is 0 or missing, or `cu_limit = 0`;
 - a key credential is group- or world-readable;
 - clock offset > 5 ms;
 - no healthy post-exec feed;
-- the ArmSet is unsigned or `gate_passed = false`;
-- the RPC budget sum is > 32.
+- the ArmSet is unsigned, stale or from the wrong regime;
+- **probe:** the ArmSet does not carry `probe_allowed = true`. Probe does **not** need `gate_passed`: the probe exists to measure landing, premium and k̂, which the gate needs (§9.5, §16);
+- **live:** the ArmSet does not carry `gate_passed = true` (plus the `--live` flag and the arm-live token, §10);
+- the RPC budget role sum is > 32.
 
 ## 7. Hot path
 
@@ -418,7 +456,9 @@ SUSPENDED→SHADOW   after 24 h;   any→RETIRED after 7 days without a launch
 
 ### 9.5 Go/no-go gate (signed into the ArmSet as `gate_passed`)
 
-All must hold:
+The gate unlocks **live** only. **Probe** (≤ 20 buys a day of 0.01-0.02 SOL, §10) comes before it: it needs a signed, fresh ArmSet with `probe_allowed = true` plus every risk cap and credential check of §6, not `gate_passed`, because the landing, premium and k̂ it measures are inputs to this gate.
+
+All must hold for `gate_passed`:
 - ≥ 300 OOS snipes from ≥ 15 operators; no operator above 40% of P&L;
 - the 95% **operator×day cluster-bootstrap** lower bound of EV(selected) − EV(control matched on V_e band, hour and leader class) is **> 0** at E1, base costs and the **measured** k̂;
 - EV ≥ 0 at high costs;
@@ -435,11 +475,13 @@ An ArmSet funder sending a fresh recipient (pre-balance 0) an amount in ≤ 5 **
 
 | Mode | Where | What it proves |
 |---|---|---|
-| `paper` | here / Ohio, free feeds | decode coverage, decisions, internal latency, E2 P&L; nothing about block 0 |
+| `paper` | here / Ohio, free feeds | decode coverage, decisions, internal latency; E1 shadow entries reconstructed from confirmed history (where we would have landed, premium, failed attempts) and their exits, or E2 P&L; never our real landing rank |
 | `shadow` | fra1 + SVS gRPC ($150/mo) | detection lead vs rivals' landing slots; not landing position |
 | lock probe [U] | fra1 | 1-lamport transfer to the curve (takes its write lock) on our nonce, sender and bid; `tx_index` vs rival buys = landing position, no tokens held |
-| `probe` | fra1 + paid post-exec feed | 0.01-0.02 SOL buys, ≤ 20/day (~0.004 SOL overhead each); true `buyers_ahead` per sender × class replaces the guessed k̂ |
+| `probe` | fra1 + paid post-exec feed | `probe_allowed` ArmSet (no gate needed); 0.01-0.02 SOL buys, ≤ 20/day (~0.004 SOL overhead each); true `buyers_ahead` per sender × class replaces the guessed k̂ |
 | `live` | fra1 | `gate_passed` ArmSet + TOML + CLI flag + local `ctl arm-live` token for the gate run |
+
+**Shadow fill model E1** (`paper.fill_model = "e1"`, `rugsnipe::e1`). The free feed sees a create ~1 s late, so the cold lane rebuilds the creation slot from confirmed history inside the RPC budget (`getSignaturesForAddress` on the curve; `getBlock` with `transactionDetails = "signatures"` for the transaction indices; `getTransaction` for the slot-0 transactions), applies the gap-3 bundle definition (create-tx buys, creator-set buys, the contiguous run of slot-0 buys at index ≤ create + 5 with gaps ≤ 2; mirrored from `strategy/tapes.py`), and returns a verdict: **fill** at the post-bundle state with `max(entry_premium, measured)` (a wallet seen sniping another launch's slot 0 this session, found inside the run, is ahead of us and its price impact is the measured premium); **premium** (above `entry.max_premium`), **not_in_slot0** (create in the last `late_block_frac` of its block) and, in the hot loop, **slippage** (the operator's `v_max` bound) are failed attempts that pay `failed_attempt_lamports`; **class** (not multi-bundle under `entry.filter`) is a skip at no cost. A fill replays the next `replay_slots` slots through the exit engine on a slot clock with a tick per slot, on the counterfactual curve that keeps our tokens outstanding (the tape simulator's model), and the sell fills at the end of trigger slot + `exit_latency_slots`. The session summary's `cold.paper` block carries the totals (outcomes, landing rate, mean premium, exits by reason, realized and net P&L, EV per attempt including failures). `analysis/scripts/paper_vs_sim.py` re-derives every closed fill from swap-api tapes with `strategy/sim.py`.
 
 **Paper recorder.** Every `CreateHit` (hit or miss) logs per-feed `recv_ns` (the `FiredSet` race gives feed lead for free), the decision and the would-send bytes. `landing.py` joins these to the rivals that landed in slots 0-1 (`tx_index`, SOL), the earliest slot we could reach (send time + RTT to the leader's metro), and an estimated `buyers_ahead` for Jito-Agave leaders only.
 
@@ -522,4 +564,4 @@ M0-M4 are the session minimum. M2's report is the go/no-go artifact and can answ
 6. **FRA in-building RTT and bare-metal tuning.**
 7. **Untested ideas:** slot-expiry assertion, seed-account CU savings, lock probe (simulation, then one live send each).
 
-Until items 1-4 are measured, every reported EV is an upper bound under E1, and no ArmSet can carry `gate_passed = true`.
+Until items 1-4 are measured, every reported EV is an upper bound under E1, and no ArmSet can carry `gate_passed = true`, so live stays refused. Measuring items 2-4 is what **probe** is for: capped probe buys need a signed ArmSet with `probe_allowed = true` plus every risk cap and credential check (§6), not the gate.

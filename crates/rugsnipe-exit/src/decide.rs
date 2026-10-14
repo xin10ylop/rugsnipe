@@ -19,7 +19,7 @@
 //! exceed the chain balance, and every new order fits in the uncommitted balance.
 
 use crate::bounds::{dump_min_out, normal_min_out, pool_from_curve, Market};
-use crate::policy::BPS;
+use crate::policy::{FireOn, InsiderSell, PhantomFrom, TpBasis, BPS};
 use crate::position::{PendingSell, Position, PositionState, XferRec, XFER_RING};
 use crate::types::{
     Alert, CloseCause, ExitAction, ExitEvent, ExitReason, Now, Origin, SellKind, SellOrder, Trade,
@@ -122,7 +122,11 @@ fn on_trade(pos: &mut Position, t: &Trade, slot: u64, now: Now, out: &mut Vec<Ex
     }
     update_peak(pos);
     let p = pos.policy;
-    if !t.is_buy && t.sol_amount >= p.bundle_sell_min_lamports && pos.bundle.contains(&t.user) {
+    if !t.is_buy
+        && p.insider_sell != InsiderSell::Off
+        && t.sol_amount >= p.bundle_sell_min_lamports
+        && pos.bundle.contains(&t.user)
+    {
         dump(pos, ExitReason::BundleSell, slot, now, out);
     } else if t.is_buy
         && p.big_buy_lo_lamports > 0
@@ -130,6 +134,10 @@ fn on_trade(pos: &mut Position, t: &Trade, slot: u64, now: Now, out: &mut Vec<Ex
         && (p.big_buy_hi_lamports == 0 || t.sol_amount <= p.big_buy_hi_lamports)
     {
         dump(pos, ExitReason::BigBuy, slot, now, out);
+    } else if p.fire_on == FireOn::Trade && t.venue == pos.venue && pos.state.is_active() {
+        // the first event that shows a normal trigger sends the exit (this
+        // trade's slot is the trigger and the send slot)
+        eval_normal(pos, slot, now, out);
     }
 }
 
@@ -276,6 +284,13 @@ fn on_complete(pos: &mut Position, slot: u64, out: &mut Vec<ExitAction>) {
 
 // ---------------------------------------------------------------- triggers
 fn open_common(pos: &mut Position, slot: u64, now: Now) {
+    // the curve just before our buy (`t_fill + tokens`): the reference of
+    // `phantom_sl.from = "entry"`
+    pos.t_ref = if pos.venue == Venue::Curve && pos.t_fill > 0 {
+        pos.t_fill.saturating_add(pos.tokens)
+    } else {
+        0
+    };
     pos.opened_slot = slot;
     pos.opened_ms = now.ms;
     pos.last_trade_ms = now.ms;
@@ -313,17 +328,27 @@ fn eval_normal(pos: &mut Position, send_slot: u64, now: Now, out: &mut Vec<ExitA
     let m = pos.mult_bps();
     let held = now.ms.saturating_sub(pos.opened_ms);
     let idle = now.ms.saturating_sub(pos.last_trade_ms);
+    // phantom stop mark: our fill price, or the post-bundle price with the
+    // curve marked without our own tokens (`from = "entry"`)
+    let phantom_m = match p.phantom_from {
+        PhantomFrom::Fill => Some(m),
+        PhantomFrom::Entry => pos.ex_us_mult_bps(),
+    };
     let full = if pos.trail_armed
         && (m as u128) * (BPS as u128)
             <= (pos.peak_mult_bps as u128) * (BPS - u64::from(p.trail_retrace_bps)) as u128
     {
         Some(ExitReason::Trailing)
-    } else if p.phantom_bps > 0 && held >= p.phantom_after_ms && m <= BPS - u64::from(p.phantom_bps)
+    } else if p.phantom_bps > 0
+        && held >= p.phantom_after_ms
+        && phantom_m.is_some_and(|pm| pm <= BPS - u64::from(p.phantom_bps))
     {
         Some(ExitReason::PhantomSl)
     } else if p.no_activity_ms > 0 && idle >= p.no_activity_ms {
         Some(ExitReason::NoActivity)
-    } else if p.max_hold_ms > 0 && held >= p.max_hold_ms {
+    } else if (p.max_hold_ms > 0 && held >= p.max_hold_ms)
+        || (p.max_hold_slots > 0 && send_slot >= pos.opened_slot.saturating_add(p.max_hold_slots))
+    {
         Some(ExitReason::MaxHold)
     } else {
         None
@@ -343,10 +368,19 @@ fn eval_normal(pos: &mut Position, send_slot: u64, now: Now, out: &mut Vec<ExitA
         return;
     }
     // take-profit ladder: every newly crossed level sells its fraction of the remainder
+    let tp_m = match p.tp_basis {
+        TpBasis::Price => m,
+        TpBasis::Value => {
+            if p.tp.is_empty() {
+                return;
+            }
+            pos.value_bps().unwrap_or(0)
+        }
+    };
     let mut keep = BPS;
     let mut top: Option<usize> = None;
     for (i, l) in p.tp.levels().iter().enumerate() {
-        if pos.tp_done & (1 << i) == 0 && m >= u64::from(l.mult_bps) {
+        if pos.tp_done & (1 << i) == 0 && tp_m >= u64::from(l.mult_bps) {
             keep = keep * (BPS - u64::from(l.frac_bps)) / BPS;
             pos.tp_done |= 1 << i;
             top = Some(i);

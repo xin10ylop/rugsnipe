@@ -171,6 +171,7 @@ pub fn armset(signers: &[Pubkey], creators: &[Pubkey]) -> ArmSet {
         regime: "test".into(),
         min_hot_version: String::new(),
         gate_passed: false,
+        probe_allowed: false,
         shared_fee_payers: vec![],
         operators: vec![OpEntry {
             op_id: 1,
@@ -185,6 +186,7 @@ pub fn armset(signers: &[Pubkey], creators: &[Pubkey]) -> ArmSet {
         }],
         watch,
         funding_rules: vec![],
+        match_all: None,
     }
 }
 

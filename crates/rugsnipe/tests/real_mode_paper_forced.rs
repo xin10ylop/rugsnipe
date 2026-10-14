@@ -116,7 +116,10 @@ fn good_env(c: &Config) -> ValidateEnv {
     ValidateEnv {
         clock_offset_ms: Some(0.5),
         post_exec_feed_healthy: true,
-        armset: ArmSetGate::Verified { gate_passed: true },
+        armset: ArmSetGate::Verified {
+            gate_passed: true,
+            probe_allowed: true,
+        },
         credential_modes: creds,
         live_cli_flag: true,
         arm_live_token: true,
@@ -327,6 +330,9 @@ fn live_mode_paper_decisions_never_reach_a_real_sender() {
         let (other, _) = create(Pubkey::new_unique(), Pubkey::new_unique(), 1004, 5, 0);
         let dump = trade(&mut curve, a, dev, 1005, 12, 0, hit.intx_tokens_out / 3);
         let after = trade(&mut curve, a, Pubkey::new_unique(), 1006, 13, 10_000_000, 0);
+        // the dump sell (sent in 1005) fills at the end of slot 1006
+        // (paper.exit_latency_slots = 1): the first event of a later slot closes it
+        let later = trade(&mut curve, a, Pubkey::new_unique(), 1008, 14, 10_000_000, 0);
         let mut feed = VecFeed::new(vec![
             ev_from(src, 1000, Payload::Hit(hit)),
             ev_from(src, 1001, Payload::Trade(t1)),
@@ -334,6 +340,7 @@ fn live_mode_paper_decisions_never_reach_a_real_sender() {
             ev_from(src, 1004, Payload::Hit(other)),
             ev_from(src, 1005, Payload::Trade(dump)),
             ev_from(src, 1006, Payload::Trade(after)),
+            ev_from(src, 1008, Payload::Trade(later)),
         ]);
         drain(&mut r.hot, &mut feed);
         let c = r.hot.counters;

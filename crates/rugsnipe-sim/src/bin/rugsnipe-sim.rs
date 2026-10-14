@@ -2,8 +2,9 @@
 //!
 //! Picks the newest SOL-quoted curve (or `--mint`), builds the legacy and
 //! v1 buy templates (with `--nonce`, also the nonce variants), simulates
-//! each with loose limits (to measure) and the tight recommended limits
-//! (to check), and prints CU, reported and computed loaded bytes, and errors.
+//! each with loose limits (to measure) and the tight per-mint limits
+//! (`65,000 + 1,500*S`, to check), and prints CU, reported and computed
+//! loaded bytes, errors, and the fit of the measured CU to the formula.
 //! Read-only: `simulateTransaction` with `sigVerify: false`, nothing is sent.
 
 use pump_codec::Pubkey;
@@ -139,6 +140,14 @@ fn main() {
                 }
             }
         }
+        let fits: Vec<(Pubkey, rugsnipe_sim::Fit)> = rows
+            .iter()
+            .filter_map(|(r, _)| rugsnipe_sim::fit(r).map(|f| (coin.mint, f)))
+            .collect();
+        println!(
+            "\nper-mint CU (gap-5): limit = 65,000 + 1,500*S; model = 62,310 + 1,500*S + 1,185 (v1+nonce)"
+        );
+        print!("{}", rugsnipe_sim::fit_report(&fits));
         Ok(())
     })();
     if let Err(e) = r {

@@ -39,6 +39,15 @@
 //! | 7 | NoActivity / MaxHold | no trade for 150 s / held 30 min | normal, slot close |
 //! | 8 | Completion | venue -> PumpSwap; in-flight orders re-sent on the pool | venue |
 //!
+//! Lead-policy knobs (docs/04 sections 2 and 6; all off by default, so the
+//! table above and the conformance tapes are unchanged): `tp_basis = "value"`
+//! (take-profit on the realised value of the stake after fees and our own
+//! impact), `fire_on = "trade"` (normal triggers also on the first trade that
+//! shows them), `insider_sell` (whose sells are a BundleSell),
+//! `phantom_sl = { after_ms, drop }` (stop measured from the post-bundle
+//! price, marked without our own tokens) and `max_hold_slots` (hard exit at
+//! landing slot + N).
+//!
 //! Price multiple: `mult = (v / v_fill)^2` from the curve's virtual SOL
 //! ([`bounds::mult_bps`]). Bounds: normal `min_sol_output = quote_sell(tokens,
 //! V_trigger) x (1 - tp_slip)`; dump `quote_sell(tokens, V = 30 SOL) x 0.98`
@@ -83,7 +92,10 @@ pub mod tape;
 pub mod types;
 
 pub use decide::{decide, decide_into};
-pub use policy::{ExitConfig, ExitOverrides, ExitPolicy, PolicyError, TpLadder, TpLevel};
+pub use policy::{
+    ExitConfig, ExitOverrides, ExitPolicy, FireOn, InsiderSell, PhantomCfg, PhantomFrom,
+    PolicyError, TpBasis, TpLadder, TpLevel,
+};
 pub use position::{BundleSet, PendingSell, Position, PositionState};
 pub use types::{
     Alert, CloseCause, ExitAction, ExitEvent, ExitReason, Now, Origin, SellKind, SellOrder, Trade,

@@ -58,6 +58,9 @@ fn paper_create_to_fill_to_dump_exit_is_recorded_everywhere() {
     let dev_tokens = hit_a.intx_tokens_out / 3;
     let t3 = trade(&mut curve_a, a, dev, 1005, 12, 0, dev_tokens);
     let t4 = trade(&mut curve_a, a, z, 1006, 13, 10_000_000, 0);
+    // a later slot: the dump sell (sent in 1005) fills at the end of slot 1006
+    // (paper.exit_latency_slots = 1), which the first event of 1008 closes
+    let t5 = trade(&mut curve_a, a, z, 1008, 14, 10_000_000, 0);
     let events = vec![
         ev(1000, Payload::Hit(hit_a)),
         ev(1000, Payload::Hit(hit_b)),
@@ -68,6 +71,7 @@ fn paper_create_to_fill_to_dump_exit_is_recorded_everywhere() {
         ev(1004, Payload::Hit(hit_e)),
         ev(1005, Payload::Trade(t3)),
         ev(1006, Payload::Trade(t4)),
+        ev(1008, Payload::Trade(t5)),
     ];
     let mut feed = FeedMux::new(vec![Box::new(VecFeed::new(events))]);
     drive(&mut app, &mut feed, |a| a.hot.counters.closed >= 1);

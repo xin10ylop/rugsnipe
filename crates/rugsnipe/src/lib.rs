@@ -6,6 +6,7 @@
 //! | [`hot`] | `HotLoop`: the docs/06 section 7.1 sequence (dedup, CreateHit, class filters, watchlist, RiskGate, V0, nonce, patch, sign, send, record) plus the paper position/exit engine driver; run to completion, no heap after warm-up |
 //! | [`sender`] | sender thread: secondary variants (re-priced, re-signed) through the gated `SenderSet` |
 //! | [`cold`] | cold thread (tokio current-thread runtime): ledger -> `state.db`, kill file + SIGUSR1 latch, exits lease, simulated nonce keeper, funding watcher updates, ArmSet reload, paper E2 fill lane, Prometheus metrics |
+//! | [`e1`] | paper fill model E1 (rank 1 behind the bundle, docs/04): creation-slot reconstruction, verdict, replay tape |
 //! | [`e2`] | paper fill model E2 (end of slot+1 state) from `getSignaturesForAddress` + `getTransaction` |
 //! | [`setup`] | config, exit policy, ArmSet verification, templates, nonce pool, throwaway paper signer |
 //! | [`convert`] | `CreateHitLite` -> `CreateHit`, feed `TradeLite` -> exit `Trade` |
@@ -22,6 +23,7 @@ pub mod app;
 pub mod cli;
 pub mod cold;
 pub mod convert;
+pub mod e1;
 pub mod e2;
 pub mod guard;
 pub mod hot;

@@ -1,0 +1,49 @@
+launches 2431 agent steps 141047
+all                                                     n=141047 L= 2394 E[r]=1.0029 ci=[1.0017,1.0043]    P(up)=0.502
+step index 0-1                                          n=  2394 L= 2394 E[r]=1.0001 ci=[0.9912,1.0091]    P(up)=0.497
+step index 1-3                                          n=  4699 L= 2362 E[r]=0.9992 ci=[0.9930,1.0064]    P(up)=0.500
+step index 3-10                                         n= 14695 L= 2286 E[r]=1.0022 ci=[0.9982,1.0058]    P(up)=0.504
+step index 10-30                                        n= 30124 L= 1866 E[r]=1.0014 ci=[0.9989,1.0040]    P(up)=0.502
+step index 30-100                                       n= 50560 L= 1217 E[r]=1.0017 ci=[0.9997,1.0035]    P(up)=0.502
+step index 100-1000000                                  n= 38575 L=  421 E[r]=1.0067 ci=[1.0037,1.0095]    P(up)=0.503
+time 0-5s                                               n= 11195 L= 2299 E[r]=0.9999 ci=[0.9955,1.0039]    P(up)=0.498
+time 5-20s                                              n= 24747 L= 2140 E[r]=1.0017 ci=[0.9988,1.0044]    P(up)=0.503
+time 20-60s                                             n= 41617 L= 1661 E[r]=1.0018 ci=[0.9996,1.0040]    P(up)=0.501
+time 60-300s                                            n= 53686 L=  942 E[r]=1.0044 ci=[1.0024,1.0065]    P(up)=0.505
+time 300-901s                                           n=  9802 L=  165 E[r]=1.0063 ci=[1.0000,1.0125]    P(up)=0.495
+price/eos0 0-0.25                                       n= 56330 L= 1162 E[r]=1.0058 ci=[1.0034,1.0081]    P(up)=0.503
+price/eos0 0.25-0.6                                     n= 27717 L= 1675 E[r]=0.9990 ci=[0.9963,1.0018]    P(up)=0.497
+price/eos0 0.6-0.9                                      n= 16577 L= 2007 E[r]=1.0027 ci=[0.9989,1.0063]    P(up)=0.503
+price/eos0 0.9-1.1                                      n= 10246 L= 2393 E[r]=1.0011 ci=[0.9969,1.0053]    P(up)=0.500
+price/eos0 1.1-1.5                                      n= 10679 L= 1778 E[r]=1.0026 ci=[0.9984,1.0070]    P(up)=0.509
+price/eos0 1.5-2.5                                      n=  9945 L= 1134 E[r]=1.0044 ci=[1.0001,1.0086]    P(up)=0.509
+price/eos0 2.5-1000000000.0                             n=  9553 L=  492 E[r]=0.9989 ci=[0.9941,1.0033]    P(up)=0.497
+last agent step 0..0.7                                  n= 12930 L= 1860 E[r]=1.0015 ci=[0.9967,1.0060]    P(up)=0.495
+last agent step 0.7..0.9                                n= 41757 L= 2226 E[r]=1.0026 ci=[1.0002,1.0048]    P(up)=0.500
+last agent step 0.9..1.0                                n= 14033 L= 1947 E[r]=1.0023 ci=[0.9987,1.0060]    P(up)=0.499
+last agent step 1.0..1.1                                n= 13974 L= 1945 E[r]=1.0043 ci=[1.0005,1.0082]    P(up)=0.509
+last agent step 1.1..1.3                                n= 42286 L= 2267 E[r]=1.0032 ci=[1.0008,1.0054]    P(up)=0.506
+last agent step 1.3..100                                n= 13673 L= 1925 E[r]=1.0044 ci=[0.9998,1.0087]    P(up)=0.501
+prev trade agent                                        n= 98180 L= 2336 E[r]=1.0016 ci=[1.0003,1.0029]    P(up)=0.502
+prev trade tp_buy                                       n= 26768 L= 2386 E[r]=1.0031 ci=[0.9999,1.0063]    P(up)=0.498
+prev trade tp_sell                                      n= 16099 L= 1611 E[r]=1.0108 ci=[1.0065,1.0153]    P(up)=0.512
+prev tp buy 0-0.05 SOL                                  n= 19586 L= 1718 E[r]=1.0037 ci=[0.9995,1.0075]    P(up)=0.498
+prev tp buy 0.05-0.2 SOL                                n=  4903 L= 1749 E[r]=1.0003 ci=[0.9935,1.0070]    P(up)=0.496
+prev tp buy 0.2-0.5 SOL                                 n=  1689 L=  965 E[r]=1.0058 ci=[0.9948,1.0171]    P(up)=0.510
+prev tp buy 0.5-100 SOL                                 n=   590 L=  496 E[r]=0.9993 ci=[0.9824,1.0163]    P(up)=0.475
+third-party net flow since last agent step -100..-0.05  n=  5562 L= 1366 E[r]=1.0099 ci=[1.0045,1.0154]    P(up)=0.513
+third-party net flow since last agent step -0.05..-1e-09 n= 10530 L= 1177 E[r]=1.0098 ci=[1.0042,1.0152]    P(up)=0.510
+third-party net flow since last agent step -1e-09..1e-09 n=100337 L= 2370 E[r]=1.0015 ci=[1.0000,1.0029]    P(up)=0.501
+third-party net flow since last agent step 1e-09..0.1   n= 21235 L= 1792 E[r]=1.0033 ci=[0.9999,1.0070]    P(up)=0.498
+third-party net flow since last agent step 0.1..0.5     n=  2847 L=  967 E[r]=1.0097 ci=[1.0006,1.0187]    P(up)=0.509
+third-party net flow since last agent step 0.5..100     n=   536 L=  287 E[r]=1.0097 ci=[0.9881,1.0287]    P(up)=0.489
+gap since last agent trade 0-1s                         n= 38662 L= 1965 E[r]=1.0021 ci=[0.9998,1.0044]    P(up)=0.498
+gap since last agent trade 1-3s                         n= 88578 L= 2303 E[r]=1.0032 ci=[1.0015,1.0049]    P(up)=0.503
+gap since last agent trade 3-10s                        n= 10319 L= 1647 E[r]=1.0054 ci=[1.0011,1.0101]    P(up)=0.512
+gap since last agent trade 10-60s                       n=  3299 L=  788 E[r]=0.9977 ci=[0.9898,1.0053]    P(up)=0.490
+gap since last agent trade 60-1000000000.0s             n=   189 L=  146 E[r]=0.9805 ci=[0.9436,1.0170]    P(up)=0.487
+rsol 0-0.05                                             n= 27817 L= 1239 E[r]=1.0046 ci=[1.0020,1.0077]    P(up)=0.499
+rsol 0.05-0.2                                           n= 57975 L= 1882 E[r]=1.0027 ci=[1.0007,1.0046]    P(up)=0.503
+rsol 0.2-1                                              n= 42053 L= 1795 E[r]=1.0019 ci=[0.9995,1.0044]    P(up)=0.503
+rsol 1-1000000000.0                                     n= 13202 L=  772 E[r]=1.0034 ci=[0.9992,1.0075]    P(up)=0.503
+agent net SOL per launch {'mean': -0.02606300442863018, 'ci95': [-0.1508216101977067, 0.08477260743674414], 'median': 0.04773378, 'share_positive': 0.5709584533113945, 'total': -63.35916376599997}

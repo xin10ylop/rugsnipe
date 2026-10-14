@@ -12,9 +12,10 @@ solana-pubkey = { workspace = true, features = ["std", "curve25519", "sha2"] }
 solana-instruction = { workspace = true, features = ["std"] }
 base64 = { workspace = true }
 bs58 = { workspace = true }
+# hash-only bump recovery of known PDAs (pda::known_pda_bump)
+sha2 = { workspace = true }
 
 [dev-dependencies]
-sha2 = { workspace = true }
 serde_json = { workspace = true }
 solana-hash = { workspace = true }
 solana-keypair = { workspace = true }

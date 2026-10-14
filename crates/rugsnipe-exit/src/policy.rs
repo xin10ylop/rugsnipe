@@ -12,6 +12,75 @@ pub const BPS: u64 = 10_000;
 /// Maximum number of take-profit levels.
 pub const MAX_TP_LEVELS: usize = 5;
 
+/// What a take-profit level's multiple is measured on (`tp_basis`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TpBasis {
+    /// The price multiple versus the fill, `(v / v_fill)^2` (docs/06 section 8).
+    #[default]
+    Price,
+    /// The realised value of the stake: `(net sell quote of the balance +
+    /// proceeds so far) / cost`, after fees and our own price impact
+    /// (docs/04 section 2: "realised value >= +15% of the stake").
+    Value,
+}
+
+/// When the normal triggers are evaluated (`fire_on`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FireOn {
+    /// Once per slot, on the slot's closing state (docs/06 section 8).
+    #[default]
+    SlotClose,
+    /// Also after every trade by someone else, on the state it leaves: the
+    /// exit is sent on the first event that shows the trigger (docs/04
+    /// section 2, the tape simulator's rule). Slot closes still evaluate.
+    Trade,
+}
+
+/// Whose sells fire the BundleSell dump trigger (`insider_sell`). The engine
+/// only checks [`crate::BundleSet`] membership; the caller fills the set
+/// accordingly ([`InsiderSell::creator_set`], [`InsiderSell::bundle_wallets`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InsiderSell {
+    /// Any sell by a bundle wallet or the creator set (creator, create
+    /// signers, fee payer): docs/04 section 6 `insider_sell = "bundle"`.
+    #[default]
+    Bundle,
+    /// Bundle wallets outside the creator set only (the tape simulator's
+    /// `ins_bundle` component).
+    BundleOnly,
+    /// The creator set only.
+    Creator,
+    /// No insider-sell trigger.
+    Off,
+}
+
+impl InsiderSell {
+    /// The creator set belongs in the bundle set.
+    pub fn creator_set(self) -> bool {
+        matches!(self, Self::Bundle | Self::Creator)
+    }
+    /// Bundle wallets outside the creator set belong in the bundle set.
+    pub fn bundle_wallets(self) -> bool {
+        matches!(self, Self::Bundle | Self::BundleOnly)
+    }
+}
+
+/// Reference of the phantom stop (`phantom_sl.from`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PhantomFrom {
+    /// Our fill price, marked on the curve as it is (docs/06 section 8).
+    #[default]
+    Fill,
+    /// The state just before our buy (the post-bundle price), marked on the
+    /// curve without our own tokens: measures the others' selling only
+    /// (docs/04 section 2, `drop` measured from the post-bundle price).
+    Entry,
+}
+
 /// One take-profit level: sell `frac_bps` of the *remaining* balance once the
 /// price multiple reaches `mult_bps`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -152,6 +221,21 @@ pub struct ExitPolicy {
     pub amm_dump_slip_bps: u32,
     /// A remainder below this many base units is sold with the rest.
     pub dust_tokens: u64,
+    /// Take-profit multiples measure the price or the realised value (`tp_basis`).
+    #[serde(default)]
+    pub tp_basis: TpBasis,
+    /// Normal triggers on slot close only, or also after every trade (`fire_on`).
+    #[serde(default)]
+    pub fire_on: FireOn,
+    /// Whose sells are a BundleSell (`insider_sell`; `off` disables the trigger).
+    #[serde(default)]
+    pub insider_sell: InsiderSell,
+    /// Phantom stop reference (`phantom_sl.from`).
+    #[serde(default)]
+    pub phantom_from: PhantomFrom,
+    /// Hard exit once the slot reaches `opened_slot + max_hold_slots` (0 = off).
+    #[serde(default)]
+    pub max_hold_slots: u64,
 }
 
 impl Default for ExitPolicy {
@@ -235,11 +319,40 @@ pub struct TrailCfg {
     pub retrace_bps: u32,
 }
 
-/// `phantom_sl = { after_ms, bps }`.
+/// `phantom_sl = { after_ms, bps }` or `{ after_ms, drop }` (a fraction;
+/// `drop` defaults the reference to `from = "entry"`, the post-bundle price;
+/// `bps` to `from = "fill"`). `bps = 0` without `drop` disables the stop.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PhantomCfg {
     pub after_ms: u64,
+    #[serde(default)]
     pub bps: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drop: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<PhantomFrom>,
+}
+
+impl PhantomCfg {
+    /// `(bps, reference)` after resolving `drop` / `from`.
+    pub fn resolve(&self) -> Result<(u32, PhantomFrom), PolicyError> {
+        match self.drop {
+            Some(d) => {
+                if self.bps != 0 {
+                    return Err(PolicyError::new("phantom_sl: give bps or drop, not both"));
+                }
+                if !d.is_finite() || !(0.0..1.0).contains(&d) {
+                    return Err(PolicyError::new("phantom_sl.drop must be in [0, 1)"));
+                }
+                Ok((
+                    (d * BPS as f64).round() as u32,
+                    self.from.unwrap_or(PhantomFrom::Entry),
+                ))
+            }
+            None => Ok((self.bps, self.from.unwrap_or(PhantomFrom::Fill))),
+        }
+    }
 }
 
 /// `sell_retry = { every_slots, max_tries, tip_mult }`.
@@ -284,6 +397,18 @@ pub struct ExitConfig {
     pub amm_dump_slip_bps: u32,
     #[serde(default = "d_dust")]
     pub dust_tokens: u64,
+    /// `"price"` (default) or `"value"` (realised value of the stake).
+    #[serde(default)]
+    pub tp_basis: TpBasis,
+    /// `"slot_close"` (default) or `"trade"`.
+    #[serde(default)]
+    pub fire_on: FireOn,
+    /// `"bundle"` (default), `"bundle_only"`, `"creator"` or `"off"`.
+    #[serde(default)]
+    pub insider_sell: InsiderSell,
+    /// Hard exit at `landing slot + max_hold_slots` (0 = off; docs/04 section 2 uses 5).
+    #[serde(default)]
+    pub max_hold_slots: u64,
 }
 
 fn d_window() -> u64 {
@@ -327,6 +452,8 @@ impl Default for ExitConfig {
             phantom_sl: PhantomCfg {
                 after_ms: 10_000,
                 bps: 4000,
+                drop: None,
+                from: None,
             },
             no_activity_ms: 150_000,
             max_hold_ms: 1_800_000,
@@ -347,6 +474,10 @@ impl Default for ExitConfig {
             amm_fee_bps: d_amm_fee(),
             amm_dump_slip_bps: d_amm_slip(),
             dust_tokens: d_dust(),
+            tp_basis: TpBasis::Price,
+            fire_on: FireOn::SlotClose,
+            insider_sell: InsiderSell::Bundle,
+            max_hold_slots: 0,
         }
     }
 }
@@ -369,13 +500,14 @@ impl ExitConfig {
                 frac_bps: to_bps(p[1], "tp fraction")?,
             });
         }
+        let (phantom_bps, phantom_from) = self.phantom_sl.resolve()?;
         let p = ExitPolicy {
             tp: TpLadder::new(&levels)?,
             tp_slip_bps: self.tp_slip_bps,
             trail_activate_bps: to_bps(self.trail.activate, "trail.activate")?,
             trail_retrace_bps: self.trail.retrace_bps,
             phantom_after_ms: self.phantom_sl.after_ms,
-            phantom_bps: self.phantom_sl.bps,
+            phantom_bps,
             no_activity_ms: self.no_activity_ms,
             max_hold_ms: self.max_hold_ms,
             bundle_sell_min_lamports: self.bundle_sell_min_lamports,
@@ -395,6 +527,11 @@ impl ExitConfig {
             amm_fee_bps: self.amm_fee_bps,
             amm_dump_slip_bps: self.amm_dump_slip_bps,
             dust_tokens: self.dust_tokens,
+            tp_basis: self.tp_basis,
+            fire_on: self.fire_on,
+            insider_sell: self.insider_sell,
+            phantom_from,
+            max_hold_slots: self.max_hold_slots,
         };
         p.validate()?;
         Ok(p)
@@ -418,6 +555,8 @@ impl ExitConfig {
             phantom_sl: PhantomCfg {
                 after_ms: p.phantom_after_ms,
                 bps: p.phantom_bps,
+                drop: None,
+                from: Some(p.phantom_from),
             },
             no_activity_ms: p.no_activity_ms,
             max_hold_ms: p.max_hold_ms,
@@ -438,6 +577,10 @@ impl ExitConfig {
             amm_fee_bps: p.amm_fee_bps,
             amm_dump_slip_bps: p.amm_dump_slip_bps,
             dust_tokens: p.dust_tokens,
+            tp_basis: p.tp_basis,
+            fire_on: p.fire_on,
+            insider_sell: p.insider_sell,
+            max_hold_slots: p.max_hold_slots,
         }
     }
 
@@ -460,7 +603,11 @@ impl ExitConfig {
             sell_retry,
             sell_tip_lamports,
             dump_tip_lamports,
-            escalate_after_tries
+            escalate_after_tries,
+            tp_basis,
+            fire_on,
+            insider_sell,
+            max_hold_slots
         );
         c
     }
@@ -484,6 +631,10 @@ pub struct ExitOverrides {
     pub sell_tip_lamports: Option<u64>,
     pub dump_tip_lamports: Option<u64>,
     pub escalate_after_tries: Option<u32>,
+    pub tp_basis: Option<TpBasis>,
+    pub fire_on: Option<FireOn>,
+    pub insider_sell: Option<InsiderSell>,
+    pub max_hold_slots: Option<u64>,
 }
 
 #[cfg(test)]

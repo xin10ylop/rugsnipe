@@ -103,6 +103,33 @@ fn sample_records() -> Vec<Rec> {
             value: [0x77; 32],
             intent: 0xdead_beef,
         },
+        Rec::Shadow {
+            intent: 0xdead_beef,
+            mint: k(3),
+            model: 1,
+            outcome: ShadowOutcome::Filled as u8,
+            create_slot: 456_789_000,
+            create_index: 412,
+            block_txs: 1_310,
+            bundle_trades: 4,
+            bundle_wallets: 3,
+            our_index: 417,
+            tp_ahead: 0,
+            tp_behind: 2,
+            s0_failed: 1,
+            premium_bps: 110,
+            post_bundle_v: 33_000_000_000,
+            post_bundle_t: 975_454_545_454_545,
+            post_bundle_mcap: 33_830_000_000,
+        },
+        Rec::FailedBuy {
+            intent: 0xdead_beef,
+            mint: k(3),
+            reason: ShadowOutcome::Premium as u8,
+            cost: 3_000_000,
+            slot: 456_789_000,
+            premium_bps: 340,
+        },
     ]
 }
 
@@ -182,6 +209,20 @@ fn golden_file_round_trip() {
     let (part, stop) = decode_frames(&want[..want.len() - 3]);
     assert_eq!(part.len(), frames.len() - 1);
     assert!(stop < want.len());
+}
+
+#[test]
+fn shadow_outcomes_round_trip_and_classify() {
+    for o in ShadowOutcome::ALL {
+        assert_eq!(ShadowOutcome::from_u8(o as u8), Some(o));
+    }
+    assert_eq!(ShadowOutcome::from_u8(6), None);
+    let failed: Vec<&str> = ShadowOutcome::ALL
+        .iter()
+        .filter(|o| o.is_failed_attempt())
+        .map(|o| o.as_str())
+        .collect();
+    assert_eq!(failed, ["premium", "slippage", "not_in_slot0"]);
 }
 
 #[test]

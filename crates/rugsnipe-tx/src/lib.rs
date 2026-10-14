@@ -5,6 +5,7 @@
 //!
 //! | module | what |
 //! |---|---|
+//! | [`cu`] | per-mint compute-unit limit `65,000 + 1,500·S` from the four PDA bumps (gap-5) |
 //! | [`msg`] | fixed-order message compiler (legacy and v1 / SIMD-0385) that records byte offsets |
 //! | [`template`] | `BuyTemplate` (nonce, compute budget or v1 config, T22 ATA create, `buy_exact_quote_in_v3`, tip), `SellTemplate` (`sell_v3` [+ `CloseAccount`]), `AmmSellTemplate` (PumpSwap canonical pool `sell_v2`), each with a [`template::PatchTable`] |
 //! | [`nonce`] | `NoncePool`: packed `AtomicU64` per slot, `xxh3(mint) % N`, no probing, pre-create value only; next value = `sha256("DURABLE_NONCE" ‖ prev_blockhash)` |
@@ -15,8 +16,10 @@
 //! Safety rules (tested): paper is the default and needs no keys; the paper
 //! sender never opens a socket; real senders are compiled only with a
 //! feature **and** constructed only when `Config::validate` passes for probe
-//! or live (signed `gate_passed` ArmSet, every cap set, ...).
+//! or live (a signed ArmSet with `probe_allowed` for probe or `gate_passed`
+//! for live, every cap set, ...).
 
+pub mod cu;
 pub mod msg;
 pub mod nonce;
 pub mod senders;

@@ -53,6 +53,8 @@ pub struct AppOpts {
     pub rslog_dir: PathBuf,
     pub logsws: Option<rugsnipe_feed::ws::LogsWsHandle>,
     pub healths: Vec<Arc<FeedHealth>>,
+    /// The paper fill lane (RPC endpoint and budget). With
+    /// `paper.fill_model = "e1"` it runs the E1 lane, else the E2 lane.
     pub e2: Option<E2Cfg>,
     pub metrics: bool,
     pub fill_timeout_slots: u64,
@@ -314,6 +316,26 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     )
     .map_err(|e| e.to_string())?;
     let fired = Arc::new(FiredSet::with_capacity(1 << 16));
+    let (e1_lane, e2_lane) = match (o.e2, cfg.paper.fill_model) {
+        (Some(l), rugsnipe_core::config::FillModel::E1) => (
+            Some(crate::e1::E1Cfg {
+                rpc_url: l.rpc_url,
+                budget: l.budget,
+                delay_ms: cfg.paper.delay_ms,
+                max_tx: cfg.paper.max_tx as usize,
+                replay_slots: cfg.paper.replay_slots,
+                late_block_frac: cfg.paper.late_block_frac,
+                entry_premium_bps: (cfg.paper.entry_premium * 10_000.0).round() as u32,
+                max_premium_bps: (cfg.entry.max_premium * 10_000.0).round() as u32,
+                filter: cfg.entry.filter,
+                retry_ms: 5_000,
+                min_replay_slots: cfg.paper.min_replay_slots,
+            }),
+            None,
+        ),
+        (l, _) => (None, l),
+    };
+    let fill_lane = e1_lane.is_some() || e2_lane.is_some();
     let cold_cfg = ColdCfg {
         box_id: cfg.box_.id.clone(),
         mode,
@@ -332,7 +354,9 @@ pub fn build(o: AppOpts) -> Result<App, String> {
             )),
             _ => None,
         },
-        e2: o.e2,
+        e2: e2_lane,
+        e1: e1_lane,
+        round_trip_lamports: cfg.paper.round_trip_lamports,
         armset: match &o.armset {
             ArmChoice::File(p) => Some(ArmReload {
                 path: p.clone(),
@@ -368,6 +392,7 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     .map_err(|e| e.to_string())?;
     let mut hot_cfg = HotCfg::from_config(&cfg, policy);
     hot_cfg.fill_timeout_slots = o.fill_timeout_slots;
+    hot_cfg.fill_lane = fill_lane;
     let hot = HotLoop::new(HotParts {
         cfg: hot_cfg,
         watch: watch.clone(),

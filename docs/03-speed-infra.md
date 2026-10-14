@@ -202,7 +202,9 @@ curve, the curve's base ATA, the curve's WSOL ATA, our base ATA). S is roughly n
 with mean 4, so the median mint costs ~68k but the tail reaches 83k (S = 14 in 361 mainnet
 simulations; research/gap-5, re-derived here on every record). **A static 72,150 limit fails 16%
 of mints**; 88,000 fails 0.075%. Set the limit **per mint at `62,500 + 1,500·S` plus a 1,500 margin**
-(the simulation residual is up to +38 CU above the envelope), with 88,000 as the static floor if
+(the simulation residual is up to +38 CU above the envelope; our `buy_exact_quote_in_v3` template
+costs 1,185 more than gap-5's `buy_v3`, so the hot path patches `65,000 + 1,500·S`, which `ctl sim`
+re-measured exactly on live mints), with 88,000 as the static floor if
 per-mint patching is unavailable; in v1 the fee is a fixed total, so the tighter per-mint limit buys
 ~25% better priority rank per lamport at the median S. Mayhem coins cost ~400 CU less; a first trade
 without a user volume accumulator costs ~2.8k more (pre-create it, and grind the wallet key so its

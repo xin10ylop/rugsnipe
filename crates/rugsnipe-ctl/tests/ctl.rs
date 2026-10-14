@@ -14,10 +14,13 @@ fn example() -> String {
     )
 }
 
-fn tmp(name: &str) -> std::path::PathBuf {
-    let d = std::env::temp_dir().join(format!("rugsnipe-ctl-{}", std::process::id()));
-    std::fs::create_dir_all(&d).unwrap();
-    d.join(name)
+/// A per-test temporary directory, removed when dropped (no
+/// `/tmp/rugsnipe-ctl-*` leftovers).
+fn tmpdir() -> tempfile::TempDir {
+    tempfile::Builder::new()
+        .prefix("rugsnipe-ctl-test-")
+        .tempdir()
+        .unwrap()
 }
 
 #[test]
@@ -28,7 +31,8 @@ fn config_validate_paper_ok_live_refused() {
     let live = std::fs::read_to_string(example())
         .unwrap()
         .replace("mode = \"paper\"", "mode = \"live\"");
-    let p = tmp("live.toml");
+    let d = tmpdir();
+    let p = d.path().join("live.toml");
     std::fs::write(&p, live).unwrap();
     let out = run(&s(&[
         "config",
@@ -61,6 +65,47 @@ fn template_dump_v1_and_legacy() {
     assert_eq!(out.code, 0, "{}", out.text);
     assert!(out.text.contains("V1, 805 bytes"), "{}", out.text);
     assert!(out.text.contains("mask 0xf"));
+    // default CU: the hot path's per-mint limit over the 88,000 floor
+    let bumps = pump_codec::pda::SnipeBumps::derive(
+        &mint.parse().unwrap(),
+        &wallet.parse().unwrap(),
+        &pump_codec::constants::TOKEN_2022_PROGRAM_ID,
+    );
+    let s_missing = bumps.missing();
+    let want = (65_000 + 1_500 * s_missing).max(88_000);
+    assert!(
+        out.text
+            .contains(&format!("cu_limit {want} (per-mint; S = {s_missing}")),
+        "{}",
+        out.text
+    );
+    assert!(
+        out.text.contains(&format!("cu {:?}", Some(want))),
+        "{}",
+        out.text
+    );
+    // no floor: the bare formula; --cu pins a value
+    let out = run(&s(&[
+        "template",
+        "dump",
+        "--mint",
+        mint,
+        "--wallet",
+        wallet,
+        "--cu-floor",
+        "0",
+    ]));
+    let bare = 65_000 + 1_500 * s_missing;
+    assert!(
+        out.text.contains(&format!("cu {:?}", Some(bare))),
+        "{}",
+        out.text
+    );
+    let out = run(&s(&[
+        "template", "dump", "--mint", mint, "--wallet", wallet, "--cu", "123456",
+    ]));
+    assert!(out.text.contains("cu_limit 123456 (--cu"), "{}", out.text);
+    assert!(out.text.contains("cu Some(123456)"), "{}", out.text);
     let out = run(&s(&[
         "template",
         "dump",
@@ -118,7 +163,8 @@ fn armset_verify_ok_and_tampered() {
     let pubkey = bs58::encode(sk.verifying_key().to_bytes()).into_string();
     let body = br#"{"ver":3,"created_at":1000,"regime":"slot200","gate_passed":false,"operators":[],"watch":[]}"#;
     let sha = rugsnipe_core::armset::sha256_hex(body);
-    let f = tmp(&format!("armset-3-{sha}.json"));
+    let d = tmpdir();
+    let f = d.path().join(format!("armset-3-{sha}.json"));
     std::fs::write(&f, body).unwrap();
     std::fs::write(format!("{}.sig", f.display()), sk.sign(body).to_bytes()).unwrap();
     let out = run(&s(&[
@@ -156,10 +202,9 @@ fn usage_on_unknown() {
 
 #[test]
 fn armset_keygen_sign_verify_roundtrip_and_keygen_refuses_git_tree() {
-    let dir = std::env::temp_dir().join(format!("rugsnipe-ctl-armset-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let tmp = tmpdir();
+    let dir = tmp.path().to_path_buf();
     let key = dir.join("dev.key");
-    let _ = std::fs::remove_file(&key);
     let args = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     let out = rugsnipe_ctl::run(&args(&["armset", "keygen", "--out", key.to_str().unwrap()]));
     assert_eq!(out.code, 0, "{}", out.text);
@@ -233,5 +278,14 @@ fn armset_keygen_sign_verify_roundtrip_and_keygen_refuses_git_tree() {
         ]));
         assert_ne!(r.code, 0);
     }
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(tmp);
+    assert!(!dir.exists(), "temporary directory removed");
+}
+
+#[cfg(not(feature = "rpc"))]
+#[test]
+fn sim_without_rpc_feature_explains() {
+    let out = run(&s(&["sim", "--n", "1"]));
+    assert_eq!(out.code, 2);
+    assert!(out.text.contains("--features rpc"), "{}", out.text);
 }

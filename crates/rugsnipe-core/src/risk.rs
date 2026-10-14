@@ -87,7 +87,7 @@ pub struct DecideInput {
     pub op_slot: usize,
     /// ArmSet state allows real buys for this op in `mode`.
     pub op_armed: bool,
-    /// ArmSet verified, fresh and `gate_passed` (live) / verified (probe).
+    /// ArmSet verified, fresh and `gate_passed` (live) / `probe_allowed` (probe).
     pub armset_ok: bool,
     /// `mode.regime_freeze_slots` contains the create slot.
     pub frozen: bool,

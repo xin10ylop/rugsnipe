@@ -191,6 +191,134 @@ pub fn associated_bonding_curve(mint: &Pubkey, token_program: &Pubkey) -> Pubkey
     associated_token_address(&bonding_curve(mint), mint, token_program)
 }
 
+// ----------------------------------------------------------------- bumps
+/// `(address, bump)` of an associated token account.
+pub fn associated_token_address_with_bump(
+    owner: &Pubkey,
+    mint: &Pubkey,
+    token_program: &Pubkey,
+) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[owner.as_ref(), token_program.as_ref(), mint.as_ref()],
+        &c::ASSOCIATED_TOKEN_PROGRAM_ID,
+    )
+}
+
+/// Bump of a **known** PDA by hashing alone: the first bump from 255 down
+/// whose `sha256(seeds ‖ bump ‖ program ‖ "ProgramDerivedAddress")` equals
+/// `address`. No ed25519 curve check is needed because the address is
+/// given: for a canonical PDA (what pump and the ATA program enforce) every
+/// higher bump hashed to an on-curve point, so its hash is not `address`.
+/// Cost is `256 - bump` SHA-256 rounds (~0.3 us each), against tens of
+/// microseconds for a fresh [`Pubkey::find_program_address`]. `None` if no
+/// bump matches (the address is not a PDA of these seeds).
+pub fn known_pda_bump(seeds: &[&[u8]], program: &Pubkey, address: &Pubkey) -> Option<u8> {
+    use sha2::{Digest, Sha256};
+    let mut prefix = Sha256::new();
+    for s in seeds {
+        prefix.update(s);
+    }
+    for bump in (0..=u8::MAX).rev() {
+        let mut h = prefix.clone();
+        h.update([bump]);
+        h.update(program.as_ref());
+        h.update(b"ProgramDerivedAddress");
+        if h.finalize().as_slice() == address.as_ref() {
+            return Some(bump);
+        }
+    }
+    None
+}
+
+/// Bump of a known bonding curve `["bonding-curve", mint]` (hash only).
+pub fn bonding_curve_bump(mint: &Pubkey, bonding_curve: &Pubkey) -> Option<u8> {
+    known_pda_bump(
+        &[seeds::BONDING_CURVE, mint.as_ref()],
+        &c::PUMP_PROGRAM_ID,
+        bonding_curve,
+    )
+}
+
+/// Bump of a known ATA `[owner, token_program, mint]` (hash only).
+pub fn ata_bump(owner: &Pubkey, mint: &Pubkey, token_program: &Pubkey, ata: &Pubkey) -> Option<u8> {
+    known_pda_bump(
+        &[owner.as_ref(), token_program.as_ref(), mint.as_ref()],
+        &c::ASSOCIATED_TOKEN_PROGRAM_ID,
+        ata,
+    )
+}
+
+/// The four per-mint PDA bumps that set the compute cost of a v3 snipe
+/// (docs/research/gap-5.md section 1): the programs re-derive each of these
+/// on chain with `find_program_address`, which costs 1,500 CU per missing
+/// bump (`255 - bump`), so the snipe costs `base + 1,500 * S` with
+/// `S = Σ (255 - bump)` ([`Self::missing`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SnipeBumps {
+    /// `bonding_curve` = `["bonding-curve", mint]` (pump).
+    pub bc: u8,
+    /// `associated_base_bonding_curve` = ATA(bc, base token program, mint).
+    pub abc: u8,
+    /// `associated_quote_bonding_curve` = ATA(bc, SPL Token, wSOL).
+    pub aqbc: u8,
+    /// The user's base ATA = ATA(user, base token program, mint).
+    pub user_ata: u8,
+}
+
+impl SnipeBumps {
+    /// `S = Σ (255 - bump)` over the four PDAs (0..=1020).
+    #[inline]
+    pub fn missing(&self) -> u32 {
+        [self.bc, self.abc, self.aqbc, self.user_ata]
+            .iter()
+            .map(|b| 255 - u32::from(*b))
+            .sum()
+    }
+
+    /// Reference derivation from scratch (four full PDA searches; slow).
+    pub fn derive(mint: &Pubkey, user: &Pubkey, base_token_program: &Pubkey) -> Self {
+        let (bc, bc_bump) = bonding_curve_with_bump(mint);
+        Self {
+            bc: bc_bump,
+            abc: associated_token_address_with_bump(&bc, mint, base_token_program).1,
+            aqbc: associated_token_address_with_bump(&bc, &c::WSOL_MINT, &c::SPL_TOKEN_PROGRAM_ID)
+                .1,
+            user_ata: associated_token_address_with_bump(user, mint, base_token_program).1,
+        }
+    }
+
+    /// Hot-path recovery from keys already in hand (from the create
+    /// instruction or derived): `S + 4` SHA-256 rounds in all, no curve
+    /// checks. `None` if a key is not the PDA its seeds say (such a buy
+    /// would fail the program's seeds constraint anyway).
+    pub fn of_keys(
+        mint: &Pubkey,
+        bonding_curve: &Pubkey,
+        associated_base_bonding_curve: &Pubkey,
+        associated_quote_bonding_curve: &Pubkey,
+        user: &Pubkey,
+        user_ata: &Pubkey,
+        base_token_program: &Pubkey,
+    ) -> Option<Self> {
+        Some(Self {
+            bc: bonding_curve_bump(mint, bonding_curve)?,
+            abc: ata_bump(
+                bonding_curve,
+                mint,
+                base_token_program,
+                associated_base_bonding_curve,
+            )?,
+            aqbc: ata_bump(
+                bonding_curve,
+                &c::WSOL_MINT,
+                &c::SPL_TOKEN_PROGRAM_ID,
+                associated_quote_bonding_curve,
+            )?,
+            user_ata: ata_bump(user, mint, base_token_program, user_ata)?,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,5 +351,50 @@ mod tests {
         assert_eq!(pump_swap_event_authority(), c::PUMP_SWAP_EVENT_AUTHORITY);
         assert_eq!(mayhem_global_params(), c::MAYHEM_GLOBAL_PARAMS);
         assert_eq!(mayhem_sol_vault(), c::MAYHEM_SOL_VAULT);
+    }
+
+    #[test]
+    fn known_bump_equals_find_and_snipe_bumps_agree() {
+        let user = Pubkey::new_unique();
+        let mut total_missing = 0u32;
+        for i in 0..300u32 {
+            let mint = Pubkey::new_unique();
+            let tp = if i % 3 == 0 {
+                c::SPL_TOKEN_PROGRAM_ID
+            } else {
+                c::TOKEN_2022_PROGRAM_ID
+            };
+            let (bc, b) = bonding_curve_with_bump(&mint);
+            assert_eq!(bonding_curve_bump(&mint, &bc), Some(b));
+            let (abc, ab) = associated_token_address_with_bump(&bc, &mint, &tp);
+            assert_eq!(abc, associated_token_address(&bc, &mint, &tp));
+            assert_eq!(ata_bump(&bc, &mint, &tp, &abc), Some(ab));
+            let aqbc = ata_spl(&bc, &c::WSOL_MINT);
+            let ua = associated_token_address(&user, &mint, &tp);
+            let want = SnipeBumps::derive(&mint, &user, &tp);
+            let got = SnipeBumps::of_keys(&mint, &bc, &abc, &aqbc, &user, &ua, &tp).unwrap();
+            assert_eq!(got, want);
+            assert_eq!(got.bc, b);
+            assert_eq!(got.abc, ab);
+            total_missing += got.missing();
+            // a wrong key is not a PDA of those seeds
+            assert_eq!(
+                SnipeBumps::of_keys(&mint, &bc, &aqbc, &aqbc, &user, &ua, &tp),
+                None
+            );
+        }
+        // S ~ NegBin(4, 1/2): mean 4 per mint
+        let mean = total_missing as f64 / 300.0;
+        assert!((2.5..6.0).contains(&mean), "mean S {mean}");
+        assert_eq!(
+            SnipeBumps {
+                bc: 255,
+                abc: 254,
+                aqbc: 250,
+                user_ata: 255
+            }
+            .missing(),
+            6
+        );
     }
 }

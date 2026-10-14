@@ -68,6 +68,8 @@ pub enum Via {
     Signer,
     FeePayer,
     Funding,
+    /// The ArmSet class arm (`match_all`) took the create.
+    Class,
 }
 
 impl Via {
@@ -76,6 +78,7 @@ impl Via {
             Self::Signer => "signer",
             Self::FeePayer => "fee_payer",
             Self::Funding => "funding",
+            Self::Class => "class",
         }
     }
 }
@@ -127,6 +130,43 @@ pub struct FillRow {
     pub buyers_ahead: u32,
     pub rival_sol_ahead: u64,
     pub late: bool,
+    /// A buy that would have failed: `premium`, `slippage`, `not_in_slot0`
+    /// or `class` (a skip); `None` for a fill.
+    pub fail_reason: Option<String>,
+    /// What the failed attempt cost (its priority fee; 0 for `class`).
+    pub fail_cost: u64,
+}
+
+/// `shadow`: the shadow-mode entry of one paper intent (docs/04 section 7).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShadowRow {
+    pub intent_id: i64,
+    pub mint: Pubkey,
+    /// `e1` or `e2`.
+    pub model: String,
+    /// `filled`, `premium`, `slippage`, `not_in_slot0`, `class`, `unresolved`.
+    pub outcome: String,
+    pub create_slot: u64,
+    /// Index of the create transaction in its block.
+    pub create_index: Option<u32>,
+    pub block_txs: Option<u32>,
+    /// Trades and wallets (outside the creator set) of the bundle run.
+    pub bundle_trades: u32,
+    pub bundle_wallets: u32,
+    /// Where our buy would have landed (right behind the bundle run).
+    pub our_index: Option<u32>,
+    /// Third-party slot-0 buyers ahead of / behind that index.
+    pub tp_ahead: u32,
+    pub tp_behind: u32,
+    /// Failed slot-0 transactions on the curve (lost races of others).
+    pub s0_failed: u32,
+    pub premium_bps: u32,
+    pub post_bundle_v: u64,
+    pub post_bundle_t: u64,
+    /// Post-bundle market cap, lamports (1e9-token supply).
+    pub post_bundle_mcap: u64,
+    /// Priority fee of a failed attempt (0 otherwise).
+    pub cost: u64,
 }
 
 /// `positions.origin`.

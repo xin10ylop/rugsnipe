@@ -20,11 +20,17 @@ Two kinds:
   most often (``data/analytics.db`` ``funding`` table), any amount in
   [0.05, 50] SOL to a fresh wallet. This is NOT a strategy; it exercises the
   funding watcher -> dynamic watchlist -> decision path.
+* ``class``: the lead policy's universe (docs/04 section 2) is a class of
+  launches, not a list of operators: one ``shadow`` operator (0.5 SOL,
+  ``v_max`` 115 SOL) and ``match_all`` set to it, so every create the
+  watchlist does not know maps to it; ``[entry] filter = "multi_bundle"`` in
+  ``config/paper-lead.example.toml`` keeps the multi-wallet bundled ones.
 
 Usage::
 
     python -I analysis/scripts/make_paper_armset.py --kind operators --ver 1 --out /tmp/x/ops.json
     python -I analysis/scripts/make_paper_armset.py --kind cex-broad --ver 2 --out /tmp/x/cex.json
+    python -I analysis/scripts/make_paper_armset.py --kind class --ver 3 --out /tmp/x/class.json
 """
 from __future__ import annotations
 
@@ -43,6 +49,8 @@ LAMPORTS = 1_000_000_000
 BAND = 500_000  # +-0.0005 SOL
 SIZE = 100_000_000  # 0.1 SOL
 V_MAX = 40 * LAMPORTS
+CLASS_SIZE = 500_000_000  # 0.5 SOL (docs/04 section 4 cap)
+CLASS_V_MAX = 115 * LAMPORTS  # no entry cap beyond slot-0 graduation (gap-3)
 
 
 def op_entry(op_id: int, family: str, stats: dict) -> dict:
@@ -146,15 +154,25 @@ def cex_broad(n_funders: int) -> tuple[list, list, list]:
     return ops, [], rules
 
 
+def class_arm() -> tuple[list, list, list]:
+    op = op_entry(1, "class-multi-bundle", {"policy": "docs/04 section 2 rank-1 micro-scalp",
+                                            "entry_filter": "multi_bundle"})
+    op["size_lamports"] = CLASS_SIZE
+    op["v_max_lamports"] = CLASS_V_MAX
+    return [op], [], []
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--kind", choices=["operators", "cex-broad"], default="operators")
+    ap.add_argument("--kind", choices=["operators", "cex-broad", "class"], default="operators")
     ap.add_argument("--ver", type=int, required=True)
     ap.add_argument("--n", type=int, default=20, help="operators (operators) or funders (cex-broad)")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     if a.kind == "operators":
         ops, watch, rules = operators(a.n)
+    elif a.kind == "class":
+        ops, watch, rules = class_arm()
     else:
         ops, watch, rules = cex_broad(min(a.n, 10))
     armset = {
@@ -172,6 +190,8 @@ def main() -> int:
         "watch": watch,
         "funding_rules": rules,
     }
+    if a.kind == "class":
+        armset["match_all"] = ops[0]["op_id"]
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     Path(a.out).write_text(json.dumps(armset, indent=1, sort_keys=True) + "\n")
     print(f"{a.out}: {len(ops)} operator(s), {len(watch)} watch key(s), {len(rules)} funding rule(s)")

@@ -44,6 +44,11 @@ impl Ledger {
         ok
     }
 
+    /// The shadow-mode entry of a paper intent (upsert by intent).
+    pub fn shadow(&self, r: ShadowRow) -> bool {
+        self.w.send(Write::Shadow(r))
+    }
+
     /// The nonce burn won (real modes).
     pub fn burned(&self, intent_id: i64) -> bool {
         self.w.send(Write::IntentState {

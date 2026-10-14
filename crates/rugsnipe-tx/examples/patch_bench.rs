@@ -62,6 +62,7 @@ fn main() {
                 limit: 1,
                 priority_lamports: 7_200,
                 tip_lamports: 1_000_000,
+                cu_limit: None,
             });
             t.sign(&payer, None);
             use base64::Engine as _;

@@ -80,3 +80,18 @@ id = 12
 name = "NonceEvt"
 fields = ["idx:u16", "from:u8", "to:u8", "slot:u64", "value:[32]", "intent:u64"]
 size = 52
+
+[[kind]]
+id = 13
+name = "Shadow"
+fields = ["intent:u64", "mint:[32]", "model:u8", "outcome:u8", "create_slot:u64", "create_index:u32", "block_txs:u32", "bundle_trades:u8", "bundle_wallets:u8", "our_index:u32", "tp_ahead:u8", "tp_behind:u8", "s0_failed:u8", "premium_bps:u32", "post_bundle_v:u64", "post_bundle_t:u64", "post_bundle_mcap:u64"]
+size = 95
+# model: 1 e1, 2 e2. outcome: 0 filled, 1 premium, 2 slippage, 3 not_in_slot0, 4 class, 5 unresolved
+# (rugsnipe_core::rslog::ShadowOutcome). post_bundle_mcap in lamports (1e9 supply).
+
+[[kind]]
+id = 14
+name = "FailedBuy"
+fields = ["intent:u64", "mint:[32]", "reason:u8", "cost:u64", "slot:u64", "premium_bps:u32"]
+size = 61
+# reason: a ShadowOutcome (1 premium, 2 slippage, 3 not_in_slot0, 4 class); cost = priority fee paid (0 for class)

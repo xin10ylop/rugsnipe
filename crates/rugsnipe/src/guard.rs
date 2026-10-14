@@ -208,6 +208,7 @@ impl Guard {
                 limit: min_out,
                 priority_lamports: self.policy.dump_tip_lamports,
                 tip_lamports: self.policy.dump_tip_lamports,
+                cu_limit: None,
             });
             s.template.sign(&s.signer, None);
             let var = Variant::from_template(

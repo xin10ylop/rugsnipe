@@ -124,26 +124,46 @@ fn real_keys(mint: Pubkey, p: &CurveParams) -> MintKeys {
 
 #[test]
 fn patched_buy_equals_scratch_build_for_1000_mints() {
+    // Templates are compiled with the configured floor; every mint patches
+    // its own CU limit (65,000 + 1,500*S over the floor, gap-5) and must
+    // equal a from-scratch build whose CurveParams carry that limit. Floors
+    // vary so both the formula and the clamp are exercised.
     let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
     let combos = [
-        (TxFormat::Legacy, false, false),
-        (TxFormat::Legacy, true, false),
-        (TxFormat::Legacy, true, true),
-        (TxFormat::V1, false, false),
-        (TxFormat::V1, true, false),
-        (TxFormat::V1, true, true),
+        (TxFormat::Legacy, false, false, 65_000),
+        (TxFormat::Legacy, true, false, 1),
+        (TxFormat::Legacy, true, true, 88_000),
+        (TxFormat::V1, false, false, 65_000),
+        (TxFormat::V1, true, false, 70_000),
+        (TxFormat::V1, true, true, 88_000),
     ];
     let mut templates: Vec<(CurveParams, Template)> = combos
         .iter()
-        .map(|&(f, n, s)| {
-            let p = params(&mut rng, f, n, s);
+        .map(|&(f, n, s, floor)| {
+            let mut p = params(&mut rng, f, n, s);
+            p.cu_limit = floor;
             (p, Template::buy(&p).unwrap())
         })
         .collect();
+    let (mut above_floor, mut at_floor) = (0, 0);
     for i in 0..1_000 {
         let mint = rng.key();
         let (p, t) = &mut templates[i % combos.len()];
         let k = real_keys(mint, p);
+        let floor = p.cu_limit;
+        // per-mint limit from the bumps recovered from the keys (hot path) ==
+        // from a from-scratch derivation of the four PDAs
+        let s = pda::SnipeBumps::derive(&mint, &p.user, &p.base_token_program).missing();
+        let cu = k
+            .snipe_cu_limit(&p.user, &p.base_token_program, floor)
+            .unwrap();
+        assert_eq!(cu, rugsnipe_tx::cu::snipe_cu_limit(s, floor));
+        assert_eq!(cu, (65_000 + 1_500 * s).clamp(floor, 1_400_000));
+        if cu > floor {
+            above_floor += 1;
+        } else {
+            at_floor += 1;
+        }
         let lifetime = {
             let mut b = [0u8; 32];
             b[..8].copy_from_slice(&rng.next().to_le_bytes());
@@ -163,32 +183,86 @@ fn patched_buy_equals_scratch_build_for_1000_mints() {
             limit: min_out,
             priority_lamports: prio,
             tip_lamports: tip,
+            cu_limit: Some(cu),
         });
-        let ixs = buy_instructions(p, &k, spend, min_out, prio, tip);
-        let want = reference(
-            &ixs,
-            &p.user,
-            lifetime,
-            p.format,
-            p.cu_limit,
-            p.lads_bytes,
-            prio,
-        );
+        assert_eq!(t.cu_limit(), cu);
+        let scratch = CurveParams { cu_limit: cu, ..*p };
+        let ixs = buy_instructions(&scratch, &k, spend, min_out, prio, tip);
+        let want = reference(&ixs, &p.user, lifetime, p.format, cu, p.lads_bytes, prio);
         let got = decompile(t.bytes());
-        assert_eq!(got, want, "mint #{i} {mint} {:?}", p.format);
+        assert_eq!(got, want, "mint #{i} {mint} {:?} cu {cu}", p.format);
+        // byte-exact too: a template compiled with this mint's limit
+        let mut fresh = Template::buy(&scratch).unwrap();
+        fresh.patch(&Patch {
+            keys: &k,
+            lifetime: &lifetime,
+            amount: spend,
+            limit: min_out,
+            priority_lamports: prio,
+            tip_lamports: tip,
+            cu_limit: None,
+        });
+        assert_eq!(t.bytes(), fresh.bytes(), "mint #{i} {:?}", p.format);
         let tx = TxView::parse(t.bytes()).unwrap();
         assert_eq!(tx.recent_blockhash(), &lifetime);
-        if p.format == TxFormat::V1 {
-            let cb = tx.compute_budget();
+        let cb = tx.compute_budget();
+        assert_eq!(cb.compute_unit_limit, Some(cu));
+        assert_eq!(cb.loaded_accounts_data_size_limit, Some(p.lads_bytes));
+        match p.format {
+            TxFormat::V1 => assert_eq!(cb.priority_fee_lamports, Some(prio)),
+            // legacy: the price follows the per-mint limit; never above the total
+            TxFormat::Legacy => {
+                let price = cb.compute_unit_price_micro_lamports.unwrap();
+                assert_eq!(price, legacy_price(prio, cu));
+                assert!(price as u128 * cu as u128 / 1_000_000 <= prio as u128);
+            }
+        }
+    }
+    assert!(
+        above_floor > 100 && at_floor > 100,
+        "{above_floor} {at_floor}"
+    );
+}
+
+#[test]
+fn set_cu_limit_keeps_the_priority_total() {
+    let mut rng = Rng(77);
+    for f in [TxFormat::Legacy, TxFormat::V1] {
+        let p = params(&mut rng, f, true, false);
+        let mut t = Template::buy(&p).unwrap();
+        let k = real_keys(rng.key(), &p);
+        t.patch(&Patch {
+            keys: &k,
+            lifetime: &[2; 32],
+            amount: 1,
+            limit: 1,
+            priority_lamports: 3_400_000,
+            tip_lamports: 0,
+            cu_limit: Some(71_000),
+        });
+        // a variant's bid change keeps the per-mint limit
+        t.set_priority(1_000_000);
+        let cb = TxView::parse(t.bytes()).unwrap().compute_budget();
+        assert_eq!(cb.compute_unit_limit, Some(71_000));
+        if f == TxFormat::Legacy {
             assert_eq!(
-                (
-                    cb.priority_fee_lamports,
-                    cb.compute_unit_limit,
-                    cb.loaded_accounts_data_size_limit
-                ),
-                (Some(prio), Some(p.cu_limit), Some(p.lads_bytes))
+                cb.compute_unit_price_micro_lamports,
+                Some(legacy_price(1_000_000, 71_000))
             );
         }
+        // a limit change re-derives the legacy price from the same total
+        t.set_cu_limit(89_000);
+        let cb = TxView::parse(t.bytes()).unwrap().compute_budget();
+        assert_eq!(cb.compute_unit_limit, Some(89_000));
+        assert_eq!(t.priority_lamports(), 1_000_000);
+        match f {
+            TxFormat::Legacy => assert_eq!(
+                cb.compute_unit_price_micro_lamports,
+                Some(legacy_price(1_000_000, 89_000))
+            ),
+            TxFormat::V1 => assert_eq!(cb.priority_fee_lamports, Some(1_000_000)),
+        }
+        assert!(t.table.cu_limit.is_some());
     }
 }
 
@@ -214,6 +288,7 @@ fn patched_sells_equal_scratch_build() {
                 limit: min,
                 priority_lamports: prio,
                 tip_lamports: tip,
+                cu_limit: None,
             });
             let want = reference(
                 &sell_instructions(&p, &k, close, tok, min, prio, tip),
@@ -251,6 +326,7 @@ fn patched_sells_equal_scratch_build() {
                 limit: 6,
                 priority_lamports: 7,
                 tip_lamports: 8,
+                cu_limit: None,
             });
             let want = reference(
                 &amm_sell_instructions(&ap, &k, 5, 6, 7, 8),
@@ -285,6 +361,7 @@ fn buy_accounts_equal_pump_rust_client_for_100_mints() {
             limit: 1,
             priority_lamports: 0,
             tip_lamports: 1_000,
+            cu_limit: None,
         });
         let sdk = pump_rust_client::PumpSdk.buy_exact_quote_in_v3_instruction(
             p3(&mint),
@@ -337,6 +414,7 @@ fn layout_is_byte_exact_against_solana_message() {
             limit: 456,
             priority_lamports: 7_200,
             tip_lamports: 1_000_000,
+            cu_limit: None,
         });
         let tx = TxView::parse(t.bytes()).unwrap();
         let keys = tx.static_account_keys().to_vec();
@@ -443,6 +521,7 @@ fn template_parses_as_buy_and_signs() {
         limit: 9,
         priority_lamports: 1,
         tip_lamports: 2,
+        cu_limit: None,
     });
     t.sign(&payer, Some(&auth));
     let tx = TxView::parse(t.bytes()).unwrap();
@@ -485,6 +564,7 @@ fn template_parses_as_buy_and_signs() {
         limit: 1,
         priority_lamports: 1,
         tip_lamports: 1,
+        cu_limit: None,
     });
     assert_eq!(t.signature(), [0u8; 64]);
 }
@@ -507,6 +587,7 @@ fn missing_budget_and_spl_base_program() {
         limit: 1,
         priority_lamports: 100,
         tip_lamports: 1,
+        cu_limit: None,
     });
     assert_eq!(
         decompile(t.bytes()),
@@ -614,6 +695,7 @@ fn fresh_random_mints_patch_equals_scratch_and_pump_rust_client() {
             limit: min_out,
             priority_lamports: prio,
             tip_lamports: tip,
+            cu_limit: None,
         });
         let got = decompile(t.bytes());
         // (a) from-scratch builder, compiled by Solana's own message code

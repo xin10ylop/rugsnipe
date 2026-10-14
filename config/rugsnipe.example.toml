@@ -7,7 +7,13 @@
 #
 # Validation refuses probe or live if any cap is 0 or missing, cu_limit = 0, a key credential
 # is group- or world-readable, clock offset > 5 ms, no healthy post-exec feed, the ArmSet is
-# unsigned or gate_passed = false, or the [rpc_budget] sum is > 32.
+# unsigned, stale or from the wrong regime, or the [rpc_budget] role sum is > 32. Probe also
+# needs the signed ArmSet to carry probe_allowed = true (NOT gate_passed: probes measure what
+# the gate needs); live needs gate_passed = true, the --live flag and a `ctl arm-live` token.
+#
+# One file serves Rust and Python: [rpc_budget] per_method / per_host / methods and the
+# [collector] table are read by analysis/rugsnipe_analysis/{rpcbudget,collector}.py; the Rust
+# side parses and validates them too (unknown keys are refused everywhere).
 [box]
 id = "fra1"
 role = "hot"
@@ -56,15 +62,22 @@ astralane = { enabled = false, key = "ASTRALANE_KEY", min_tip = 1_000_000 }
 jito = { enabled = false, region = "auto", max_rps = 1 }
 nextblock = { enabled = false, key = "NEXTBLOCK_KEY" }
 tpu = { enabled = false, leaders_ahead = 2 }
-[rpc_budget]
+[rpc_budget]                                       # req/s per public-RPC egress IP; roles sum <= 32
 hot = 4
 guard = 4
 keeper = 8
 collector = 12
 backfill = 4
+per_method = 4                                     # Python buckets: cap per (endpoint host, method)
+per_host = 10                                      # Python buckets: cap per endpoint host, all methods
+# methods = { getBlock = 2 }                       # per-method overrides of per_method (Python)
 [tx]
 format = "legacy"
-cu_limit = 0                                       # static floor only; the hot path patches 62,500 + 1,500*S (+1,500) per mint (research/gap-5); 0 = probe/live refused until `ctl sim` confirms the fit
+cu_limit = 0                                       # FLOOR of the per-mint CU limit: the hot path patches 65,000 + 1,500*S per mint
+                                                   # (S = sum of 255 - bump over bc, curve base ATA, curve wSOL ATA, our ATA;
+                                                   # research/gap-5), clamped to [cu_limit, 1,400,000]; sells use it as is.
+                                                   # 88_000 recommended; 0 = probe/live refused until `rugsnipe-ctl sim`
+                                                   # confirms the fit (paper falls back to 88,000)
 lads_bytes = 0
 nonce_pool = 32
 sell_nonce_pool = 8
@@ -101,3 +114,26 @@ skip_p = 0.2
 small_arm = [0.2, 0.35]
 small_lamports = 50_000_000
 size_jitter = 0.10
+[collector]                                        # Python collector overrides (collector.py CollectorConfig); all optional
+# db_path = "data/analytics.db"                    # (default: repo data/analytics.db)
+# box = "ohio1"
+# relay_socket = "/run/rugsnipe/pp.sock"           # also set by [feeds] relay.enabled
+# pp_url = "wss://pumpportal.fun/api/data"
+# logs_url = "wss://api.mainnet-beta.solana.com"
+# rpc_endpoints = ["https://api.mainnet-beta.solana.com"]
+# budget_role = "collector"                        # an [rpc_budget] role
+# duration_s = 3600                                # unset = run forever
+# pp_stale_s = 60.0
+# logs_stale_s = 30.0
+# decode_delay_s = 8.0
+# funding_delay_s = 45.0
+# rivals_delay_s = 90.0
+# tape_delay_s = 2100.0                            # tapes at T+35 min
+# tape_early_s = 300
+# tape_early_pages = 10
+# funding_hops = 1                                 # 0 = signer's own funding only
+# funding_scan = 4
+# cache_tx = false
+# workers = 10
+# api_rps = 3.0                                    # pump.fun frontend API
+# stats_every_s = 60.0

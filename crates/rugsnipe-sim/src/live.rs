@@ -23,17 +23,52 @@ pub struct Coin {
     pub real_sol: u64,
 }
 
+/// `rpc.call` retried on rate limiting (HTTP 429 / "rate limit" errors)
+/// with a growing pause; public endpoints throttle per IP.
+pub fn call_retry(rpc: &RpcClient, method: &str, params: Value) -> Result<Value, String> {
+    let mut last = String::new();
+    for attempt in 0..6u64 {
+        match rpc.call(method, params.clone()) {
+            Ok(v) => return Ok(v),
+            Err(e) if e.contains("429") || e.to_ascii_lowercase().contains("rate limit") => {
+                last = e;
+                std::thread::sleep(Duration::from_millis(1_500 * (attempt + 1)));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last)
+}
+
 fn pk(v: &Value) -> Option<Pubkey> {
     v.as_str()?.parse().ok()
 }
 
 /// Newest SOL-quoted, non-mayhem, incomplete coin created within `max_age_s`.
 pub fn fresh_coin(rpc: &RpcClient, now_ms: u64, max_age_s: u64) -> Result<Coin, String> {
+    fresh_coins(rpc, now_ms, max_age_s, 1)?
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("no SOL-quoted coin younger than {max_age_s}s in the latest 50"))
+}
+
+/// Up to `n` newest SOL-quoted, non-mayhem, incomplete coins created within
+/// `max_age_s` (from the latest 50 of the pump.fun API).
+pub fn fresh_coins(
+    rpc: &RpcClient,
+    now_ms: u64,
+    max_age_s: u64,
+    n: usize,
+) -> Result<Vec<Coin>, String> {
     let url = format!(
-        "{PUMP_API}/coins?offset=0&limit=20&sort=created_timestamp&order=DESC&includeNsfw=true"
+        "{PUMP_API}/coins?offset=0&limit=50&sort=created_timestamp&order=DESC&includeNsfw=true"
     );
     let v = rpc.get_json(&url)?;
+    let mut out = vec![];
     for c in v.as_array().ok_or("coins: not an array")? {
+        if out.len() >= n {
+            break;
+        }
         let created = c["created_timestamp"].as_u64().unwrap_or(0);
         let sol = c["quote_mint"].as_str() == Some("11111111111111111111111111111111")
             || c["quote_mint"].is_null();
@@ -43,7 +78,7 @@ pub fn fresh_coin(rpc: &RpcClient, now_ms: u64, max_age_s: u64) -> Result<Coin, 
             && !mayhem
             && now_ms.saturating_sub(created) <= max_age_s * 1_000
         {
-            return Ok(Coin {
+            out.push(Coin {
                 mint: pk(&c["mint"]).ok_or("mint")?,
                 bonding_curve: pk(&c["bonding_curve"]).ok_or("bonding_curve")?,
                 token_program: pk(&c["token_program"])
@@ -55,9 +90,7 @@ pub fn fresh_coin(rpc: &RpcClient, now_ms: u64, max_age_s: u64) -> Result<Coin, 
             });
         }
     }
-    Err(format!(
-        "no SOL-quoted coin younger than {max_age_s}s in the latest 20"
-    ))
+    Ok(out)
 }
 
 /// `getMultipleAccounts` with a 36-byte slice (sizes from `space`).
@@ -65,7 +98,11 @@ pub fn accounts(rpc: &RpcClient, keys: &[Pubkey]) -> Result<Vec<Option<AcctInfo>
     let mut out = vec![];
     for chunk in keys.chunks(100) {
         let ks: Vec<String> = chunk.iter().map(|k| k.to_string()).collect();
-        let r = rpc.call("getMultipleAccounts", json!([ks, {"encoding": "base64", "dataSlice": {"offset": 0, "length": 36}, "commitment": "processed"}]))?;
+        let r = call_retry(
+            rpc,
+            "getMultipleAccounts",
+            json!([ks, {"encoding": "base64", "dataSlice": {"offset": 0, "length": 36}, "commitment": "processed"}]),
+        )?;
         for (k, a) in chunk.iter().zip(r["value"].as_array().ok_or("value")?) {
             if a.is_null() {
                 out.push(None);
@@ -96,7 +133,8 @@ pub fn account_data(
     rpc: &RpcClient,
     key: &Pubkey,
 ) -> Result<Option<(Vec<u8>, Pubkey, u64)>, String> {
-    let r = rpc.call(
+    let r = call_retry(
+        rpc,
         "getAccountInfo",
         json!([key.to_string(), {"encoding": "base64", "commitment": "processed"}]),
     )?;
@@ -134,7 +172,8 @@ pub fn computed_loaded_bytes(rpc: &RpcClient, tx_keys: &[Pubkey]) -> Result<u64,
 /// `simulateTransaction` with `sigVerify: false`.
 pub fn simulate(rpc: &RpcClient, tx: &[u8], replace_blockhash: bool) -> Result<Value, String> {
     let b64 = base64::engine::general_purpose::STANDARD.encode(tx);
-    rpc.call(
+    call_retry(
+        rpc,
         "simulateTransaction",
         json!([b64, {"encoding": "base64", "sigVerify": false, "replaceRecentBlockhash": replace_blockhash, "commitment": "processed"}]),
     )
@@ -150,7 +189,8 @@ pub fn pick_wallet(
     min_lamports: u64,
     fallback: &Pubkey,
 ) -> Result<(Pubkey, u64, bool), String> {
-    let sigs = rpc.call(
+    let sigs = call_retry(
+        rpc,
         "getSignaturesForAddress",
         json!([bonding_curve.to_string(), {"limit": 20, "commitment": "confirmed"}]),
     )?;
@@ -160,7 +200,13 @@ pub fn pick_wallet(
             continue;
         }
         std::thread::sleep(Duration::from_millis(300));
-        let Ok(t) = rpc.call("getTransaction", json!([s["signature"], {"encoding": "json", "maxSupportedTransactionVersion": 1, "commitment": "confirmed"}])) else { continue };
+        let Ok(t) = call_retry(
+            rpc,
+            "getTransaction",
+            json!([s["signature"], {"encoding": "json", "maxSupportedTransactionVersion": 1, "commitment": "confirmed"}]),
+        ) else {
+            continue;
+        };
         let Some(payer) = pk(&t["transaction"]["message"]["accountKeys"][0]) else {
             continue;
         };
@@ -177,7 +223,7 @@ pub fn pick_wallet(
     if let Some(w) = without_uva {
         return Ok(w);
     }
-    let r = rpc.call("getBalance", json!([fallback.to_string()]))?;
+    let r = call_retry(rpc, "getBalance", json!([fallback.to_string()]))?;
     let uva = account_data(rpc, &pump_codec::pda::user_volume_accumulator(fallback))?.is_some();
     Ok((*fallback, r["value"].as_u64().unwrap_or(0), uva))
 }
@@ -190,6 +236,20 @@ pub fn run_cases(
     nonce: Option<(Pubkey, Pubkey, [u8; 32])>,
     cases: &[Case],
     spend: u64,
+) -> Result<Vec<(SimRow, u64)>, String> {
+    run_cases_opt(rpc, coin, wallet, nonce, cases, spend, true)
+}
+
+/// [`run_cases`]; `compute_loaded = false` skips the loaded-bytes
+/// computation (two `getMultipleAccounts` per case) and reports 0.
+pub fn run_cases_opt(
+    rpc: &RpcClient,
+    coin: &Coin,
+    wallet: &Pubkey,
+    nonce: Option<(Pubkey, Pubkey, [u8; 32])>,
+    cases: &[Case],
+    spend: u64,
+    compute_loaded: bool,
 ) -> Result<Vec<(SimRow, u64)>, String> {
     let mut rows = vec![];
     for case in cases {
@@ -219,7 +279,11 @@ pub fn run_cases(
         .map_err(|e| e.to_string())?;
         let view = pump_codec::tx::TxView::parse(t.bytes()).map_err(|e| e.to_string())?;
         let keys = view.static_account_keys().to_vec();
-        let loaded = computed_loaded_bytes(rpc, &keys)?;
+        let loaded = if compute_loaded {
+            computed_loaded_bytes(rpc, &keys)?
+        } else {
+            0
+        };
         std::thread::sleep(Duration::from_millis(300));
         let v = simulate(rpc, t.bytes(), !case.nonce)?;
         let val = &v["value"];
@@ -229,10 +293,15 @@ pub fn run_cases(
             .flatten()
             .filter_map(|l| l.as_str().map(str::to_string))
             .collect();
-        let (cu, lads) = case.limits();
+        let s = snipe_s(wallet, &coin.mint, &coin.token_program);
+        let (cu, lads) = case.limits(s);
         rows.push((
             SimRow {
                 label: case.label(),
+                format: case.format,
+                nonce: case.nonce,
+                tight: case.tight,
+                s,
                 size: t.len(),
                 cu_limit: cu,
                 lads_limit: lads,
@@ -279,4 +348,78 @@ pub fn read_nonce(rpc: &RpcClient, account: &Pubkey) -> Result<(Pubkey, [u8; 32]
     let (data, _, _) = account_data(rpc, account)?.ok_or("nonce account missing")?;
     let (auth, value, _) = parse_nonce_account(&data).ok_or("not an initialized nonce account")?;
     Ok((auth, value))
+}
+
+/// One mint of a [`fit_live`] run.
+#[derive(Debug, Clone)]
+pub struct MintFit {
+    pub coin: Coin,
+    pub rows: Vec<(SimRow, u64)>,
+    pub fits: Vec<Fit>,
+    /// Tight (per-mint limit) runs that failed.
+    pub tight_failures: Vec<String>,
+}
+
+/// Measured vs formula on up to `n` fresh mints: for each, the `formats`
+/// templates loose (to measure) and tight (the per-mint limit, to check),
+/// with and without the nonce when one is given. Read-only
+/// (`simulateTransaction`, `sigVerify: false`). Coins whose curve cannot be
+/// read (complete, mayhem, gone) are skipped with a note in `skipped`.
+pub fn fit_live(
+    rpc: &RpcClient,
+    now_ms: u64,
+    max_age_s: u64,
+    n: usize,
+    wallet: &Pubkey,
+    nonce: Option<(Pubkey, Pubkey, [u8; 32])>,
+    formats: &[TxFormat],
+    spend: u64,
+) -> Result<(Vec<MintFit>, Vec<String>), String> {
+    let mut out = vec![];
+    let mut skipped = vec![];
+    let mut cases = vec![];
+    for &f in formats {
+        for nn in [false, true] {
+            if nn && nonce.is_none() {
+                continue;
+            }
+            for tight in [false, true] {
+                cases.push(Case {
+                    format: f,
+                    nonce: nn,
+                    tight,
+                });
+            }
+        }
+    }
+    for mut coin in fresh_coins(rpc, now_ms, max_age_s, n.saturating_mul(2))? {
+        if out.len() >= n {
+            break;
+        }
+        if let Err(e) = read_curve(rpc, &mut coin) {
+            skipped.push(format!("{}: {e}", coin.mint));
+            continue;
+        }
+        let rows = run_cases_opt(rpc, &coin, wallet, nonce, &cases, spend, false)?;
+        let fits = rows.iter().filter_map(|(r, _)| fit(r)).collect();
+        let tight_failures = rows
+            .iter()
+            .filter(|(r, _)| r.tight && r.err.is_some())
+            .map(|(r, _)| {
+                format!(
+                    "{} (limit {}): {}",
+                    r.label,
+                    r.cu_limit,
+                    r.err.clone().unwrap_or_default()
+                )
+            })
+            .collect();
+        out.push(MintFit {
+            coin,
+            rows,
+            fits,
+            tight_failures,
+        });
+    }
+    Ok((out, skipped))
 }

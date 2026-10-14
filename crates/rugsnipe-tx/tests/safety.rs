@@ -97,7 +97,10 @@ fn good_env(c: &Config) -> ValidateEnv {
     ValidateEnv {
         clock_offset_ms: Some(0.5),
         post_exec_feed_healthy: true,
-        armset: ArmSetGate::Verified { gate_passed: true },
+        armset: ArmSetGate::Verified {
+            gate_passed: true,
+            probe_allowed: true,
+        },
         credential_modes: creds,
         live_cli_flag: true,
         arm_live_token: true,
@@ -130,7 +133,10 @@ fn real_modes_refused_without_signed_gate_or_caps() {
         }
         // gate not passed
         let mut env = good_env(&c);
-        env.armset = ArmSetGate::Verified { gate_passed: false };
+        env.armset = ArmSetGate::Verified {
+            gate_passed: false,
+            probe_allowed: false,
+        };
         assert!(matches!(
             SenderSet::build(&c, &env, &ApiKeys::default()),
             Err(BuildError::Refused(_))
@@ -267,7 +273,12 @@ fn each_section6_defect_alone_refuses_the_real_sender_set() {
             ),
             (
                 "gate_passed false",
-                Box::new(|_, e| e.armset = ArmSetGate::Verified { gate_passed: false }),
+                Box::new(|_, e| {
+                    e.armset = ArmSetGate::Verified {
+                        gate_passed: false,
+                        probe_allowed: false,
+                    }
+                }),
             ),
             ("rpc budget 33", Box::new(|c, _| c.rpc_budget.hot += 1)),
         ];

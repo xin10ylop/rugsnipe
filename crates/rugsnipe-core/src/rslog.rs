@@ -213,10 +213,89 @@ pub enum Rec {
         value: [u8; 32],
         intent: u64,
     },
+    /// Shadow-mode entry of one paper intent (docs/04 section 7): where the
+    /// create sat in its block, the bundle, where we would have landed, who
+    /// was ahead of / behind us and the premium. `outcome` is a
+    /// [`ShadowOutcome`].
+    Shadow {
+        intent: u64,
+        mint: Pubkey,
+        model: u8,
+        outcome: u8,
+        create_slot: u64,
+        create_index: u32,
+        block_txs: u32,
+        bundle_trades: u8,
+        bundle_wallets: u8,
+        our_index: u32,
+        tp_ahead: u8,
+        tp_behind: u8,
+        s0_failed: u8,
+        premium_bps: u32,
+        post_bundle_v: u64,
+        post_bundle_t: u64,
+        post_bundle_mcap: u64,
+    },
+    /// A buy that would not have filled, and what the attempt cost
+    /// (`reason` is a [`ShadowOutcome`] other than `Filled`).
+    FailedBuy {
+        intent: u64,
+        mint: Pubkey,
+        reason: u8,
+        cost: u64,
+        slot: u64,
+        premium_bps: u32,
+    },
+}
+
+/// Outcome of a paper entry (`Shadow.outcome`, `FailedBuy.reason`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum ShadowOutcome {
+    Filled = 0,
+    /// Third-party buys ahead of us pushed the price above `entry.max_premium`.
+    Premium = 1,
+    /// The fill would have broken the operator's on-chain bound (`v_max`).
+    Slippage = 2,
+    /// The create sits too late in its block to be followed in slot 0.
+    NotInSlot0 = 3,
+    /// The launch is outside the entry class (`entry.filter`): a skip, no cost.
+    Class = 4,
+    /// The slot-0 history could not be reconstructed in budget.
+    Unresolved = 5,
+}
+
+impl ShadowOutcome {
+    pub const ALL: [ShadowOutcome; 6] = [
+        Self::Filled,
+        Self::Premium,
+        Self::Slippage,
+        Self::NotInSlot0,
+        Self::Class,
+        Self::Unresolved,
+    ];
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Filled => "filled",
+            Self::Premium => "premium",
+            Self::Slippage => "slippage",
+            Self::NotInSlot0 => "not_in_slot0",
+            Self::Class => "class",
+            Self::Unresolved => "unresolved",
+        }
+    }
+    pub fn from_u8(v: u8) -> Option<Self> {
+        Self::ALL.get(v as usize).copied()
+    }
+    /// A send that would have paid its priority fee (premium, slippage,
+    /// not in slot 0). A class miss is a pre-send skip; unresolved is unknown.
+    pub fn is_failed_attempt(self) -> bool {
+        matches!(self, Self::Premium | Self::Slippage | Self::NotInSlot0)
+    }
 }
 
 /// `(kind id, name)` of every record, in id order.
-pub const KINDS: [(u16, &str); 12] = [
+pub const KINDS: [(u16, &str); 14] = [
     (1, "FeedSeen"),
     (2, "CreateHit"),
     (3, "Matched"),
@@ -229,6 +308,8 @@ pub const KINDS: [(u16, &str); 12] = [
     (10, "Lease"),
     (11, "Upgrade"),
     (12, "NonceEvt"),
+    (13, "Shadow"),
+    (14, "FailedBuy"),
 ];
 
 struct W<'a>(&'a mut Vec<u8>);
@@ -307,6 +388,8 @@ impl Rec {
             Self::Lease { .. } => 10,
             Self::Upgrade { .. } => 11,
             Self::NonceEvt { .. } => 12,
+            Self::Shadow { .. } => 13,
+            Self::FailedBuy { .. } => 14,
         }
     }
 
@@ -447,6 +530,58 @@ impl Rec {
                     .b(value)
                     .u64(*intent);
             }
+            Self::Shadow {
+                intent,
+                mint,
+                model,
+                outcome,
+                create_slot,
+                create_index,
+                block_txs,
+                bundle_trades,
+                bundle_wallets,
+                our_index,
+                tp_ahead,
+                tp_behind,
+                s0_failed,
+                premium_bps,
+                post_bundle_v,
+                post_bundle_t,
+                post_bundle_mcap,
+            } => {
+                w.u64(*intent)
+                    .pk(mint)
+                    .u8(*model)
+                    .u8(*outcome)
+                    .u64(*create_slot)
+                    .u32(*create_index)
+                    .u32(*block_txs)
+                    .u8(*bundle_trades)
+                    .u8(*bundle_wallets)
+                    .u32(*our_index)
+                    .u8(*tp_ahead)
+                    .u8(*tp_behind)
+                    .u8(*s0_failed)
+                    .u32(*premium_bps)
+                    .u64(*post_bundle_v)
+                    .u64(*post_bundle_t)
+                    .u64(*post_bundle_mcap);
+            }
+            Self::FailedBuy {
+                intent,
+                mint,
+                reason,
+                cost,
+                slot,
+                premium_bps,
+            } => {
+                w.u64(*intent)
+                    .pk(mint)
+                    .u8(*reason)
+                    .u64(*cost)
+                    .u64(*slot)
+                    .u32(*premium_bps);
+            }
         }
     }
 
@@ -545,6 +680,33 @@ impl Rec {
                 slot: r.u64()?,
                 value: r.take()?,
                 intent: r.u64()?,
+            },
+            13 => Self::Shadow {
+                intent: r.u64()?,
+                mint: r.pk()?,
+                model: r.u8()?,
+                outcome: r.u8()?,
+                create_slot: r.u64()?,
+                create_index: r.u32()?,
+                block_txs: r.u32()?,
+                bundle_trades: r.u8()?,
+                bundle_wallets: r.u8()?,
+                our_index: r.u32()?,
+                tp_ahead: r.u8()?,
+                tp_behind: r.u8()?,
+                s0_failed: r.u8()?,
+                premium_bps: r.u32()?,
+                post_bundle_v: r.u64()?,
+                post_bundle_t: r.u64()?,
+                post_bundle_mcap: r.u64()?,
+            },
+            14 => Self::FailedBuy {
+                intent: r.u64()?,
+                mint: r.pk()?,
+                reason: r.u8()?,
+                cost: r.u64()?,
+                slot: r.u64()?,
+                premium_bps: r.u32()?,
             },
             _ => return None,
         };

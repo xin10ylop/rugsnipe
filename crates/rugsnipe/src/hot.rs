@@ -18,18 +18,33 @@
 //! ```
 //!
 //! Every create gets a `CreateHit` and a `Decision` record (hit or miss).
-//! Paper positions open at the E2 state (end of slot+1, from the cold
-//! thread's RPC lane or, at the deadline, from the mint's buffered trades),
-//! and the exit engine (`rugsnipe_exit::decide_into`) drives paper sells
-//! whose fills are simulated with the conformance-tape rule (one chance at
-//! the next slot's reserves, `net >= min_sol_output`).
+//! Paper positions open on the configured fill model (`paper.fill_model`):
+//!
+//! * **E1** (default; docs/04 sections 2 and 7): the cold lane
+//!   ([`crate::e1`]) reconstructs the creation slot and returns a verdict.
+//!   A fill opens at the post-bundle state with the premium (unless the
+//!   operator's `v_max` bound fails it: `slippage`), then the lane's tape of
+//!   the next slots is replayed through the exit engine on a slot clock
+//!   (`ms = (slot - landing) * slot_ms`, a tick per slot), on the
+//!   counterfactual curve that keeps our tokens outstanding (others' trades
+//!   arrive without us: `t' = t - ours`, `v' = v t / t'`). A failed attempt
+//!   (`premium`, `slippage`, `not_in_slot0`) is recorded with its priority
+//!   fee; a `class` miss (not multi-bundle) is a skip at no cost.
+//! * **E2**: the end of slot+1 (the cold thread's RPC lane).
+//!
+//! Without a fill lane (tests, `--no-e2`) every model falls back at the
+//! deadline to E2 from the mint's buffered trades. The exit engine
+//! (`rugsnipe_exit::decide_into`) drives paper sells whose fills are
+//! simulated with the conformance-tape rule: one chance at the reserves at
+//! the end of the trigger slot + `paper.exit_latency_slots`,
+//! `net >= min_sol_output`.
 //!
 //! No heap allocation after warm-up: positions live in a fixed table, the
 //! exit action buffer is reused, every message is `Copy` into an `rtrb`
 //! ring, metrics are pre-created atomics (checked by `rugsnipe-replay`).
 
 use crate::convert::{hit_from_lite, trade_from_lite, v0_of};
-use crate::msgs::{reason_code, reason_index, ColdMsg, FireJob, HotIn};
+use crate::msgs::{reason_code, reason_index, ColdMsg, FireJob, HotIn, ShadowInfo};
 use crate::setup::{min_tokens_out, op_armed, ArmState, Templates};
 use crate::stats::{code, HotStats};
 use arc_swap::ArcSwap;
@@ -38,9 +53,9 @@ use pump_codec::constants::{TOKEN_2022_PROGRAM_ID, WSOL_MINT};
 use pump_codec::create_hit::CreateHit;
 use pump_codec::curve::{CurveState, FeeBps};
 use pump_codec::{pda, Pubkey};
-use rugsnipe_core::config::Config;
+use rugsnipe_core::config::{Config, FillModel};
 use rugsnipe_core::risk::{DecideInput, Decision, RiskGate};
-use rugsnipe_core::rslog::{CreateHitRec, Rec, RslogProducer};
+use rugsnipe_core::rslog::{CreateHitRec, Rec, RslogProducer, ShadowOutcome};
 use rugsnipe_core::watchlist::{Match, Via, Watchlist};
 use rugsnipe_core::{IntentId, Mode};
 use rugsnipe_exit::{
@@ -68,6 +83,8 @@ pub const LIVE_CLASS: u8 = 0;
 pub const FREE_CLASS: u8 = 1;
 /// Lifetime of paper sells (final sells use a blockhash; paper never sends).
 const PAPER_BLOCKHASH: [u8; 32] = [0x11; 32];
+/// Slot-clock origin of replayed E1 positions (ms; only differences matter).
+const E1_MS_BASE: u64 = 1_000_000_000_000;
 
 /// State shared with the cold and sender threads.
 #[derive(Debug)]
@@ -112,6 +129,18 @@ pub struct HotCfg {
     pub tick_ms: u64,
     pub ab_salt: u64,
     pub ab_enabled: bool,
+    /// Paper fill model (`paper.fill_model`).
+    pub fill_model: FillModel,
+    /// A cold fill lane answers paper intents (E1 verdicts / E2 states).
+    /// Without one every model falls back to E2 from buffered trades at the
+    /// deadline.
+    pub fill_lane: bool,
+    /// A paper sell fills at the end of trigger slot + this (`paper.exit_latency_slots`).
+    pub sell_lat_slots: u64,
+    /// Slot clock of replayed E1 positions (`paper.slot_ms`).
+    pub slot_ms: u64,
+    /// Priority fee of a failed E1 attempt (`paper.failed_attempt_lamports`).
+    pub failed_attempt_lamports: u64,
 }
 
 impl HotCfg {
@@ -138,6 +167,11 @@ impl HotCfg {
             tick_ms: 100,
             ab_salt: 0x5eed,
             ab_enabled: cfg.mode.mode.is_real() && cfg.ab.skip_p > 0.0,
+            fill_model: cfg.paper.fill_model,
+            fill_lane: false,
+            sell_lat_slots: cfg.paper.exit_latency_slots,
+            slot_ms: cfg.paper.slot_ms.max(1),
+            failed_attempt_lamports: cfg.paper.failed_attempt_lamports,
         }
     }
 
@@ -177,6 +211,12 @@ struct Slot {
     buf: [Option<Trade>; TRADE_BUF],
     buf_len: usize,
     attempts: [Option<Attempt>; MAX_ATTEMPTS],
+    /// Filled at E1: slot clock, counterfactual reserves.
+    e1: bool,
+    /// E1 tape replay in progress (stream trades are buffered meanwhile).
+    replaying: bool,
+    /// Last slot the replay reached.
+    replay_slot: u64,
 }
 
 /// Plain counters for reports (the metrics hold the same numbers).
@@ -193,6 +233,9 @@ pub struct LoopCounters {
     pub closed: u64,
     pub trades: u64,
     pub ring_full: u64,
+    /// E1 verdicts other than a fill (premium, slippage, not in slot 0, class, unresolved).
+    pub e1_failed: u64,
+    pub e1_replayed_trades: u64,
 }
 
 /// Everything [`HotLoop::new`] needs.
@@ -493,6 +536,7 @@ impl HotLoop {
             return self.decision(intent, hit, code::BAD_OP, 0, 0, 0, 0, 0);
         };
         let via_code = match (via, entry.dynamic) {
+            (Via::Class, _) => 4,
             (_, true) => 3,
             (Via::Signer, false) => 1,
             (Via::FeePayer, false) => 2,
@@ -526,7 +570,13 @@ impl HotLoop {
             mode,
             op_slot: op.slot,
             op_armed: op_armed(mode, op.state),
-            armset_ok: arm.verified && (mode != Mode::Live || arm.gate_passed),
+            // probe needs a signed probe_allowed ArmSet, live a signed gate_passed one
+            armset_ok: arm.verified
+                && match mode {
+                    Mode::Live => arm.gate_passed,
+                    Mode::Probe => arm.probe_allowed,
+                    Mode::Paper => true,
+                },
             frozen: self.cfg.frozen(slot),
             spend: op.size,
             bid,
@@ -581,6 +631,28 @@ impl HotLoop {
                 0,
             );
         };
+        // keys and the per-mint compute-unit limit (gap-5: 65,000 + 1,500*S
+        // over the four PDA bumps, clamped to [tx.cu_limit floor, 1.4M]),
+        // before any nonce is claimed
+        let abc = if hit.abc != Pubkey::default() {
+            hit.abc
+        } else {
+            pda::associated_bonding_curve(&hit.mint, &hit.token_prog)
+        };
+        let aqbc = hit
+            .aqbc_hint
+            .unwrap_or_else(|| pda::ata_spl(&hit.bc, &WSOL_MINT));
+        let user_ata = pda::ata_token_2022(&self.owner, &hit.mint);
+        let keys = MintKeys::curve(hit.mint, hit.bc, abc, aqbc, user_ata);
+        let Some(cu_limit) =
+            keys.snipe_cu_limit(&self.owner, &TOKEN_2022_PROGRAM_ID, self.tmpl.cu_floor)
+        else {
+            // a key is not the canonical PDA of its seeds: the buy would fail
+            if real {
+                self.risk.release_unfilled();
+            }
+            return self.decision(intent, hit, code::BAD_KEYS, would, op.size, op.v_max, 0, 0);
+        };
         // 10: nonce (no probing; value older than the create slot)
         let claim = match self
             .nonces
@@ -597,17 +669,7 @@ impl HotLoop {
         // 11: size and the on-chain bound at v_max
         let spend = op.size;
         let min_out = min_tokens_out(spend, op.v_max, hit.creator_arg, self.cfg.fees);
-        // 12: patch
-        let abc = if hit.abc != Pubkey::default() {
-            hit.abc
-        } else {
-            pda::associated_bonding_curve(&hit.mint, &hit.token_prog)
-        };
-        let aqbc = hit
-            .aqbc_hint
-            .unwrap_or_else(|| pda::ata_spl(&hit.bc, &WSOL_MINT));
-        let user_ata = pda::ata_token_2022(&self.owner, &hit.mint);
-        let keys = MintKeys::curve(hit.mint, hit.bc, abc, aqbc, user_ata);
+        // 12: patch (keys and the per-mint CU limit were resolved before the claim)
         let prio0 = (bid as f64 * self.cfg.split_primary[0]) as u64;
         let tip0 = (bid as f64 * self.cfg.split_primary[1]) as u64;
         let tip_account = self.tmpl.tip_account;
@@ -619,6 +681,7 @@ impl HotLoop {
             limit: min_out,
             priority_lamports: prio0,
             tip_lamports: tip0,
+            cu_limit: Some(cu_limit),
         });
         // 13: sign and hand the primary variant over
         t.sign(&self.signer, None);
@@ -735,6 +798,9 @@ impl HotLoop {
                 v0,
                 t0: t0_tok,
                 decided_unix_ms: now_ms,
+                creator: hit.creator_arg,
+                user: hit.user,
+                intx_buys: hit.intx_buys,
             });
             if self.cfg.mode.is_real() {
                 // forced to paper in a real mode: nothing was sent with this
@@ -781,6 +847,9 @@ impl HotLoop {
             buf: [None; TRADE_BUF],
             buf_len: 0,
             attempts: [None; MAX_ATTEMPTS],
+            e1: false,
+            replaying: false,
+            replay_slot: slot,
         });
         self.stats.positions_open.set(self.positions() as i64);
     }
@@ -805,7 +874,7 @@ impl HotLoop {
             return;
         };
         let s = self.slots[i].as_mut().expect("found");
-        if !s.filled {
+        if !s.filled || s.replaying {
             if s.buf_len < TRADE_BUF {
                 s.buf[s.buf_len] = Some(t);
                 s.buf_len += 1;
@@ -814,11 +883,48 @@ impl HotLoop {
             }
             return;
         }
+        if s.e1 {
+            if t.slot <= s.replay_slot {
+                return; // the replay already covered this slot
+            }
+            let tr = Self::counterfactual(s, t);
+            let now = e1_clock(s.create_slot, self.cfg.slot_ms, t.slot);
+            self.exit_event(i, ExitEvent::Trade(tr), now);
+            return;
+        }
         let now = Now {
             ms: crate::now_ms(),
             slot: t.slot,
         };
         self.exit_event(i, ExitEvent::Trade(t), now);
+    }
+
+    /// The slot clock of an E1 position.
+    #[inline]
+    fn e1_now(&self, s: &Slot, slot: u64) -> Now {
+        e1_clock(s.create_slot, self.cfg.slot_ms, slot)
+    }
+
+    /// Someone else's trade on the curve with our tokens still outstanding:
+    /// the history was made without us, our tokens stay out of the curve
+    /// (`t' = t - ours`, `v' = v t / t'`; the tape simulator's model).
+    #[inline]
+    fn counterfactual(s: &Slot, t: Trade) -> Trade {
+        let q = s.pos.tokens as u128;
+        if !s.e1 || q == 0 || t.venue != Venue::Curve || t.user == s.pos.owner {
+            return t;
+        }
+        let th = t.reserve_token as u128;
+        if th <= q {
+            return t;
+        }
+        let t2 = th - q;
+        let v2 = (t.reserve_sol as u128) * th / t2;
+        Trade {
+            reserve_sol: u64::try_from(v2).unwrap_or(u64::MAX),
+            reserve_token: t2 as u64,
+            ..t
+        }
     }
 
     fn on_hot_in(&mut self, m: HotIn) {
@@ -840,6 +946,267 @@ impl HotLoop {
                     return;
                 }
                 self.buy_fill(i, v, t, slot, false, buyers_ahead, rival_sol_ahead);
+            }
+            HotIn::E1Open {
+                intent,
+                outcome,
+                info,
+                ..
+            } => {
+                let Some(i) = self.find_intent(intent) else {
+                    return;
+                };
+                if self.slots[i].as_ref().is_some_and(|s| s.filled) {
+                    return;
+                }
+                self.e1_open(i, outcome, info);
+            }
+            HotIn::E1Insider {
+                intent,
+                key,
+                creator,
+            } => {
+                let pol = self.cfg.policy.insider_sell;
+                let Some(i) = self.find_intent(intent) else {
+                    return;
+                };
+                if let Some(s) = self.slots[i].as_mut() {
+                    if s.e1
+                        && ((creator && pol.creator_set()) || (!creator && pol.bundle_wallets()))
+                    {
+                        s.pos.bundle.insert(key);
+                    }
+                }
+            }
+            HotIn::E1Trade { intent, trade } => {
+                if let Some(i) = self.find_intent(intent) {
+                    self.replay_trade(i, trade);
+                }
+            }
+            HotIn::E1End { intent, horizon } => {
+                if let Some(i) = self.find_intent(intent) {
+                    self.replay_end(i, horizon);
+                }
+            }
+        }
+    }
+
+    /// Test and replay hook: hand a cold-lane message to the loop directly.
+    pub fn inject(&mut self, m: HotIn) {
+        self.on_hot_in(m);
+    }
+
+    /// Record the shadow entry (rslog + cold) of a resolved E1 intent.
+    fn record_shadow(&mut self, i: usize, outcome: ShadowOutcome, info: ShadowInfo, cost: u64) {
+        let Some(s) = self.slots[i].as_ref() else {
+            return;
+        };
+        let (intent, mint, spend) = (s.intent, s.pos.mint, s.spend);
+        self.rslog.push(Rec::Shadow {
+            intent,
+            mint,
+            model: 1,
+            outcome: outcome as u8,
+            create_slot: info.create_slot,
+            create_index: info.create_index.unwrap_or(u32::MAX),
+            block_txs: info.block_txs.unwrap_or(0),
+            bundle_trades: info.bundle_trades.min(255) as u8,
+            bundle_wallets: info.bundle_wallets.min(255) as u8,
+            our_index: info.our_index.unwrap_or(u32::MAX),
+            tp_ahead: info.tp_ahead.min(255) as u8,
+            tp_behind: info.tp_behind.min(255) as u8,
+            s0_failed: info.s0_failed.min(255) as u8,
+            premium_bps: info.premium_bps,
+            post_bundle_v: info.post_bundle_v,
+            post_bundle_t: info.post_bundle_t,
+            post_bundle_mcap: info.post_bundle_mcap,
+        });
+        if outcome != ShadowOutcome::Filled && outcome != ShadowOutcome::Unresolved {
+            self.rslog.push(Rec::FailedBuy {
+                intent,
+                mint,
+                reason: outcome as u8,
+                cost,
+                slot: info.create_slot,
+                premium_bps: info.premium_bps,
+            });
+        }
+        self.send_cold(ColdMsg::Shadow {
+            intent,
+            mint,
+            e1: true,
+            outcome,
+            info,
+            spend,
+            cost,
+        });
+    }
+
+    /// The E1 verdict: open the position at the post-bundle state with the
+    /// premium, or record the failed attempt and its cost.
+    fn e1_open(&mut self, i: usize, outcome: ShadowOutcome, info: ShadowInfo) {
+        let fees = self.cfg.fees;
+        let Some(s) = self.slots[i].as_ref() else {
+            return;
+        };
+        let mut outcome = outcome;
+        let mut fill = None;
+        if outcome == ShadowOutcome::Filled {
+            let state = CurveState {
+                virtual_sol: info.post_bundle_v,
+                virtual_token: info.post_bundle_t,
+                real_sol: 0,
+                real_token: u64::MAX,
+                complete: false,
+                creator: s.pos.creator,
+            };
+            // the premium: fewer tokens for the same SOL (tokens / (1 + p))
+            let q = state.quote_buy_exact_sol_in(s.spend, fees).map(|q| {
+                let tokens =
+                    (q.tokens as u128 * 10_000 / (10_000 + info.premium_bps as u128)) as u64;
+                (q, tokens)
+            });
+            match q {
+                // the operator's on-chain bound (min_tokens_out at v_max)
+                Some((q, tokens)) if tokens >= s.min_out && tokens > 0 => fill = Some((q, tokens)),
+                _ => outcome = ShadowOutcome::Slippage,
+            }
+        }
+        let cost = if outcome.is_failed_attempt() {
+            self.cfg.failed_attempt_lamports
+        } else {
+            0
+        };
+        self.record_shadow(i, outcome, info, cost);
+        let Some(s) = self.slots[i].as_mut() else {
+            return;
+        };
+        let (mint, intent, sig0, slot0) = (s.pos.mint, s.intent, s.sig0, s.create_slot);
+        let Some((q, tokens)) = fill else {
+            self.counters.e1_failed += 1;
+            self.counters.unfilled += 1;
+            self.stats.unfilled.inc();
+            self.slots[i] = None;
+            self.stats.positions_open.set(self.positions() as i64);
+            if outcome != ShadowOutcome::Unresolved {
+                self.send_cold(ColdMsg::Fill {
+                    intent,
+                    mint,
+                    sig: sig0,
+                    slot: slot0,
+                    tokens: 0,
+                    sol_delta: -(cost as i64),
+                    filled: false,
+                    late: false,
+                    buyers_ahead: info.tp_ahead,
+                    rival_sol_ahead: 0,
+                    fail: Some(outcome),
+                    fail_cost: cost,
+                });
+            }
+            self.send_cold(ColdMsg::UnwatchMint(mint));
+            return;
+        };
+        // open at the post-bundle state; others' later trades come without us
+        s.filled = true;
+        s.e1 = true;
+        s.replaying = true;
+        s.replay_slot = slot0;
+        s.pos.bundle = BundleSet::default(); // the lane sends the insiders next
+        let (v_ref, t_ref) = (info.post_bundle_v, info.post_bundle_t);
+        let t_after = t_ref.saturating_sub(tokens).max(1);
+        let v_after = ((v_ref as u128) * (t_ref as u128) / t_after as u128) as u64;
+        let own = Trade {
+            venue: Venue::Curve,
+            mint,
+            user: self.owner,
+            is_buy: true,
+            sol_amount: q.sol_cost,
+            token_amount: tokens,
+            fee_lamports: q.protocol_fee + q.creator_fee,
+            reserve_sol: v_after,
+            reserve_token: t_after,
+            slot: slot0,
+        };
+        self.counters.fills += 1;
+        self.stats.fills.inc();
+        self.send_cold(ColdMsg::Fill {
+            intent,
+            mint,
+            sig: sig0,
+            slot: slot0,
+            tokens,
+            sol_delta: -(q.total as i64),
+            filled: true,
+            late: false,
+            buyers_ahead: info.tp_ahead,
+            rival_sol_ahead: 0,
+            fail: None,
+            fail_cost: 0,
+        });
+        let now = match self.slots[i].as_ref() {
+            Some(s) => self.e1_now(s, slot0),
+            None => return,
+        };
+        self.exit_event(i, ExitEvent::Trade(own), now);
+    }
+
+    /// One tape trade: a tick for every slot without trades before it, then
+    /// the trade on the counterfactual curve.
+    fn replay_trade(&mut self, i: usize, trade: Trade) {
+        let Some(s) = self.slots[i].as_ref() else {
+            return;
+        };
+        if !s.replaying {
+            return;
+        }
+        for x in s.replay_slot + 1..trade.slot {
+            let Some(s) = self.slots[i].as_ref() else {
+                return;
+            };
+            let now = self.e1_now(s, x);
+            self.exit_event(i, ExitEvent::Tick, now);
+        }
+        let Some(s) = self.slots[i].as_mut() else {
+            return;
+        };
+        s.replay_slot = s.replay_slot.max(trade.slot);
+        let tr = Self::counterfactual(s, trade);
+        let now = e1_clock(s.create_slot, self.cfg.slot_ms, trade.slot);
+        self.counters.e1_replayed_trades += 1;
+        self.exit_event(i, ExitEvent::Trade(tr), now);
+    }
+
+    /// The tape is complete up to `horizon`: tick through it, then hand the
+    /// position to the live stream (buffered trades after the horizon first).
+    fn replay_end(&mut self, i: usize, horizon: u64) {
+        let Some(s) = self.slots[i].as_ref() else {
+            return;
+        };
+        if !s.replaying {
+            return;
+        }
+        for x in s.replay_slot + 1..=horizon {
+            let Some(s) = self.slots[i].as_ref() else {
+                return;
+            };
+            let now = self.e1_now(s, x);
+            self.exit_event(i, ExitEvent::Tick, now);
+        }
+        let Some(s) = self.slots[i].as_mut() else {
+            return;
+        };
+        s.replaying = false;
+        s.replay_slot = s.replay_slot.max(horizon);
+        let (buf, n) = (s.buf, s.buf_len);
+        s.buf_len = 0;
+        for tr in buf[..n].iter().flatten() {
+            let Some(s) = self.slots[i].as_ref() else {
+                return;
+            };
+            if tr.slot > s.replay_slot {
+                let (t2, now) = (Self::counterfactual(s, *tr), self.e1_now(s, tr.slot));
+                self.exit_event(i, ExitEvent::Trade(t2), now);
             }
         }
     }
@@ -888,6 +1255,8 @@ impl HotLoop {
                 late,
                 buyers_ahead,
                 rival_sol_ahead,
+                fail: None,
+                fail_cost: 0,
             });
             self.send_cold(ColdMsg::UnwatchMint(mint));
             return;
@@ -924,6 +1293,8 @@ impl HotLoop {
             late,
             buyers_ahead,
             rival_sol_ahead,
+            fail: None,
+            fail_cost: 0,
         });
         let now_ms = crate::now_ms();
         self.exit_event(
@@ -997,12 +1368,25 @@ impl HotLoop {
                 // position opens only on its own TradeEvent or a token balance,
                 // never on a send (docs/06 section 8), so it is never simulated.
                 if !s.real && self.slot_now >= s.deadline {
-                    let (v, t, late) = Self::local_e2(s);
-                    let fill_slot = s.create_slot + 1;
-                    self.buy_fill(i, v, t, fill_slot, late, 0, 0);
+                    if self.cfg.fill_lane && self.cfg.fill_model == FillModel::E1 {
+                        // the E1 lane never answered: unresolved, no position
+                        let info = ShadowInfo {
+                            create_slot: s.create_slot,
+                            ..Default::default()
+                        };
+                        self.e1_open(i, ShadowOutcome::Unresolved, info);
+                    } else {
+                        let (v, t, late) = Self::local_e2(s);
+                        let fill_slot = s.create_slot + 1;
+                        self.buy_fill(i, v, t, fill_slot, late, 0, 0);
+                    }
                 }
                 continue;
             }
+            if s.replaying {
+                continue; // the replay drives this position's clock
+            }
+            let now = if s.e1 { self.e1_now(s, now.slot) } else { now };
             self.exit_event(i, ExitEvent::Tick, now);
         }
         if now_ns.saturating_sub(self.last_gauge_ns) >= 2_000_000_000 {
@@ -1048,7 +1432,7 @@ impl HotLoop {
             let mut best: Option<usize> = None;
             for (k, a) in s.attempts.iter().enumerate() {
                 if let Some(a) = a {
-                    if a.slot < now.slot
+                    if a.slot + self.cfg.sell_lat_slots < now.slot
                         && best.is_none_or(|b| {
                             s.attempts[b].is_some_and(|x| a.order.order_id < x.order.order_id)
                         })
@@ -1113,6 +1497,13 @@ impl HotLoop {
                 slot: now.slot,
             };
             let (mint, owner) = (p.mint, p.owner);
+            // the slot whose closing state filled the sell (E1 replays tick
+            // every slot, so that is exactly trigger + latency)
+            let fill_slot = if s.e1 {
+                att.slot + self.cfg.sell_lat_slots
+            } else {
+                now.slot
+            };
             self.counters.sell_fills += 1;
             self.stats.sell_fills.inc();
             self.stats.exits[reason_index(o.reason)].inc();
@@ -1127,7 +1518,7 @@ impl HotLoop {
                 venue: fill.venue,
                 tokens: o.tokens,
                 sol_delta: net as i64,
-                slot: now.slot,
+                slot: fill_slot,
                 owner,
                 try_no: o.try_no,
             });
@@ -1248,6 +1639,7 @@ impl HotLoop {
                 limit: order.min_sol_output,
                 priority_lamports: order.tip_lamports,
                 tip_lamports: order.tip_lamports,
+                cu_limit: None,
             });
             t.sign(&self.signer, None);
             let v = Variant::from_template(
@@ -1286,17 +1678,20 @@ impl HotLoop {
             sig,
         });
         if owned && paper {
-            let slot_k = s
+            let same = s
                 .attempts
                 .iter()
-                .position(|a| a.is_some_and(|a| a.order.order_id == order.order_id))
+                .position(|a| a.is_some_and(|a| a.order.order_id == order.order_id));
+            // a re-send of an order still waiting for its fill (escalation to
+            // dump bounds, venue change) does not delay it: the first variant
+            // is already on its way, so the attempt keeps the earliest slot
+            let slot = same
+                .and_then(|k| s.attempts[k])
+                .map_or(now.slot, |a| a.slot.min(now.slot));
+            let slot_k = same
                 .or_else(|| s.attempts.iter().position(|a| a.is_none()))
                 .unwrap_or(0);
-            s.attempts[slot_k] = Some(Attempt {
-                slot: now.slot,
-                order,
-                sig,
-            });
+            s.attempts[slot_k] = Some(Attempt { slot, order, sig });
         }
     }
 
@@ -1307,6 +1702,15 @@ impl HotLoop {
             .flatten()
             .map(|s| (s.pos.mint, s.pos.state, s.filled))
             .collect()
+    }
+}
+
+/// Slot clock of a replayed E1 position: `ms = (slot - landing) * slot_ms`.
+#[inline]
+fn e1_clock(create_slot: u64, slot_ms: u64, slot: u64) -> Now {
+    Now {
+        ms: E1_MS_BASE + slot.saturating_sub(create_slot) * slot_ms,
+        slot,
     }
 }
 

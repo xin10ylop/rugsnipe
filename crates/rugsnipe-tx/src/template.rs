@@ -16,8 +16,13 @@
 //! | `buy_exact_quote_in_v3` (17 accounts; `spendable` is gross) | same |
 //! | tip transfer (optional; inside the tx so a reverted buy pays no tip) | same |
 //!
-//! v1 numbers from docs/research/speed-gap-4.md: CU 72,000 (72,150 with a
-//! nonce), LADS 12,124,160 (370 pages); 805 B, 880 B with a nonce.
+//! v1 numbers from docs/research/speed-gap-4.md: LADS 12,124,160 (370
+//! pages); 805 B, 880 B with a nonce. The compute-unit limit is patched
+//! **per mint** (docs/research/gap-5.md section 1, [`crate::cu`]): the
+//! template is compiled with the configured floor, and [`Patch::cu_limit`]
+//! writes `65,000 + 1,500·S` (clamped to `[floor, 1,400,000]`) into the v1
+//! header field or the legacy `SetComputeUnitLimit` data, and re-derives the
+//! legacy CU price from the lamport total so the fee paid stays the total.
 //!
 //! Key order (fixed so the PatchTable holds): fee payer; nonce authority if
 //! distinct; writable `bc, abc, aqbc, user_ata, uva, user_wsol_ata,
@@ -65,6 +70,28 @@ impl MintKeys {
             k.associated_base_user,
         )
     }
+    /// Bonding-curve keys only: the four snipe bumps recovered from these
+    /// keys by hashing (`S + 4` SHA-256 rounds); `None` if a key is not the
+    /// canonical PDA of its seeds.
+    pub fn snipe_bumps(
+        &self,
+        user: &Pubkey,
+        base_token_program: &Pubkey,
+    ) -> Option<pda::SnipeBumps> {
+        let [mint, bc, abc, aqbc, ua] = &self.0;
+        pda::SnipeBumps::of_keys(mint, bc, abc, aqbc, user, ua, base_token_program)
+    }
+    /// Bonding-curve keys only: the per-mint CU limit
+    /// ([`crate::cu::snipe_cu_limit`]) for these keys over `floor`.
+    pub fn snipe_cu_limit(
+        &self,
+        user: &Pubkey,
+        base_token_program: &Pubkey,
+        floor: u32,
+    ) -> Option<u32> {
+        self.snipe_bumps(user, base_token_program)
+            .map(|b| crate::cu::snipe_cu_limit(b.missing(), floor))
+    }
     /// PumpSwap canonical pool: `pool, mint, user_base_ata, pool_base_ata, pool_quote_ata`.
     pub fn amm(
         pool: Pubkey,
@@ -81,8 +108,9 @@ impl MintKeys {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PriorityField {
     /// Legacy `SetComputeUnitPrice` u64 micro-lamports per CU at `offset`;
-    /// the patch converts a lamport total with `floor(total*1e6/cu_limit)`.
-    LegacyPrice { offset: usize, cu_limit: u32 },
+    /// the patch converts a lamport total with `floor(total*1e6/cu_limit)`
+    /// using the template's current (per-mint) CU limit.
+    LegacyPrice { offset: usize },
     /// v1 config u64 total lamports at `offset`.
     V1Total { offset: usize },
     /// No priority field (legacy template without compute-budget ixs).
@@ -101,6 +129,10 @@ pub struct PatchTable {
     /// Second u64 argument (buy: `min_tokens_out`; sell: `min_sol_output`).
     pub limit: usize,
     pub priority: PriorityField,
+    /// The u32 LE compute-unit limit: the v1 header config value, or the
+    /// legacy `SetComputeUnitLimit` data + 1 (`None` if the template has
+    /// neither).
+    pub cu_limit: Option<usize>,
     /// Tip lamports (System transfer data + 4).
     pub tip: Option<usize>,
     /// Signature block and count.
@@ -119,6 +151,9 @@ pub struct Patch<'a> {
     /// Total priority fee in lamports (converted to a CU price on legacy).
     pub priority_lamports: u64,
     pub tip_lamports: u64,
+    /// Per-mint compute-unit limit (`crate::cu::snipe_cu_limit`); `None`
+    /// keeps the template's current value (sells, tests).
+    pub cu_limit: Option<u32>,
 }
 
 /// What a template does.
@@ -139,6 +174,10 @@ pub struct Template {
     pub format: TxFormat,
     /// Signers in signature order (fee payer first).
     pub signers: [Option<Pubkey>; 2],
+    /// The CU limit currently written in the message.
+    cu_limit: u32,
+    /// The priority total currently written (legacy: before conversion).
+    priority_lamports: u64,
 }
 
 impl core::fmt::Debug for Template {
@@ -147,6 +186,7 @@ impl core::fmt::Debug for Template {
             .field("kind", &self.kind)
             .field("format", &self.format)
             .field("len", &self.len)
+            .field("cu_limit", &self.cu_limit)
             .field("table", &self.table)
             .finish()
     }
@@ -168,7 +208,8 @@ pub struct CurveParams {
     /// Fee payer and trader.
     pub user: Pubkey,
     pub nonce: Option<NonceKeys>,
-    /// Required (> 0): v1 transactions without it fail and still pay.
+    /// Required (> 0): v1 transactions without it fail and still pay. The
+    /// compiled value; buys patch the per-mint limit over it.
     pub cu_limit: u32,
     /// Required (> 0).
     pub lads_bytes: u32,
@@ -416,9 +457,14 @@ fn finish(
         (TxFormat::V1, _, Some(o)) => PriorityField::V1Total { offset: o },
         (TxFormat::Legacy, Some(i), _) => PriorityField::LegacyPrice {
             offset: layout.ix_data[i] + 1,
-            cu_limit,
         },
         _ => PriorityField::None,
+    };
+    // legacy prelude: [AdvanceNonce], SetComputeUnitLimit, SetComputeUnitPrice, ...
+    let cu_field = match (format, price_ix, layout.v1_cu_limit) {
+        (TxFormat::V1, _, Some(o)) => Some(o),
+        (TxFormat::Legacy, Some(i), _) if i > 0 => Some(layout.ix_data[i - 1] + 1),
+        _ => None,
     };
     let table = PatchTable {
         keys: placeholders.map(|p| find_key(keys, &layout, &p)),
@@ -426,6 +472,7 @@ fn finish(
         amount: layout.ix_data[data_ix] + 8,
         limit: layout.ix_data[data_ix] + 16,
         priority,
+        cu_limit: cu_field,
         tip: tip_ix.map(|i| layout.ix_data[i] + 4),
         sigs: layout.sigs,
         n_sigs: layout.n_sigs,
@@ -444,6 +491,8 @@ fn finish(
         kind,
         format,
         signers,
+        cu_limit,
+        priority_lamports: 0,
     }
 }
 
@@ -555,6 +604,16 @@ impl Template {
         &self.buf[self.table.message.0..self.table.message.1]
     }
 
+    /// The compute-unit limit currently in the message.
+    pub fn cu_limit(&self) -> u32 {
+        self.cu_limit
+    }
+
+    /// The priority total (lamports) currently in the message.
+    pub fn priority_lamports(&self) -> u64 {
+        self.priority_lamports
+    }
+
     /// Apply per-create values (a handful of `memcpy`s). Clears signatures.
     #[inline]
     pub fn patch(&mut self, p: &Patch<'_>) {
@@ -565,6 +624,9 @@ impl Template {
         self.buf[t.lifetime..t.lifetime + 32].copy_from_slice(p.lifetime);
         self.buf[t.amount..t.amount + 8].copy_from_slice(&p.amount.to_le_bytes());
         self.buf[t.limit..t.limit + 8].copy_from_slice(&p.limit.to_le_bytes());
+        if let Some(cu) = p.cu_limit {
+            self.write_cu_limit(cu);
+        }
         self.set_priority(p.priority_lamports);
         if let Some(o) = t.tip {
             self.buf[o..o + 8].copy_from_slice(&p.tip_lamports.to_le_bytes());
@@ -572,12 +634,30 @@ impl Template {
         self.buf[t.sigs..t.sigs + 64 * t.n_sigs].fill(0);
     }
 
+    #[inline]
+    fn write_cu_limit(&mut self, cu: u32) {
+        if let Some(o) = self.table.cu_limit {
+            self.buf[o..o + 4].copy_from_slice(&cu.to_le_bytes());
+            self.cu_limit = cu;
+        }
+    }
+
+    /// Change only the compute-unit limit (header field or legacy
+    /// `SetComputeUnitLimit`), keeping the priority **total**: the legacy CU
+    /// price is re-derived from it. Clears nothing (re-sign afterwards).
+    #[inline]
+    pub fn set_cu_limit(&mut self, cu: u32) {
+        self.write_cu_limit(cu);
+        self.set_priority(self.priority_lamports);
+    }
+
     /// Change only the bid (per variant).
     #[inline]
     pub fn set_priority(&mut self, total_lamports: u64) {
+        self.priority_lamports = total_lamports;
         match self.table.priority {
-            PriorityField::LegacyPrice { offset, cu_limit } => self.buf[offset..offset + 8]
-                .copy_from_slice(&legacy_price(total_lamports, cu_limit).to_le_bytes()),
+            PriorityField::LegacyPrice { offset } => self.buf[offset..offset + 8]
+                .copy_from_slice(&legacy_price(total_lamports, self.cu_limit).to_le_bytes()),
             PriorityField::V1Total { offset } => {
                 self.buf[offset..offset + 8].copy_from_slice(&total_lamports.to_le_bytes())
             }

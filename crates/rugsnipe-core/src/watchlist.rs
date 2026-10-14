@@ -79,6 +79,8 @@ struct Snapshot {
     shared_fee_payers: HashSet<Pubkey>,
     funding: HashMap<Pubkey, Vec<FundingRule>>,
     armset_ver: u64,
+    /// ArmSet class arm (`match_all`): operator of every unmatched create.
+    match_all: Option<u32>,
 }
 
 /// How a create matched.
@@ -100,6 +102,8 @@ pub enum Match {
 pub enum Via {
     Signer,
     FeePayer,
+    /// No key matched; the ArmSet's class arm (`match_all`) took the create.
+    Class,
 }
 
 #[derive(Debug, Default)]
@@ -119,6 +123,7 @@ impl Watchlist {
         let _g = self.write.lock().unwrap_or_else(|e| e.into_inner());
         let mut s = Snapshot {
             armset_ver: a.ver,
+            match_all: a.match_all,
             shared_fee_payers: a.shared_fee_payers.iter().copied().collect(),
             ..Default::default()
         };
@@ -185,6 +190,19 @@ impl Watchlist {
             if let Some(m) = check(&fp, Via::FeePayer) {
                 return m;
             }
+        }
+        if let Some(op_id) = snap.match_all {
+            // class arm: every create no key matched (docs/04 section 2)
+            return Match::Live {
+                entry: WatchEntry {
+                    key: hit.user,
+                    kind: WatchKind::Signer,
+                    op_id,
+                    rule_id: 0,
+                    dynamic: false,
+                },
+                via: Via::Class,
+            };
         }
         if let Some(e) = shadow {
             return Match::Shadow { entry: e };
@@ -337,10 +355,12 @@ mod tests {
             regime: "slot200".into(),
             min_hot_version: String::new(),
             gate_passed: false,
+            probe_allowed: false,
             shared_fee_payers: shared,
             operators: vec![],
             watch,
             funding_rules: funding,
+            match_all: None,
         }
     }
 
@@ -509,5 +529,42 @@ mod tests {
             ..w2.dynamic_entries()[0]
         });
         assert_eq!(w2.expire(10), vec![k]);
+    }
+
+    #[test]
+    fn class_arm_matches_every_unmatched_create() {
+        let dev = Pubkey::new_unique();
+        let watched = Pubkey::new_unique();
+        let w = Watchlist::new();
+        let mut a = armset(
+            vec![WatchJson {
+                key: watched,
+                kind: WatchKind::Signer,
+                op_id: 1,
+                rule_id: 0,
+                expires_slot: None,
+                keep: false,
+            }],
+            vec![],
+            vec![],
+        );
+        w.load_armset(&a);
+        let fp = Pubkey::new_unique();
+        let mut h = hit(&[dev], fp, dev);
+        assert_eq!(w.match_hit(&h, 0), Match::None);
+        a.match_all = Some(7);
+        w.load_armset(&a);
+        match w.match_hit(&h, 0) {
+            Match::Live { entry, via } => {
+                assert_eq!((entry.op_id, via, entry.key), (7, Via::Class, dev))
+            }
+            m => panic!("{m:?}"),
+        }
+        // a watched key still wins over the class arm
+        h.signers.push(watched);
+        match w.match_hit(&h, 0) {
+            Match::Live { entry, via } => assert_eq!((entry.op_id, via), (1, Via::Signer)),
+            m => panic!("{m:?}"),
+        }
     }
 }

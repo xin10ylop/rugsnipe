@@ -78,6 +78,14 @@ fn round(devs: &[Pubkey], slot0: u64, n0: u64) -> Vec<FeedEvent> {
             )),
         ));
         n += 1;
+        // a later slot closes s+7, where the dump sell (sent in s+6) fills
+        // (paper.exit_latency_slots = 1); a known wallet keeps the mint keys
+        // (and so their nonce indices) the same as without this event
+        v.push(ev(
+            s + 8,
+            Payload::Trade(trade(&mut c, mint, *dev, s + 8, n, 5_000_000, 0)),
+        ));
+        n += 1;
     }
     v
 }
@@ -91,8 +99,9 @@ fn run(app: &mut rugsnipe::app::App, feed: &mut FeedMux, buf: &mut FeedBuf, want
         }
         assert!(
             t0.elapsed() < Duration::from_secs(20),
-            "{:?}",
-            app.hot.counters
+            "{:?} {:?}",
+            app.hot.counters,
+            app.stats.decision_counts()
         );
         if st == FeedStatus::Ended {
             std::thread::sleep(Duration::from_millis(2));

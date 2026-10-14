@@ -87,7 +87,7 @@ fn schema_has_every_spec_table_and_column() {
     let want: &[(&str, &str)] = &[
         ("intents", "intent_id,mint,op_id,box,mode,armset_ver,slot,bank_id,via,feed_class,spend,v_max,min_tokens_out,nonce_idx,nonce_value,decided_ns,state"),
         ("sends", "sig,intent_id,variant,sender,prio,tip,sent_ns,result"),
-        ("fills", "sig,intent_id,mint,slot,tx_index,tokens,sol_delta,err,buyers_ahead,rival_sol_ahead,late"),
+        ("fills", "sig,intent_id,mint,slot,tx_index,tokens,sol_delta,err,buyers_ahead,rival_sol_ahead,late,fail_reason,fail_cost"),
         ("positions", "mint,intent_id,opened_slot,tokens,cost,v_fill,peak_v,bundle_json,policy_json,origin,state,sell_spend,closed_slot"),
         ("exits", "sig,mint,reason,venue,tokens,sol_delta,slot,owner,try_no"),
         ("nonces", "pubkey,pool,idx,value,last_change_slot,state,intent_id,since_slot"),
@@ -96,6 +96,7 @@ fn schema_has_every_spec_table_and_column() {
         ("op_risk", "op_id,consec_losses,buys_today,disarmed_until"),
         ("lease", "name,owner,hb_unix_ms,epoch"),
         ("kv", "k,v"),
+        ("shadow", "intent_id,mint,model,outcome,create_slot,create_index,block_txs,bundle_trades,bundle_wallets,our_index,tp_ahead,tp_behind,s0_failed,premium_bps,post_bundle_v,post_bundle_t,post_bundle_mcap,cost"),
     ];
     for (t, cols) in want {
         let mut st = c.prepare(&format!("PRAGMA table_info({t})")).unwrap();
@@ -146,6 +147,8 @@ fn ledger_flow_and_intent_state_machine() {
             buyers_ahead: 4,
             rival_sol_ahead: 2_000_000_000,
             late: false,
+            fail_reason: None,
+            fail_cost: 0,
         },
         None,
     );
@@ -178,6 +181,8 @@ fn ledger_flow_and_intent_state_machine() {
             buyers_ahead: 0,
             rival_sol_ahead: 0,
             late: false,
+            fail_reason: None,
+            fail_cost: 0,
         },
         Some(IntentState::Landed),
     );
@@ -229,12 +234,115 @@ fn ledger_flow_and_intent_state_machine() {
         Some("3")
     );
     let counts = rugsnipe_state::schema::row_counts(&c).unwrap();
-    assert_eq!(counts.len(), 11);
+    assert_eq!(counts.len(), 12);
     drop(c);
     // durable across reopen
     assert!(s.close() >= 8);
     let s2 = StateStore::open(&p).unwrap();
     assert_eq!(count(&s2.reader().unwrap(), "intents"), 2);
+}
+
+/// A version-1 file (the DDL before the shadow record) upgrades in place:
+/// rows kept, failed-buy columns added, `via = 'class'` accepted.
+#[test]
+fn version_1_file_migrates_to_version_2() {
+    let (_tmp, p) = tmp_guarded("migrate");
+    {
+        let c = rusqlite::Connection::open(&p).unwrap();
+        c.execute_batch(
+            "CREATE TABLE intents(intent_id INTEGER PRIMARY KEY, mint TEXT NOT NULL, op_id INT, box TEXT, mode TEXT, armset_ver INT, slot INT,
+               bank_id INT, via TEXT CHECK(via IN('signer','fee_payer','funding')), feed_class TEXT, spend INT, v_max INT,
+               min_tokens_out INT, nonce_idx INT, nonce_value TEXT, decided_ns INT,
+               state TEXT CHECK(state IN('paper','sent','landed','failed','burned','late_fill')), UNIQUE(mint, mode));
+             CREATE TABLE fills(sig TEXT PRIMARY KEY, intent_id INT, mint TEXT, slot INT, tx_index INT, tokens INT, sol_delta INT, err TEXT,
+               buyers_ahead INT, rival_sol_ahead INT, late INT);
+             INSERT INTO intents(intent_id, mint, via, mode, state) VALUES(1, 'm1', 'signer', 'paper', 'paper');
+             INSERT INTO fills(sig, intent_id, mint) VALUES('s1', 1, 'm1');
+             PRAGMA user_version = 1;",
+        )
+        .unwrap();
+    }
+    let s = StateStore::open(&p).unwrap();
+    let c = s.reader().unwrap();
+    let v: i64 = c
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(v, schema::VERSION);
+    assert_eq!(count(&c, "intents"), 1);
+    assert_eq!(count(&c, "fills"), 1);
+    assert!(schema::has_column(&c, "fills", "fail_reason").unwrap());
+    let l = Ledger::new(s.writer());
+    let mint = Pubkey::new_unique();
+    let mut r = intent(mint, "paper", IntentState::Paper);
+    r.via = Via::Class;
+    l.intent(r.clone());
+    l.fill(
+        FillRow {
+            sig: [8; 64],
+            intent_id: r.intent_id,
+            mint,
+            slot: 456_800_000,
+            tx_index: None,
+            tokens: 0,
+            sol_delta: -3_000_000,
+            err: Some("premium".into()),
+            buyers_ahead: 2,
+            rival_sol_ahead: 0,
+            late: false,
+            fail_reason: Some("premium".into()),
+            fail_cost: 3_000_000,
+        },
+        None,
+    );
+    l.shadow(ShadowRow {
+        intent_id: r.intent_id,
+        mint,
+        model: "e1".into(),
+        outcome: "premium".into(),
+        create_slot: 456_800_000,
+        create_index: Some(410),
+        block_txs: Some(1_300),
+        bundle_trades: 4,
+        bundle_wallets: 3,
+        our_index: Some(416),
+        tp_ahead: 1,
+        tp_behind: 3,
+        s0_failed: 2,
+        premium_bps: 310,
+        post_bundle_v: 33_000_000_000,
+        post_bundle_t: 975_000_000_000_000,
+        post_bundle_mcap: 33_800_000_000,
+        cost: 3_000_000,
+    });
+    l.flush();
+    let c = s.reader().unwrap();
+    let via: String = c
+        .query_row(
+            "SELECT via FROM intents WHERE mint = ?1",
+            [mint.to_string()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(via, "class");
+    let (reason, cost): (String, i64) = c
+        .query_row(
+            "SELECT fail_reason, fail_cost FROM fills WHERE intent_id = ?1",
+            [r.intent_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((reason.as_str(), cost), ("premium", 3_000_000));
+    let (outcome, ours): (String, i64) = c
+        .query_row(
+            "SELECT outcome, our_index FROM shadow WHERE intent_id = ?1",
+            [r.intent_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((outcome.as_str(), ours), ("premium", 416));
+    // migrating again is a no-op
+    schema::migrate(&c).unwrap();
+    assert_eq!(count(&c, "intents"), 2);
 }
 
 #[test]

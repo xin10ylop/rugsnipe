@@ -25,6 +25,9 @@ pub mod code {
     pub const ALREADY_FIRED: u8 = 0x48;
     pub const BAD_OP: u8 = 0x49;
     pub const NO_POSITION_SLOT: u8 = 0x4a;
+    /// A per-mint key is not the canonical PDA of its seeds (no bump
+    /// matches), so the buy would fail on chain and no CU limit exists.
+    pub const BAD_KEYS: u8 = 0x4b;
     /// Metrics only: a paper decision that a real mode would have skipped
     /// (rslog keeps the RiskGate code and the `would_skip` reason).
     pub const PAPER_WOULD_SKIP: u8 = 0x1f;
@@ -60,6 +63,7 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (code::ALREADY_FIRED, "already_fired"),
     (code::BAD_OP, "bad_op"),
     (code::NO_POSITION_SLOT, "no_position_slot"),
+    (code::BAD_KEYS, "bad_keys"),
 ];
 
 /// Label of a decision code.

@@ -2,7 +2,7 @@
 //! the decision function keeps between events.
 
 use crate::bounds::{mult_bps, Market};
-use crate::policy::ExitPolicy;
+use crate::policy::{ExitPolicy, BPS};
 use crate::types::{b58, ExitReason, Origin, SellOrder, Venue};
 use pump_codec::curve::FeeBps;
 use pump_codec::Pubkey;
@@ -183,6 +183,11 @@ pub struct Position {
     pub last_fill_reason: Option<ExitReason>,
     pub xfers: [XferRec; XFER_RING],
     pub xfer_head: u8,
+    /// Virtual token reserve just before our buy (`t_fill + tokens` at the
+    /// open): with `v_fill * t_fill / t_ref` it is the post-bundle state the
+    /// `phantom_sl.from = "entry"` stop measures from (0 = unknown).
+    #[serde(default)]
+    pub t_ref: u64,
 }
 
 impl Position {
@@ -236,6 +241,7 @@ impl Position {
             last_fill_reason: None,
             xfers: [XferRec::default(); XFER_RING],
             xfer_head: 0,
+            t_ref: 0,
         }
     }
 
@@ -260,6 +266,48 @@ impl Position {
     /// Current price multiple versus the fill (bps).
     pub fn mult_bps(&self) -> u64 {
         mult_bps(self.venue, self.cur_v, self.cur_t, self.v_fill, self.t_fill)
+    }
+
+    /// The curve without our tokens: `(v, t)` of the current state with our
+    /// balance returned to it along the constant product (the state the
+    /// others' trades alone produced). `None` off the curve or before a price.
+    pub fn ex_us(&self) -> Option<(u64, u64)> {
+        if self.venue != Venue::Curve || self.cur_t == 0 {
+            return None;
+        }
+        let t = self.cur_t.checked_add(self.tokens)?;
+        let v = (self.cur_v as u128) * (self.cur_t as u128) / (t as u128);
+        Some((u64::try_from(v).ok()?, t))
+    }
+
+    /// The reference state of `phantom_sl.from = "entry"`: the curve just
+    /// before our buy, `(v_fill * t_fill / t_ref, t_ref)`.
+    pub fn entry_ref(&self) -> Option<(u64, u64)> {
+        if self.t_ref == 0 || self.t_fill == 0 {
+            return None;
+        }
+        let v = (self.v_fill as u128) * (self.t_fill as u128) / (self.t_ref as u128);
+        Some((u64::try_from(v).ok()?, self.t_ref))
+    }
+
+    /// Price multiple of the curve without our tokens versus the entry
+    /// reference (bps; `None` when either state is unknown).
+    pub fn ex_us_mult_bps(&self) -> Option<u64> {
+        let (v, t) = self.ex_us()?;
+        let (vr, tr) = self.entry_ref()?;
+        Some(mult_bps(Venue::Curve, v, t, vr, tr))
+    }
+
+    /// Realised value of the stake in bps of the cost: net sell quote of the
+    /// whole balance at the current state plus proceeds so far (`None` for
+    /// a zero cost, e.g. an orphan).
+    pub fn value_bps(&self) -> Option<u64> {
+        if self.cost == 0 {
+            return None;
+        }
+        let net = self.market().sell_net(self.tokens, self.policy.amm_fee_bps);
+        let total = (net as u128) + (self.proceeds as u128);
+        Some(u64::try_from(total * BPS as u128 / self.cost as u128).unwrap_or(u64::MAX))
     }
 
     /// Tokens committed to orders in flight.
