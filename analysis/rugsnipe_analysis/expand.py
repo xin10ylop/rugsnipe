@@ -193,7 +193,9 @@ def expand_clusters(clusters: list[dict], rows: list[dict], api: PumpApi, rpc: R
     done: dict[str, dict] = json.loads(cache_path.read_text()) if cache_path.exists() else {}
     out: dict[str, dict] = {}
     n = 0
-    for c in clusters:
+    # rotating-wallet operators (the guru's target: fresh creators) first, then by score
+    order = sorted(clusters, key=lambda c: (-(c.get("fresh_share", 0) >= 0.5), -c["score"]))
+    for c in order:
         if n >= top:
             break
         kinds = [k for k in sorted(("d", "a_mother", "c"), key=lambda k: -c["edges"].get(k, 0)) if c["edges"].get(k)]

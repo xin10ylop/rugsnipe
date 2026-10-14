@@ -1,0 +1,684 @@
+{
+ "frozen_at": "2026-10-14 11:34:40 UTC",
+ "rule": "E1 rank-1 entry; base scenario prem +1.1%, 0.004 SOL/round trip, 1-slot exit latency; score = train weighted mean - 1.645 SE on gap-3 TRAIN (first 60% by create time) only; n_train >= 100; top 5, at most one per (size, filter)",
+ "configs_searched": 659232,
+ "n_exit_policies": 54936,
+ "specs": [
+  [
+   "tp",
+   0.05
+  ],
+  [
+   "tp",
+   0.075
+  ],
+  [
+   "tp",
+   0.1
+  ],
+  [
+   "tp",
+   0.15
+  ],
+  [
+   "tp",
+   0.2
+  ],
+  [
+   "tp",
+   0.3
+  ],
+  [
+   "ins",
+   "any"
+  ],
+  [
+   "ins",
+   "bundle"
+  ],
+  [
+   "ins",
+   "creator"
+  ],
+  [
+   "snipersell"
+  ],
+  [
+   "anysell",
+   0.5
+  ],
+  [
+   "anysell",
+   1.0
+  ],
+  [
+   "anysell",
+   2.0
+  ],
+  [
+   "bigsell",
+   0.005
+  ],
+  [
+   "bigsell",
+   0.01
+  ],
+  [
+   "bigsell",
+   0.02
+  ],
+  [
+   "idle",
+   1
+  ],
+  [
+   "idle",
+   1.5
+  ],
+  [
+   "idle",
+   2
+  ],
+  [
+   "idle",
+   3
+  ],
+  [
+   "bigbuy",
+   1.0
+  ],
+  [
+   "bigbuy",
+   2.0
+  ],
+  [
+   "bigbuy",
+   3.0
+  ],
+  [
+   "psl",
+   1,
+   0.1
+  ],
+  [
+   "psl",
+   1,
+   0.15
+  ],
+  [
+   "psl",
+   3,
+   0.1
+  ],
+  [
+   "psl",
+   3,
+   0.15
+  ],
+  [
+   "slotexit",
+   1
+  ],
+  [
+   "slotexit",
+   2
+  ],
+  [
+   "slotexit",
+   3
+  ],
+  [
+   "slotexit",
+   5
+  ],
+  [
+   "slotexit",
+   10
+  ],
+  [
+   "hold",
+   10
+  ],
+  [
+   "hold",
+   20
+  ],
+  [
+   "hold",
+   30
+  ],
+  [
+   "hold",
+   60
+  ]
+ ],
+ "policies": [
+  {
+   "size": 0.5,
+   "filter": "me<=45",
+   "prow": [
+    4,
+    19,
+    22,
+    23,
+    33
+   ],
+   "exit": "tp20+idle3+bigbuy3+psl1s-10+hold20",
+   "train_ev": 0.05461958713129722,
+   "train_lb": 0.03210925935434397,
+   "n_train": 258
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    4,
+    18,
+    22,
+    36,
+    32
+   ],
+   "exit": "tp20+idle2+bigbuy3+hold10",
+   "train_ev": 0.05304413718001205,
+   "train_lb": 0.032094300339803365,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "multi",
+   "prow": [
+    3,
+    7,
+    16,
+    24,
+    30
+   ],
+   "exit": "tp15+ins_bundle+idle1+psl1s-15+slot+5",
+   "train_ev": 0.05297081950207671,
+   "train_lb": 0.030129200903217922,
+   "n_train": 288
+  },
+  {
+   "size": 0.25,
+   "filter": "me<=45",
+   "prow": [
+    4,
+    19,
+    22,
+    23,
+    33
+   ],
+   "exit": "tp20+idle3+bigbuy3+psl1s-10+hold20",
+   "train_ev": 0.04619505928251622,
+   "train_lb": 0.023800761413358667,
+   "n_train": 258
+  },
+  {
+   "size": 0.25,
+   "filter": "me<=50",
+   "prow": [
+    4,
+    18,
+    22,
+    36,
+    32
+   ],
+   "exit": "tp20+idle2+bigbuy3+hold10",
+   "train_ev": 0.044626406748323674,
+   "train_lb": 0.02378772627099064,
+   "n_train": 314
+  }
+ ],
+ "top_train_candidates": [
+  {
+   "size": 0.5,
+   "filter": "me<=45",
+   "prow": [
+    4,
+    19,
+    22,
+    23,
+    33
+   ],
+   "exit": "tp20+idle3+bigbuy3+psl1s-10+hold20",
+   "train_ev": 0.05461958713129722,
+   "train_lb": 0.03210925935434397,
+   "n_train": 258
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=45",
+   "prow": [
+    4,
+    19,
+    22,
+    23,
+    34
+   ],
+   "exit": "tp20+idle3+bigbuy3+psl1s-10+hold30",
+   "train_ev": 0.05461958713129722,
+   "train_lb": 0.03210925935434397,
+   "n_train": 258
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=45",
+   "prow": [
+    4,
+    19,
+    22,
+    23,
+    35
+   ],
+   "exit": "tp20+idle3+bigbuy3+psl1s-10+hold60",
+   "train_ev": 0.05461958713129722,
+   "train_lb": 0.03210925935434397,
+   "n_train": 258
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    4,
+    18,
+    22,
+    36,
+    32
+   ],
+   "exit": "tp20+idle2+bigbuy3+hold10",
+   "train_ev": 0.05304413718001205,
+   "train_lb": 0.032094300339803365,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    4,
+    17,
+    21,
+    36,
+    31
+   ],
+   "exit": "tp20+idle1.5+bigbuy2+slot+10",
+   "train_ev": 0.05202157379317465,
+   "train_lb": 0.03201928315783553,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    3,
+    18,
+    22,
+    36,
+    32
+   ],
+   "exit": "tp15+idle2+bigbuy3+hold10",
+   "train_ev": 0.05277855858190934,
+   "train_lb": 0.03195126491403034,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=45",
+   "prow": [
+    4,
+    19,
+    22,
+    23,
+    32
+   ],
+   "exit": "tp20+idle3+bigbuy3+psl1s-10+hold10",
+   "train_ev": 0.05437444351772124,
+   "train_lb": 0.031896941668916115,
+   "n_train": 258
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=45",
+   "prow": [
+    5,
+    19,
+    22,
+    23,
+    34
+   ],
+   "exit": "tp30+idle3+bigbuy3+psl1s-10+hold30",
+   "train_ev": 0.055660482523589114,
+   "train_lb": 0.03189005367434804,
+   "n_train": 258
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    3,
+    17,
+    21,
+    36,
+    32
+   ],
+   "exit": "tp15+idle1.5+bigbuy2+hold10",
+   "train_ev": 0.051826701273893265,
+   "train_lb": 0.031873819042601115,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    4,
+    12,
+    17,
+    21,
+    31
+   ],
+   "exit": "tp20+anysell2+idle1.5+bigbuy2+slot+10",
+   "train_ev": 0.05180737294714434,
+   "train_lb": 0.03180990834023109,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=45",
+   "prow": [
+    4,
+    19,
+    22,
+    24,
+    35
+   ],
+   "exit": "tp20+idle3+bigbuy3+psl1s-15+hold60",
+   "train_ev": 0.05412646796636505,
+   "train_lb": 0.03170267260181644,
+   "n_train": 258
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=45",
+   "prow": [
+    4,
+    19,
+    22,
+    24,
+    34
+   ],
+   "exit": "tp20+idle3+bigbuy3+psl1s-15+hold30",
+   "train_ev": 0.05412646796636505,
+   "train_lb": 0.03170267260181644,
+   "n_train": 258
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=45",
+   "prow": [
+    4,
+    19,
+    22,
+    24,
+    33
+   ],
+   "exit": "tp20+idle3+bigbuy3+psl1s-15+hold20",
+   "train_ev": 0.05412646796636505,
+   "train_lb": 0.03170267260181644,
+   "n_train": 258
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    4,
+    17,
+    22,
+    36,
+    32
+   ],
+   "exit": "tp20+idle1.5+bigbuy3+hold10",
+   "train_ev": 0.05175693061296929,
+   "train_lb": 0.03168779125253507,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    3,
+    17,
+    21,
+    36,
+    31
+   ],
+   "exit": "tp15+idle1.5+bigbuy2+slot+10",
+   "train_ev": 0.051519003892120836,
+   "train_lb": 0.03163330493200292,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    4,
+    18,
+    22,
+    36,
+    33
+   ],
+   "exit": "tp20+idle2+bigbuy3+hold20",
+   "train_ev": 0.05264260033897026,
+   "train_lb": 0.0316321795377425,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=45",
+   "prow": [
+    5,
+    19,
+    22,
+    23,
+    35
+   ],
+   "exit": "tp30+idle3+bigbuy3+psl1s-10+hold60",
+   "train_ev": 0.05538181810696306,
+   "train_lb": 0.03162573117367813,
+   "n_train": 258
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=45",
+   "prow": [
+    4,
+    19,
+    22,
+    24,
+    32
+   ],
+   "exit": "tp20+idle3+bigbuy3+psl1s-15+hold10",
+   "train_ev": 0.05399563170821748,
+   "train_lb": 0.03161669626686553,
+   "n_train": 258
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    3,
+    18,
+    22,
+    36,
+    33
+   ],
+   "exit": "tp15+idle2+bigbuy3+hold20",
+   "train_ev": 0.052486241747615084,
+   "train_lb": 0.03161553859780008,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    4,
+    17,
+    21,
+    25,
+    31
+   ],
+   "exit": "tp20+idle1.5+bigbuy2+psl3s-10+slot+10",
+   "train_ev": 0.05159374579362111,
+   "train_lb": 0.03159450171617876,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    3,
+    17,
+    22,
+    36,
+    32
+   ],
+   "exit": "tp15+idle1.5+bigbuy3+hold10",
+   "train_ev": 0.0515620962600995,
+   "train_lb": 0.0315879211131572,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    4,
+    18,
+    22,
+    36,
+    34
+   ],
+   "exit": "tp20+idle2+bigbuy3+hold30",
+   "train_ev": 0.052597479916720306,
+   "train_lb": 0.03158613217833876,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    4,
+    18,
+    22,
+    36,
+    35
+   ],
+   "exit": "tp20+idle2+bigbuy3+hold60",
+   "train_ev": 0.05258296270353275,
+   "train_lb": 0.03157126067742809,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    3,
+    18,
+    22,
+    36,
+    34
+   ],
+   "exit": "tp15+idle2+bigbuy3+hold30",
+   "train_ev": 0.052441121325365124,
+   "train_lb": 0.0315694597001286,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    3,
+    18,
+    22,
+    23,
+    32
+   ],
+   "exit": "tp15+idle2+bigbuy3+psl1s-10+hold10",
+   "train_ev": 0.05243621689968205,
+   "train_lb": 0.03155737877761564,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    3,
+    18,
+    22,
+    36,
+    35
+   ],
+   "exit": "tp15+idle2+bigbuy3+hold60",
+   "train_ev": 0.052426604112177574,
+   "train_lb": 0.031554577677486026,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    4,
+    17,
+    21,
+    26,
+    31
+   ],
+   "exit": "tp20+idle1.5+bigbuy2+psl3s-15+slot+10",
+   "train_ev": 0.05154708817455963,
+   "train_lb": 0.031550041570100315,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    4,
+    17,
+    36,
+    36,
+    32
+   ],
+   "exit": "tp20+idle1.5+hold10",
+   "train_ev": 0.05157071573453849,
+   "train_lb": 0.03150874943768655,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    4,
+    7,
+    17,
+    21,
+    31
+   ],
+   "exit": "tp20+ins_bundle+idle1.5+bigbuy2+slot+10",
+   "train_ev": 0.05139794739546846,
+   "train_lb": 0.03146552015427672,
+   "n_train": 314
+  },
+  {
+   "size": 0.5,
+   "filter": "me<=50",
+   "prow": [
+    5,
+    19,
+    22,
+    36,
+    34
+   ],
+   "exit": "tp30+idle3+bigbuy3+hold30",
+   "train_ev": 0.05534565795131972,
+   "train_lb": 0.03145186576276654,
+   "n_train": 314
+  }
+ ]
+}

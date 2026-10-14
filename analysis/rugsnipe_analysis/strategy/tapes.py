@@ -52,6 +52,7 @@ class Tape:
     mc: np.ndarray = field(repr=False)
     ins_b: np.ndarray = field(repr=False)   # trade by a bundle wallet
     ins_c: np.ndarray = field(repr=False)   # trade by creator / signer / fee payer
+    s0tp: np.ndarray = field(repr=False)    # trade by a third-party slot-0 buyer (another sniper)
 
     @property
     def regime(self) -> str:
@@ -107,7 +108,8 @@ def build_tape(mint: str, src: str, w: float, slot0: int, bt: int, csig: str, C:
         mc[i] = last
     ts = np.array([t[3] for t in tr], dtype=np.int64)
     hend = int(np.searchsorted(ts, bt + hor, side="right"))
-    s0_third = len({t[4] for t in tr if t[0] == slot0 and t[5] and t[4] not in C and t[4] not in B})
+    third = {t[4] for t in tr if t[0] == slot0 and t[5] and t[4] not in C and t[4] not in B}
+    s0_third = len(third)
     return Tape(
         mint=mint, src=src, w=float(w), bt=bt, S0=slot0, ms_slot=217 if slot0 >= SPLIT_SLOT else 400,
         pb=pb, hend=hend, hor=hor, complete=complete, me=float(mc[pb]), nB=len(B), dev_sol=dev_sol,
@@ -116,6 +118,7 @@ def build_tape(mint: str, src: str, w: float, slot0: int, bt: int, csig: str, C:
         buy=np.array([bool(t[5]) for t in tr]), sol=np.array([t[6] for t in tr]),
         tok=np.array([t[7] for t in tr]), mc=mc,
         ins_b=np.array([t[4] in B for t in tr]), ins_c=np.array([t[4] in C for t in tr]),
+        s0tp=np.array([t[4] in third for t in tr]),
     )
 
 

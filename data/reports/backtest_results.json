@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-10-14T11:21:01Z",
+ "generated_at": "2026-10-14T11:32:40Z",
  "args": {
   "tokens": "/home/user/rugsnipe/data/window_tokens.jsonl",
   "clusters": "/home/user/rugsnipe/data/rugger_clusters.json",
@@ -13072,6 +13072,120 @@
    }
   }
  },
+ "by_cluster_type": [
+  {
+   "group": "no_cluster",
+   "n_trades": 204,
+   "tp_hits": 12,
+   "hit_rate": 0.0588,
+   "hit_ci95": [
+    0.034,
+    0.1
+   ],
+   "expectancy_sol": -0.06329,
+   "expectancy_pct": -25.31,
+   "expectancy_ci95": [
+    -0.07608,
+    -0.05049
+   ]
+  },
+  {
+   "group": "serial_signer",
+   "n_trades": 167,
+   "tp_hits": 7,
+   "hit_rate": 0.0419,
+   "hit_ci95": [
+    0.0204,
+    0.084
+   ],
+   "expectancy_sol": -0.07875,
+   "expectancy_pct": -31.5,
+   "expectancy_ci95": [
+    -0.08994,
+    -0.06757
+   ]
+  },
+  {
+   "group": "shared_bundle_wallets",
+   "n_trades": 153,
+   "tp_hits": 9,
+   "hit_rate": 0.0588,
+   "hit_ci95": [
+    0.0313,
+    0.108
+   ],
+   "expectancy_sol": -0.05059,
+   "expectancy_pct": -20.23,
+   "expectancy_ci95": [
+    -0.06353,
+    -0.03764
+   ]
+  },
+  {
+   "group": "same_bundle_shape",
+   "n_trades": 27,
+   "tp_hits": 1,
+   "hit_rate": 0.037,
+   "hit_ci95": [
+    0.0066,
+    0.1828
+   ],
+   "expectancy_sol": -0.05057,
+   "expectancy_pct": -20.23,
+   "expectancy_ci95": [
+    -0.07234,
+    -0.0288
+   ]
+  },
+  {
+   "group": "rotating_signer",
+   "n_trades": 12,
+   "tp_hits": 0,
+   "hit_rate": 0.0,
+   "hit_ci95": [
+    0.0,
+    0.2425
+   ],
+   "expectancy_sol": -0.07152,
+   "expectancy_pct": -28.61,
+   "expectancy_ci95": [
+    -0.08801,
+    -0.05504
+   ]
+  },
+  {
+   "group": "mother_funded",
+   "n_trades": 10,
+   "tp_hits": 3,
+   "hit_rate": 0.3,
+   "hit_ci95": [
+    0.1078,
+    0.6032
+   ],
+   "expectancy_sol": 0.02382,
+   "expectancy_pct": 9.53,
+   "expectancy_ci95": [
+    -0.07398,
+    0.12161
+   ]
+  },
+  {
+   "group": "cex_funded_same_shape",
+   "n_trades": 6,
+   "tp_hits": 0,
+   "hit_rate": 0.0,
+   "hit_ci95": [
+    0.0,
+    0.3903
+   ],
+   "expectancy_sol": -0.15329,
+   "expectancy_pct": -61.32,
+   "expectancy_ci95": [
+    -0.23018,
+    -0.0764
+   ]
+  }
+ ],
  "late_hit_bound": [
   {
    "label": "eos0 0.25SOL c0.002 TP100 SLfloor idle150",

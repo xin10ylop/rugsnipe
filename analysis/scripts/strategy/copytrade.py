@@ -141,6 +141,9 @@ def discover():
 
 
 # ============================================================================ pull
+TX_CAP = 150
+
+
 def pull():
     """getSignaturesForAddress (<=1000) + getTransaction for each, decode pump TradeEvents."""
     from rugsnipe_analysis.rpc import RpcClient
@@ -163,7 +166,9 @@ def pull():
         except Exception as e:  # noqa: BLE001
             print("sigs fail", w[:8], e, flush=True)
             continue
-        ok = [s for s in sigs or [] if not s.get("err")]
+        ok_all = [s for s in sigs or [] if not s.get("err")]
+        step = max(1, len(ok_all) // TX_CAP)
+        ok = ok_all[::step][:TX_CAP]          # evenly spaced over the 1000-signature window
 
         def get(s):
             try:
@@ -180,9 +185,9 @@ def pull():
                                 "vsol": ev.virtual_sol_reserves, "vtok": ev.virtual_token_reserves})
             return {"sig": s["signature"], "slot": s["slot"], "bt": s.get("blockTime"), "ev": evs}
 
-        with ThreadPoolExecutor(8) as ex:
+        with ThreadPoolExecutor(12) as ex:
             txs = [r for r in ex.map(get, ok) if r is not None]
-        rec = {"wallet": w, "n_sigs": len(sigs or []), "n_ok": len(ok), "n_tx": len(txs),
+        rec = {"wallet": w, "n_sigs": len(sigs or []), "n_ok": len(ok_all), "n_sampled": len(ok), "n_tx": len(txs),
                "t_first": min((s.get("blockTime") or 0) for s in sigs) if sigs else None,
                "t_last": max((s.get("blockTime") or 0) for s in sigs) if sigs else None,
                "trades": [dict(e, sig=r["sig"], slot=r["slot"]) for r in txs for e in r["ev"]]}

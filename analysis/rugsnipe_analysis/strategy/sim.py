@@ -123,8 +123,20 @@ def entry_point(t: Tape, name: str) -> tuple[int, int] | None:
 
 
 # ----------------------------------------------------------------------------- exit components
+# A component is a spec tuple (kind, *params); a policy fires at the earliest of its components.
+#   ('tp', x)            realised value of our bag >= (1+x) * S
+#   ('ins', which)       first sell by insiders: 'any' (bundle or creator), 'bundle', 'creator'
+#   ('bigsell', x)       any single sell of >= x of supply
+#   ('idle', T)          no trade for T seconds (slots = ceil(T*1000/ms_slot)), counted from our landing
+#   ('trail', x, a)      price (mcap) <= (1-x) * running max, once running max >= (1+a) * entry price
+#   ('psl', d, s)        phantom stop: price <= (1-s) * entry price, active d seconds after landing
+#   ('bigbuy', X)        any single buy of >= X SOL (the guru's "auto-sell on big buy")
+#   ('hold', H)          max hold H seconds
+#   ('slotexit', k)      fixed exit: fire at landing slot + k
+#   ('snipersell',)      first sell by a third-party slot-0 buyer (another sniper leaving)
+#   ('anysell', X)       first non-insider sell of >= X SOL
 TPS = (0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.5)
-INS = ("ins_any", "ins_bundle", "ins_creator")
+INS = ("any", "bundle", "creator")
 BIGSELL = (0.01, 0.02, 0.05)
 IDLE = (2, 3, 5, 10)
 TRAIL = tuple((x, a) for x in (0.10, 0.15, 0.20, 0.30) for a in (0.10, 0.20, 0.30))
@@ -132,20 +144,39 @@ PSL = tuple((d, s) for d in (3, 10) for s in (0.15, 0.25))
 BIGBUY = (2.0, 5.0)
 HOLD = (60, 300, 900)
 
-
-def component_names() -> list[str]:
-    c = [f"tp{int(x*100)}" for x in TPS]
-    c += list(INS)
-    c += [f"bigsell{int(x*100)}" for x in BIGSELL]
-    c += [f"idle{x}" for x in IDLE]
-    c += [f"trail{int(x*100)}@{int(a*100)}" for x, a in TRAIL]
-    c += [f"psl{d}s-{int(s*100)}" for d, s in PSL]
-    c += [f"bigbuy{int(x)}" for x in BIGBUY]
-    c += [f"hold{h}" for h in HOLD]
-    return c
+SPEC_S1 = ([("tp", x) for x in TPS] + [("ins", w) for w in INS] + [("bigsell", x) for x in BIGSELL]
+           + [("idle", x) for x in IDLE] + [("trail", x, a) for x, a in TRAIL] + [("psl", d, s) for d, s in PSL]
+           + [("bigbuy", x) for x in BIGBUY] + [("hold", h) for h in HOLD])
 
 
-COMP = component_names()
+def spec_name(sp) -> str:
+    k = sp[0]
+    if k == "tp":
+        return f"tp{sp[1]*100:g}"
+    if k == "ins":
+        return f"ins_{sp[1]}"
+    if k == "bigsell":
+        return f"bigsell{sp[1]*100:g}"
+    if k == "idle":
+        return f"idle{sp[1]:g}"
+    if k == "trail":
+        return f"trail{sp[1]*100:g}@{sp[2]*100:g}"
+    if k == "psl":
+        return f"psl{sp[1]:g}s-{sp[2]*100:g}"
+    if k == "bigbuy":
+        return f"bigbuy{sp[1]:g}"
+    if k == "hold":
+        return f"hold{sp[1]:g}"
+    if k == "slotexit":
+        return f"slot+{sp[1]}"
+    if k == "snipersell":
+        return "snipersell"
+    if k == "anysell":
+        return f"anysell{sp[1]:g}"
+    raise KeyError(sp)
+
+
+COMP = [spec_name(sp) for sp in SPEC_S1]
 CIDX = {c: i for i, c in enumerate(COMP)}
 NC = len(COMP)
 N_TP = len(TPS)
@@ -157,9 +188,8 @@ def _first(mask: np.ndarray, slots: np.ndarray) -> float:
     return float(slots[int(np.argmax(mask))])
 
 
-def fire_slots_static(t: Tape, e: int, se: int) -> np.ndarray:
-    """Fire slots of all q-independent components (TP slots left as INF)."""
-    out = np.full(NC, INF)
+def fire_slots(t: Tape, e: int, se: int, q: float, S: float, specs) -> np.ndarray:
+    out = np.full(len(specs), INF)
     a, b = e + 1, t.hend
     sl = t.slot[a:b]
     buy = t.buy[a:b]
@@ -167,66 +197,66 @@ def fire_slots_static(t: Tape, e: int, se: int) -> np.ndarray:
     mc = t.mc[a:b]
     base = t.mc[e]
     ms = t.ms_slot
-    i = N_TP
-    out[i] = _first(sell & (t.ins_b[a:b] | t.ins_c[a:b]), sl); i += 1
-    out[i] = _first(sell & t.ins_b[a:b], sl); i += 1
-    out[i] = _first(sell & t.ins_c[a:b], sl); i += 1
-    tok = t.tok[a:b]
-    for x in BIGSELL:
-        out[i] = _first(sell & (tok >= x * 1e9), sl); i += 1
-    # idle timers: gaps between our landing slot and successive trade slots
-    nxt = t.slot[a:min(b + 1, len(t.slot))]
-    seq = np.concatenate(([se], nxt))
-    gaps = np.diff(seq)
     hor_slot = t.S0 + math.floor(t.hor * 1000 / ms)
-    tail_known = b < len(t.slot) or t.complete
-    for T in IDLE:
-        N = math.ceil(T * 1000 / ms)
-        hit = np.nonzero(gaps >= N)[0]
-        if hit.size:
-            f = float(seq[hit[0]] + N)
-        elif tail_known:
-            f = float(seq[-1] + N)
+    cm = runmax = seq = gaps = None
+    for i, sp in enumerate(specs):
+        k = sp[0]
+        if k == "tp":
+            if mc.size == 0:
+                continue
+            if cm is None:
+                cm = np.maximum.accumulate(mc)
+            thr = mcap_for_value((1 + sp[1]) * S, q)
+            j = int(np.searchsorted(cm, thr, side="left"))
+            if j < mc.size:
+                out[i] = float(sl[j])
+        elif k == "ins":
+            who = {"any": t.ins_b[a:b] | t.ins_c[a:b], "bundle": t.ins_b[a:b], "creator": t.ins_c[a:b]}[sp[1]]
+            out[i] = _first(sell & who, sl)
+        elif k == "bigsell":
+            out[i] = _first(sell & (t.tok[a:b] >= sp[1] * 1e9), sl)
+        elif k == "idle":
+            if seq is None:
+                nxt = t.slot[a:min(b + 1, len(t.slot))]
+                seq = np.concatenate(([se], nxt))
+                gaps = np.diff(seq)
+            N = math.ceil(sp[1] * 1000 / ms)
+            hit = np.nonzero(gaps >= N)[0]
+            if hit.size:
+                f = float(seq[hit[0]] + N)
+            elif b < len(t.slot) or t.complete:
+                f = float(seq[-1] + N)
+            else:
+                f = INF
+            out[i] = f if f <= hor_slot else INF
+        elif k == "trail":
+            if mc.size == 0:
+                continue
+            if runmax is None:
+                runmax = np.maximum.accumulate(np.maximum(mc, base))
+            x, act = sp[1], sp[2]
+            out[i] = _first((runmax >= base * (1 + act)) & (mc <= (1 - x) * runmax), sl)
+        elif k == "psl":
+            d, s_ = sp[1], sp[2]
+            act_slot = se + math.ceil(d * 1000 / ms)
+            thr = base * (1 - s_)
+            kk = max(_end_of_slot(t, act_slot - 1), e)
+            if kk < b and t.mc[kk] <= thr:
+                out[i] = float(act_slot)
+            else:
+                out[i] = _first((sl >= act_slot) & (mc <= thr), sl)
+        elif k == "bigbuy":
+            out[i] = _first(buy & (t.sol[a:b] >= sp[1]), sl)
+        elif k == "hold":
+            out[i] = float(se + math.ceil(sp[1] * 1000 / ms))
+        elif k == "slotexit":
+            out[i] = float(se + sp[1])
+        elif k == "snipersell":
+            out[i] = _first(sell & t.s0tp[a:b], sl)
+        elif k == "anysell":
+            out[i] = _first(sell & ~(t.ins_b[a:b] | t.ins_c[a:b]) & (t.sol[a:b] >= sp[1]), sl)
         else:
-            f = INF
-        out[i] = f if f <= hor_slot else INF; i += 1
-    if mc.size:
-        runmax = np.maximum.accumulate(np.maximum(mc, base))
-    else:
-        runmax = mc
-    for x, act in TRAIL:
-        out[i] = _first((runmax >= base * (1 + act)) & (mc <= (1 - x) * runmax), sl); i += 1
-    for d, s in PSL:
-        act_slot = se + math.ceil(d * 1000 / ms)
-        thr = base * (1 - s)
-        k = _end_of_slot(t, act_slot - 1)
-        k = max(k, e)
-        if k < b and t.mc[k] <= thr:
-            out[i] = float(act_slot)
-        else:
-            out[i] = _first((sl >= act_slot) & (mc <= thr), sl)
-        i += 1
-    sol = t.sol[a:b]
-    for x in BIGBUY:
-        out[i] = _first(buy & (sol >= x), sl); i += 1
-    for h in HOLD:
-        out[i] = float(se + math.ceil(h * 1000 / ms)); i += 1
-    assert i == NC
-    return out
-
-
-def fire_slots_tp(t: Tape, e: int, q: float, S: float) -> np.ndarray:
-    a, b = e + 1, t.hend
-    mc = t.mc[a:b]
-    out = np.full(N_TP, INF)
-    if mc.size == 0:
-        return out
-    cm = np.maximum.accumulate(mc)
-    for k, x in enumerate(TPS):
-        thr = mcap_for_value((1 + x) * S, q)
-        j = int(np.searchsorted(cm, thr, side="left"))
-        if j < mc.size:
-            out[k] = float(t.slot[a + j])
+            raise KeyError(sp)
     return out
 
 
@@ -248,13 +278,14 @@ class Scenario:
         return f"S{self.size}_p{self.prem}_c{self.cost}_l{self.lat}"
 
 
-def simulate_entry(tapes: list[Tape], entry: str, scen: Scenario):
-    """Per-tape fire slots F (n x NC), returns R (n x NC), trigger mask, plus oracle bounds.
+def simulate_entry(tapes: list[Tape], entry: str, scen: Scenario, specs=None):
+    """Per-tape fire slots F (n x C), returns R (n x C), trigger mask, plus oracle bounds.
 
     Rows of non-triggered tapes are NaN in R and INF in F."""
-    n = len(tapes)
-    F = np.full((n, NC), INF)
-    R = np.full((n, NC), np.nan)
+    specs = SPEC_S1 if specs is None else specs
+    n, C = len(tapes), len(specs)
+    F = np.full((n, C), INF)
+    R = np.full((n, C), np.nan)
     trig = np.zeros(n, dtype=bool)
     orc_max = np.full(n, np.nan)
     orc_dump = np.full(n, np.nan)
@@ -264,14 +295,13 @@ def simulate_entry(tapes: list[Tape], entry: str, scen: Scenario):
         if ep is None:
             continue
         e, se = ep
-        if e >= t.hend - 0 and e > t.pb and e >= len(t.slot):
+        if e >= t.hend:
             continue
         trig[r] = True
         m_e = t.mc[e]
         ent_mc[r] = m_e
         q = tokens_for(scen.size, m_e) / (1 + scen.prem)
-        f = fire_slots_static(t, e, se)
-        f[:N_TP] = fire_slots_tp(t, e, q, scen.size)
+        f = fire_slots(t, e, se, q, scen.size, specs)
         F[r] = f
         fi = fill_index(t, e, f, scen.lat)
         R[r] = value(t.mc[fi], q) / scen.size - 1 - scen.cost / scen.size
@@ -292,39 +322,41 @@ def simulate_entry(tapes: list[Tape], entry: str, scen: Scenario):
 
 
 # ----------------------------------------------------------------------------- policies
-GROUPS = {
-    "ins": [CIDX[c] for c in INS],
-    "bigsell": [CIDX[f"bigsell{int(x*100)}"] for x in BIGSELL],
-    "idle": [CIDX[f"idle{x}"] for x in IDLE],
-    "trail": [CIDX[f"trail{int(x*100)}@{int(a*100)}"] for x, a in TRAIL],
-    "psl": [CIDX[f"psl{d}s-{int(s*100)}"] for d, s in PSL],
-    "bigbuy": [CIDX[f"bigbuy{int(x)}"] for x in BIGBUY],
-}
-DUMMY = NC  # an extra all-INF column
+def groups_s1():
+    idx = lambda kind: [i for i, sp in enumerate(SPEC_S1) if sp[0] == kind]
+    return {g: idx(g) for g in ("ins", "bigsell", "idle", "trail", "psl", "bigbuy")}
 
 
-def enumerate_policies(max_groups: int = 3) -> np.ndarray:
-    """Policies as rows of 5 component indices: [tp, g1, g2, g3, hold] (DUMMY = unused)."""
+def enumerate_policies(max_groups: int = 3, specs=None, groups=None, tp_kind="tp", max_kinds=("hold",)) -> np.ndarray:
+    """Policies as rows of component indices: [tp, g1..g_max_groups, cap] (dummy = len(specs) = unused).
+
+    S1 default: TP (or none) x up to 3 of the 6 signal groups x max hold."""
     from itertools import combinations, product
-    gnames = list(GROUPS)
+    specs = SPEC_S1 if specs is None else specs
+    groups = groups_s1() if groups is None else groups
+    dummy = len(specs)
+    tps = [i for i, sp in enumerate(specs) if sp[0] == tp_kind]
+    caps = [i for i, sp in enumerate(specs) if sp[0] in max_kinds]
+    gnames = list(groups)
     combos = [()]
     for k in range(1, max_groups + 1):
         for gs in combinations(gnames, k):
-            for choice in product(*[GROUPS[g] for g in gs]):
+            for choice in product(*[groups[g] for g in gs]):
                 combos.append(choice)
     rows = []
-    for tp in [DUMMY] + list(range(N_TP)):
-        for h in HOLD:
-            hc = CIDX[f"hold{h}"]
+    for tp in [dummy] + tps:
+        for hc in caps:
             for c in combos:
-                row = [tp] + list(c) + [DUMMY] * (3 - len(c)) + [hc]
-                rows.append(row)
+                rows.append([tp] + list(c) + [dummy] * (max_groups - len(c)) + [hc])
     return np.array(rows, dtype=np.int32)
 
 
-def policy_name(row) -> str:
-    parts = [COMP[i] for i in row if i != DUMMY]
-    return "+".join(parts)
+DUMMY = NC  # S1 dummy column
+
+
+def policy_name(row, specs=None) -> str:
+    specs = SPEC_S1 if specs is None else specs
+    return "+".join(spec_name(specs[i]) for i in row if i < len(specs))
 
 
 def eval_policies(F: np.ndarray, R: np.ndarray, P: np.ndarray) -> np.ndarray:
@@ -332,7 +364,7 @@ def eval_policies(F: np.ndarray, R: np.ndarray, P: np.ndarray) -> np.ndarray:
     n = F.shape[0]
     Fx = np.concatenate([F, np.full((n, 1), INF)], axis=1).astype(np.float64)
     Rx = np.concatenate([R, np.full((n, 1), np.nan)], axis=1)
-    Fs = Fx[:, P]                       # n x p x 5
+    Fs = Fx[:, P]
     am = Fs.argmin(axis=2)
     Rs = Rx[:, P]
     return np.take_along_axis(Rs, am[..., None], axis=2)[..., 0]

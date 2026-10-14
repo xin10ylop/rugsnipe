@@ -158,9 +158,41 @@ def load_clusters(args, api: PumpApi, window_tokens: list[tuple[dict, list[dict]
         members[c["cluster"]] = sorted(lst, key=lambda x: x[0]["create_time"])
     meta = {c["cluster"]: {k: c.get(k) for k in ("score", "n_tokens", "edges", "funder_kinds", "top_funders",
                                                   "bundle_shapes", "fresh_share", "bundled_share")} for c in cl}
+    for c in cl:
+        meta[c["cluster"]]["type"] = cluster_type(c)
+        for m in c["mints"]:
+            MINT_CLUSTER[m] = (c["cluster"], meta[c["cluster"]]["type"])
     ds.log(f"clusters: {len(cl)} clusters, {sum(len(v) for v in members.values())} tradable members "
            f"({extra} from expansion)")
     return members, meta
+
+
+MINT_CLUSTER: dict[str, tuple[str, str]] = {}
+
+
+def cluster_type(c: dict) -> str:
+    """Dominant evidence of a cluster: serial (same signer), mother, exchange+shape, bundle wallets, shape."""
+    e = c.get("edges") or {}
+    if not e:
+        return "none"
+    k = max(e, key=e.get)
+    if k == "d" and c.get("fresh_share", 0) < 0.5:
+        return "serial_signer"
+    return {"d": "rotating_signer", "a_mother": "mother_funded", "a_cex_shape": "cex_funded_same_shape",
+            "c": "shared_bundle_wallets", "b_strong": "same_bundle_shape"}.get(k, k)
+
+
+def by_group(tokens, strat: B.Strategy) -> list[dict]:
+    """Guru base rule split by the launch's cluster type (window sample)."""
+    groups: dict[str, list] = defaultdict(list)
+    for tok, tr in tokens:
+        groups[MINT_CLUSTER.get(tok["mint"], ("-", "no_cluster"))[1]].append((tok, tr))
+    out = []
+    for g, lst in sorted(groups.items(), key=lambda x: -len(x[1])):
+        s = B.summarize(run(lst, strat), strat.size_sol)
+        out.append({"group": g, **{k: s[k] for k in ("n_trades", "tp_hits", "hit_rate", "hit_ci95", "expectancy_sol",
+                                                       "expectancy_pct", "expectancy_ci95")}})
+    return out
 
 
 def load_taskA(args, api: PumpApi) -> list[tuple[dict, list[dict]]]:
@@ -389,6 +421,10 @@ def main() -> None:
         for e in ranked[:5]:
             ds.log(f"[{name}]   top {e['label']}: n={e['n_trades']} hit={e['hit_rate']:.1%} "
                    f"exp={e['expectancy_sol']:+.4f} SOL ({e['expectancy_pct']:+.1f}%) CI {e['expectancy_ci95']}")
+    if window and MINT_CLUSTER:
+        results["by_cluster_type"] = by_group(window, base)
+        for g in results["by_cluster_type"]:
+            ds.log(f"[by type] {g['group']}: n={g['n_trades']} hit={g['hit_rate']:.1%} exp={g['expectancy_pct']:+.1f}%")
     if window:
         results["late_hit_bound"] = [late_hit_bound(window, s) for s in
                                      (base, B.variant(base, tp=1.5), B.variant(base, tp=2.0))]

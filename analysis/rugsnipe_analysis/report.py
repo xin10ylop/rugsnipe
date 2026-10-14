@@ -101,6 +101,15 @@ def render(res: dict[str, Any]) -> str:
                     and "SL" in e["label"] and "SLfloor" in e["label"] and "eos1" not in e["label"]:
                 L.append(_row(e))
         L.append("")
+    G = res.get("by_cluster_type")
+    if G:
+        L.append("## Guru rule by cluster type (window sample)\n")
+        L.append("| launches of ... | n | TP hit | 95% CI | expectancy / snipe | 95% CI |\n|---|---|---|---|---|---|")
+        for g in G:
+            L.append(f"| {g['group']} | {g['n_trades']} | {_pct(g['hit_rate'])} | {_pct(g['hit_ci95'][0])}-"
+                     f"{_pct(g['hit_ci95'][1])} | {_sol(g['expectancy_sol'])} ({g['expectancy_pct']:+.1f}%) | "
+                     f"{g['expectancy_ci95']} |")
+        L.append("")
     LB = res.get("late_hit_bound")
     if LB:
         L.append("## Hits after the horizon (window sample)\n")

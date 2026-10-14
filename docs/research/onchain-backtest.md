@@ -1,6 +1,6 @@
 # On-chain backtest of the guru's rugger snipe (Task C)
 
-Generated 2026-10-14T11:21:01Z by `analysis/scripts/backtest.py` from `data/reports/backtest_results.json`. Discovery: `analysis/scripts/discover_ruggers.py` (`data/rugger_clusters.json`, `data/reports/discovery_summary.json`).
+Generated 2026-10-14T11:32:40Z by `analysis/scripts/backtest.py` from `data/reports/backtest_results.json`. Discovery: `analysis/scripts/discover_ruggers.py` (`data/rugger_clusters.json`, `data/reports/discovery_summary.json`).
 
 
 
@@ -229,6 +229,18 @@ Selected exits and filters:
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 B>=3 | 339 | 5.6% | +0.1676 | -0.0887 | 1.889 | -0.0668 (-26.7%) | [-0.0756, -0.0580] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 B>=5 | 227 | 4.4% | +0.1324 | -0.0963 | 1.375 | -0.0771 (-30.9%) | [-0.0871, -0.0671] |
 | eos0 0.25SOL c0.002 TP100 SLfloor idle150 B>=10 | 31 | 9.7% | +0.0678 | -0.1245 | 0.545 | -0.0563 (-22.5%) | [-0.1002, -0.0124] |
+
+## Guru rule by cluster type (window sample)
+
+| launches of ... | n | TP hit | 95% CI | expectancy / snipe | 95% CI |
+|---|---|---|---|---|---|
+| no_cluster | 204 | 5.9% | 3.4%-10.0% | -0.0633 (-25.3%) | [-0.07608, -0.05049] |
+| serial_signer | 167 | 4.2% | 2.0%-8.4% | -0.0788 (-31.5%) | [-0.08994, -0.06757] |
+| shared_bundle_wallets | 153 | 5.9% | 3.1%-10.8% | -0.0506 (-20.2%) | [-0.06353, -0.03764] |
+| same_bundle_shape | 27 | 3.7% | 0.7%-18.3% | -0.0506 (-20.2%) | [-0.07234, -0.0288] |
+| rotating_signer | 12 | 0.0% | 0.0%-24.2% | -0.0715 (-28.6%) | [-0.08801, -0.05504] |
+| mother_funded | 10 | 30.0% | 10.8%-60.3% | +0.0238 (+9.5%) | [-0.07398, 0.12161] |
+| cex_funded_same_shape | 6 | 0.0% | 0.0%-39.0% | -0.1533 (-61.3%) | [-0.23018, -0.0764] |
 
 ## Hits after the horizon (window sample)
 
