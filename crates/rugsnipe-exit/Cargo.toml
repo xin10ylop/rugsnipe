@@ -1,0 +1,22 @@
+[package]
+name = "rugsnipe-exit"
+version = "0.1.0"
+description = "Exit engine: position state machine, exit triggers (docs/06 section 8), sell bounds and retry schedule as a pure, deterministic decision function."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+pump-codec = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bs58 = { workspace = true }
+
+[dev-dependencies]
+proptest = { version = "1.12", default-features = false, features = ["std"] }
+toml = "1.1"
+base64 = { workspace = true }
+
+[lints.clippy]
+too_many_arguments = "allow"

@@ -165,26 +165,42 @@ fn as_pubkeys(bytes: &[u8]) -> &[Pubkey] {
 impl<'a> TxView<'a> {
     /// Parse and validate `raw` (one complete serialized transaction, no trailing bytes).
     pub fn parse(raw: &'a [u8]) -> Result<Self> {
+        let tx = Self::parse_any(raw, true)?;
+        tx.validate_indexes()?;
+        Ok(tx)
+    }
+
+    /// Parse the transaction at the **start** of `buf` (trailing bytes are
+    /// allowed) and return it with its serialized length. This is how a
+    /// bincode `Entry` (`transactions: Vec<VersionedTransaction>`) is sliced:
+    /// legacy, v0 and v1 transactions serialize there exactly as on the wire.
+    /// The returned view's [`TxView::raw`] is `&buf[..len]`.
+    pub fn parse_prefix(buf: &'a [u8]) -> Result<(Self, usize)> {
+        let tx = Self::parse_any(buf, false)?;
+        tx.validate_indexes()?;
+        let len = tx.raw.len();
+        Ok((tx, len))
+    }
+
+    fn parse_any(raw: &'a [u8], exact: bool) -> Result<Self> {
         let first = *raw.first().ok_or(DecodeError::UnexpectedEof {
             offset: 0,
             needed: 1,
         })?;
         // Dispatch like Agave: a set MSB on byte 0 means a versioned (v1+)
         // envelope. A legacy/v0 tx would need >= 128 signatures for that.
-        let tx = if first == 0x81 {
-            Self::parse_v1(raw)?
+        if first == 0x81 {
+            Self::parse_v1(raw, exact)
         } else if first & 0x80 != 0 {
-            return Err(DecodeError::InvalidTransaction(
+            Err(DecodeError::InvalidTransaction(
                 "unsupported transaction version",
-            ));
+            ))
         } else {
-            Self::parse_legacy_or_v0(raw)?
-        };
-        tx.validate_indexes()?;
-        Ok(tx)
+            Self::parse_legacy_or_v0(raw, exact)
+        }
     }
 
-    fn parse_legacy_or_v0(raw: &'a [u8]) -> Result<Self> {
+    fn parse_legacy_or_v0(raw: &'a [u8], exact: bool) -> Result<Self> {
         let mut o = 0usize;
         let n_sigs = compact(raw, &mut o)?;
         need(raw, o, n_sigs * SIG)?;
@@ -255,17 +271,18 @@ impl<'a> TxView<'a> {
                 nr += r;
             }
         }
-        if o != raw.len() {
+        if exact && o != raw.len() {
             return Err(DecodeError::InvalidTransaction(
                 "trailing bytes after message",
             ));
         }
+        let raw = &raw[..o];
         Ok(Self {
             raw,
             version,
             header,
             sigs,
-            message: (msg_start, raw.len()),
+            message: (msg_start, o),
             keys,
             blockhash,
             num_instructions: n_ix,
@@ -277,7 +294,7 @@ impl<'a> TxView<'a> {
         })
     }
 
-    fn parse_v1(raw: &'a [u8]) -> Result<Self> {
+    fn parse_v1(raw: &'a [u8], exact: bool) -> Result<Self> {
         // 0x81 | header(3) | mask(4) | lifetime(32) | n_ix | n_addr
         need(raw, 0, 1 + 3 + 4 + 32 + 2)?;
         let header = MessageHeader {
@@ -343,11 +360,12 @@ impl<'a> TxView<'a> {
         need(raw, o, n_sigs * SIG)?;
         let sigs = (o, n_sigs);
         o += n_sigs * SIG;
-        if o != raw.len() {
+        if exact && o != raw.len() {
             return Err(DecodeError::InvalidTransaction(
                 "trailing bytes after v1 signatures",
             ));
         }
+        let raw = &raw[..o];
         Ok(Self {
             raw,
             version: TxVersion::V1,
@@ -517,6 +535,34 @@ impl<'a> TxView<'a> {
             static_keys: self.static_account_keys(),
             loaded,
             indexes: ix.accounts,
+        }
+    }
+
+    /// Account `index` in the full ordering (static keys, then the ALT-loaded
+    /// writable and readonly addresses from `loaded`).
+    pub fn account_key(&self, index: usize, loaded: Option<&[Pubkey]>) -> Option<Pubkey> {
+        let st = self.static_account_keys();
+        if index < st.len() {
+            Some(st[index])
+        } else {
+            loaded?.get(index - st.len()).copied()
+        }
+    }
+
+    /// Accounts of an inner (CPI) instruction from transaction meta: its
+    /// `accounts` are indexes into the same full ordering as top-level ones.
+    pub fn indexed_accounts<'b>(
+        &self,
+        indexes: &'b [u8],
+        loaded: Option<&'b [Pubkey]>,
+    ) -> IxAccounts<'b>
+    where
+        'a: 'b,
+    {
+        IxAccounts {
+            static_keys: self.static_account_keys(),
+            loaded,
+            indexes,
         }
     }
 

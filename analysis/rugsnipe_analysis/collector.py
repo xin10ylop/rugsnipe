@@ -272,8 +272,9 @@ class Collector:
             store.upsert(self.con, "creates", row)
             store.upsert(self.con, "create_buys", buys)
         elif partial is not None:
-            partial["first_seen_ms"] = first // 1_000_000
-            store.upsert(self.con, "creates", partial)
+            if first == recv_ns:   # PumpPortal floats only when no exact source has written the row yet
+                partial["first_seen_ms"] = first // 1_000_000
+                store.upsert(self.con, "creates", partial)
         else:
             store.upsert(self.con, "creates", {"mint": mint, "sig": sig, "slot": slot, "first_seen_ms": first // 1_000_000,
                                                "src": "collector", "updated_at": int(time.time())})
@@ -433,27 +434,28 @@ class Collector:
 
     # ---------------------------------------------------------------- jobs
     async def _scheduler(self) -> None:
+        """Dispatch due jobs: kinds in priority order, each up to its concurrency limit."""
         loop = asyncio.get_running_loop()
         while not self._stop.is_set():
             now = time.time()
-            rows = self.con.execute(
-                "SELECT kind, key, payload, tries FROM jobs WHERE state='pending' AND due_ts<=? "
-                "ORDER BY due_ts LIMIT 400", (now,)).fetchall()
-            rows = sorted(rows, key=lambda r: KIND_PRIORITY.get(r[0], 5))
             busy = sum(len(v) for v in self.inflight.values())
-            for kind, key, payload, tries in rows:
-                if busy >= self.cfg.workers:
-                    break
+            for kind in sorted(KIND_PRIORITY, key=KIND_PRIORITY.get):
                 fl = self.inflight.setdefault(kind, set())
-                if key in fl or len(fl) >= KIND_CONCURRENCY.get(kind, 1):
-                    continue
-                if kind == "funding_deep" and busy > 0:
-                    continue   # lowest priority: only when everything else is idle
-                fl.add(key)
-                busy += 1
-                fn = getattr(self, f"job_{kind}")
-                fut = loop.run_in_executor(self.pool, fn, key, json.loads(payload or "{}"))
-                fut.add_done_callback(lambda f, k=kind, kk=key, t=tries: self._job_done(k, kk, t, f))
+                free = min(KIND_CONCURRENCY.get(kind, 1) - len(fl), self.cfg.workers - busy)
+                if free <= 0 or (kind == "funding_deep" and busy > 0):
+                    continue   # funding_deep: lowest priority, only when everything else is idle
+                rows = self.con.execute("SELECT key, payload, tries FROM jobs WHERE kind=? AND state='pending' "
+                                        "AND due_ts<=? ORDER BY due_ts LIMIT ?", (kind, now, free + len(fl))).fetchall()
+                for key, payload, tries in rows:
+                    if free <= 0:
+                        break
+                    if key in fl:
+                        continue
+                    fl.add(key)
+                    busy += 1
+                    free -= 1
+                    fut = loop.run_in_executor(self.pool, getattr(self, f"job_{kind}"), key, json.loads(payload or "{}"))
+                    fut.add_done_callback(lambda f, k=kind, kk=key, t=tries: self._job_done(k, kk, t, f))
             await asyncio.sleep(0.5)
 
     def _job_done(self, kind: str, key: str, tries: int, fut: "asyncio.Future[Any]") -> None:

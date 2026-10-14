@@ -1,0 +1,3692 @@
+{
+"ashburn-iad1|198.13.140.105": {
+"min": 80.598,
+"avg": 80.661,
+"ts": "2026-10-14 10:15:24",
+"note": null
+},
+"frankfurt-fra2|198.13.140.105": {
+"min": 0.081,
+"avg": 0.096,
+"ts": "2026-10-14 10:15:24",
+"note": null
+},
+"frankfurt-fra2|63.254.167.197": {
+"min": 5.875,
+"avg": 5.914,
+"ts": "2026-10-14 10:15:24",
+"note": null
+},
+"london-lon1|198.13.140.105": {
+"min": 11.457,
+"avg": 11.471,
+"ts": "2026-10-14 10:15:24",
+"note": null
+},
+"amsterdam-ams3|198.13.140.105": {
+"min": 5.854,
+"avg": 5.878,
+"ts": "2026-10-14 10:15:24",
+"note": null
+},
+"tokyo-tyo2|198.13.140.105": {
+"min": 212.662,
+"avg": 212.685,
+"ts": "2026-10-14 10:15:24",
+"note": null
+},
+"amsterdam-ams3|63.254.167.197": {
+"min": 0.084,
+"avg": 0.089,
+"ts": "2026-10-14 10:15:29",
+"note": null
+},
+"london-lon1|63.254.167.197": {
+"min": 5.805,
+"avg": 5.866,
+"ts": "2026-10-14 10:15:29",
+"note": null
+},
+"ashburn-iad1|63.254.167.197": {
+"min": 74.916,
+"avg": 74.929,
+"ts": "2026-10-14 10:15:30",
+"note": null
+},
+"london-lon1|64.130.46.242": {
+"min": 0.134,
+"avg": 0.195,
+"ts": "2026-10-14 10:14:56",
+"note": null
+},
+"tokyo-tyo2|63.254.167.197": {
+"min": 207.199,
+"avg": 207.259,
+"ts": "2026-10-14 10:15:29",
+"note": null
+},
+"frankfurt-fra2|64.130.46.242": {
+"min": 11.224,
+"avg": 11.238,
+"ts": "2026-10-14 10:15:34",
+"note": null
+},
+"amsterdam-ams3|64.130.46.242": {
+"min": 5.599,
+"avg": 5.609,
+"ts": "2026-10-14 10:15:35",
+"note": null
+},
+"tokyo-tyo2|64.130.46.242": {
+"min": 201.655,
+"avg": 201.686,
+"ts": "2026-10-14 10:15:35",
+"note": null
+},
+"ashburn-iad1|64.130.46.242": {
+"min": 69.378,
+"avg": 69.427,
+"ts": "2026-10-14 10:15:40",
+"note": null
+},
+"singapore-sgp1|198.13.140.105": {
+"min": 148.471,
+"avg": 148.565,
+"ts": "2026-10-14 10:15:24",
+"note": null
+},
+"singapore-sgp1|64.130.46.242": {
+"min": 159.342,
+"avg": 159.434,
+"ts": "2026-10-14 10:15:39",
+"note": null
+},
+"frankfurt-fra2|198.13.140.227": {
+"min": 0.092,
+"avg": 0.098,
+"ts": "2026-10-14 10:15:42",
+"note": null
+},
+"amsterdam-ams3|198.13.140.227": {
+"min": 5.879,
+"avg": 5.893,
+"ts": "2026-10-14 10:15:44",
+"note": null
+},
+"singapore-sgp1|63.254.167.197": {
+"min": 153.864,
+"avg": 154.042,
+"ts": "2026-10-14 10:15:30",
+"note": null
+},
+"london-lon1|198.13.140.227": {
+"min": 11.408,
+"avg": 11.442,
+"ts": "2026-10-14 10:15:44",
+"note": null
+},
+"tokyo-tyo2|198.13.140.227": {
+"min": 212.67,
+"avg": 212.695,
+"ts": "2026-10-14 10:15:47",
+"note": null
+},
+"ashburn-iad1|198.13.140.227": {
+"min": 80.58,
+"avg": 80.62,
+"ts": "2026-10-14 10:15:50",
+"note": null
+},
+"singapore-sgp1|198.13.140.227": {
+"min": 148.485,
+"avg": 148.605,
+"ts": "2026-10-14 10:15:50",
+"note": null
+},
+"frankfurt-fra2|88.216.192.51": {
+"min": 30.567,
+"avg": 30.578,
+"ts": "2026-10-14 10:15:52",
+"note": null
+},
+"amsterdam-ams3|88.216.192.51": {
+"min": 34.438,
+"avg": 34.467,
+"ts": "2026-10-14 10:15:53",
+"note": null
+},
+"london-lon1|88.216.192.51": {
+"min": 44.565,
+"avg": 44.635,
+"ts": "2026-10-14 10:15:55",
+"note": null
+},
+"newark-ewr1|198.13.140.105": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"tokyo-tyo2|88.216.192.51": {
+"min": 249.009,
+"avg": 249.069,
+"ts": "2026-10-14 10:15:57",
+"note": null
+},
+"ashburn-iad1|88.216.192.51": {
+"min": 119.021,
+"avg": 119.098,
+"ts": "2026-10-14 10:16:00",
+"note": null
+},
+"singapore-sgp1|88.216.192.51": {
+"min": 178.623,
+"avg": 178.789,
+"ts": "2026-10-14 10:15:59",
+"note": null
+},
+"newark-ewr1|63.254.167.197": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"frankfurt-fra2|63.254.163.37": {
+"min": 212.67,
+"avg": 212.684,
+"ts": "2026-10-14 10:16:01",
+"note": null
+},
+"singapore-sgp1|63.254.163.37": {
+"min": 64.507,
+"avg": 64.584,
+"ts": "2026-10-14 10:14:03",
+"note": null
+},
+"ashburn-iad1|63.254.163.37": {
+"min": 138.717,
+"avg": 138.758,
+"ts": "2026-10-14 10:14:11",
+"note": null
+},
+"frankfurt-fra2|109.94.96.69": {
+"min": 0.678,
+"avg": 0.689,
+"ts": "2026-10-14 10:14:15",
+"note": null
+},
+"amsterdam-ams3|109.94.96.69": {
+"min": 6.157,
+"avg": 6.169,
+"ts": "2026-10-14 10:14:21",
+"note": null
+},
+"london-lon1|109.94.96.69": {
+"min": 11.746,
+"avg": 11.839,
+"ts": "2026-10-14 10:14:22",
+"note": null
+},
+"tokyo-tyo2|109.94.96.69": {
+"min": 212.797,
+"avg": 212.812,
+"ts": "2026-10-14 10:14:23",
+"note": null
+},
+"amsterdam-ams3|63.254.163.37": {
+"min": 207.157,
+"avg": 207.169,
+"ts": "2026-10-14 10:16:03",
+"note": null
+},
+"singapore-sgp1|109.94.96.69": {
+"min": 148.674,
+"avg": 148.757,
+"ts": "2026-10-14 10:14:28",
+"note": null
+},
+"ashburn-iad1|109.94.96.69": {
+"min": 80.926,
+"avg": 80.959,
+"ts": "2026-10-14 10:14:29",
+"note": null
+},
+"frankfurt-fra2|63.254.166.232": {
+"min": 5.865,
+"avg": 5.876,
+"ts": "2026-10-14 10:14:34",
+"note": null
+},
+"amsterdam-ams3|63.254.166.232": {
+"min": 0.076,
+"avg": 0.083,
+"ts": "2026-10-14 10:14:35",
+"note": null
+},
+"london-lon1|63.254.166.232": {
+"min": 5.783,
+"avg": 5.816,
+"ts": "2026-10-14 10:14:38",
+"note": null
+},
+"tokyo-tyo2|63.254.166.232": {
+"min": 207.146,
+"avg": 207.164,
+"ts": "2026-10-14 10:14:39",
+"note": null
+},
+"london-lon1|63.254.163.37": {
+"min": 201.709,
+"avg": 201.787,
+"ts": "2026-10-14 10:16:04",
+"note": null
+},
+"singapore-sgp1|63.254.166.232": {
+"min": 153.948,
+"avg": 154.008,
+"ts": "2026-10-14 10:14:45",
+"note": null
+},
+"ashburn-iad1|63.254.166.232": {
+"min": 74.952,
+"avg": 74.965,
+"ts": "2026-10-14 10:14:46",
+"note": null
+},
+"frankfurt-fra2|198.13.131.139": {
+"min": 148.67,
+"avg": 148.675,
+"ts": "2026-10-14 10:14:51",
+"note": null
+},
+"amsterdam-ams3|198.13.131.139": {
+"min": 154.04,
+"avg": 154.064,
+"ts": "2026-10-14 10:14:53",
+"note": null
+},
+"london-lon1|198.13.131.139": {
+"min": 159.695,
+"avg": 159.717,
+"ts": "2026-10-14 10:14:54",
+"note": null
+},
+"tokyo-tyo2|198.13.131.139": {
+"min": 64.604,
+"avg": 64.656,
+"ts": "2026-10-14 10:14:56",
+"note": null
+},
+"newark-ewr1|64.130.46.242": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"tokyo-tyo2|63.254.163.37": {
+"min": 0.085,
+"avg": 0.092,
+"ts": "2026-10-14 10:16:06",
+"note": null
+},
+"singapore-sgp1|198.13.131.139": {
+"min": 0.404,
+"avg": 0.483,
+"ts": "2026-10-14 10:14:59",
+"note": null
+},
+"frankfurt-fra2|64.130.57.215": {
+"min": 0.084,
+"avg": 0.091,
+"ts": "2026-10-14 10:15:06",
+"note": null
+},
+"ashburn-iad1|198.13.131.139": {
+"min": 204.638,
+"avg": 204.688,
+"ts": "2026-10-14 10:15:03",
+"note": null
+},
+"amsterdam-ams3|64.130.57.215": {
+"min": 5.865,
+"avg": 5.899,
+"ts": "2026-10-14 10:15:07",
+"note": null
+},
+"london-lon1|64.130.57.215": {
+"min": 11.375,
+"avg": 11.451,
+"ts": "2026-10-14 10:16:12",
+"note": null
+},
+"tokyo-tyo2|64.130.57.215": {
+"min": 212.68,
+"avg": 212.703,
+"ts": "2026-10-14 10:16:12",
+"note": null
+},
+"newark-ewr1|198.13.140.227": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"singapore-sgp1|64.130.57.215": {
+"min": 148.498,
+"avg": 148.568,
+"ts": "2026-10-14 10:16:19",
+"note": null
+},
+"ashburn-iad1|64.130.57.215": {
+"min": 80.551,
+"avg": 80.571,
+"ts": "2026-10-14 10:16:24",
+"note": null
+},
+"frankfurt-fra2|208.91.105.53": {
+"min": 80.562,
+"avg": 80.578,
+"ts": "2026-10-14 10:16:26",
+"note": null
+},
+"amsterdam-ams3|208.91.105.53": {
+"min": 74.908,
+"avg": 74.995,
+"ts": "2026-10-14 10:16:28",
+"note": null
+},
+"newark-ewr1|88.216.192.51": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"london-lon1|208.91.105.53": {
+"min": 69.518,
+"avg": 69.57,
+"ts": "2026-10-14 10:16:32",
+"note": null
+},
+"tokyo-tyo2|208.91.105.53": {
+"min": 140.449,
+"avg": 140.516,
+"ts": "2026-10-14 10:16:34",
+"note": null
+},
+"newark-ewr1|63.254.163.37": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"newark-ewr1|109.94.96.69": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"singapore-sgp1|208.91.105.53": {
+"min": 204.487,
+"avg": 204.561,
+"ts": "2026-10-14 10:16:37",
+"note": null
+},
+"ashburn-iad1|208.91.105.53": {
+"min": 0.101,
+"avg": 0.115,
+"ts": "2026-10-14 10:16:40",
+"note": null
+},
+"newark-ewr1|63.254.166.232": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"newark-ewr1|198.13.131.139": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"frankfurt-fra2|64.130.32.153": {
+"min": 0.094,
+"avg": 0.12,
+"ts": "2026-10-14 10:16:43",
+"note": null
+},
+"amsterdam-ams3|64.130.32.153": {
+"min": 5.855,
+"avg": 5.888,
+"ts": "2026-10-14 10:16:44",
+"note": null
+},
+"london-lon1|64.130.32.153": {
+"min": 11.304,
+"avg": 11.402,
+"ts": "2026-10-14 10:16:45",
+"note": null
+},
+"tokyo-tyo2|64.130.32.153": {
+"min": 212.696,
+"avg": 212.778,
+"ts": "2026-10-14 10:16:45",
+"note": null
+},
+"ashburn-iad1|64.130.32.153": {
+"min": 80.548,
+"avg": 80.563,
+"ts": "2026-10-14 10:16:49",
+"note": null
+},
+"newark-ewr1|64.130.57.215": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"frankfurt-fra2|185.26.10.33": {
+"min": 0.741,
+"avg": 0.778,
+"ts": "2026-10-14 10:16:49",
+"note": null
+},
+"amsterdam-ams3|185.26.10.33": {
+"min": 6.093,
+"avg": 6.114,
+"ts": "2026-10-14 10:16:50",
+"note": null
+},
+"london-lon1|185.26.10.33": {
+"min": 11.778,
+"avg": 11.839,
+"ts": "2026-10-14 10:16:52",
+"note": null
+},
+"tokyo-tyo2|185.26.10.33": {
+"min": 212.843,
+"avg": 212.88,
+"ts": "2026-10-14 10:16:53",
+"note": null
+},
+"ashburn-iad1|185.26.10.33": {
+"min": 80.916,
+"avg": 81.024,
+"ts": "2026-10-14 10:16:55",
+"note": null
+},
+"amsterdam-ams3|64.130.45.196": {
+"min": 69.597,
+"avg": 69.608,
+"ts": "2026-10-14 10:16:59",
+"note": null
+},
+"frankfurt-fra2|64.130.45.196": {
+"min": 75.225,
+"avg": 75.235,
+"ts": "2026-10-14 10:17:00",
+"note": null
+},
+"london-lon1|64.130.45.196": {
+"min": 64.203,
+"avg": 64.255,
+"ts": "2026-10-14 10:17:00",
+"note": null
+},
+"singapore-sgp1|64.130.32.153": {
+"min": 148.48,
+"avg": 148.53,
+"ts": "2026-10-14 10:16:47",
+"note": null
+},
+"newark-ewr1|208.91.105.53": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"ashburn-iad1|64.130.45.196": {
+"min": 5.399,
+"avg": 5.406,
+"ts": "2026-10-14 10:17:06",
+"note": null
+},
+"tokyo-tyo2|64.130.45.196": {
+"min": 138.918,
+"avg": 138.923,
+"ts": "2026-10-14 10:17:05",
+"note": null
+},
+"singapore-sgp1|64.130.45.196": {
+"min": 203.018,
+"avg": 203.051,
+"ts": "2026-10-14 10:17:05",
+"note": null
+},
+"singapore-sgp1|185.26.10.33": {
+"min": 148.658,
+"avg": 148.73,
+"ts": "2026-10-14 10:16:55",
+"note": null
+},
+"frankfurt-fra2|104.204.143.114": {
+"min": 0.112,
+"avg": 0.201,
+"ts": "2026-10-14 10:17:11",
+"note": null
+},
+"amsterdam-ams3|104.204.143.114": {
+"min": 5.86,
+"avg": 5.882,
+"ts": "2026-10-14 10:17:11",
+"note": null
+},
+"london-lon1|104.204.143.114": {
+"min": 11.43,
+"avg": 11.497,
+"ts": "2026-10-14 10:17:11",
+"note": null
+},
+"tokyo-tyo2|104.204.143.114": {
+"min": 212.662,
+"avg": 212.689,
+"ts": "2026-10-14 10:17:13",
+"note": null
+},
+"ashburn-iad1|104.204.143.114": {
+"min": 80.596,
+"avg": 80.642,
+"ts": "2026-10-14 10:17:16",
+"note": null
+},
+"frankfurt-fra2|86.54.152.246": {
+"min": 13.949,
+"avg": 13.965,
+"ts": "2026-10-14 10:17:17",
+"note": null
+},
+"newark-ewr1|64.130.32.153": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"singapore-sgp1|104.204.143.114": {
+"min": 148.531,
+"avg": 148.635,
+"ts": "2026-10-14 10:17:16",
+"note": null
+},
+"amsterdam-ams3|86.54.152.246": {
+"min": 6.62,
+"avg": 6.656,
+"ts": "2026-10-14 10:17:19",
+"note": null
+},
+"london-lon1|86.54.152.246": {
+"min": 1.724,
+"avg": 1.859,
+"ts": "2026-10-14 10:17:21",
+"note": null
+},
+"tokyo-tyo2|86.54.152.246": {
+"min": 207.149,
+"avg": 207.192,
+"ts": "2026-10-14 10:17:22",
+"note": null
+},
+"ashburn-iad1|86.54.152.246": {
+"min": 72.833,
+"avg": 72.881,
+"ts": "2026-10-14 10:17:24",
+"note": null
+},
+"newark-ewr1|185.26.10.33": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"singapore-sgp1|86.54.152.246": {
+"min": 227.789,
+"avg": 227.821,
+"ts": "2026-10-14 10:17:23",
+"note": null
+},
+"frankfurt-fra2|86.54.153.246": {
+"min": 80.103,
+"avg": 80.109,
+"ts": "2026-10-14 10:17:26",
+"note": null
+},
+"amsterdam-ams3|86.54.153.246": {
+"min": 74.122,
+"avg": 74.136,
+"ts": "2026-10-14 10:17:28",
+"note": null
+},
+"london-lon1|86.54.153.246": {
+"min": 67.587,
+"avg": 67.78,
+"ts": "2026-10-14 10:17:29",
+"note": null
+},
+"tokyo-tyo2|86.54.153.246": {
+"min": 152.507,
+"avg": 152.668,
+"ts": "2026-10-14 10:17:30",
+"note": null
+},
+"ashburn-iad1|86.54.153.246": {
+"min": 6.406,
+"avg": 6.433,
+"ts": "2026-10-14 10:17:34",
+"note": null
+},
+"singapore-sgp1|86.54.153.246": {
+"min": 211.523,
+"avg": 211.565,
+"ts": "2026-10-14 10:17:31",
+"note": null
+},
+"frankfurt-fra2|188.42.129.244": {
+"min": 6.925,
+"avg": 6.948,
+"ts": "2026-10-14 10:17:34",
+"note": null
+},
+"newark-ewr1|64.130.45.196": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|188.42.129.244": {
+"min": 1.004,
+"avg": 1.015,
+"ts": "2026-10-14 10:17:37",
+"note": null
+},
+"london-lon1|188.42.129.244": {
+"min": 7.102,
+"avg": 7.149,
+"ts": "2026-10-14 10:17:38",
+"note": null
+},
+"tokyo-tyo2|188.42.129.244": {
+"min": 218.538,
+"avg": 218.573,
+"ts": "2026-10-14 10:17:39",
+"note": null
+},
+"ashburn-iad1|188.42.129.244": {
+"min": 80.669,
+"avg": 80.723,
+"ts": "2026-10-14 10:17:42",
+"note": null
+},
+"singapore-sgp1|188.42.129.244": {
+"min": 155.147,
+"avg": 155.213,
+"ts": "2026-10-14 10:17:41",
+"note": null
+},
+"frankfurt-fra2|63.254.180.11": {
+"min": 130.775,
+"avg": 130.791,
+"ts": "2026-10-14 10:17:43",
+"note": null
+},
+"newark-ewr1|104.204.143.114": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|63.254.180.11": {
+"min": 125.146,
+"avg": 125.19,
+"ts": "2026-10-14 10:17:45",
+"note": null
+},
+"london-lon1|63.254.180.11": {
+"min": 119.704,
+"avg": 119.819,
+"ts": "2026-10-14 10:17:47",
+"note": null
+},
+"tokyo-tyo2|63.254.180.11": {
+"min": 82.653,
+"avg": 82.67,
+"ts": "2026-10-14 10:17:49",
+"note": null
+},
+"ashburn-iad1|63.254.180.11": {
+"min": 56.679,
+"avg": 56.705,
+"ts": "2026-10-14 10:17:51",
+"note": null
+},
+"singapore-sgp1|63.254.180.11": {
+"min": 146.872,
+"avg": 146.92,
+"ts": "2026-10-14 10:17:50",
+"note": null
+},
+"frankfurt-fra2|23.109.158.124": {
+"min": 6.622,
+"avg": 6.694,
+"ts": "2026-10-14 10:17:52",
+"note": null
+},
+"newark-ewr1|86.54.152.246": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|23.109.158.124": {
+"min": 0.425,
+"avg": 0.431,
+"ts": "2026-10-14 10:17:55",
+"note": null
+},
+"london-lon1|23.109.158.124": {
+"min": 7.178,
+"avg": 7.243,
+"ts": "2026-10-14 10:17:55",
+"note": null
+},
+"tokyo-tyo2|23.109.158.124": {
+"min": 215.737,
+"avg": 215.785,
+"ts": "2026-10-14 10:17:57",
+"note": null
+},
+"ashburn-iad1|23.109.158.124": {
+"min": 79.586,
+"avg": 79.673,
+"ts": "2026-10-14 10:18:00",
+"note": null
+},
+"singapore-sgp1|23.109.158.124": {
+"min": 152.606,
+"avg": 152.711,
+"ts": "2026-10-14 10:18:00",
+"note": null
+},
+"newark-ewr1|86.54.153.246": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"frankfurt-fra2|152.236.11.65": {
+"min": 141.638,
+"avg": 141.667,
+"ts": "2026-10-14 10:18:03",
+"note": null
+},
+"london-lon1|152.236.11.65": {
+"min": 128.583,
+"avg": 128.664,
+"ts": "2026-10-14 10:18:05",
+"note": null
+},
+"amsterdam-ams3|152.236.11.65": {
+"min": 134.368,
+"avg": 134.396,
+"ts": "2026-10-14 10:18:04",
+"note": null
+},
+"tokyo-tyo2|152.236.11.65": {
+"min": 104.006,
+"avg": 104.039,
+"ts": "2026-10-14 10:18:07",
+"note": null
+},
+"ashburn-iad1|152.236.11.65": {
+"min": 58.209,
+"avg": 58.27,
+"ts": "2026-10-14 10:18:10",
+"note": null
+},
+"frankfurt-fra2|64.130.51.255": {
+"min": 75.234,
+"avg": 75.25,
+"ts": "2026-10-14 10:18:10",
+"note": null
+},
+"newark-ewr1|188.42.129.244": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|64.130.51.255": {
+"min": 69.621,
+"avg": 69.639,
+"ts": "2026-10-14 10:18:13",
+"note": null
+},
+"london-lon1|64.130.51.255": {
+"min": 64.311,
+"avg": 64.355,
+"ts": "2026-10-14 10:18:14",
+"note": null
+},
+"tokyo-tyo2|64.130.51.255": {
+"min": 138.942,
+"avg": 138.965,
+"ts": "2026-10-14 10:18:16",
+"note": null
+},
+"ashburn-iad1|64.130.51.255": {
+"min": 5.411,
+"avg": 5.426,
+"ts": "2026-10-14 10:18:20",
+"note": null
+},
+"newark-ewr1|63.254.180.11": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"singapore-sgp1|152.236.11.65": {
+"min": 167.476,
+"avg": 167.53,
+"ts": "2026-10-14 10:18:08",
+"note": null
+},
+"frankfurt-fra2|198.13.133.200": {
+"min": 212.652,
+"avg": 212.661,
+"ts": "2026-10-14 10:18:22",
+"note": null
+},
+"amsterdam-ams3|198.13.133.200": {
+"min": 207.162,
+"avg": 207.172,
+"ts": "2026-10-14 10:18:24",
+"note": null
+},
+"london-lon1|198.13.133.200": {
+"min": 201.743,
+"avg": 201.805,
+"ts": "2026-10-14 10:18:25",
+"note": null
+},
+"tokyo-tyo2|198.13.133.200": {
+"min": 0.106,
+"avg": 0.116,
+"ts": "2026-10-14 10:18:27",
+"note": null
+},
+"newark-ewr1|23.109.158.124": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"ashburn-iad1|198.13.133.200": {
+"min": 137.003,
+"avg": 137.052,
+"ts": "2026-10-14 10:18:31",
+"note": null
+},
+"singapore-sgp1|198.13.133.200": {
+"min": 64.443,
+"avg": 64.521,
+"ts": "2026-10-14 10:18:30",
+"note": null
+},
+"singapore-sgp1|64.130.51.255": {
+"min": 203.01,
+"avg": 203.067,
+"ts": "2026-10-14 10:18:19",
+"note": null
+},
+"frankfurt-fra2|64.130.46.11": {
+"min": 11.237,
+"avg": 11.243,
+"ts": "2026-10-14 10:18:34",
+"note": null
+},
+"amsterdam-ams3|64.130.46.11": {
+"min": 5.599,
+"avg": 5.631,
+"ts": "2026-10-14 10:18:34",
+"note": null
+},
+"london-lon1|64.130.46.11": {
+"min": 0.125,
+"avg": 0.199,
+"ts": "2026-10-14 10:18:35",
+"note": null
+},
+"tokyo-tyo2|64.130.46.11": {
+"min": 201.639,
+"avg": 201.736,
+"ts": "2026-10-14 10:18:37",
+"note": null
+},
+"newark-ewr1|152.236.11.65": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"ashburn-iad1|64.130.46.11": {
+"min": 69.401,
+"avg": 69.413,
+"ts": "2026-10-14 10:18:40",
+"note": null
+},
+"frankfurt-fra2|64.130.61.195": {
+"min": 18.743,
+"avg": 18.752,
+"ts": "2026-10-14 10:18:41",
+"note": null
+},
+"singapore-sgp1|64.130.46.11": {
+"min": 159.383,
+"avg": 159.457,
+"ts": "2026-10-14 10:18:39",
+"note": null
+},
+"london-lon1|64.130.61.195": {
+"min": 11.309,
+"avg": 11.39,
+"ts": "2026-10-14 10:18:44",
+"note": null
+},
+"amsterdam-ams3|64.130.61.195": {
+"min": 13.087,
+"avg": 13.098,
+"ts": "2026-10-14 10:18:43",
+"note": null
+},
+"tokyo-tyo2|64.130.61.195": {
+"min": 212.838,
+"avg": 212.892,
+"ts": "2026-10-14 10:18:44",
+"note": null
+},
+"newark-ewr1|64.130.51.255": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"ashburn-iad1|64.130.61.195": {
+"min": 80.605,
+"avg": 80.652,
+"ts": "2026-10-14 10:18:49",
+"note": null
+},
+"singapore-sgp1|64.130.61.195": {
+"min": 166.801,
+"avg": 166.88,
+"ts": "2026-10-14 10:18:46",
+"note": null
+},
+"frankfurt-fra2|198.13.140.111": {
+"min": 0.077,
+"avg": 0.088,
+"ts": "2026-10-14 10:18:49",
+"note": null
+},
+"amsterdam-ams3|198.13.140.111": {
+"min": 5.855,
+"avg": 5.867,
+"ts": "2026-10-14 10:18:50",
+"note": null
+},
+"london-lon1|198.13.140.111": {
+"min": 11.377,
+"avg": 11.4,
+"ts": "2026-10-14 10:18:52",
+"note": null
+},
+"tokyo-tyo2|198.13.140.111": {
+"min": 212.653,
+"avg": 212.673,
+"ts": "2026-10-14 10:18:54",
+"note": null
+},
+"ashburn-iad1|198.13.140.111": {
+"min": 80.546,
+"avg": 80.574,
+"ts": "2026-10-14 10:18:56",
+"note": null
+},
+"singapore-sgp1|198.13.140.111": {
+"min": 148.5,
+"avg": 148.563,
+"ts": "2026-10-14 10:18:55",
+"note": null
+},
+"frankfurt-fra2|64.130.58.123": {
+"min": 131.549,
+"avg": 131.571,
+"ts": "2026-10-14 10:18:58",
+"note": null
+},
+"newark-ewr1|198.13.133.200": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|64.130.58.123": {
+"min": 125.909,
+"avg": 125.926,
+"ts": "2026-10-14 10:19:00",
+"note": null
+},
+"london-lon1|64.130.58.123": {
+"min": 120.52,
+"avg": 120.608,
+"ts": "2026-10-14 10:19:00",
+"note": null
+},
+"tokyo-tyo2|64.130.58.123": {
+"min": 106.948,
+"avg": 107.016,
+"ts": "2026-10-14 10:19:02",
+"note": null
+},
+"ashburn-iad1|64.130.58.123": {
+"min": 53.671,
+"avg": 53.68,
+"ts": "2026-10-14 10:19:05",
+"note": null
+},
+"singapore-sgp1|64.130.58.123": {
+"min": 171.048,
+"avg": 171.11,
+"ts": "2026-10-14 10:19:04",
+"note": null
+},
+"frankfurt-fra2|103.70.2.236": {
+"min": 184.815,
+"avg": 184.851,
+"ts": "2026-10-14 10:19:08",
+"note": null
+},
+"newark-ewr1|64.130.46.11": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|103.70.2.236": {
+"min": 187.74,
+"avg": 187.749,
+"ts": "2026-10-14 10:19:09",
+"note": null
+},
+"london-lon1|103.70.2.236": {
+"min": 189.008,
+"avg": 189.081,
+"ts": "2026-10-14 10:19:10",
+"note": null
+},
+"tokyo-tyo2|103.70.2.236": {
+"min": 78.562,
+"avg": 78.656,
+"ts": "2026-10-14 10:19:12",
+"note": null
+},
+"ashburn-iad1|103.70.2.236": {
+"min": 221.925,
+"avg": 221.991,
+"ts": "2026-10-14 10:19:14",
+"note": null
+},
+"frankfurt-fra2|198.13.130.10": {
+"min": 148.632,
+"avg": 148.652,
+"ts": "2026-10-14 10:19:15",
+"note": null
+},
+"singapore-sgp1|103.70.2.236": {
+"min": 37.869,
+"avg": 37.992,
+"ts": "2026-10-14 10:19:14",
+"note": null
+},
+"newark-ewr1|64.130.61.195": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|198.13.130.10": {
+"min": 154.006,
+"avg": 154.059,
+"ts": "2026-10-14 10:19:18",
+"note": null
+},
+"london-lon1|198.13.130.10": {
+"min": 159.658,
+"avg": 159.721,
+"ts": "2026-10-14 10:19:19",
+"note": null
+},
+"tokyo-tyo2|198.13.130.10": {
+"min": 64.589,
+"avg": 64.649,
+"ts": "2026-10-14 10:19:21",
+"note": null
+},
+"ashburn-iad1|198.13.130.10": {
+"min": 201.22,
+"avg": 201.303,
+"ts": "2026-10-14 10:19:23",
+"note": null
+},
+"frankfurt-fra2|185.189.44.171": {
+"min": 25.386,
+"avg": 25.408,
+"ts": "2026-10-14 10:19:24",
+"note": null
+},
+"singapore-sgp1|198.13.130.10": {
+"min": 0.395,
+"avg": 0.43,
+"ts": "2026-10-14 10:19:22",
+"note": null
+},
+"newark-ewr1|198.13.140.111": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|185.189.44.171": {
+"min": 19.757,
+"avg": 19.769,
+"ts": "2026-10-14 10:19:27",
+"note": null
+},
+"london-lon1|185.189.44.171": {
+"min": 25.408,
+"avg": 25.458,
+"ts": "2026-10-14 10:19:28",
+"note": null
+},
+"tokyo-tyo2|185.189.44.171": {
+"min": 226.779,
+"avg": 226.807,
+"ts": "2026-10-14 10:19:30",
+"note": null
+},
+"ashburn-iad1|185.189.44.171": {
+"min": 94.614,
+"avg": 94.638,
+"ts": "2026-10-14 10:19:32",
+"note": null
+},
+"singapore-sgp1|185.189.44.171": {
+"min": 173.503,
+"avg": 173.589,
+"ts": "2026-10-14 10:19:30",
+"note": null
+},
+"frankfurt-fra2|185.189.44.170": {
+"min": 25.41,
+"avg": 25.417,
+"ts": "2026-10-14 10:19:33",
+"note": null
+},
+"newark-ewr1|64.130.58.123": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|185.189.44.170": {
+"min": 19.759,
+"avg": 19.768,
+"ts": "2026-10-14 10:19:36",
+"note": null
+},
+"london-lon1|185.189.44.170": {
+"min": 25.342,
+"avg": 25.427,
+"ts": "2026-10-14 10:19:37",
+"note": null
+},
+"tokyo-tyo2|185.189.44.170": {
+"min": 226.801,
+"avg": 226.823,
+"ts": "2026-10-14 10:19:37",
+"note": null
+},
+"ashburn-iad1|185.189.44.170": {
+"min": 94.601,
+"avg": 94.648,
+"ts": "2026-10-14 10:19:41",
+"note": null
+},
+"frankfurt-fra2|45.77.64.138": {
+"min": 0.536,
+"avg": 0.561,
+"ts": "2026-10-14 10:19:42",
+"note": null
+},
+"amsterdam-ams3|45.77.64.138": {
+"min": 6.254,
+"avg": 6.267,
+"ts": "2026-10-14 10:19:44",
+"note": null
+},
+"newark-ewr1|103.70.2.236": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"london-lon1|45.77.64.138": {
+"min": 11.806,
+"avg": 11.885,
+"ts": "2026-10-14 10:19:46",
+"note": null
+},
+"tokyo-tyo2|45.77.64.138": {
+"min": 213.063,
+"avg": 213.089,
+"ts": "2026-10-14 10:19:47",
+"note": null
+},
+"ashburn-iad1|45.77.64.138": {
+"min": 81.16,
+"avg": 81.211,
+"ts": "2026-10-14 10:19:51",
+"note": null
+},
+"newark-ewr1|198.13.130.10": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"singapore-sgp1|185.189.44.170": {
+"min": 173.433,
+"avg": 173.5,
+"ts": "2026-10-14 10:19:40",
+"note": null
+},
+"frankfurt-fra2|84.32.186.105": {
+"min": 5.828,
+"avg": 5.847,
+"ts": "2026-10-14 10:19:54",
+"note": null
+},
+"amsterdam-ams3|84.32.186.105": {
+"min": 0.174,
+"avg": 0.18,
+"ts": "2026-10-14 10:19:56",
+"note": null
+},
+"london-lon1|84.32.186.105": {
+"min": 5.775,
+"avg": 5.833,
+"ts": "2026-10-14 10:19:58",
+"note": null
+},
+"tokyo-tyo2|84.32.186.105": {
+"min": 207.223,
+"avg": 207.245,
+"ts": "2026-10-14 10:19:59",
+"note": null
+},
+"newark-ewr1|185.189.44.171": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"ashburn-iad1|84.32.186.105": {
+"min": 74.961,
+"avg": 75.003,
+"ts": "2026-10-14 10:20:04",
+"note": null
+},
+"singapore-sgp1|84.32.186.105": {
+"min": 153.89,
+"avg": 153.961,
+"ts": "2026-10-14 10:20:01",
+"note": null
+},
+"singapore-sgp1|45.77.64.138": {
+"min": 148.974,
+"avg": 149.059,
+"ts": "2026-10-14 10:19:50",
+"note": null
+},
+"newark-ewr1|185.189.44.170": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"frankfurt-fra2|170.23.224.5": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:20:05",
+"note": "5 (170.23.224.5) from 64.130.50.5 : 56(84) bytes of data.\n\n--- 170.23.224.5 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4000ms"
+},
+"amsterdam-ams3|170.23.224.5": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:20:06",
+"note": "5 (170.23.224.5) from 64.130.42.5 : 56(84) bytes of data.\n\n--- 170.23.224.5 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 3998ms"
+},
+"tokyo-tyo2|170.23.224.5": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:20:09",
+"note": "5 (170.23.224.5) from 64.130.44.5 : 56(84) bytes of data.\n\n--- 170.23.224.5 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4015ms"
+},
+"newark-ewr1|45.77.64.138": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"london-lon1|170.23.224.5": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:20:08",
+"note": " (170.23.224.5) from 67.209.52.10 : 56(84) bytes of data.\n\n--- 170.23.224.5 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4092ms"
+},
+"frankfurt-fra2|67.213.121.155": {
+"min": 0.719,
+"avg": 0.734,
+"ts": "2026-10-14 10:20:21",
+"note": null
+},
+"amsterdam-ams3|67.213.121.155": {
+"min": 6.137,
+"avg": 6.166,
+"ts": "2026-10-14 10:20:25",
+"note": null
+},
+"london-lon1|67.213.121.155": {
+"min": 11.778,
+"avg": 11.856,
+"ts": "2026-10-14 10:20:26",
+"note": null
+},
+"tokyo-tyo2|67.213.121.155": {
+"min": 212.774,
+"avg": 212.789,
+"ts": "2026-10-14 10:20:26",
+"note": null
+},
+"singapore-sgp1|170.23.224.5": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:20:15",
+"note": "5 (170.23.224.5) from 202.8.11.74 : 56(84) bytes of data.\n\n--- 170.23.224.5 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4097ms"
+},
+"ashburn-iad1|170.23.224.5": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:20:20",
+"note": "(170.23.224.5) from 208.91.105.69 : 56(84) bytes of data.\n\n--- 170.23.224.5 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4134ms"
+},
+"ashburn-iad1|67.213.121.155": {
+"min": 80.961,
+"avg": 81.023,
+"ts": "2026-10-14 10:20:31",
+"note": null
+},
+"newark-ewr1|84.32.186.105": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"singapore-sgp1|67.213.121.155": {
+"min": 148.619,
+"avg": 148.706,
+"ts": "2026-10-14 10:20:31",
+"note": null
+},
+"newark-ewr1|170.23.224.5": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"frankfurt-fra2|23.109.46.35": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:20:32",
+"note": "5 (23.109.46.35) from 64.130.50.5 : 56(84) bytes of data.\n\n--- 23.109.46.35 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4001ms"
+},
+"amsterdam-ams3|23.109.46.35": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:20:32",
+"note": "5 (23.109.46.35) from 64.130.42.5 : 56(84) bytes of data.\n\n--- 23.109.46.35 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4000ms"
+},
+"london-lon1|23.109.46.35": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:20:35",
+"note": " (23.109.46.35) from 67.209.52.10 : 56(84) bytes of data.\n\n--- 23.109.46.35 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4098ms"
+},
+"tokyo-tyo2|23.109.46.35": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:20:35",
+"note": "5 (23.109.46.35) from 64.130.44.5 : 56(84) bytes of data.\n\n--- 23.109.46.35 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4000ms"
+},
+"amsterdam-ams3|5.199.172.176": {
+"min": 35.232,
+"avg": 35.25,
+"ts": "2026-10-14 10:20:48",
+"note": null
+},
+"frankfurt-fra2|5.199.172.176": {
+"min": 31.343,
+"avg": 31.363,
+"ts": "2026-10-14 10:20:48",
+"note": null
+},
+"singapore-sgp1|23.109.46.35": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:20:38",
+"note": "5 (23.109.46.35) from 202.8.11.74 : 56(84) bytes of data.\n\n--- 23.109.46.35 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4092ms"
+},
+"london-lon1|5.199.172.176": {
+"min": 47.217,
+"avg": 47.364,
+"ts": "2026-10-14 10:20:50",
+"note": null
+},
+"tokyo-tyo2|5.199.172.176": {
+"min": 249.7,
+"avg": 249.725,
+"ts": "2026-10-14 10:20:52",
+"note": null
+},
+"ashburn-iad1|23.109.46.35": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:20:45",
+"note": "(23.109.46.35) from 208.91.105.69 : 56(84) bytes of data.\n\n--- 23.109.46.35 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4107ms"
+},
+"ashburn-iad1|5.199.172.176": {
+"min": 117.415,
+"avg": 117.46,
+"ts": "2026-10-14 10:20:55",
+"note": null
+},
+"singapore-sgp1|5.199.172.176": {
+"min": 189.798,
+"avg": 189.849,
+"ts": "2026-10-14 10:20:53",
+"note": null
+},
+"newark-ewr1|67.213.121.155": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"frankfurt-fra2|169.155.44.188": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:20:56",
+"note": "69.155.44.188) from 64.130.50.5 : 56(84) bytes of data.\n\n--- 169.155.44.188 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 3999ms"
+},
+"newark-ewr1|23.109.46.35": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|169.155.44.188": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:20:58",
+"note": "69.155.44.188) from 64.130.42.5 : 56(84) bytes of data.\n\n--- 169.155.44.188 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4000ms"
+},
+"london-lon1|169.155.44.188": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:21:00",
+"note": "9.155.44.188) from 67.209.52.10 : 56(84) bytes of data.\n\n--- 169.155.44.188 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4099ms"
+},
+"tokyo-tyo2|169.155.44.188": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:21:00",
+"note": "69.155.44.188) from 64.130.44.5 : 56(84) bytes of data.\n\n--- 169.155.44.188 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4000ms"
+},
+"frankfurt-fra2|64.130.54.221": {
+"min": 89.344,
+"avg": 89.364,
+"ts": "2026-10-14 10:21:12",
+"note": null
+},
+"amsterdam-ams3|64.130.54.221": {
+"min": 83.717,
+"avg": 83.756,
+"ts": "2026-10-14 10:21:14",
+"note": null
+},
+"tokyo-tyo2|64.130.54.221": {
+"min": 131.933,
+"avg": 131.979,
+"ts": "2026-10-14 10:21:16",
+"note": null
+},
+"london-lon1|64.130.54.221": {
+"min": 78.304,
+"avg": 78.365,
+"ts": "2026-10-14 10:21:15",
+"note": null
+},
+"ashburn-iad1|169.155.44.188": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:21:11",
+"note": ".155.44.188) from 208.91.105.69 : 56(84) bytes of data.\n\n--- 169.155.44.188 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4109ms"
+},
+"singapore-sgp1|64.130.54.221": {
+"min": 196.114,
+"avg": 196.154,
+"ts": "2026-10-14 10:21:19",
+"note": null
+},
+"ashburn-iad1|64.130.54.221": {
+"min": 6.86,
+"avg": 6.885,
+"ts": "2026-10-14 10:21:23",
+"note": null
+},
+"frankfurt-fra2|170.23.153.115": {
+"min": 7.286,
+"avg": 7.325,
+"ts": "2026-10-14 10:21:23",
+"note": null
+},
+"newark-ewr1|5.199.172.176": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|170.23.153.115": {
+"min": 0.974,
+"avg": 0.989,
+"ts": "2026-10-14 10:21:26",
+"note": null
+},
+"london-lon1|170.23.153.115": {
+"min": 6.592,
+"avg": 6.684,
+"ts": "2026-10-14 10:21:27",
+"note": null
+},
+"singapore-sgp1|169.155.44.188": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:21:03",
+"note": "69.155.44.188) from 202.8.11.74 : 56(84) bytes of data.\n\n--- 169.155.44.188 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4093ms"
+},
+"tokyo-tyo2|170.23.153.115": {
+"min": 221.649,
+"avg": 221.693,
+"ts": "2026-10-14 10:21:27",
+"note": null
+},
+"ashburn-iad1|170.23.153.115": {
+"min": 80.143,
+"avg": 80.204,
+"ts": "2026-10-14 10:21:31",
+"note": null
+},
+"singapore-sgp1|170.23.153.115": {
+"min": 156.194,
+"avg": 156.28,
+"ts": "2026-10-14 10:21:29",
+"note": null
+},
+"newark-ewr1|169.155.44.188": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|185.229.190.123": {
+"min": 1.152,
+"avg": 1.169,
+"ts": "2026-10-14 10:21:32",
+"note": null
+},
+"frankfurt-fra2|185.229.190.123": {
+"min": 6.924,
+"avg": 6.946,
+"ts": "2026-10-14 10:21:32",
+"note": null
+},
+"london-lon1|185.229.190.123": {
+"min": 6.903,
+"avg": 6.973,
+"ts": "2026-10-14 10:21:33",
+"note": null
+},
+"ashburn-iad1|185.229.190.123": {
+"min": 76.078,
+"avg": 76.112,
+"ts": "2026-10-14 10:21:37",
+"note": null
+},
+"tokyo-tyo2|185.229.190.123": {
+"min": 208.289,
+"avg": 208.306,
+"ts": "2026-10-14 10:21:36",
+"note": null
+},
+"frankfurt-fra2|57.129.36.165": {
+"min": 1.508,
+"avg": 1.526,
+"ts": "2026-10-14 10:21:37",
+"note": null
+},
+"amsterdam-ams3|57.129.36.165": {
+"min": 8.224,
+"avg": 8.23,
+"ts": "2026-10-14 10:21:39",
+"note": null
+},
+"singapore-sgp1|185.229.190.123": {
+"min": 154.967,
+"avg": 155.086,
+"ts": "2026-10-14 10:21:37",
+"note": null
+},
+"london-lon1|57.129.36.165": {
+"min": 15.995,
+"avg": 16.068,
+"ts": "2026-10-14 10:21:42",
+"note": null
+},
+"ashburn-iad1|57.129.36.165": {
+"min": 85.448,
+"avg": 85.508,
+"ts": "2026-10-14 10:21:44",
+"note": null
+},
+"tokyo-tyo2|57.129.36.165": {
+"min": 223.009,
+"avg": 223.09,
+"ts": "2026-10-14 10:21:42",
+"note": null
+},
+"singapore-sgp1|57.129.36.165": {
+"min": 221.775,
+"avg": 221.855,
+"ts": "2026-10-14 10:21:44",
+"note": null
+},
+"frankfurt-fra2|84.32.103.130": {
+"min": 5.91,
+"avg": 5.923,
+"ts": "2026-10-14 10:21:47",
+"note": null
+},
+"amsterdam-ams3|84.32.103.130": {
+"min": 0.288,
+"avg": 0.302,
+"ts": "2026-10-14 10:21:48",
+"note": null
+},
+"london-lon1|84.32.103.130": {
+"min": 5.86,
+"avg": 5.957,
+"ts": "2026-10-14 10:21:49",
+"note": null
+},
+"newark-ewr1|64.130.54.221": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"tokyo-tyo2|84.32.103.130": {
+"min": 207.371,
+"avg": 207.406,
+"ts": "2026-10-14 10:21:51",
+"note": null
+},
+"ashburn-iad1|84.32.103.130": {
+"min": 75.086,
+"avg": 75.148,
+"ts": "2026-10-14 10:21:54",
+"note": null
+},
+"singapore-sgp1|84.32.103.130": {
+"min": 154.018,
+"avg": 154.089,
+"ts": "2026-10-14 10:21:54",
+"note": null
+},
+"newark-ewr1|170.23.153.115": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"frankfurt-fra2|116.126.141.28": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:21:54",
+"note": "16.126.141.28) from 64.130.50.5 : 56(84) bytes of data.\n\n--- 116.126.141.28 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 3999ms"
+},
+"amsterdam-ams3|116.126.141.28": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:21:58",
+"note": "16.126.141.28) from 64.130.42.5 : 56(84) bytes of data.\n\n--- 116.126.141.28 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 3999ms"
+},
+"newark-ewr1|185.229.190.123": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"london-lon1|116.126.141.28": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:21:58",
+"note": "6.126.141.28) from 67.209.52.10 : 56(84) bytes of data.\n\n--- 116.126.141.28 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4096ms"
+},
+"tokyo-tyo2|116.126.141.28": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:22:01",
+"note": "16.126.141.28) from 64.130.44.5 : 56(84) bytes of data.\n\n--- 116.126.141.28 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 3999ms"
+},
+"frankfurt-fra2|64.130.42.70": {
+"min": 5.862,
+"avg": 5.875,
+"ts": "2026-10-14 10:22:13",
+"note": null
+},
+"amsterdam-ams3|64.130.42.70": {
+"min": 0.07,
+"avg": 0.086,
+"ts": "2026-10-14 10:22:14",
+"note": null
+},
+"newark-ewr1|57.129.36.165": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"london-lon1|64.130.42.70": {
+"min": 5.779,
+"avg": 5.849,
+"ts": "2026-10-14 10:22:17",
+"note": null
+},
+"tokyo-tyo2|64.130.42.70": {
+"min": 207.163,
+"avg": 207.183,
+"ts": "2026-10-14 10:22:19",
+"note": null
+},
+"ashburn-iad1|64.130.42.70": {
+"min": 74.903,
+"avg": 74.919,
+"ts": "2026-10-14 10:22:23",
+"note": null
+},
+"singapore-sgp1|116.126.141.28": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:22:10",
+"note": "16.126.141.28) from 202.8.11.74 : 56(84) bytes of data.\n\n--- 116.126.141.28 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4091ms"
+},
+"ashburn-iad1|116.126.141.28": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:22:13",
+"note": ".126.141.28) from 208.91.105.69 : 56(84) bytes of data.\n\n--- 116.126.141.28 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4108ms"
+},
+"newark-ewr1|84.32.103.130": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"frankfurt-fra2|198.13.134.35": {
+"min": 5.846,
+"avg": 5.871,
+"ts": "2026-10-14 10:22:25",
+"note": null
+},
+"amsterdam-ams3|198.13.134.35": {
+"min": 0.069,
+"avg": 0.077,
+"ts": "2026-10-14 10:22:27",
+"note": null
+},
+"tokyo-tyo2|198.13.134.35": {
+"min": 207.139,
+"avg": 207.156,
+"ts": "2026-10-14 10:22:28",
+"note": null
+},
+"london-lon1|198.13.134.35": {
+"min": 5.759,
+"avg": 5.808,
+"ts": "2026-10-14 10:22:27",
+"note": null
+},
+"ashburn-iad1|198.13.134.35": {
+"min": 74.945,
+"avg": 75.006,
+"ts": "2026-10-14 10:22:32",
+"note": null
+},
+"singapore-sgp1|64.130.42.70": {
+"min": 153.883,
+"avg": 153.946,
+"ts": "2026-10-14 10:22:19",
+"note": null
+},
+"frankfurt-fra2|185.189.44.172": {
+"min": 25.387,
+"avg": 25.418,
+"ts": "2026-10-14 10:22:34",
+"note": null
+},
+"amsterdam-ams3|185.189.44.172": {
+"min": 19.736,
+"avg": 19.747,
+"ts": "2026-10-14 10:22:35",
+"note": null
+},
+"newark-ewr1|116.126.141.28": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"london-lon1|185.189.44.172": {
+"min": 25.305,
+"avg": 25.426,
+"ts": "2026-10-14 10:22:37",
+"note": null
+},
+"tokyo-tyo2|185.189.44.172": {
+"min": 226.847,
+"avg": 226.944,
+"ts": "2026-10-14 10:22:38",
+"note": null
+},
+"ashburn-iad1|185.189.44.172": {
+"min": 94.617,
+"avg": 94.663,
+"ts": "2026-10-14 10:22:41",
+"note": null
+},
+"frankfurt-fra2|164.152.161.197": {
+"min": 0.292,
+"avg": 0.329,
+"ts": "2026-10-14 10:22:42",
+"note": null
+},
+"singapore-sgp1|185.189.44.172": {
+"min": 173.571,
+"avg": 173.615,
+"ts": "2026-10-14 10:22:40",
+"note": null
+},
+"singapore-sgp1|198.13.134.35": {
+"min": 154.012,
+"avg": 154.061,
+"ts": "2026-10-14 10:22:31",
+"note": null
+},
+"amsterdam-ams3|164.152.161.197": {
+"min": 6.046,
+"avg": 6.076,
+"ts": "2026-10-14 10:22:45",
+"note": null
+},
+"london-lon1|164.152.161.197": {
+"min": 11.569,
+"avg": 11.64,
+"ts": "2026-10-14 10:22:45",
+"note": null
+},
+"tokyo-tyo2|164.152.161.197": {
+"min": 212.929,
+"avg": 212.965,
+"ts": "2026-10-14 10:22:47",
+"note": null
+},
+"ashburn-iad1|164.152.161.197": {
+"min": 80.817,
+"avg": 80.915,
+"ts": "2026-10-14 10:22:50",
+"note": null
+},
+"newark-ewr1|64.130.42.70": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"frankfurt-fra2|67.213.124.5": {
+"min": 141.451,
+"avg": 141.467,
+"ts": "2026-10-14 10:22:51",
+"note": null
+},
+"singapore-sgp1|164.152.161.197": {
+"min": 148.783,
+"avg": 148.884,
+"ts": "2026-10-14 10:22:49",
+"note": null
+},
+"amsterdam-ams3|67.213.124.5": {
+"min": 134.6,
+"avg": 134.628,
+"ts": "2026-10-14 10:22:54",
+"note": null
+},
+"london-lon1|67.213.124.5": {
+"min": 129.31,
+"avg": 129.371,
+"ts": "2026-10-14 10:22:54",
+"note": null
+},
+"tokyo-tyo2|67.213.124.5": {
+"min": 103.985,
+"avg": 104.055,
+"ts": "2026-10-14 10:22:55",
+"note": null
+},
+"ashburn-iad1|67.213.124.5": {
+"min": 58.263,
+"avg": 58.293,
+"ts": "2026-10-14 10:22:59",
+"note": null
+},
+"singapore-sgp1|67.213.124.5": {
+"min": 167.434,
+"avg": 167.473,
+"ts": "2026-10-14 10:22:57",
+"note": null
+},
+"frankfurt-fra2|148.113.199.156": {
+"min": 88.318,
+"avg": 88.33,
+"ts": "2026-10-14 10:23:00",
+"note": null
+},
+"newark-ewr1|198.13.134.35": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|148.113.199.156": {
+"min": 80.916,
+"avg": 80.934,
+"ts": "2026-10-14 10:23:02",
+"note": null
+},
+"london-lon1|148.113.199.156": {
+"min": 73.82,
+"avg": 73.934,
+"ts": "2026-10-14 10:23:04",
+"note": null
+},
+"tokyo-tyo2|148.113.199.156": {
+"min": 141.724,
+"avg": 141.765,
+"ts": "2026-10-14 10:23:04",
+"note": null
+},
+"ashburn-iad1|148.113.199.156": {
+"min": 13.412,
+"avg": 13.457,
+"ts": "2026-10-14 10:23:07",
+"note": null
+},
+"singapore-sgp1|148.113.199.156": {
+"min": 206.417,
+"avg": 206.492,
+"ts": "2026-10-14 10:23:05",
+"note": null
+},
+"frankfurt-fra2|57.129.144.117": {
+"min": 12.618,
+"avg": 12.633,
+"ts": "2026-10-14 10:23:09",
+"note": null
+},
+"newark-ewr1|185.189.44.172": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|57.129.144.117": {
+"min": 6.91,
+"avg": 6.918,
+"ts": "2026-10-14 10:23:11",
+"note": null
+},
+"london-lon1|57.129.144.117": {
+"min": 1.583,
+"avg": 1.692,
+"ts": "2026-10-14 10:23:12",
+"note": null
+},
+"tokyo-tyo2|57.129.144.117": {
+"min": 203.05,
+"avg": 203.079,
+"ts": "2026-10-14 10:23:13",
+"note": null
+},
+"ashburn-iad1|57.129.144.117": {
+"min": 70.729,
+"avg": 70.768,
+"ts": "2026-10-14 10:23:16",
+"note": null
+},
+"frankfurt-fra2|64.130.33.195": {
+"min": 117.352,
+"avg": 117.369,
+"ts": "2026-10-14 10:23:17",
+"note": null
+},
+"singapore-sgp1|57.129.144.117": {
+"min": 160.848,
+"avg": 160.951,
+"ts": "2026-10-14 10:23:16",
+"note": null
+},
+"newark-ewr1|164.152.161.197": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|64.130.33.195": {
+"min": 111.688,
+"avg": 111.719,
+"ts": "2026-10-14 10:23:19",
+"note": null
+},
+"london-lon1|64.130.33.195": {
+"min": 106.238,
+"avg": 106.356,
+"ts": "2026-10-14 10:23:21",
+"note": null
+},
+"ashburn-iad1|64.130.33.195": {
+"min": 41.499,
+"avg": 41.522,
+"ts": "2026-10-14 10:23:24",
+"note": null
+},
+"tokyo-tyo2|64.130.33.195": {
+"min": 102.603,
+"avg": 102.625,
+"ts": "2026-10-14 10:23:23",
+"note": null
+},
+"singapore-sgp1|64.130.33.195": {
+"min": 166.744,
+"avg": 166.779,
+"ts": "2026-10-14 10:23:24",
+"note": null
+},
+"frankfurt-fra2|95.173.206.238": {
+"min": 80.465,
+"avg": 80.471,
+"ts": "2026-10-14 10:23:26",
+"note": null
+},
+"newark-ewr1|67.213.124.5": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|95.173.206.238": {
+"min": 72.597,
+"avg": 72.627,
+"ts": "2026-10-14 10:23:29",
+"note": null
+},
+"london-lon1|95.173.206.238": {
+"min": 67.782,
+"avg": 67.862,
+"ts": "2026-10-14 10:23:29",
+"note": null
+},
+"tokyo-tyo2|95.173.206.238": {
+"min": 156.803,
+"avg": 156.828,
+"ts": "2026-10-14 10:23:31",
+"note": null
+},
+"ashburn-iad1|95.173.206.238": {
+"min": 6.751,
+"avg": 6.781,
+"ts": "2026-10-14 10:23:34",
+"note": null
+},
+"frankfurt-fra2|141.98.218.181": {
+"min": 107.963,
+"avg": 107.997,
+"ts": "2026-10-14 10:23:35",
+"note": null
+},
+"singapore-sgp1|95.173.206.238": {
+"min": 228.409,
+"avg": 228.443,
+"ts": "2026-10-14 10:23:33",
+"note": null
+},
+"newark-ewr1|148.113.199.156": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|141.98.218.181": {
+"min": 102.325,
+"avg": 102.35,
+"ts": "2026-10-14 10:23:38",
+"note": null
+},
+"london-lon1|141.98.218.181": {
+"min": 96.968,
+"avg": 97.049,
+"ts": "2026-10-14 10:23:39",
+"note": null
+},
+"tokyo-tyo2|141.98.218.181": {
+"min": 133.03,
+"avg": 133.078,
+"ts": "2026-10-14 10:23:40",
+"note": null
+},
+"ashburn-iad1|141.98.218.181": {
+"min": 27.529,
+"avg": 27.595,
+"ts": "2026-10-14 10:23:43",
+"note": null
+},
+"singapore-sgp1|141.98.218.181": {
+"min": 197.16,
+"avg": 197.209,
+"ts": "2026-10-14 10:23:42",
+"note": null
+},
+"newark-ewr1|57.129.144.117": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"newark-ewr1|64.130.33.195": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"frankfurt-fra2|51.89.11.197": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:23:46",
+"note": "7 (51.89.11.197) from 64.130.50.5 : 56(84) bytes of data.\n\n--- 51.89.11.197 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 3999ms"
+},
+"amsterdam-ams3|51.89.11.197": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:23:46",
+"note": "7 (51.89.11.197) from 64.130.42.5 : 56(84) bytes of data.\n\n--- 51.89.11.197 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4000ms"
+},
+"london-lon1|51.89.11.197": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:23:47",
+"note": " (51.89.11.197) from 67.209.52.10 : 56(84) bytes of data.\n\n--- 51.89.11.197 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4088ms"
+},
+"tokyo-tyo2|51.89.11.197": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:23:49",
+"note": "7 (51.89.11.197) from 64.130.44.5 : 56(84) bytes of data.\n\n--- 51.89.11.197 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 3998ms"
+},
+"frankfurt-fra2|23.111.240.149": {
+"min": 6.973,
+"avg": 6.991,
+"ts": "2026-10-14 10:24:02",
+"note": null
+},
+"newark-ewr1|95.173.206.238": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|23.111.240.149": {
+"min": 0.664,
+"avg": 0.686,
+"ts": "2026-10-14 10:24:03",
+"note": null
+},
+"london-lon1|23.111.240.149": {
+"min": 7.444,
+"avg": 7.501,
+"ts": "2026-10-14 10:24:05",
+"note": null
+},
+"tokyo-tyo2|23.111.240.149": {
+"min": 213.168,
+"avg": 213.271,
+"ts": "2026-10-14 10:24:07",
+"note": null
+},
+"ashburn-iad1|23.111.240.149": {
+"min": 79.804,
+"avg": 79.813,
+"ts": "2026-10-14 10:24:11",
+"note": null
+},
+"ashburn-iad1|51.89.11.197": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:24:02",
+"note": "(51.89.11.197) from 208.91.105.69 : 56(84) bytes of data.\n\n--- 51.89.11.197 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4135ms"
+},
+"newark-ewr1|141.98.218.181": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"frankfurt-fra2|151.123.174.114": {
+"min": 212.731,
+"avg": 212.789,
+"ts": "2026-10-14 10:24:14",
+"note": null
+},
+"amsterdam-ams3|151.123.174.114": {
+"min": 207.225,
+"avg": 207.238,
+"ts": "2026-10-14 10:24:15",
+"note": null
+},
+"london-lon1|151.123.174.114": {
+"min": 201.769,
+"avg": 201.857,
+"ts": "2026-10-14 10:24:16",
+"note": null
+},
+"tokyo-tyo2|151.123.174.114": {
+"min": 0.164,
+"avg": 0.176,
+"ts": "2026-10-14 10:24:17",
+"note": null
+},
+"ashburn-iad1|151.123.174.114": {
+"min": 138.741,
+"avg": 138.854,
+"ts": "2026-10-14 10:24:22",
+"note": null
+},
+"newark-ewr1|51.89.11.197": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"singapore-sgp1|23.111.240.149": {
+"min": 155.024,
+"avg": 155.067,
+"ts": "2026-10-14 10:24:08",
+"note": null
+},
+"singapore-sgp1|151.123.174.114": {
+"min": 64.459,
+"avg": 64.538,
+"ts": "2026-10-14 10:24:20",
+"note": null
+},
+"singapore-sgp1|51.89.11.197": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:24:00",
+"note": "7 (51.89.11.197) from 202.8.11.74 : 56(84) bytes of data.\n\n--- 51.89.11.197 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4088ms"
+},
+"frankfurt-fra2|208.91.110.230": {
+"min": 75.251,
+"avg": 75.286,
+"ts": "2026-10-14 10:24:23",
+"note": null
+},
+"amsterdam-ams3|208.91.110.230": {
+"min": 69.621,
+"avg": 69.639,
+"ts": "2026-10-14 10:24:27",
+"note": null
+},
+"london-lon1|208.91.110.230": {
+"min": 64.185,
+"avg": 64.35,
+"ts": "2026-10-14 10:24:27",
+"note": null
+},
+"ashburn-iad1|208.91.110.230": {
+"min": 5.43,
+"avg": 5.45,
+"ts": "2026-10-14 10:24:29",
+"note": null
+},
+"tokyo-tyo2|208.91.110.230": {
+"min": 138.923,
+"avg": 138.953,
+"ts": "2026-10-14 10:24:27",
+"note": null
+},
+"singapore-sgp1|208.91.110.230": {
+"min": 202.977,
+"avg": 203.114,
+"ts": "2026-10-14 10:24:29",
+"note": null
+},
+"frankfurt-fra2|70.40.185.183": {
+"min": 0.492,
+"avg": 0.52,
+"ts": "2026-10-14 10:24:32",
+"note": null
+},
+"amsterdam-ams3|70.40.185.183": {
+"min": 6.263,
+"avg": 6.273,
+"ts": "2026-10-14 10:24:33",
+"note": null
+},
+"london-lon1|70.40.185.183": {
+"min": 11.846,
+"avg": 11.91,
+"ts": "2026-10-14 10:24:33",
+"note": null
+},
+"tokyo-tyo2|70.40.185.183": {
+"min": 213.069,
+"avg": 213.099,
+"ts": "2026-10-14 10:24:34",
+"note": null
+},
+"ashburn-iad1|70.40.185.183": {
+"min": 80.94,
+"avg": 81.001,
+"ts": "2026-10-14 10:24:38",
+"note": null
+},
+"frankfurt-fra2|67.213.121.29": {
+"min": 0.693,
+"avg": 0.71,
+"ts": "2026-10-14 10:24:38",
+"note": null
+},
+"newark-ewr1|23.111.240.149": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"singapore-sgp1|70.40.185.183": {
+"min": 148.83,
+"avg": 148.922,
+"ts": "2026-10-14 10:24:37",
+"note": null
+},
+"amsterdam-ams3|67.213.121.29": {
+"min": 6.109,
+"avg": 6.125,
+"ts": "2026-10-14 10:24:40",
+"note": null
+},
+"london-lon1|67.213.121.29": {
+"min": 11.721,
+"avg": 11.802,
+"ts": "2026-10-14 10:24:42",
+"note": null
+},
+"ashburn-iad1|67.213.121.29": {
+"min": 80.986,
+"avg": 81.019,
+"ts": "2026-10-14 10:24:46",
+"note": null
+},
+"tokyo-tyo2|67.213.121.29": {
+"min": 212.852,
+"avg": 212.871,
+"ts": "2026-10-14 10:24:44",
+"note": null
+},
+"singapore-sgp1|67.213.121.29": {
+"min": 148.626,
+"avg": 148.744,
+"ts": "2026-10-14 10:24:45",
+"note": null
+},
+"amsterdam-ams3|137.239.202.126": {
+"min": 7.911,
+"avg": 7.926,
+"ts": "2026-10-14 10:24:50",
+"note": null
+},
+"frankfurt-fra2|137.239.202.126": {
+"min": 12.429,
+"avg": 12.485,
+"ts": "2026-10-14 10:24:50",
+"note": null
+},
+"newark-ewr1|151.123.174.114": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"london-lon1|137.239.202.126": {
+"min": 1.279,
+"avg": 1.386,
+"ts": "2026-10-14 10:24:50",
+"note": null
+},
+"tokyo-tyo2|137.239.202.126": {
+"min": 217.784,
+"avg": 217.801,
+"ts": "2026-10-14 10:24:52",
+"note": null
+},
+"ashburn-iad1|137.239.202.126": {
+"min": 72.911,
+"avg": 72.933,
+"ts": "2026-10-14 10:24:56",
+"note": null
+},
+"frankfurt-fra2|64.130.41.180": {
+"min": 0.091,
+"avg": 0.127,
+"ts": "2026-10-14 10:24:56",
+"note": null
+},
+"singapore-sgp1|137.239.202.126": {
+"min": 164.163,
+"avg": 164.204,
+"ts": "2026-10-14 10:24:55",
+"note": null
+},
+"amsterdam-ams3|64.130.41.180": {
+"min": 5.865,
+"avg": 5.886,
+"ts": "2026-10-14 10:24:58",
+"note": null
+},
+"newark-ewr1|208.91.110.230": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"london-lon1|64.130.41.180": {
+"min": 11.33,
+"avg": 11.436,
+"ts": "2026-10-14 10:25:00",
+"note": null
+},
+"tokyo-tyo2|64.130.41.180": {
+"min": 212.699,
+"avg": 212.749,
+"ts": "2026-10-14 10:25:01",
+"note": null
+},
+"ashburn-iad1|64.130.41.180": {
+"min": 80.565,
+"avg": 80.636,
+"ts": "2026-10-14 10:25:04",
+"note": null
+},
+"frankfurt-fra2|23.111.240.207": {
+"min": 6.968,
+"avg": 6.992,
+"ts": "2026-10-14 10:25:05",
+"note": null
+},
+"singapore-sgp1|64.130.41.180": {
+"min": 148.547,
+"avg": 148.626,
+"ts": "2026-10-14 10:25:04",
+"note": null
+},
+"newark-ewr1|70.40.185.183": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|23.111.240.207": {
+"min": 0.674,
+"avg": 0.691,
+"ts": "2026-10-14 10:25:07",
+"note": null
+},
+"london-lon1|23.111.240.207": {
+"min": 7.43,
+"avg": 7.485,
+"ts": "2026-10-14 10:25:08",
+"note": null
+},
+"tokyo-tyo2|23.111.240.207": {
+"min": 216.489,
+"avg": 216.528,
+"ts": "2026-10-14 10:25:11",
+"note": null
+},
+"ashburn-iad1|23.111.240.207": {
+"min": 79.717,
+"avg": 79.803,
+"ts": "2026-10-14 10:25:13",
+"note": null
+},
+"frankfurt-fra2|169.155.44.26": {
+"min": 0.276,
+"avg": 0.292,
+"ts": "2026-10-14 10:25:14",
+"note": null
+},
+"singapore-sgp1|23.111.240.207": {
+"min": 162.002,
+"avg": 162.196,
+"ts": "2026-10-14 10:25:13",
+"note": null
+},
+"newark-ewr1|67.213.121.29": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|169.155.44.26": {
+"min": 6.061,
+"avg": 6.07,
+"ts": "2026-10-14 10:25:17",
+"note": null
+},
+"london-lon1|169.155.44.26": {
+"min": 11.584,
+"avg": 11.647,
+"ts": "2026-10-14 10:25:17",
+"note": null
+},
+"tokyo-tyo2|169.155.44.26": {
+"min": 212.869,
+"avg": 212.886,
+"ts": "2026-10-14 10:25:19",
+"note": null
+},
+"ashburn-iad1|169.155.44.26": {
+"min": 80.739,
+"avg": 80.771,
+"ts": "2026-10-14 10:25:22",
+"note": null
+},
+"frankfurt-fra2|188.42.130.84": {
+"min": 6.829,
+"avg": 6.849,
+"ts": "2026-10-14 10:25:23",
+"note": null
+},
+"amsterdam-ams3|188.42.130.84": {
+"min": 1.436,
+"avg": 1.459,
+"ts": "2026-10-14 10:25:25",
+"note": null
+},
+"newark-ewr1|137.239.202.126": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"london-lon1|188.42.130.84": {
+"min": 7.076,
+"avg": 7.399,
+"ts": "2026-10-14 10:25:27",
+"note": null
+},
+"tokyo-tyo2|188.42.130.84": {
+"min": 217.488,
+"avg": 217.538,
+"ts": "2026-10-14 10:25:28",
+"note": null
+},
+"ashburn-iad1|188.42.130.84": {
+"min": 80.679,
+"avg": 80.721,
+"ts": "2026-10-14 10:25:32",
+"note": null
+},
+"newark-ewr1|64.130.41.180": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"singapore-sgp1|169.155.44.26": {
+"min": 148.723,
+"avg": 148.779,
+"ts": "2026-10-14 10:25:21",
+"note": null
+},
+"frankfurt-fra2|70.40.185.181": {
+"min": 0.491,
+"avg": 0.503,
+"ts": "2026-10-14 10:25:35",
+"note": null
+},
+"amsterdam-ams3|70.40.185.181": {
+"min": 6.241,
+"avg": 6.262,
+"ts": "2026-10-14 10:25:37",
+"note": null
+},
+"london-lon1|70.40.185.181": {
+"min": 11.815,
+"avg": 11.87,
+"ts": "2026-10-14 10:25:39",
+"note": null
+},
+"tokyo-tyo2|70.40.185.181": {
+"min": 213.069,
+"avg": 213.103,
+"ts": "2026-10-14 10:25:39",
+"note": null
+},
+"newark-ewr1|23.111.240.207": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"ashburn-iad1|70.40.185.181": {
+"min": 80.906,
+"avg": 80.95,
+"ts": "2026-10-14 10:25:45",
+"note": null
+},
+"singapore-sgp1|70.40.185.181": {
+"min": 148.896,
+"avg": 149.019,
+"ts": "2026-10-14 10:25:42",
+"note": null
+},
+"singapore-sgp1|188.42.130.84": {
+"min": 155.427,
+"avg": 155.523,
+"ts": "2026-10-14 10:25:32",
+"note": null
+},
+"frankfurt-fra2|216.18.201.138": {
+"min": 123.062,
+"avg": 123.082,
+"ts": "2026-10-14 10:25:46",
+"note": null
+},
+"amsterdam-ams3|216.18.201.138": {
+"min": 119.865,
+"avg": 119.908,
+"ts": "2026-10-14 10:25:47",
+"note": null
+},
+"tokyo-tyo2|216.18.201.138": {
+"min": 129.741,
+"avg": 129.751,
+"ts": "2026-10-14 10:25:50",
+"note": null
+},
+"newark-ewr1|169.155.44.26": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"london-lon1|216.18.201.138": {
+"min": 127.464,
+"avg": 127.536,
+"ts": "2026-10-14 10:25:49",
+"note": null
+},
+"ashburn-iad1|216.18.201.138": {
+"min": 58.119,
+"avg": 58.143,
+"ts": "2026-10-14 10:25:53",
+"note": null
+},
+"singapore-sgp1|216.18.201.138": {
+"min": 177.579,
+"avg": 177.659,
+"ts": "2026-10-14 10:25:51",
+"note": null
+},
+"frankfurt-fra2|170.23.153.201": {
+"min": 7.264,
+"avg": 7.282,
+"ts": "2026-10-14 10:25:56",
+"note": null
+},
+"amsterdam-ams3|170.23.153.201": {
+"min": 0.921,
+"avg": 0.965,
+"ts": "2026-10-14 10:25:57",
+"note": null
+},
+"london-lon1|170.23.153.201": {
+"min": 6.53,
+"avg": 6.616,
+"ts": "2026-10-14 10:25:57",
+"note": null
+},
+"tokyo-tyo2|170.23.153.201": {
+"min": 213.097,
+"avg": 213.111,
+"ts": "2026-10-14 10:25:57",
+"note": null
+},
+"ashburn-iad1|170.23.153.201": {
+"min": 86.772,
+"avg": 86.806,
+"ts": "2026-10-14 10:26:02",
+"note": null
+},
+"newark-ewr1|188.42.130.84": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"frankfurt-fra2|64.130.63.145": {
+"min": 11.225,
+"avg": 11.246,
+"ts": "2026-10-14 10:26:02",
+"note": null
+},
+"singapore-sgp1|170.23.153.201": {
+"min": 153.383,
+"avg": 153.42,
+"ts": "2026-10-14 10:26:01",
+"note": null
+},
+"amsterdam-ams3|64.130.63.145": {
+"min": 5.618,
+"avg": 5.627,
+"ts": "2026-10-14 10:26:04",
+"note": null
+},
+"london-lon1|64.130.63.145": {
+"min": 0.147,
+"avg": 0.224,
+"ts": "2026-10-14 10:26:06",
+"note": null
+},
+"ashburn-iad1|64.130.63.145": {
+"min": 69.419,
+"avg": 69.441,
+"ts": "2026-10-14 10:26:09",
+"note": null
+},
+"tokyo-tyo2|64.130.63.145": {
+"min": 201.621,
+"avg": 201.656,
+"ts": "2026-10-14 10:26:07",
+"note": null
+},
+"singapore-sgp1|64.130.63.145": {
+"min": 159.417,
+"avg": 159.481,
+"ts": "2026-10-14 10:26:09",
+"note": null
+},
+"newark-ewr1|70.40.185.181": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"frankfurt-fra2|67.213.126.13": {
+"min": 12.073,
+"avg": 12.09,
+"ts": "2026-10-14 10:26:12",
+"note": null
+},
+"amsterdam-ams3|67.213.126.13": {
+"min": 6.489,
+"avg": 6.507,
+"ts": "2026-10-14 10:26:13",
+"note": null
+},
+"london-lon1|67.213.126.13": {
+"min": 1.013,
+"avg": 1.172,
+"ts": "2026-10-14 10:26:14",
+"note": null
+},
+"tokyo-tyo2|67.213.126.13": {
+"min": 202.526,
+"avg": 202.568,
+"ts": "2026-10-14 10:26:16",
+"note": null
+},
+"ashburn-iad1|67.213.126.13": {
+"min": 70.259,
+"avg": 70.305,
+"ts": "2026-10-14 10:26:19",
+"note": null
+},
+"frankfurt-fra2|169.150.223.12": {
+"min": 7.016,
+"avg": 7.025,
+"ts": "2026-10-14 10:26:19",
+"note": null
+},
+"singapore-sgp1|67.213.126.13": {
+"min": 160.278,
+"avg": 160.335,
+"ts": "2026-10-14 10:26:17",
+"note": null
+},
+"newark-ewr1|216.18.201.138": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|169.150.223.12": {
+"min": 1.212,
+"avg": 1.244,
+"ts": "2026-10-14 10:26:22",
+"note": null
+},
+"london-lon1|169.150.223.12": {
+"min": 6.905,
+"avg": 6.928,
+"ts": "2026-10-14 10:26:23",
+"note": null
+},
+"tokyo-tyo2|169.150.223.12": {
+"min": 208.356,
+"avg": 208.389,
+"ts": "2026-10-14 10:26:24",
+"note": null
+},
+"ashburn-iad1|169.150.223.12": {
+"min": 76.075,
+"avg": 76.16,
+"ts": "2026-10-14 10:26:28",
+"note": null
+},
+"frankfurt-fra2|86.54.153.251": {
+"min": 84.559,
+"avg": 84.582,
+"ts": "2026-10-14 10:26:29",
+"note": null
+},
+"singapore-sgp1|169.150.223.12": {
+"min": 155.033,
+"avg": 155.142,
+"ts": "2026-10-14 10:26:27",
+"note": null
+},
+"newark-ewr1|170.23.153.201": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|86.54.153.251": {
+"min": 79.381,
+"avg": 79.407,
+"ts": "2026-10-14 10:26:31",
+"note": null
+},
+"london-lon1|86.54.153.251": {
+"min": 68.2,
+"avg": 68.329,
+"ts": "2026-10-14 10:26:32",
+"note": null
+},
+"ashburn-iad1|86.54.153.251": {
+"min": 6.681,
+"avg": 6.715,
+"ts": "2026-10-14 10:26:36",
+"note": null
+},
+"tokyo-tyo2|86.54.153.251": {
+"min": 156.872,
+"avg": 156.93,
+"ts": "2026-10-14 10:26:34",
+"note": null
+},
+"singapore-sgp1|86.54.153.251": {
+"min": 211.632,
+"avg": 211.701,
+"ts": "2026-10-14 10:26:35",
+"note": null
+},
+"frankfurt-fra2|64.34.87.157": {
+"min": 6.58,
+"avg": 6.634,
+"ts": "2026-10-14 10:26:38",
+"note": null
+},
+"newark-ewr1|64.130.63.145": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|64.34.87.157": {
+"min": 0.895,
+"avg": 1.009,
+"ts": "2026-10-14 10:26:41",
+"note": null
+},
+"london-lon1|64.34.87.157": {
+"min": 6.474,
+"avg": 6.682,
+"ts": "2026-10-14 10:26:41",
+"note": null
+},
+"tokyo-tyo2|64.34.87.157": {
+"min": 207.964,
+"avg": 208.024,
+"ts": "2026-10-14 10:26:43",
+"note": null
+},
+"ashburn-iad1|64.34.87.157": {
+"min": 75.744,
+"avg": 75.787,
+"ts": "2026-10-14 10:26:46",
+"note": null
+},
+"frankfurt-fra2|63.254.163.103": {
+"min": 212.699,
+"avg": 212.718,
+"ts": "2026-10-14 10:26:46",
+"note": null
+},
+"newark-ewr1|67.213.126.13": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|63.254.163.103": {
+"min": 207.156,
+"avg": 207.186,
+"ts": "2026-10-14 10:26:49",
+"note": null
+},
+"london-lon1|63.254.163.103": {
+"min": 201.864,
+"avg": 201.96,
+"ts": "2026-10-14 10:26:50",
+"note": null
+},
+"tokyo-tyo2|63.254.163.103": {
+"min": 0.093,
+"avg": 0.101,
+"ts": "2026-10-14 10:26:52",
+"note": null
+},
+"ashburn-iad1|63.254.163.103": {
+"min": 138.688,
+"avg": 138.722,
+"ts": "2026-10-14 10:26:56",
+"note": null
+},
+"newark-ewr1|169.150.223.12": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"singapore-sgp1|64.34.87.157": {
+"min": 154.657,
+"avg": 154.725,
+"ts": "2026-10-14 10:26:44",
+"note": null
+},
+"frankfurt-fra2|104.204.142.221": {
+"min": 0.279,
+"avg": 0.304,
+"ts": "2026-10-14 10:26:58",
+"note": null
+},
+"amsterdam-ams3|104.204.142.221": {
+"min": 6.037,
+"avg": 6.064,
+"ts": "2026-10-14 10:27:00",
+"note": null
+},
+"tokyo-tyo2|104.204.142.221": {
+"min": 212.899,
+"avg": 213.324,
+"ts": "2026-10-14 10:27:02",
+"note": null
+},
+"london-lon1|104.204.142.221": {
+"min": 11.583,
+"avg": 11.657,
+"ts": "2026-10-14 10:27:01",
+"note": null
+},
+"newark-ewr1|86.54.153.251": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"singapore-sgp1|104.204.142.221": {
+"min": 148.718,
+"avg": 148.755,
+"ts": "2026-10-14 10:27:06",
+"note": null
+},
+"ashburn-iad1|104.204.142.221": {
+"min": 80.72,
+"avg": 80.73,
+"ts": "2026-10-14 10:27:09",
+"note": null
+},
+"singapore-sgp1|63.254.163.103": {
+"min": 64.531,
+"avg": 64.6,
+"ts": "2026-10-14 10:26:54",
+"note": null
+},
+"frankfurt-fra2|135.125.142.235": {
+"min": 1.535,
+"avg": 1.546,
+"ts": "2026-10-14 10:27:09",
+"note": null
+},
+"amsterdam-ams3|135.125.142.235": {
+"min": 8.23,
+"avg": 8.239,
+"ts": "2026-10-14 10:27:11",
+"note": null
+},
+"london-lon1|135.125.142.235": {
+"min": 15.995,
+"avg": 16.041,
+"ts": "2026-10-14 10:27:13",
+"note": null
+},
+"tokyo-tyo2|135.125.142.235": {
+"min": 222.99,
+"avg": 223.014,
+"ts": "2026-10-14 10:27:13",
+"note": null
+},
+"newark-ewr1|64.34.87.157": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"ashburn-iad1|135.125.142.235": {
+"min": 84.722,
+"avg": 84.782,
+"ts": "2026-10-14 10:27:16",
+"note": null
+},
+"singapore-sgp1|135.125.142.235": {
+"min": 222.918,
+"avg": 222.979,
+"ts": "2026-10-14 10:27:14",
+"note": null
+},
+"frankfurt-fra2|72.251.3.57": {
+"min": 96.74,
+"avg": 96.756,
+"ts": "2026-10-14 10:27:18",
+"note": null
+},
+"london-lon1|72.251.3.57": {
+"min": 82.131,
+"avg": 82.181,
+"ts": "2026-10-14 10:27:20",
+"note": null
+},
+"amsterdam-ams3|72.251.3.57": {
+"min": 89.662,
+"avg": 89.681,
+"ts": "2026-10-14 10:27:19",
+"note": null
+},
+"tokyo-tyo2|72.251.3.57": {
+"min": 142.728,
+"avg": 142.779,
+"ts": "2026-10-14 10:27:20",
+"note": null
+},
+"ashburn-iad1|72.251.3.57": {
+"min": 18.99,
+"avg": 19.076,
+"ts": "2026-10-14 10:27:25",
+"note": null
+},
+"newark-ewr1|63.254.163.103": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"singapore-sgp1|72.251.3.57": {
+"min": 206.632,
+"avg": 206.707,
+"ts": "2026-10-14 10:27:24",
+"note": null
+},
+"newark-ewr1|104.204.142.221": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"frankfurt-fra2|195.12.227.249": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:27:25",
+"note": "95.12.227.249) from 64.130.50.5 : 56(84) bytes of data.\n\n--- 195.12.227.249 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 3997ms"
+},
+"amsterdam-ams3|195.12.227.249": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:27:27",
+"note": "95.12.227.249) from 64.130.42.5 : 56(84) bytes of data.\n\n--- 195.12.227.249 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 3998ms"
+},
+"london-lon1|195.12.227.249": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:27:29",
+"note": "5.12.227.249) from 67.209.52.10 : 56(84) bytes of data.\n\n--- 195.12.227.249 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4079ms"
+},
+"tokyo-tyo2|195.12.227.249": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:27:29",
+"note": "95.12.227.249) from 64.130.44.5 : 56(84) bytes of data.\n\n--- 195.12.227.249 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4001ms"
+},
+"frankfurt-fra2|64.130.43.202": {
+"min": 5.885,
+"avg": 5.92,
+"ts": "2026-10-14 10:27:42",
+"note": null
+},
+"newark-ewr1|135.125.142.235": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|64.130.43.202": {
+"min": 0.073,
+"avg": 0.085,
+"ts": "2026-10-14 10:27:45",
+"note": null
+},
+"london-lon1|64.130.43.202": {
+"min": 5.653,
+"avg": 5.851,
+"ts": "2026-10-14 10:27:46",
+"note": null
+},
+"tokyo-tyo2|64.130.43.202": {
+"min": 207.168,
+"avg": 207.206,
+"ts": "2026-10-14 10:27:48",
+"note": null
+},
+"ashburn-iad1|195.12.227.249": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:27:41",
+"note": ".12.227.249) from 208.91.105.69 : 56(84) bytes of data.\n\n--- 195.12.227.249 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4134ms"
+},
+"ashburn-iad1|64.130.43.202": {
+"min": 74.971,
+"avg": 75.016,
+"ts": "2026-10-14 10:27:51",
+"note": null
+},
+"singapore-sgp1|195.12.227.249": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:27:40",
+"note": "95.12.227.249) from 202.8.11.74 : 56(84) bytes of data.\n\n--- 195.12.227.249 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4084ms"
+},
+"singapore-sgp1|64.130.43.202": {
+"min": 153.895,
+"avg": 154.039,
+"ts": "2026-10-14 10:27:50",
+"note": null
+},
+"newark-ewr1|72.251.3.57": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"newark-ewr1|195.12.227.249": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"frankfurt-fra2|64.130.37.141": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:27:54",
+"note": "(64.130.37.141) from 64.130.50.5 : 56(84) bytes of data.\n\n--- 64.130.37.141 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 3999ms"
+},
+"amsterdam-ams3|64.130.37.141": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:27:55",
+"note": "(64.130.37.141) from 64.130.42.5 : 56(84) bytes of data.\n\n--- 64.130.37.141 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 3998ms"
+},
+"london-lon1|64.130.37.141": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:27:55",
+"note": "64.130.37.141) from 67.209.52.10 : 56(84) bytes of data.\n\n--- 64.130.37.141 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4096ms"
+},
+"tokyo-tyo2|64.130.37.141": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:27:57",
+"note": "(64.130.37.141) from 64.130.44.5 : 56(84) bytes of data.\n\n--- 64.130.37.141 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 3999ms"
+},
+"singapore-sgp1|64.130.37.141": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:27:58",
+"note": "(64.130.37.141) from 202.8.11.74 : 56(84) bytes of data.\n\n--- 64.130.37.141 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4088ms"
+},
+"frankfurt-fra2|64.130.43.217": {
+"min": 5.885,
+"avg": 5.908,
+"ts": "2026-10-14 10:28:10",
+"note": null
+},
+"amsterdam-ams3|64.130.43.217": {
+"min": 0.087,
+"avg": 0.095,
+"ts": "2026-10-14 10:28:11",
+"note": null
+},
+"london-lon1|64.130.43.217": {
+"min": 5.76,
+"avg": 5.86,
+"ts": "2026-10-14 10:28:11",
+"note": null
+},
+"tokyo-tyo2|64.130.43.217": {
+"min": 207.178,
+"avg": 207.199,
+"ts": "2026-10-14 10:28:13",
+"note": null
+},
+"ashburn-iad1|64.130.43.217": {
+"min": 74.916,
+"avg": 74.97,
+"ts": "2026-10-14 10:28:16",
+"note": null
+},
+"ashburn-iad1|64.130.37.141": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:28:08",
+"note": "4.130.37.141) from 208.91.105.69 : 56(84) bytes of data.\n\n--- 64.130.37.141 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4110ms"
+},
+"frankfurt-fra2|57.129.84.178": {
+"min": 1.34,
+"avg": 1.345,
+"ts": "2026-10-14 10:28:19",
+"note": null
+},
+"amsterdam-ams3|57.129.84.178": {
+"min": 7.978,
+"avg": 7.999,
+"ts": "2026-10-14 10:28:20",
+"note": null
+},
+"london-lon1|57.129.84.178": {
+"min": 15.978,
+"avg": 16.036,
+"ts": "2026-10-14 10:28:20",
+"note": null
+},
+"newark-ewr1|64.130.43.202": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"tokyo-tyo2|57.129.84.178": {
+"min": 222.598,
+"avg": 222.641,
+"ts": "2026-10-14 10:28:22",
+"note": null
+},
+"ashburn-iad1|57.129.84.178": {
+"min": 85.44,
+"avg": 85.451,
+"ts": "2026-10-14 10:28:26",
+"note": null
+},
+"frankfurt-fra2|70.40.184.198": {
+"min": 0.478,
+"avg": 0.489,
+"ts": "2026-10-14 10:28:26",
+"note": null
+},
+"singapore-sgp1|64.130.43.217": {
+"min": 153.833,
+"avg": 153.86,
+"ts": "2026-10-14 10:28:15",
+"note": null
+},
+"newark-ewr1|64.130.37.141": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|70.40.184.198": {
+"min": 6.251,
+"avg": 6.289,
+"ts": "2026-10-14 10:28:29",
+"note": null
+},
+"london-lon1|70.40.184.198": {
+"min": 11.811,
+"avg": 11.879,
+"ts": "2026-10-14 10:28:30",
+"note": null
+},
+"tokyo-tyo2|70.40.184.198": {
+"min": 213.088,
+"avg": 213.099,
+"ts": "2026-10-14 10:28:32",
+"note": null
+},
+"ashburn-iad1|70.40.184.198": {
+"min": 80.966,
+"avg": 81.05,
+"ts": "2026-10-14 10:28:34",
+"note": null
+},
+"frankfurt-fra2|23.111.240.231": {
+"min": 7.014,
+"avg": 7.036,
+"ts": "2026-10-14 10:28:35",
+"note": null
+},
+"singapore-sgp1|70.40.184.198": {
+"min": 148.865,
+"avg": 148.949,
+"ts": "2026-10-14 10:28:34",
+"note": null
+},
+"amsterdam-ams3|23.111.240.231": {
+"min": 0.667,
+"avg": 0.686,
+"ts": "2026-10-14 10:28:38",
+"note": null
+},
+"london-lon1|23.111.240.231": {
+"min": 6.297,
+"avg": 6.354,
+"ts": "2026-10-14 10:28:39",
+"note": null
+},
+"singapore-sgp1|57.129.84.178": {
+"min": 222.948,
+"avg": 223.006,
+"ts": "2026-10-14 10:28:25",
+"note": null
+},
+"tokyo-tyo2|23.111.240.231": {
+"min": 226.061,
+"avg": 226.085,
+"ts": "2026-10-14 10:28:41",
+"note": null
+},
+"ashburn-iad1|23.111.240.231": {
+"min": 86.414,
+"avg": 86.458,
+"ts": "2026-10-14 10:28:44",
+"note": null
+},
+"frankfurt-fra2|104.204.141.12": {
+"min": 0.284,
+"avg": 0.311,
+"ts": "2026-10-14 10:28:44",
+"note": null
+},
+"singapore-sgp1|23.111.240.231": {
+"min": 156.107,
+"avg": 156.196,
+"ts": "2026-10-14 10:28:43",
+"note": null
+},
+"newark-ewr1|64.130.43.217": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|104.204.141.12": {
+"min": 6.044,
+"avg": 6.071,
+"ts": "2026-10-14 10:28:47",
+"note": null
+},
+"london-lon1|104.204.141.12": {
+"min": 11.529,
+"avg": 11.643,
+"ts": "2026-10-14 10:28:49",
+"note": null
+},
+"tokyo-tyo2|104.204.141.12": {
+"min": 212.944,
+"avg": 212.957,
+"ts": "2026-10-14 10:28:50",
+"note": null
+},
+"ashburn-iad1|104.204.141.12": {
+"min": 80.725,
+"avg": 80.755,
+"ts": "2026-10-14 10:28:53",
+"note": null
+},
+"singapore-sgp1|104.204.141.12": {
+"min": 148.698,
+"avg": 148.751,
+"ts": "2026-10-14 10:28:51",
+"note": null
+},
+"frankfurt-fra2|151.123.174.68": {
+"min": 212.744,
+"avg": 212.786,
+"ts": "2026-10-14 10:28:54",
+"note": null
+},
+"newark-ewr1|57.129.84.178": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|151.123.174.68": {
+"min": 207.228,
+"avg": 207.256,
+"ts": "2026-10-14 10:28:56",
+"note": null
+},
+"london-lon1|151.123.174.68": {
+"min": 201.792,
+"avg": 201.917,
+"ts": "2026-10-14 10:28:58",
+"note": null
+},
+"tokyo-tyo2|151.123.174.68": {
+"min": 0.167,
+"avg": 0.179,
+"ts": "2026-10-14 10:28:59",
+"note": null
+},
+"ashburn-iad1|151.123.174.68": {
+"min": 138.861,
+"avg": 138.892,
+"ts": "2026-10-14 10:29:02",
+"note": null
+},
+"singapore-sgp1|151.123.174.68": {
+"min": 64.535,
+"avg": 64.613,
+"ts": "2026-10-14 10:29:00",
+"note": null
+},
+"frankfurt-fra2|172.96.160.101": {
+"min": 131.61,
+"avg": 131.656,
+"ts": "2026-10-14 10:29:03",
+"note": null
+},
+"newark-ewr1|70.40.184.198": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|172.96.160.101": {
+"min": 126.031,
+"avg": 126.055,
+"ts": "2026-10-14 10:29:05",
+"note": null
+},
+"london-lon1|172.96.160.101": {
+"min": 120.619,
+"avg": 120.685,
+"ts": "2026-10-14 10:29:06",
+"note": null
+},
+"tokyo-tyo2|172.96.160.101": {
+"min": 107.029,
+"avg": 107.151,
+"ts": "2026-10-14 10:29:08",
+"note": null
+},
+"ashburn-iad1|172.96.160.101": {
+"min": 53.721,
+"avg": 53.81,
+"ts": "2026-10-14 10:29:11",
+"note": null
+},
+"frankfurt-fra2|162.19.94.48": {
+"min": 11.991,
+"avg": 12.756,
+"ts": "2026-10-14 10:29:12",
+"note": null
+},
+"newark-ewr1|23.111.240.231": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"singapore-sgp1|172.96.160.101": {
+"min": 171.166,
+"avg": 171.753,
+"ts": "2026-10-14 10:29:10",
+"note": null
+},
+"amsterdam-ams3|162.19.94.48": {
+"min": 8.08,
+"avg": 8.214,
+"ts": "2026-10-14 10:29:14",
+"note": null
+},
+"london-lon1|162.19.94.48": {
+"min": 4.232,
+"avg": 4.432,
+"ts": "2026-10-14 10:29:15",
+"note": null
+},
+"ashburn-iad1|162.19.94.48": {
+"min": 78.652,
+"avg": 78.877,
+"ts": "2026-10-14 10:29:19",
+"note": null
+},
+"tokyo-tyo2|162.19.94.48": {
+"min": 210.392,
+"avg": 212.102,
+"ts": "2026-10-14 10:29:17",
+"note": null
+},
+"singapore-sgp1|162.19.94.48": {
+"min": 221.348,
+"avg": 221.928,
+"ts": "2026-10-14 10:29:18",
+"note": null
+},
+"newark-ewr1|104.204.141.12": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"frankfurt-fra2|104.204.142.35": {
+"min": 0.281,
+"avg": 0.287,
+"ts": "2026-10-14 10:29:23",
+"note": null
+},
+"london-lon1|104.204.142.35": {
+"min": 11.629,
+"avg": 11.656,
+"ts": "2026-10-14 10:29:24",
+"note": null
+},
+"amsterdam-ams3|104.204.142.35": {
+"min": 6.04,
+"avg": 6.066,
+"ts": "2026-10-14 10:29:24",
+"note": null
+},
+"tokyo-tyo2|104.204.142.35": {
+"min": 212.913,
+"avg": 212.98,
+"ts": "2026-10-14 10:29:25",
+"note": null
+},
+"ashburn-iad1|104.204.142.35": {
+"min": 80.793,
+"avg": 80.856,
+"ts": "2026-10-14 10:29:29",
+"note": null
+},
+"singapore-sgp1|104.204.142.35": {
+"min": 148.723,
+"avg": 149.016,
+"ts": "2026-10-14 10:29:28",
+"note": null
+},
+"newark-ewr1|151.123.174.68": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"frankfurt-fra2|64.130.36.36": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:29:29",
+"note": "6 (64.130.36.36) from 64.130.50.5 : 56(84) bytes of data.\n\n--- 64.130.36.36 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4000ms"
+},
+"newark-ewr1|172.96.160.101": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"amsterdam-ams3|64.130.36.36": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:29:32",
+"note": "6 (64.130.36.36) from 64.130.42.5 : 56(84) bytes of data.\n\n--- 64.130.36.36 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4000ms"
+},
+"london-lon1|64.130.36.36": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:29:33",
+"note": " (64.130.36.36) from 67.209.52.10 : 56(84) bytes of data.\n\n--- 64.130.36.36 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4093ms"
+},
+"tokyo-tyo2|64.130.36.36": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:29:35",
+"note": "6 (64.130.36.36) from 64.130.44.5 : 56(84) bytes of data.\n\n--- 64.130.36.36 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4000ms"
+},
+"newark-ewr1|162.19.94.48": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"ashburn-iad1|64.130.36.36": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:29:47",
+"note": "(64.130.36.36) from 208.91.105.69 : 56(84) bytes of data.\n\n--- 64.130.36.36 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4079ms"
+},
+"newark-ewr1|104.204.142.35": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"newark-ewr1|64.130.36.36": {
+"min": null,
+"avg": null,
+"note": "ERR HTTP Error 500: Internal Server Error"
+},
+"singapore-sgp1|64.130.36.36": {
+"min": null,
+"avg": null,
+"ts": "2026-10-14 10:29:45",
+"note": "6 (64.130.36.36) from 202.8.11.74 : 56(84) bytes of data.\n\n--- 64.130.36.36 ping statistics ---\n5 packets transmitted, 0 received, 100% packet loss, time 4089ms"
+}
+}

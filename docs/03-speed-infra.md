@@ -81,16 +81,32 @@ and takes race-winning coverage from 0% to 34%. Adding Amsterdam takes it to 56%
 
 ## 4. Recommended build-out
 
-1. **Now, one box: Frankfurt bare metal.** TeraSwitch FRA (Ryzen 9950X, ~$425/mo list) is the best
-   building; Latitude.sh FRA (~$400/mo) or Cherry Servers FRA are the alternatives. Ask for a test IP
-   and run `deploy/latency_probe.sh`: accept the box only if Jito Frankfurt (64.130.50.88), Helius
-   `fra-sender` (64.130.50.91), the Harmonic Frankfurt TPU (198.13.140.105) and the BAM Frankfurt node
-   (198.13.140.227) answer in under 1 ms. Hetzner is excluded (crypto clause in its terms); Equinix Metal closed in
-   June 2026.
+1. **Now, one box: Frankfurt bare metal in the TeraSwitch FRA2 building.** TeraSwitch's own looking
+   glass measures 0.08-0.12 ms from the FRA2 router to Jito FRA, Helius `fra-sender`, the Harmonic
+   Frankfurt remote TPU, the BAM Frankfurt node, Nozomi, NextBlock, Helius LaserStream FRA and the
+   DoubleZero `fra2-tsw` device: everything is in one building. List price ~$425/mo for a Ryzen 9950X
+   (hourly billing, no minimum), but stock must be requested from sales. **Cherry Servers Frankfurt
+   is on the same campus (0.09 ms) and has stock today**: EPYC 9375F 32-core at €989/mo or €1.69/h
+   (verified via their public API; their Ryzen 9950X is out of stock), so it is the immediate
+   fallback. Latitude.sh FRA is a different building (0.7 ms away, ~$400/mo). Ask for a test IP and
+   run `deploy/latency_probe.sh`: accept the box only if Jito Frankfurt (64.130.50.88), Helius
+   `fra-sender` (64.130.50.91), the Harmonic Frankfurt TPU (198.13.140.105), the BAM Frankfurt node
+   (198.13.140.227) and the DZ device (198.13.140.16) answer in under 0.2 ms. Hetzner is excluded
+   (crypto clause in its terms); Equinix Metal closed in June 2026; ERPC's Frankfurt metal has been
+   sold out since March.
 2. **If AWS is mandatory: eu-central-1**, a current-generation compute instance (c7i / c8g, at least
    large enough for full ENA queues), Elastic IP, no NAT gateway. Expect an extra 0.5-2 ms versus the
    TeraSwitch building. ENA Express and placement groups do nothing for traffic to leaders.
-3. **Second box: Amsterdam** (TeraSwitch AMS). Third: **Tokyo** or **New York/Newark**.
+3. **Second box: Tokyo (TeraSwitch TYO2), not Amsterdam.** With the corrected model (direct sends,
+   BAM 20 ms rounds, leaders keyed on their advertised ingress, creates weighted by where they
+   actually land), Frankfurt alone reaches 0.74 of creates in slot 0; adding Tokyo lifts that to
+   0.82 (+7.8 points, on creates that Europe-only snipers cannot reach at all), while adding
+   Amsterdam adds only +1.3 points of eligibility but turns ~8% of creates into in-building races
+   won on fee. Third box: Amsterdam **AMS3** (the 64.130.42.0/24 site, 0.07-0.09 ms from the largest
+   single ingress in the network, the BAM Amsterdam node with 10% of slots; never AMS1, which is
+   0.7-0.9 ms away) or Newark/Ashburn, depending on where paper trading shows the profitable contested
+   launches. Frankfurt + Tokyo + Newark scores 0.87; F-Project's claimed footprint minus LA scores
+   0.88.
 4. **Keep Ohio** for the Python discovery/backtest pipeline, dashboards and as a cold-standby signer.
    It is 13-16 ms from NYC, Ashburn and Chicago, so it can also probe US infrastructure.
 5. **Multi-box operation:** each box loads the epoch leader schedule and the identity → metro map
@@ -154,8 +170,9 @@ compute trimming > fees** across windows; inside the window the fee is the tie-b
 
 | Path | Min tip | Notes |
 |---|---|---|
-| Direct QUIC to the leader TPU (or BAM node) from the same metro | none | Fastest; unstaked works most of the time, a staked identity or validator peering removes eviction risk |
-| Helius Sender `http://fra-sender.helius-rpc.com/fast` | 0.001 SOL, or 5,000 lamports with `swqos_only=true` | Routes to Helius, Jito, Harmonic, Rakurai |
+| Direct QUIC to the leader's advertised TPU (validator, BAM node or Harmonic remote TPU) from the same building | none | Fastest. Admission at those proxies is undocumented, but on-chain the untipped path wins first place in block 0 as often on BAM/Harmonic leaders (30-49%) as on plain Jito-Agave ones (26-32%), hot launches included. Agave-lineage servers never refuse a new unstaked connection (they evict the least-recently-used one), so keep 1-2 warm connections per proxy and re-handshake on eviction; never reconnect more than 8 times/minute per IP. **Do not buy stake**: a staked identity needs ≥8,762 SOL (~$0.9M) and buys admission, not priority |
+| Helius Sender `http://fra-sender.helius-rpc.com/fast` | 0.001 SOL, or 5,000 lamports with `swqos_only=true` | Routes to Helius, Jito, Harmonic, Rakurai. The 5,000-lamport `swqos_only` leg is the cheapest staked fan-out and rides on the same durable nonce as the direct leg |
+| Astralane `fr`/`ams` VIP3 | 10,000 lamports after 8 SOL of cumulative tips (prepayable) | Second cheap fan-out leg; same priority for every tier |
 | Nozomi `fra2`/`ams1` (Temporal) | 0.001 SOL | Plain-http batch send over a warm connection |
 | Astralane `fr`/`ams` | 0.001 SOL (down to 0.00001 at VIP3) | FIFO routers, QUIC available |
 | NextBlock `frankfurt:11100` (QUIC) | subscription $249+/mo | `snipeTransaction` flag |

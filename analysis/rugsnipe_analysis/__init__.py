@@ -9,6 +9,11 @@ Modules:
     firstslot -- per-token first-slot metrics and aggregate statistics
     verify    -- RPC cross-check of the swap-api trade feed
     selftest  -- plain-assert unit tests (python3 -I -m rugsnipe_analysis.selftest)
+    store     -- analytics.db schema (SQLite WAL), idempotent upserts, JSONL loaders, regimes
+    rpcbudget -- per-role / per-host / per-method RPC token buckets ([rpc_budget])
+    createtx  -- create tx or logsSubscribe notification -> creates / create_buys rows
+    collector -- forward collector (PumpPortal + logsSubscribe, jobs, relay socket)
+    backfill  -- resumable signature index, seeded samples, getTransaction/getBlock backfill
 """
 
 __version__ = "0.1.0"

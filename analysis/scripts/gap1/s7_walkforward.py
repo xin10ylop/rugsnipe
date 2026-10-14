@@ -62,13 +62,25 @@ def hits_of(sol_quoted, o):
     return [hit(e, o.get("max_after") or 0, x) for x in TARGETS]
 
 
+# rank prefix in which every launch has slot-0 structure (stage 3 or stage 3b fill)
+R_fill = 0
+for r in sorted(L, key=lambda r: r["rank"]):
+    if "bundle_wallets" not in r["o"]:
+        break
+    R_fill = r["rank"] + 1
+rep["R_fill"] = R_fill
+print("structure-complete rank prefix R_fill =", R_fill)
+for r in L:
+    if r["rank"] >= R_fill:
+        r["o"] = {k: v for k, v in r["o"].items()} if "bundle_wallets" not in r["o"] else r["o"]
+    r["sok"] = r["rank"] < R_fill
 for r in L:
     r["hits_any"] = hits_of(r.get("sol_quoted"), r["o"])
     r["hits"] = None if r.get("mayhem") else r["hits_any"]
     r["fresh"] = r["f"]["n_pre"] <= 10
     r["serial"] = r["f"]["n_pre"] >= 1000
     o = r["o"]
-    r["bundled"] = (o.get("bundle_wallets", 0) >= 1) if "bundle_wallets" in o else None
+    r["bundled"] = (o.get("bundle_wallets", 0) >= 1) if r["sok"] else None
 
 
 def rates(rows):
@@ -90,13 +102,15 @@ def fmt(rt):
 print("\n== base rates, NON-MAYHEM SOL-quoted (uniform sample, entry after bundle + median third-party slot-0 buy, 0.5 SOL, fees)")
 base = {}
 groups = [("all", L), ("fresh signer (<=10 prior txs)", [r for r in L if r["fresh"]]),
+          ("before 2026-10-09 (400 ms slots)", [r for r in L if r["bt"] < 1791504000]),
+          ("from 2026-10-09 (200 ms slots)", [r for r in L if r["bt"] >= 1791504000]),
           ("serial signer (>=1000 prior txs)", [r for r in L if r["serial"]]),
-          ("bundled: >=1 wallet adjacent to create ", [r for r in L if "bundle_wallets" in r["o"] and r["bundled"]]),
-          ("not bundled ", [r for r in L if "bundle_wallets" in r["o"] and r["bundled"] is False]),
-          ("bundle >=3 wallets ", [r for r in L if "bundle_wallets" in r["o"] and r["o"].get("bundle_wallets", 0) >= 3]),
+          ("bundled: >=1 wallet adjacent to create ", [r for r in L if r["sok"] and r["bundled"]]),
+          ("not bundled ", [r for r in L if r["sok"] and r["bundled"] is False]),
+          ("bundle >=3 wallets ", [r for r in L if r["sok"] and r["o"].get("bundle_wallets", 0) >= 3]),
           ("fresh + bundled + exchange-funded ", [r for r in L if r["bundled"] and r["fresh"] and r["f"]["chain"] and any(h.get("cat") in ("cex","swap_service","onramp") for h in r["f"]["chain"])]),
-          ("no third-party slot-0 buyer ", [r for r in L if "bundle_wallets" in r["o"] and r["o"].get("third_n") == 0]),
-          (">=1 third-party slot-0 buyer ", [r for r in L if "bundle_wallets" in r["o"] and (r["o"].get("third_n") or 0) >= 1])]
+          ("no third-party slot-0 buyer ", [r for r in L if r["sok"] and r["o"].get("third_n") == 0]),
+          (">=1 third-party slot-0 buyer ", [r for r in L if r["sok"] and (r["o"].get("third_n") or 0) >= 1])]
 for name, g in groups:
     base[name] = rates(g)
     print(f"  {name:55s} {fmt(base[name])}")
@@ -104,10 +118,10 @@ mh = [{"hits": r["hits_any"]} for r in L if r.get("mayhem")]
 base["MAYHEM (separate mechanism, no floor)"] = rates(mh)
 print(f"  {'MAYHEM (agent-traded, floor not guaranteed)':55s} {fmt(base['MAYHEM (separate mechanism, no floor)'])}")
 rep["base"] = base
-rep["structure_coverage"] = sum(1 for r in L if "bundle_wallets" in r["o"]) / len(L)
+rep["structure_coverage"] = sum(1 for r in L if r["sok"]) / len(L)
 print("slot-0 structure coverage:", round(rep["structure_coverage"], 3))
 # entry stats among traded launches
-tr = [r["o"] for r in L if not r.get("mayhem") and r["o"].get("entry_mcap") and "third_n" in r["o"]]
+tr = [r["o"] for r in L if r["sok"] and not r.get("mayhem") and r["o"].get("entry_mcap") and "third_n" in r["o"]]
 if tr:
     rep["entry_stats"] = {
         "n": len(tr),
@@ -256,9 +270,9 @@ for r in L:
     bk[(o["bundle_wallets"] if o["bundle_wallets"] < 5 else 5, round(dev, 2), round(o.get("bundle_sol", 0)))].append(r)
 bmulti = {k: v for k, v in bk.items() if len({r["user"] for r in v}) >= 2}
 for k, v in bmulti.items():
-    rows = [{"d": r["d"], "hits": r["hits"], "w": 1 / f} for r in v]
+    rows = [{"d": r["d"], "hits": r["hits"], "w": 1 / (f * R_fill / R)} for r in v]
     units["B:" + str(k)] = {"type": "bundle-shape", "rows": rows, "verified5": True,
-                            "daily": Counter({d: q / f for d, q in Counter(r["d"] for r in rows).items()})}
+                            "daily": Counter({d: q / (f * R_fill / R) for d, q in Counter(r["d"] for r in rows).items()})}
 rep["bundle_shape_clusters"] = {"n_keys": len(bk), "n_multi_wallet": len(bmulti),
                                 "top": [(str(k), len(v)) for k, v in sorted(bmulti.items(), key=lambda kv: -len(kv[1]))[:10]]}
 print("bundle-shape clusters (bundle wallets, dev buy 0.01, bundle SOL 1), >=2 signers:", rep["bundle_shape_clusters"])
@@ -271,9 +285,10 @@ for key_fn, name in ((lambda r: "W:" + r["user"], "bundled-wallet"), (lambda r: 
     for k, v in grp.items():
         if len(v) < 2:
             continue
-        rows = [{"d": r["d"], "hits": r["hits"], "w": 1 / f} for r in v]
-        units[name[0:2] + ":" + k] = {"type": name, "rows": rows, "verified5": True,
-                                      "daily": Counter({d: q / f for d, q in Counter(r["d"] for r in rows).items()})}
+        fb = f * R_fill / R
+        rows = [{"d": r["d"], "hits": r["hits"], "w": 1 / fb} for r in v]
+        units[("BW:" if name == "bundled-wallet" else "BC:") + k] = {"type": name, "rows": rows, "verified5": True,
+                                      "daily": Counter({d: q / fb for d, q in Counter(r["d"] for r in rows).items()})}
 print("\n== operator units:", Counter(u["type"] for u in units.values()))
 
 

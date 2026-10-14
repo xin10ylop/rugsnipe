@@ -14,6 +14,10 @@
 //! | [`events`] | `CreateEvent`, `TradeEvent`, `CompleteEvent`, migration/post-complete events, PumpSwap `BuyEvent`/`SellEvent`/`CreatePoolEvent`, from CPI data or `Program data:` logs |
 //! | [`instructions`] | classify pump / PumpSwap instructions (program ID first, shared discriminators); build `buy_v3`/`sell_v3`/legacy trades, ATA, compute budget, tip, nonce |
 //! | [`tx`] | zero-copy [`tx::TxView`] over raw legacy, v0 and v1 (SIMD-0385) transactions |
+//! | [`create_hit`] | `CreateHit` from wire bytes or `logsSubscribe` logs: every in-tx buy, credited owners, launcher |
+//! | [`launchers`] | known launcher programs that create by CPI |
+//! | [`transfers`] | SPL / Token-2022 `Transfer` and `TransferChecked` |
+//! | [`alpenglow`] | `BlockComponent` parser: entry batches, block markers, the 8-byte abort |
 //!
 //! ## Example: find a create in raw transaction bytes
 //! ```
@@ -39,16 +43,21 @@
 #![forbid(unsafe_op_in_unsafe_fn)]
 #![warn(missing_debug_implementations)]
 
+pub mod alpenglow;
 mod bytes;
 pub mod constants;
+pub mod create_hit;
 pub mod curve;
 pub mod error;
 pub mod events;
 pub mod instructions;
+pub mod launchers;
 pub mod pda;
+pub mod transfers;
 pub mod tx;
 
 pub use bytes::discriminator;
+pub use create_hit::{create_hit, from_logs, CreateHit, HitError};
 pub use error::{DecodeError, Result};
 pub use solana_instruction::{AccountMeta, Instruction};
 pub use solana_pubkey::Pubkey;

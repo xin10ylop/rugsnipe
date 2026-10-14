@@ -1,0 +1,146 @@
+{
+ "frankfurt-fra2|185.191.117.97": {
+  "name": "Astralane fr gateway (Cherry FRA)",
+  "min": 0.089,
+  "avg": 0.105,
+  "max": 0.137,
+  "src": "64.130.50.5",
+  "ttl": [
+   "60"
+  ],
+  "ts": "2026-10-14 10:21:08",
+  "raw": null
+ },
+ "frankfurt-fra2|195.189.96.10": {
+  "name": "Cherry AMS BGP host",
+  "min": 6.077,
+  "avg": 6.1,
+  "max": 6.163,
+  "src": "64.130.50.5",
+  "ttl": [
+   "57"
+  ],
+  "ts": "2026-10-14 10:21:15",
+  "raw": null
+ },
+ "frankfurt-fra2|104.204.143.114": {
+  "name": "Allnodes Offenbach leader TPU",
+  "min": 0.106,
+  "avg": 0.123,
+  "max": 0.155,
+  "src": "64.130.50.5",
+  "ttl": [
+   "60"
+  ],
+  "ts": "2026-10-14 10:21:21",
+  "raw": null
+ },
+ "frankfurt-fra2|185.26.10.33": {
+  "name": "Latitude FRA leader TPU",
+  "min": 0.741,
+  "avg": 0.761,
+  "max": 0.781,
+  "src": "64.130.50.5",
+  "ttl": [
+   "56"
+  ],
+  "ts": "2026-10-14 10:21:28",
+  "raw": null
+ },
+ "frankfurt-fra2|64.130.57.215": {
+  "name": "Helius validator TPU (TSW FRA)",
+  "min": 0.092,
+  "avg": 0.109,
+  "max": 0.152,
+  "src": "64.130.50.5",
+  "ttl": [
+   "60"
+  ],
+  "ts": "2026-10-14 10:21:34",
+  "raw": null
+ },
+ "frankfurt-fra2|64.130.32.153": {
+  "name": "TSW FRA leader TPU",
+  "min": 0.092,
+  "avg": 0.099,
+  "max": 0.107,
+  "src": "64.130.50.5",
+  "ttl": [
+   "60"
+  ],
+  "ts": "2026-10-14 10:21:41",
+  "raw": null
+ },
+ "amsterdam-ams3|185.191.117.97": {
+  "name": "Astralane fr gateway (Cherry FRA)",
+  "min": 5.897,
+  "avg": 5.907,
+  "max": 5.913,
+  "src": "64.130.42.5",
+  "ttl": [
+   "57"
+  ],
+  "ts": "2026-10-14 10:21:47",
+  "raw": null
+ },
+ "amsterdam-ams3|195.189.96.10": {
+  "name": "Cherry AMS BGP host",
+  "min": 0.367,
+  "avg": 0.394,
+  "max": 0.42,
+  "src": "64.130.42.5",
+  "ttl": [
+   "58"
+  ],
+  "ts": "2026-10-14 10:21:53",
+  "raw": null
+ },
+ "amsterdam-ams3|104.204.143.114": {
+  "name": "Allnodes Offenbach leader TPU",
+  "min": 5.879,
+  "avg": 5.909,
+  "max": 5.935,
+  "src": "64.130.42.5",
+  "ttl": [
+   "58"
+  ],
+  "ts": "2026-10-14 10:22:00",
+  "raw": null
+ },
+ "amsterdam-ams3|185.26.10.33": {
+  "name": "Latitude FRA leader TPU",
+  "min": 6.069,
+  "avg": 6.114,
+  "max": 6.148,
+  "src": "64.130.42.5",
+  "ttl": [
+   "54"
+  ],
+  "ts": "2026-10-14 10:22:06",
+  "raw": null
+ },
+ "amsterdam-ams3|64.130.57.215": {
+  "name": "Helius validator TPU (TSW FRA)",
+  "min": 5.87,
+  "avg": 5.876,
+  "max": 5.887,
+  "src": "64.130.42.5",
+  "ttl": [
+   "57"
+  ],
+  "ts": "2026-10-14 10:22:13",
+  "raw": null
+ },
+ "amsterdam-ams3|64.130.32.153": {
+  "name": "TSW FRA leader TPU",
+  "min": 5.862,
+  "avg": 5.888,
+  "max": 5.911,
+  "src": "64.130.42.5",
+  "ttl": [
+   "57"
+  ],
+  "ts": "2026-10-14 10:22:19",
+  "raw": null
+ }
+}

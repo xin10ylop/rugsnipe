@@ -206,6 +206,33 @@ def test_collector_handlers() -> None:
         con.close()
 
 
+def test_collector_scheduler() -> None:
+    import asyncio
+    d, p = _tmpdb()
+    with d:
+        col = C.Collector(C.CollectorConfig(db_path=str(p), workers=2), rpc=object(), api=object())
+        col.job_decode = lambda key, payload: {"rows": {"creates": [{"mint": "MX", "sig": key, "slot": 7}]}}
+        col.job_rivals = lambda key, payload: {"retry": True, "error": "slot unknown"}
+        col.schedule("decode", "SIGX", 0.0, {"mint": "MX"})
+        col.schedule("rivals", "MX", 0.0, {})
+        col.schedule("tape", "MX", 3600.0, {})            # not due: must not run
+
+        async def go() -> None:
+            t = asyncio.create_task(col._scheduler())
+            for _ in range(40):
+                await asyncio.sleep(0.05)
+                if col.stats.get("done_decode") and not any(col.inflight.values()):
+                    break
+            col._stop.set()
+            await t
+        asyncio.run(go())
+        st = {k: (s, n) for k, s, n in col.con.execute("SELECT kind, state, tries FROM jobs")}
+        assert st["decode"] == ("done", 1) and st["rivals"] == ("pending", 1) and st["tape"] == ("pending", 0)
+        assert col.con.execute("SELECT slot FROM creates WHERE mint='MX'").fetchone()[0] == 7
+        col.pool.shutdown()
+        col.con.close()
+
+
 def test_slot0_from_tape() -> None:
     c = {"mint": "M", "slot": 10, "sig": "CREATE", "tx_index": 5}
 

@@ -98,6 +98,8 @@ def stage_coins(api: PumpApi, recs: list[dict]) -> None:
 def stage_trades(args, api: PumpApi, recs: list[dict], dl: Deadline) -> dict[str, dict]:
     """-> mint -> {s0, covered_until, complete, mode, n} (trades themselves stay in the cache)."""
     todo = [r for r in recs if W.could_be_bundled(r)]
+    # non-mayhem first (the guru's model), then by ATH so a deadline cut drops the least useful
+    todo.sort(key=lambda r: (bool(r.get("is_mayhem_mode")), -((r.get("coin") or {}).get("ath_market_cap") or 0)))
     log(f"trades: {len(todo)}/{len(recs)} launches are SOL-quoted with ATH high enough for a >=1 SOL slot-0 bundle")
     out: dict[str, dict] = {}
 

@@ -1,0 +1,770 @@
+{
+ "frankfurt-fra2|64.130.50.88": {
+  "name": "Jito BE FRA",
+  "min": 0.076,
+  "avg": 0.088,
+  "max": 0.113,
+  "src": "64.130.50.5",
+  "ttl": [
+   "60"
+  ],
+  "ts": "2026-10-14 10:03:22",
+  "raw": null
+ },
+ "frankfurt-fra2|64.130.50.91": {
+  "name": "Helius fra-sender",
+  "min": 0.089,
+  "avg": 0.121,
+  "max": 0.188,
+  "src": "64.130.50.5",
+  "ttl": [
+   "60"
+  ],
+  "ts": "2026-10-14 10:04:50",
+  "raw": null
+ },
+ "frankfurt-fra2|198.13.140.105": {
+  "name": "Harmonic FRA Remote TPU",
+  "min": 0.084,
+  "avg": 0.088,
+  "max": 0.093,
+  "src": "64.130.50.5",
+  "ttl": [
+   "60"
+  ],
+  "ts": "2026-10-14 10:04:56",
+  "raw": null
+ },
+ "frankfurt-fra2|198.13.140.227": {
+  "name": "BAM fra-bam-2",
+  "min": 0.084,
+  "avg": 0.093,
+  "max": 0.102,
+  "src": "64.130.50.5",
+  "ttl": [
+   "62"
+  ],
+  "ts": "2026-10-14 10:05:03",
+  "raw": null
+ },
+ "frankfurt-fra2|198.13.140.16": {
+  "name": "DZ dz100a-fra2-tsw",
+  "min": 0.109,
+  "avg": 0.115,
+  "max": 0.123,
+  "src": "64.130.50.5",
+  "ttl": [
+   "62"
+  ],
+  "ts": "2026-10-14 10:05:09",
+  "raw": null
+ },
+ "frankfurt-fra2|64.130.32.214": {
+  "name": "Helius LaserStream FRA",
+  "min": 0.071,
+  "avg": 0.08,
+  "max": 0.1,
+  "src": "64.130.50.5",
+  "ttl": [
+   "62"
+  ],
+  "ts": "2026-10-14 10:05:16",
+  "raw": null
+ },
+ "frankfurt-fra2|64.130.47.135": {
+  "name": "Nozomi fra2",
+  "min": 0.087,
+  "avg": 0.093,
+  "max": 0.108,
+  "src": "64.130.50.5",
+  "ttl": [
+   "62"
+  ],
+  "ts": "2026-10-14 10:05:22",
+  "raw": null
+ },
+ "frankfurt-fra2|64.130.40.42": {
+  "name": "NextBlock FRA",
+  "min": 0.079,
+  "avg": 0.084,
+  "max": 0.095,
+  "src": "64.130.50.5",
+  "ttl": [
+   "60"
+  ],
+  "ts": "2026-10-14 10:05:29",
+  "raw": null
+ },
+ "frankfurt-fra2|64.130.52.119": {
+  "name": "Jito BE AMS",
+  "min": 5.813,
+  "avg": 5.829,
+  "max": 5.855,
+  "src": "64.130.50.5",
+  "ttl": [
+   "59"
+  ],
+  "ts": "2026-10-14 10:05:35",
+  "raw": null
+ },
+ "frankfurt-fra2|64.130.42.91": {
+  "name": "Helius ams-sender",
+  "min": 5.846,
+  "avg": 5.859,
+  "max": 5.89,
+  "src": "64.130.50.5",
+  "ttl": [
+   "57"
+  ],
+  "ts": "2026-10-14 10:05:41",
+  "raw": null
+ },
+ "frankfurt-fra2|63.254.166.232": {
+  "name": "Harmonic AMS Remote TPU",
+  "min": 5.856,
+  "avg": 5.87,
+  "max": 5.884,
+  "src": "64.130.50.5",
+  "ttl": [
+   "57"
+  ],
+  "ts": "2026-10-14 10:05:48",
+  "raw": null
+ },
+ "frankfurt-fra2|63.254.167.197": {
+  "name": "BAM ams-bam-2",
+  "min": 5.852,
+  "avg": 5.868,
+  "max": 5.879,
+  "src": "64.130.50.5",
+  "ttl": [
+   "56"
+  ],
+  "ts": "2026-10-14 10:05:54",
+  "raw": null
+ },
+ "frankfurt-fra2|64.130.52.8": {
+  "name": "DZ dz100a-ams2-tsw",
+  "min": 5.801,
+  "avg": 5.834,
+  "max": 5.847,
+  "src": "64.130.50.5",
+  "ttl": [
+   "60"
+  ],
+  "ts": "2026-10-14 10:06:01",
+  "raw": null
+ },
+ "frankfurt-fra2|64.130.46.242": {
+  "name": "Harmonic LON Remote TPU",
+  "min": 11.231,
+  "avg": 11.256,
+  "max": 11.287,
+  "src": "64.130.50.5",
+  "ttl": [
+   "58"
+  ],
+  "ts": "2026-10-14 10:06:08",
+  "raw": null
+ },
+ "frankfurt-fra2|88.216.192.51": {
+  "name": "BAM sqq-bam-2",
+  "min": 30.55,
+  "avg": 30.569,
+  "max": 30.588,
+  "src": "64.130.50.5",
+  "ttl": [
+   "245"
+  ],
+  "ts": "2026-10-14 10:06:14",
+  "raw": null
+ },
+ "frankfurt-fra2|109.94.96.69": {
+  "name": "Jito relayer (Latitude FRA)",
+  "min": 0.694,
+  "avg": 0.716,
+  "max": 0.753,
+  "src": "64.130.50.5",
+  "ttl": [
+   "56"
+  ],
+  "ts": "2026-10-14 10:06:21",
+  "raw": null
+ },
+ "amsterdam-ams1|64.130.50.88": {
+  "name": "Jito BE FRA",
+  "min": 6.572,
+  "avg": 6.627,
+  "max": 6.681,
+  "src": "74.118.140.250",
+  "ttl": [
+   "56"
+  ],
+  "ts": "2026-10-14 10:06:27",
+  "raw": null
+ },
+ "amsterdam-ams1|64.130.50.91": {
+  "name": "Helius fra-sender",
+  "min": 6.477,
+  "avg": 6.587,
+  "max": 6.661,
+  "src": "74.118.140.250",
+  "ttl": [
+   "56"
+  ],
+  "ts": "2026-10-14 10:06:37",
+  "raw": null
+ },
+ "amsterdam-ams1|198.13.140.105": {
+  "name": "Harmonic FRA Remote TPU",
+  "min": 6.56,
+  "avg": 6.625,
+  "max": 6.673,
+  "src": "74.118.140.250",
+  "ttl": [
+   "55"
+  ],
+  "ts": "2026-10-14 10:06:43",
+  "raw": null
+ },
+ "amsterdam-ams1|198.13.140.227": {
+  "name": "BAM fra-bam-2",
+  "min": 6.738,
+  "avg": 6.768,
+  "max": 6.815,
+  "src": "74.118.140.250",
+  "ttl": [
+   "55"
+  ],
+  "ts": "2026-10-14 10:06:50",
+  "raw": null
+ },
+ "amsterdam-ams1|198.13.140.16": {
+  "name": "DZ dz100a-fra2-tsw",
+  "min": 6.553,
+  "avg": 6.669,
+  "max": 6.768,
+  "src": "74.118.140.250",
+  "ttl": [
+   "57"
+  ],
+  "ts": "2026-10-14 10:06:56",
+  "raw": null
+ },
+ "amsterdam-ams1|64.130.32.214": {
+  "name": "Helius LaserStream FRA",
+  "min": 6.621,
+  "avg": 6.704,
+  "max": 6.867,
+  "src": "74.118.140.250",
+  "ttl": [
+   "56"
+  ],
+  "ts": "2026-10-14 10:07:03",
+  "raw": null
+ },
+ "amsterdam-ams1|64.130.47.135": {
+  "name": "Nozomi fra2",
+  "min": 6.591,
+  "avg": 6.628,
+  "max": 6.695,
+  "src": "74.118.140.250",
+  "ttl": [
+   "56"
+  ],
+  "ts": "2026-10-14 10:07:09",
+  "raw": null
+ },
+ "amsterdam-ams1|64.130.40.42": {
+  "name": "NextBlock FRA",
+  "min": 6.611,
+  "avg": 6.657,
+  "max": 6.71,
+  "src": "74.118.140.250",
+  "ttl": [
+   "56"
+  ],
+  "ts": "2026-10-14 10:07:16",
+  "raw": null
+ },
+ "amsterdam-ams1|64.130.52.119": {
+  "name": "Jito BE AMS",
+  "min": 0.856,
+  "avg": 0.945,
+  "max": 1.066,
+  "src": "74.118.140.250",
+  "ttl": [
+   "58"
+  ],
+  "ts": "2026-10-14 10:07:22",
+  "raw": null
+ },
+ "amsterdam-ams1|64.130.42.91": {
+  "name": "Helius ams-sender",
+  "min": 0.745,
+  "avg": 0.801,
+  "max": 0.848,
+  "src": "74.118.140.250",
+  "ttl": [
+   "57"
+  ],
+  "ts": "2026-10-14 10:07:28",
+  "raw": null
+ },
+ "amsterdam-ams1|63.254.166.232": {
+  "name": "Harmonic AMS Remote TPU",
+  "min": 0.653,
+  "avg": 0.733,
+  "max": 0.86,
+  "src": "74.118.140.250",
+  "ttl": [
+   "57"
+  ],
+  "ts": "2026-10-14 10:07:35",
+  "raw": null
+ },
+ "amsterdam-ams1|63.254.167.197": {
+  "name": "BAM ams-bam-2",
+  "min": 0.722,
+  "avg": 0.816,
+  "max": 0.896,
+  "src": "74.118.140.250",
+  "ttl": [
+   "56"
+  ],
+  "ts": "2026-10-14 10:07:44",
+  "raw": null
+ },
+ "amsterdam-ams1|64.130.52.8": {
+  "name": "DZ dz100a-ams2-tsw",
+  "min": 0.799,
+  "avg": 0.904,
+  "max": 0.995,
+  "src": "74.118.140.250",
+  "ttl": [
+   "60"
+  ],
+  "ts": "2026-10-14 10:07:50",
+  "raw": null
+ },
+ "amsterdam-ams1|64.130.46.242": {
+  "name": "Harmonic LON Remote TPU",
+  "min": 6.207,
+  "avg": 6.38,
+  "max": 6.434,
+  "src": "74.118.140.250",
+  "ttl": [
+   "55"
+  ],
+  "ts": "2026-10-14 10:07:57",
+  "raw": null
+ },
+ "amsterdam-ams1|88.216.192.51": {
+  "name": "BAM sqq-bam-2",
+  "min": 37.23,
+  "avg": 37.374,
+  "max": 37.531,
+  "src": "74.118.140.250",
+  "ttl": [
+   "49"
+  ],
+  "ts": "2026-10-14 10:08:03",
+  "raw": null
+ },
+ "amsterdam-ams1|109.94.96.69": {
+  "name": "Jito relayer (Latitude FRA)",
+  "min": 6.798,
+  "avg": 6.818,
+  "max": 6.848,
+  "src": "74.118.140.250",
+  "ttl": [
+   "53"
+  ],
+  "ts": "2026-10-14 10:08:10",
+  "raw": null
+ },
+ "amsterdam-ams2|64.130.50.88": {
+  "name": "Jito BE FRA",
+  "min": 5.861,
+  "avg": 5.985,
+  "max": 6.08,
+  "src": "64.130.52.5",
+  "ttl": [
+   "59"
+  ],
+  "ts": "2026-10-14 10:08:16",
+  "raw": null
+ },
+ "amsterdam-ams2|64.130.50.91": {
+  "name": "Helius fra-sender",
+  "min": 5.787,
+  "avg": 5.799,
+  "max": 5.815,
+  "src": "64.130.52.5",
+  "ttl": [
+   "59"
+  ],
+  "ts": "2026-10-14 10:08:23",
+  "raw": null
+ },
+ "amsterdam-ams2|198.13.140.105": {
+  "name": "Harmonic FRA Remote TPU",
+  "min": 5.794,
+  "avg": 5.809,
+  "max": 5.835,
+  "src": "64.130.52.5",
+  "ttl": [
+   "59"
+  ],
+  "ts": "2026-10-14 10:08:29",
+  "raw": null
+ },
+ "amsterdam-ams2|198.13.140.227": {
+  "name": "BAM fra-bam-2",
+  "min": 5.858,
+  "avg": 5.935,
+  "max": 6.071,
+  "src": "64.130.52.5",
+  "ttl": [
+   "58"
+  ],
+  "ts": "2026-10-14 10:08:35",
+  "raw": null
+ },
+ "amsterdam-ams2|198.13.140.16": {
+  "name": "DZ dz100a-fra2-tsw",
+  "min": 5.801,
+  "avg": 5.834,
+  "max": 5.858,
+  "src": "64.130.52.5",
+  "ttl": [
+   "60"
+  ],
+  "ts": "2026-10-14 10:08:42",
+  "raw": null
+ },
+ "amsterdam-ams2|64.130.32.214": {
+  "name": "Helius LaserStream FRA",
+  "min": 5.835,
+  "avg": 5.876,
+  "max": 5.964,
+  "src": "64.130.52.5",
+  "ttl": [
+   "59"
+  ],
+  "ts": "2026-10-14 10:08:48",
+  "raw": null
+ },
+ "amsterdam-ams2|64.130.47.135": {
+  "name": "Nozomi fra2",
+  "min": 5.821,
+  "avg": 5.916,
+  "max": 6.061,
+  "src": "64.130.52.5",
+  "ttl": [
+   "59"
+  ],
+  "ts": "2026-10-14 10:08:55",
+  "raw": null
+ },
+ "amsterdam-ams2|64.130.40.42": {
+  "name": "NextBlock FRA",
+  "min": 5.789,
+  "avg": 5.797,
+  "max": 5.809,
+  "src": "64.130.52.5",
+  "ttl": [
+   "59"
+  ],
+  "ts": "2026-10-14 10:09:01",
+  "raw": null
+ },
+ "amsterdam-ams2|64.130.52.119": {
+  "name": "Jito BE AMS",
+  "min": 0.118,
+  "avg": 0.151,
+  "max": 0.242,
+  "src": "64.130.52.5",
+  "ttl": [
+   "60"
+  ],
+  "ts": "2026-10-14 10:09:07",
+  "raw": null
+ },
+ "amsterdam-ams2|64.130.42.91": {
+  "name": "Helius ams-sender",
+  "min": 0.192,
+  "avg": 0.26,
+  "max": 0.334,
+  "src": "64.130.52.5",
+  "ttl": [
+   "58"
+  ],
+  "ts": "2026-10-14 10:09:14",
+  "raw": null
+ },
+ "amsterdam-ams2|63.254.166.232": {
+  "name": "Harmonic AMS Remote TPU",
+  "min": 0.139,
+  "avg": 0.217,
+  "max": 0.293,
+  "src": "64.130.52.5",
+  "ttl": [
+   "59"
+  ],
+  "ts": "2026-10-14 10:09:20",
+  "raw": null
+ },
+ "amsterdam-ams2|63.254.167.197": {
+  "name": "BAM ams-bam-2",
+  "min": 0.153,
+  "avg": 0.171,
+  "max": 0.205,
+  "src": "64.130.52.5",
+  "ttl": [
+   "58"
+  ],
+  "ts": "2026-10-14 10:09:27",
+  "raw": null
+ },
+ "amsterdam-ams2|64.130.52.8": {
+  "name": "DZ dz100a-ams2-tsw",
+  "min": 0.155,
+  "avg": 0.18,
+  "max": 0.215,
+  "src": "64.130.52.5",
+  "ttl": [
+   "62"
+  ],
+  "ts": "2026-10-14 10:09:33",
+  "raw": null
+ },
+ "amsterdam-ams2|64.130.46.242": {
+  "name": "Harmonic LON Remote TPU",
+  "min": 5.662,
+  "avg": 5.674,
+  "max": 5.699,
+  "src": "64.130.52.5",
+  "ttl": [
+   "58"
+  ],
+  "ts": "2026-10-14 10:09:40",
+  "raw": null
+ },
+ "amsterdam-ams2|88.216.192.51": {
+  "name": "BAM sqq-bam-2",
+  "min": 37.534,
+  "avg": 37.674,
+  "max": 37.787,
+  "src": "64.130.52.5",
+  "ttl": [
+   "52"
+  ],
+  "ts": "2026-10-14 10:09:46",
+  "raw": null
+ },
+ "amsterdam-ams2|109.94.96.69": {
+  "name": "Jito relayer (Latitude FRA)",
+  "min": 6.141,
+  "avg": 6.356,
+  "max": 6.749,
+  "src": "64.130.52.5",
+  "ttl": [
+   "55"
+  ],
+  "ts": "2026-10-14 10:09:53",
+  "raw": null
+ },
+ "amsterdam-ams3|64.130.50.88": {
+  "name": "Jito BE FRA",
+  "min": 5.879,
+  "avg": 5.896,
+  "max": 5.912,
+  "src": "64.130.42.5",
+  "ttl": [
+   "57"
+  ],
+  "ts": "2026-10-14 10:09:59",
+  "raw": null
+ },
+ "amsterdam-ams3|64.130.50.91": {
+  "name": "Helius fra-sender",
+  "min": 5.842,
+  "avg": 5.856,
+  "max": 5.865,
+  "src": "64.130.42.5",
+  "ttl": [
+   "57"
+  ],
+  "ts": "2026-10-14 10:10:06",
+  "raw": null
+ },
+ "amsterdam-ams3|198.13.140.105": {
+  "name": "Harmonic FRA Remote TPU",
+  "min": 5.863,
+  "avg": 5.89,
+  "max": 5.916,
+  "src": "64.130.42.5",
+  "ttl": [
+   "57"
+  ],
+  "ts": "2026-10-14 10:10:12",
+  "raw": null
+ },
+ "amsterdam-ams3|198.13.140.227": {
+  "name": "BAM fra-bam-2",
+  "min": 5.868,
+  "avg": 5.875,
+  "max": 5.89,
+  "src": "64.130.42.5",
+  "ttl": [
+   "57"
+  ],
+  "ts": "2026-10-14 10:10:19",
+  "raw": null
+ },
+ "amsterdam-ams3|198.13.140.16": {
+  "name": "DZ dz100a-fra2-tsw",
+  "min": 5.884,
+  "avg": 5.893,
+  "max": 5.902,
+  "src": "64.130.42.5",
+  "ttl": [
+   "58"
+  ],
+  "ts": "2026-10-14 10:10:25",
+  "raw": null
+ },
+ "amsterdam-ams3|64.130.32.214": {
+  "name": "Helius LaserStream FRA",
+  "min": 5.9,
+  "avg": 5.993,
+  "max": 6.186,
+  "src": "64.130.42.5",
+  "ttl": [
+   "57"
+  ],
+  "ts": "2026-10-14 10:10:31",
+  "raw": null
+ },
+ "amsterdam-ams3|64.130.47.135": {
+  "name": "Nozomi fra2",
+  "min": 5.855,
+  "avg": 5.871,
+  "max": 5.886,
+  "src": "64.130.42.5",
+  "ttl": [
+   "56"
+  ],
+  "ts": "2026-10-14 10:10:38",
+  "raw": null
+ },
+ "amsterdam-ams3|64.130.40.42": {
+  "name": "NextBlock FRA",
+  "min": 5.861,
+  "avg": 5.882,
+  "max": 5.91,
+  "src": "64.130.42.5",
+  "ttl": [
+   "56"
+  ],
+  "ts": "2026-10-14 10:10:44",
+  "raw": null
+ },
+ "amsterdam-ams3|64.130.52.119": {
+  "name": "Jito BE AMS",
+  "min": 0.168,
+  "avg": 0.188,
+  "max": 0.216,
+  "src": "64.130.42.5",
+  "ttl": [
+   "58"
+  ],
+  "ts": "2026-10-14 10:10:50",
+  "raw": null
+ },
+ "amsterdam-ams3|64.130.42.91": {
+  "name": "Helius ams-sender",
+  "min": 0.073,
+  "avg": 0.078,
+  "max": 0.087,
+  "src": "64.130.42.5",
+  "ttl": [
+   "60"
+  ],
+  "ts": "2026-10-14 10:10:57",
+  "raw": null
+ },
+ "amsterdam-ams3|63.254.166.232": {
+  "name": "Harmonic AMS Remote TPU",
+  "min": 0.073,
+  "avg": 0.134,
+  "max": 0.312,
+  "src": "64.130.42.5",
+  "ttl": [
+   "60"
+  ],
+  "ts": "2026-10-14 10:11:03",
+  "raw": null
+ },
+ "amsterdam-ams3|63.254.167.197": {
+  "name": "BAM ams-bam-2",
+  "min": 0.082,
+  "avg": 0.089,
+  "max": 0.118,
+  "src": "64.130.42.5",
+  "ttl": [
+   "62"
+  ],
+  "ts": "2026-10-14 10:11:10",
+  "raw": null
+ },
+ "amsterdam-ams3|64.130.52.8": {
+  "name": "DZ dz100a-ams2-tsw",
+  "min": 0.162,
+  "avg": 0.174,
+  "max": 0.189,
+  "src": "64.130.42.5",
+  "ttl": [
+   "61"
+  ],
+  "ts": "2026-10-14 10:11:16",
+  "raw": null
+ },
+ "amsterdam-ams3|64.130.46.242": {
+  "name": "Harmonic LON Remote TPU",
+  "min": 5.606,
+  "avg": 5.622,
+  "max": 5.675,
+  "src": "64.130.42.5",
+  "ttl": [
+   "58"
+  ],
+  "ts": "2026-10-14 10:11:22",
+  "raw": null
+ },
+ "amsterdam-ams3|88.216.192.51": {
+  "name": "BAM sqq-bam-2",
+  "min": 34.458,
+  "avg": 34.473,
+  "max": 34.485,
+  "src": "64.130.42.5",
+  "ttl": [
+   "243"
+  ],
+  "ts": "2026-10-14 10:11:29",
+  "raw": null
+ },
+ "amsterdam-ams3|109.94.96.69": {
+  "name": "Jito relayer (Latitude FRA)",
+  "min": 6.161,
+  "avg": 6.174,
+  "max": 6.189,
+  "src": "64.130.42.5",
+  "ttl": [
+   "54"
+  ],
+  "ts": "2026-10-14 10:11:35",
+  "raw": null
+ }
+}
