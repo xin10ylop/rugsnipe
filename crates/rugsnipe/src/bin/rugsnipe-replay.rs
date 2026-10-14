@@ -33,7 +33,7 @@ static ALLOC: CountingAlloc = CountingAlloc;
 const USAGE: &str =
     "usage: rugsnipe-replay --frames <jsonl> [--frames <jsonl> ...] [--config <toml>]
     [--armset <file> [--paper-unsigned-armset]] [--watch-every K] [--warmup N] [--loops N]
-    [--state <db>] [--rslog-dir <dir>] [--no-trades] [--fill-timeout-slots N]
+    [--state <db>|none] [--rslog-dir <dir>] [--no-trades] [--fill-timeout-slots N] [--speed X]
     [--assert-zero-alloc] [--p99-max-us N] [--summary <json>]";
 
 fn main() {
@@ -131,7 +131,7 @@ fn run(args: &[String]) -> Result<i32, String> {
     let rslog_dir = opt(args, "--rslog-dir")
         .map(PathBuf::from)
         .unwrap_or_else(|| tmp.join("rslog"));
-    let state_path = match opt(args, "--state") {
+    let state_path: Option<PathBuf> = match opt(args, "--state") {
         Some("none") => None,
         Some(p) => Some(PathBuf::from(p)),
         None => Some(tmp.join("state.db")),
@@ -149,6 +149,12 @@ fn run(args: &[String]) -> Result<i32, String> {
         ))),
     };
     let n_events = first.events().len() * loops;
+    let speed: f64 = num(args, "--speed", 0.0f64)?;
+    let first = if speed > 0.0 {
+        first.with_pace(rugsnipe_feed::replay::Pace::Realtime { speed })
+    } else {
+        first
+    };
     let mut feeds: Vec<Box<dyn Feed + Send>> = vec![Box::new(first.restamped())];
     for _ in 1..loops {
         // later loops: the same frames with distinct signatures would be needed to
@@ -156,6 +162,7 @@ fn run(args: &[String]) -> Result<i32, String> {
         feeds.push(Box::new(Replay::from_text(&text, emit_trades).restamped()));
     }
     let mut mux = FeedMux::new(feeds);
+    let state_shown = state_path.clone();
     let mut app = app::build(AppOpts {
         cfg,
         armset,
@@ -173,7 +180,7 @@ fn run(args: &[String]) -> Result<i32, String> {
         paper_balance: 5_000_000_000,
         live_flag: false,
     })?;
-    let warmup = num(args, "--warmup", (n_events / 10).clamp(200, 5_000) as u64)?;
+    let warmup = num(args, "--warmup", (n_events / 10).clamp(20, 5_000) as u64)?;
     let mut buf = FeedBuf::with_capacity(256, 1 << 20);
     let mut counted_events = 0u64;
     let mut counting = false;
@@ -189,6 +196,9 @@ fn run(args: &[String]) -> Result<i32, String> {
         let st = app.hot.step(&mut mux, &mut buf);
         if st == FeedStatus::Ended {
             break;
+        }
+        if speed > 0.0 && st == FeedStatus::Idle {
+            std::thread::sleep(std::time::Duration::from_micros(200));
         }
     }
     alloc_count::set_counting(false);
@@ -217,7 +227,7 @@ fn run(args: &[String]) -> Result<i32, String> {
         "event_ns_after_warmup": qe,
         "wall_s": wall,
         "p99_max_us": p99_max_us,
-        "state_db": tmp.join("state.db"),
+        "state_db": state_shown,
         "rslog_dir": rslog_dir,
     });
     let text = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
