@@ -7,7 +7,7 @@ name = "rugsnipe-analysis"
 version = "0.1.0"
 description = "Validation tooling for the pump.fun rugger-sniping hypothesis"
 requires-python = ">=3.11"
-dependencies = ["requests>=2.31", "websockets>=13"]
+dependencies = ["requests>=2.31", "websockets>=13", "numpy>=1.26"]
 
 [tool.setuptools]
 packages = ["rugsnipe_analysis"]
