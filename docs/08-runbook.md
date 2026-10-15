@@ -445,6 +445,15 @@ EV of the frozen LEAD. Two consecutive weeks with the 90% lower bound below zero
 
 ## 13. Costs per month and the paid keys
 
+> **Shopping list (2026-10-15):** `docs/research/infra-shopping-2026.md` ranks every feed, sender and RPC
+> option by value for the probe and for month 1, with prices, Frankfurt hostnames and signup steps.
+> Short version: the probe needs about $55-100 all-in (Triton pay-as-you-go feed, free senders with a
+> free Helius key at 50 req/s, SVS Basic RPC for a week); month 1 needs about $124/mo of subscriptions
+> and the fees are 95% of the cost. Corrections to the table below: Helius Sender is 50 req/s per
+> region with a free API key (1/s keyless), BlockRazor is free with a 0.0001 SOL minimum tip, NextBlock
+> has a free trial, `instantnodes.io` is not to be used.
+
+
 | Item | $/month | Needed for | Used by this build? |
 |---|---|---|---|
 | TeraSwitch FRA2 bare metal (or Cherry €989, Latitude ~$400) | ~425 | probe and later; optional for shadow | yes (any box runs shadow) |
