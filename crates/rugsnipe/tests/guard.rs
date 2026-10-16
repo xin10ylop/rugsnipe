@@ -127,6 +127,7 @@ fn guard_paper_sell_signs_with_the_paper_sender_only() {
             paper: paper.clone(),
             tip_account: t.tip_account,
             bid: rugsnipe_core::bid::BidPolicy::from_cfg(&cfgt.bid),
+            real: None,
         }),
     );
     let acts = g.step(&c, 1_000, &|_| None).unwrap();
@@ -160,6 +161,110 @@ fn guard_paper_sell_signs_with_the_paper_sender_only() {
         &signer.pubkey(),
         &rec[0].variant.bytes()[65..],
         &sig
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Probe: the guard's dump path through the real senders (a mock Helius):
+/// one variant per sender on a recent blockhash, the provider's tip account
+/// and minimum tip, signed by the wallet; deferred while no blockhash is known.
+#[cfg(feature = "real-senders")]
+#[test]
+fn guard_real_sell_goes_through_the_real_senders_on_a_recent_blockhash() {
+    use std::sync::Mutex;
+    let dir = tmpdir("guard-real");
+    let s = StateStore::open(dir.join("state.db")).unwrap();
+    let l = Ledger::new(s.writer());
+    let c = s.reader().unwrap();
+    let m = Pubkey::new_unique();
+    l.position(position(m, 40_000_000_000));
+    l.flush();
+    let got: Arc<Mutex<Vec<Vec<u8>>>> = Arc::default();
+    let g2 = got.clone();
+    let (url, _) = common::serve_rpc(move |_m, p| {
+        use base64::Engine as _;
+        g2.lock().unwrap().push(
+            base64::engine::general_purpose::STANDARD
+                .decode(p[0].as_str().unwrap())
+                .unwrap(),
+        );
+        Ok(serde_json::json!("ok"))
+    });
+    let mut cfgt = rugsnipe_core::config::Config::default();
+    rugsnipe::setup::paper_caps(&mut cfgt.risk);
+    cfgt.mode.mode = rugsnipe_core::Mode::Probe;
+    cfgt.tx.cu_limit = 88_000;
+    cfgt.tx.lads_bytes = 12_124_160;
+    cfgt.secrets.probe_keypair = "probe-keypair".into();
+    cfgt.secrets.armset_pubkey = Pubkey::new_unique().to_string();
+    cfgt.secrets.cold_wallet = Pubkey::new_unique().to_string();
+    cfgt.senders.rpcsend.enabled = false;
+    cfgt.senders.helius.enabled = true;
+    cfgt.senders.helius.url = format!("{url}fast");
+    cfgt.senders.helius.max_rps = 10;
+    let mut env = rugsnipe_core::config::ValidateEnv {
+        clock_offset_ms: Some(0.1),
+        post_exec_feed_healthy: true,
+        armset: rugsnipe_core::config::ArmSetGate::Verified {
+            gate_passed: false,
+            probe_allowed: true,
+        },
+        ..Default::default()
+    };
+    env.credential_modes
+        .insert("probe-keypair".into(), Some(0o400));
+    let senders =
+        Arc::new(rugsnipe_tx::senders::SenderSet::build(&cfgt, &env, &Default::default()).unwrap());
+    let signer = Arc::new(rugsnipe::setup::throwaway_signer().unwrap());
+    let pool = rugsnipe::setup::paper_nonce_pool(signer.pubkey(), 1);
+    let t = rugsnipe::setup::templates(&cfgt, signer.pubkey(), &pool).unwrap();
+    let hash: Arc<Mutex<Option<[u8; 32]>>> = Arc::default();
+    let h2 = hash.clone();
+    let mut g = Guard::new(
+        cfg(false, 0),
+        Some(PaperSell {
+            template: t.sell_final,
+            signer: signer.clone(),
+            paper: Arc::new(rugsnipe_tx::senders::paper::Paper::new(16)),
+            tip_account: t.tip_account,
+            bid: rugsnipe_core::bid::BidPolicy::from_cfg(&cfgt.bid),
+            real: Some(rugsnipe::guard::GuardReal {
+                senders,
+                blockhash: Arc::new(move || *h2.lock().unwrap()),
+            }),
+        }),
+    );
+    let acts = g.step(&c, 1_000, &|_| None).unwrap();
+    assert!(
+        matches!(&acts[1], GuardAction::SellDeferred { mint, .. } if *mint == m),
+        "{acts:?}"
+    );
+    assert!(got.lock().unwrap().is_empty());
+    *hash.lock().unwrap() = Some([7; 32]);
+    let acts = g.step(&c, 2_000, &|_| None).unwrap();
+    assert!(
+        matches!(
+            &acts[..],
+            [GuardAction::SentReal {
+                sent: 1,
+                accepted: 1,
+                ..
+            }]
+        ),
+        "{acts:?}"
+    );
+    let txs = got.lock().unwrap().clone();
+    assert_eq!(txs.len(), 1);
+    let view = pump_codec::tx::TxView::parse(&txs[0]).unwrap();
+    assert_eq!(view.recent_blockhash(), &[7u8; 32]);
+    assert!(view
+        .static_account_keys()
+        .iter()
+        .any(|k| rugsnipe_tx::senders::providers::HELIUS_TIP_ACCOUNTS.contains(k)));
+    assert!(rugsnipe_tx::signer::verify(
+        &signer.pubkey(),
+        &txs[0][65..],
+        txs[0][1..65].try_into().unwrap()
     ));
     let _ = std::fs::remove_dir_all(&dir);
 }

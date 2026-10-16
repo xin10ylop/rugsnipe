@@ -38,6 +38,9 @@ LoadCredential=hot-keypair:/etc/rugsnipe/keys/hot-keypair.json
 SetCredential=hot-keypair:ABSENT
 LoadCredential=api-keys:/etc/rugsnipe/keys/api-keys.toml
 SetCredential=api-keys:ABSENT
+# probe: `rugsnipe-guard --real-sell` sells the probe wallet's positions
+LoadCredential=probe-keypair:/etc/rugsnipe/keys/probe-keypair.json
+SetCredential=probe-keypair:ABSENT
 
 CapabilityBoundingSet=
 AmbientCapabilities=

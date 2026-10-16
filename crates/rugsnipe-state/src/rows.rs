@@ -114,6 +114,14 @@ pub struct SendRow {
     pub tip: u64,
     pub sent_ns: u64,
     pub result: String,
+    /// The base bid B the variant was planned from (before the class split).
+    pub bid: u64,
+    /// Wall clock of the hand-off (ms since the Unix epoch).
+    pub sent_unix_ms: u64,
+    /// `buy`, `sell` or `burn`.
+    pub kind: String,
+    /// The provider's refusal, first 200 characters (never request data).
+    pub err: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -135,6 +143,12 @@ pub struct FillRow {
     pub fail_reason: Option<String>,
     /// What the failed attempt cost (its priority fee; 0 for `class`).
     pub fail_cost: u64,
+    /// Real fills (probe/live): `meta.fee` of the landed transaction, the
+    /// landed variant, its sender and the tip it carried.
+    pub fee: Option<u64>,
+    pub variant: Option<u8>,
+    pub sender: Option<String>,
+    pub tip: Option<u64>,
 }
 
 /// `shadow`: the shadow-mode entry of one paper intent (docs/04 section 7).

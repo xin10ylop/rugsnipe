@@ -159,12 +159,17 @@ fn real_modes_refused_without_signed_gate_or_caps() {
 fn enabled_real_sender_needs_its_feature() {
     let mut c = armable(Mode::Probe);
     c.senders.helius.enabled = true;
-    let r = SenderSet::build(&c, &good_env(&c), &ApiKeys::default());
+    c.senders.helius_swqos.enabled = true;
+    let mut keys = ApiKeys::default();
+    keys.insert("HELIUS_KEY", "k");
+    let r = SenderSet::build(&c, &good_env(&c), &keys);
     if cfg!(feature = "senders") {
         let set = r.unwrap();
-        assert_eq!(set.real().len(), 1);
+        assert_eq!(set.real().len(), 2);
         assert_eq!(set.real()[0].id(), SenderId::Helius);
-        assert_eq!(set.real()[0].min_tip(), 5_000, "swqos_only minimum");
+        assert_eq!(set.real()[0].min_tip(), 1_000_000, "Sender minimum");
+        assert_eq!(set.real()[1].id(), SenderId::HeliusSwqos);
+        assert_eq!(set.real()[1].min_tip(), 5_000, "swqos_only minimum");
     } else {
         assert_eq!(
             r.unwrap_err(),
@@ -347,4 +352,33 @@ fn rpcsend_sells_only_refuses_buys_before_the_network() {
         "{r:?}"
     );
     assert_eq!(accepted.load(Acquire), 1, "the sell went out");
+}
+
+#[cfg(feature = "senders")]
+#[test]
+fn jito_regions_and_blockrazor_build_one_sender_each() {
+    let mut c = armable(Mode::Probe);
+    c.senders.jito.enabled = true;
+    c.senders.jito.regions = vec!["frankfurt".into(), "amsterdam".into()];
+    c.senders.blockrazor.enabled = true;
+    c.senders.blockrazor.key = "BLOCKRAZOR_KEY".into();
+    let mut keys = ApiKeys::default();
+    keys.insert("BLOCKRAZOR_KEY", "b");
+    let set = SenderSet::build(&c, &good_env(&c), &keys).unwrap();
+    let labels: Vec<&str> = set.real().iter().map(|s| s.label()).collect();
+    assert_eq!(
+        labels,
+        vec!["blockrazor", "jito_frankfurt", "jito_amsterdam"]
+    );
+    assert!(set
+        .real()
+        .iter()
+        .filter(|s| s.id() == SenderId::Jito)
+        .all(|s| s.buy_variants() == 1));
+    // a dry set holds the same targets but can send through none of them
+    let dry = SenderSet::build_dry(&c, &good_env(&c), &keys).unwrap();
+    assert!(dry.real().is_empty() && dry.targets().len() == 3);
+    let mut paper = c.clone();
+    paper.mode.mode = Mode::Paper;
+    assert!(SenderSet::build_dry(&paper, &good_env(&paper), &keys).is_err());
 }

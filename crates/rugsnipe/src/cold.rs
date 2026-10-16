@@ -13,6 +13,11 @@
 //! * paper fill lane inside the RPC budget: E1 verdicts and replay tapes
 //!   ([`crate::e1`]) or E2 states ([`crate::e2`]); shadow rows, failed
 //!   attempts and the session's paper totals ([`PaperReport`]);
+//! * probe: the real fill lane ([`crate::real`]) runs on this runtime; its
+//!   verdicts become `fills` / `shadow` rows with the real cost, rank and
+//!   premium, the hot loop's own-trade and failure messages, the per-sender
+//!   and per-variant landing stats ([`ProbeReport`]); the keeper's burns are
+//!   real transactions there;
 //! * ArmSet reload on file change; feed health -> rslog + decode-miss kill;
 //! * Prometheus text endpoint on the configured listen addresses.
 
@@ -85,6 +90,140 @@ pub struct ColdCfg {
     /// assembles each E1 verdict's features and keeps the outcome store.
     pub filter: Option<Arc<crate::filter::Model>>,
     pub filter_mode: rugsnipe_core::config::FilterMode,
+    /// Probe: the real fill lane and the signer of the keeper's burns.
+    pub real: Option<RealCold>,
+}
+
+/// The real fill lane's settings (probe).
+#[derive(Debug, Clone)]
+pub struct RealCold {
+    pub lane: crate::real::LaneCfg,
+    pub signer: Arc<rugsnipe_tx::signer::HotSigner>,
+}
+
+/// Per-sender send and landing counts (probe).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct SenderStats {
+    pub sent: u64,
+    pub accepted: u64,
+    pub failed: u64,
+    /// Refusals by name (`rate_limited`, `http`, `tip_too_low`, ...).
+    pub errors: BTreeMap<String, u64>,
+    /// Our variant through this sender landed and the buy succeeded / failed.
+    pub landed: u64,
+    pub landed_failed: u64,
+    /// Tips of the variants that landed and succeeded (paid), `meta.fee` of
+    /// everything that landed.
+    pub tips_paid_lamports: u64,
+    pub fees_paid_lamports: u64,
+}
+
+/// Landings per bid variant (0: pay-on-success primary, 1: priority-ordered).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct VariantStats {
+    pub landed: u64,
+    pub landed_failed: u64,
+}
+
+/// One resolved real attempt (summary; capped at [`PROBE_ROWS`]).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct LandingRow {
+    pub intent: u64,
+    pub mint: String,
+    /// `landed`, `failed` or `dropped`.
+    pub outcome: String,
+    pub sig: String,
+    pub variant: Option<u8>,
+    pub sender: Option<String>,
+    pub bid: u64,
+    pub prio: Option<u64>,
+    pub tip: Option<u64>,
+    pub create_slot: u64,
+    pub slot: Option<u64>,
+    pub slot_offset: Option<u64>,
+    pub tx_index: Option<u32>,
+    pub buyers_ahead: u32,
+    pub buyers_behind: u32,
+    pub premium_bps: Option<u32>,
+    pub fee: u64,
+    pub fail_reason: Option<String>,
+    pub late: bool,
+}
+
+/// Rows kept in [`ProbeReport::landings`].
+pub const PROBE_ROWS: usize = 500;
+
+/// The probe's landing measurement (docs/04 section 7, docs/08 section 9):
+/// which variant landed through which sender, its bid, rank, premium and
+/// the failed attempts' real cost. The same rows are in `state.db`
+/// (`sends`, `fills`, `shadow`), which `shadow_gate.py --probe` reads.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ProbeReport {
+    pub attempts: u64,
+    pub resolved: u64,
+    pub landed: u64,
+    pub landed_failed: u64,
+    pub dropped: u64,
+    pub late_fills: u64,
+    /// landed / resolved.
+    pub landing_rate: f64,
+    /// `meta.fee` of the failed attempts (dropped ones cost 0).
+    pub failed_cost_lamports: u64,
+    pub failed_cost_lamports_mean: f64,
+    pub median_premium_bps: f64,
+    pub mean_buyers_ahead: f64,
+    pub fail_reasons: BTreeMap<String, u64>,
+    pub by_sender: BTreeMap<String, SenderStats>,
+    pub by_variant: BTreeMap<String, VariantStats>,
+    pub sells_landed: u64,
+    pub sells_failed: u64,
+    pub burns_sent: u64,
+    pub burns_failed: u64,
+    pub wallet_lamports: u64,
+    pub rpc_calls: u64,
+    pub errors: Vec<String>,
+    pub landings: Vec<LandingRow>,
+    #[serde(skip)]
+    premiums: Vec<u32>,
+    #[serde(skip)]
+    ahead_sum: u64,
+}
+
+impl ProbeReport {
+    fn derive(&mut self) {
+        let f = |a: f64, b: f64| if b > 0.0 { a / b } else { 0.0 };
+        self.landing_rate = f(self.landed as f64, self.resolved as f64);
+        let failed = self.landed_failed + self.dropped;
+        self.failed_cost_lamports_mean = f(self.failed_cost_lamports as f64, failed as f64);
+        self.mean_buyers_ahead = f(self.ahead_sum as f64, self.landed as f64);
+        let mut p = self.premiums.clone();
+        p.sort_unstable();
+        self.median_premium_bps = match p.len() {
+            0 => 0.0,
+            k if k % 2 == 1 => p[k / 2] as f64,
+            k => (p[k / 2 - 1] as f64 + p[k / 2] as f64) / 2.0,
+        };
+    }
+    fn error(&mut self, e: String) {
+        if self.errors.len() < 16 {
+            self.errors.push(e);
+        }
+    }
+    fn row(&mut self, r: LandingRow) {
+        if self.landings.len() < PROBE_ROWS {
+            self.landings.push(r);
+        }
+    }
+}
+
+/// What the cold side keeps about a real intent.
+#[derive(Debug, Clone, Copy)]
+struct RealIntent {
+    mint: Pubkey,
+    slot: u64,
+    nonce_idx: u16,
+    spend: u64,
+    bid: u64,
 }
 
 /// Counters of the cold side (summary).
@@ -120,6 +259,8 @@ pub struct ColdReport {
     pub e1_errors: Vec<String>,
     /// Shadow-mode totals of the session (docs/04 section 7).
     pub paper: PaperReport,
+    /// Probe: real sends, landings per sender and variant, real costs.
+    pub probe: ProbeReport,
 }
 
 /// Paper (shadow) totals: verdicts, landing rate, premium, exits, P&L and
@@ -425,7 +566,20 @@ struct Cold {
     sender_gone: bool,
     /// Entry filter features and the live outcome store.
     lane: crate::filter::FilterLane,
+    /// Probe: the real fill lane's command and event channels.
+    lane_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::real::LaneCmd>>,
+    lane_rx: Option<tokio::sync::mpsc::UnboundedReceiver<crate::real::LaneEvent>>,
+    real_intents: HashMap<u64, RealIntent>,
+    /// Real sends whose intent's `RealPending` (hot ring) has not been read
+    /// yet (the sender thread's channel can win the race): retried each drain.
+    early_sent: Vec<(ColdMsg, u32)>,
+    /// Slot each Burning nonce's burn was sent at (re-sent after
+    /// [`BURN_RETRY_SLOTS`]; quarantined after three failures).
+    burning_since: HashMap<usize, u64>,
 }
+
+/// A burn not confirmed by a new nonce value after this many slots is re-sent.
+pub const BURN_RETRY_SLOTS: u64 = 20;
 
 fn lock(r: &Mutex<ColdReport>) -> std::sync::MutexGuard<'_, ColdReport> {
     r.lock().unwrap_or_else(|e| e.into_inner())
@@ -468,12 +622,46 @@ impl Cold {
             armset_mtime: None,
             nonce_intent: vec![0; n],
             sender_gone: false,
+            lane_tx: None,
+            lane_rx: None,
+            real_intents: HashMap::new(),
+            early_sent: vec![],
+            burning_since: HashMap::new(),
+        }
+    }
+
+    /// A message from the sender thread: a real send whose intent is not
+    /// known yet waits (up to ~100 drains) for its `RealPending`.
+    fn on_sent_maybe_early(&mut self, m: ColdMsg, tries: u32) {
+        if let ColdMsg::Sent { intent, sender, .. } = m {
+            if self.p.cfg.real.is_some()
+                && sender != 0
+                && !self.real_intents.contains_key(&intent)
+                && tries < 100
+            {
+                self.early_sent.push((m, tries));
+                return;
+            }
+        }
+        self.on_msg(m);
+    }
+
+    fn lane(&self, c: crate::real::LaneCmd) {
+        if let Some(tx) = &self.lane_tx {
+            let _ = tx.send(c);
         }
     }
 
     async fn run(mut self) {
         self.start_metrics().await;
         self.start_lease();
+        if let Some(r) = self.p.cfg.real.clone() {
+            let (ctx, crx) = tokio::sync::mpsc::unbounded_channel();
+            let (etx, erx) = tokio::sync::mpsc::unbounded_channel();
+            tokio::spawn(crate::real::run(r.lane, crx, etx, self.snipers.clone()));
+            self.lane_tx = Some(ctx);
+            self.lane_rx = Some(erx);
+        }
         self.write_nonce_rows(0);
         if let Some(a) = &self.p.cfg.armset {
             self.armset_mtime = std::fs::metadata(&a.path).and_then(|m| m.modified()).ok();
@@ -510,6 +698,14 @@ impl Cold {
                 self.flush_outcomes(true);
                 self.every_5s();
                 self.write_risk_row();
+                if self.p.cfg.real.is_some() {
+                    if let Some(l) = &self.p.ledger {
+                        let p = lock(&self.p.report).probe.clone();
+                        if let Ok(j) = serde_json::to_string(&p) {
+                            l.kv("probe_report", j);
+                        }
+                    }
+                }
                 if let Some((c, l, _)) = self.lease.as_mut() {
                     let _ = l.release(c);
                 }
@@ -599,9 +795,12 @@ impl Cold {
         while let Ok(m) = self.p.from_hot.pop() {
             self.on_msg(m);
         }
+        for (m, tries) in std::mem::take(&mut self.early_sent) {
+            self.on_sent_maybe_early(m, tries + 1);
+        }
         loop {
             match self.p.from_sender.try_recv() {
-                Ok(m) => self.on_msg(m),
+                Ok(m) => self.on_sent_maybe_early(m, 0),
                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     self.sender_gone = true;
@@ -667,6 +866,15 @@ impl Cold {
                 });
             }
             self.to_hot_q.extend(e1_messages(&r));
+        }
+        let mut evs = vec![];
+        if let Some(rx) = self.lane_rx.as_mut() {
+            while let Ok(e) = rx.try_recv() {
+                evs.push(e);
+            }
+        }
+        for e in evs {
+            self.on_lane(e);
         }
         // in order, as ring space allows (a full ring waits for the next drain)
         while let Some(m) = self.to_hot_q.front() {
@@ -744,7 +952,10 @@ impl Cold {
                         mint,
                         op_id,
                         box_id: self.p.cfg.box_id.clone(),
-                        mode: self.mode_str().into(),
+                        // a decision forced to paper in a real mode is a paper
+                        // intent: `shadow_gate.py --probe` reads mode = probe rows
+                        // as real attempts only
+                        mode: if real { self.mode_str() } else { "paper" }.into(),
                         armset_ver,
                         slot,
                         bank_id,
@@ -775,18 +986,29 @@ impl Cold {
                 sig,
                 variant,
                 sender,
+                label,
                 prio,
                 tip,
+                bid,
                 sent_ns,
+                sent_unix_ms,
                 result,
+                err,
+                http,
+                kind,
             } => {
                 lock(&self.p.report).sends += 1;
+                let kind = match kind {
+                    1 => rugsnipe_tx::senders::VariantKind::Sell,
+                    2 => rugsnipe_tx::senders::VariantKind::Burn,
+                    _ => rugsnipe_tx::senders::VariantKind::Buy,
+                };
                 if let Some(l) = &ledger {
                     l.sent(SendRow {
                         sig,
                         intent_id: intent as i64,
                         variant,
-                        sender: sender_name(sender).into(),
+                        sender: label.into(),
                         prio,
                         tip,
                         sent_ns,
@@ -796,8 +1018,113 @@ impl Cold {
                             _ => "failed",
                         }
                         .into(),
+                        bid,
+                        sent_unix_ms,
+                        kind: crate::sender::kind_name(kind).into(),
+                        err: (!err.is_empty()).then(|| {
+                            if http > 0 {
+                                format!("{err} {http}")
+                            } else {
+                                err.to_string()
+                            }
+                        }),
                     });
                 }
+                if sender != 0 && self.real_intents.contains_key(&intent) {
+                    {
+                        let mut r = lock(&self.p.report);
+                        let st = r.probe.by_sender.entry(label.to_string()).or_default();
+                        st.sent += 1;
+                        if result == 1 {
+                            st.accepted += 1;
+                        } else {
+                            st.failed += 1;
+                            *st.errors.entry(err.to_string()).or_default() += 1;
+                        }
+                    }
+                    // a request the provider took may land: poll its signature
+                    if result == 1 {
+                        match kind {
+                            rugsnipe_tx::senders::VariantKind::Buy => {
+                                self.lane(crate::real::LaneCmd::Sent {
+                                    intent,
+                                    var: crate::real::SentVar {
+                                        sig,
+                                        variant,
+                                        label,
+                                        prio,
+                                        tip,
+                                    },
+                                })
+                            }
+                            rugsnipe_tx::senders::VariantKind::Sell => {
+                                let mint = self.real_intents[&intent].mint;
+                                self.lane(crate::real::LaneCmd::SellSent {
+                                    mint,
+                                    sig,
+                                    slot: self.p.shared.slot_now.load(Relaxed),
+                                })
+                            }
+                            rugsnipe_tx::senders::VariantKind::Burn => {}
+                        }
+                    }
+                }
+            }
+            ColdMsg::RealPending {
+                intent,
+                mint,
+                bc,
+                create_sig,
+                slot,
+                creator,
+                user,
+                nonce_idx,
+                nonce_value,
+                spend,
+                bid,
+            } => {
+                lock(&self.p.report).probe.attempts += 1;
+                self.real_intents.insert(
+                    intent,
+                    RealIntent {
+                        mint,
+                        slot,
+                        nonce_idx,
+                        spend,
+                        bid,
+                    },
+                );
+                let i = nonce_idx as usize;
+                let account = if i < self.p.nonces.len() {
+                    self.p.nonces.account(i)
+                } else {
+                    Pubkey::default()
+                };
+                self.lane(crate::real::LaneCmd::Track(crate::real::Pending {
+                    intent,
+                    mint,
+                    bc,
+                    create_sig,
+                    slot,
+                    creator,
+                    user,
+                    nonce_idx,
+                    nonce_account: account,
+                    nonce_value,
+                    spend,
+                }));
+            }
+            ColdMsg::RealHeld { intent, mint } => {
+                // a position adopted at recovery has no RealPending: track its
+                // mint so its sells are polled too
+                self.real_intents.entry(intent).or_insert(RealIntent {
+                    mint,
+                    slot: 0,
+                    nonce_idx: u16::MAX,
+                    spend: 0,
+                    bid: 0,
+                });
+                self.lane(crate::real::LaneCmd::Held { intent, mint });
             }
             ColdMsg::Fill {
                 intent,
@@ -846,6 +1173,10 @@ impl Cold {
                             late,
                             fail_reason: fail.map(|f| f.as_str().to_string()),
                             fail_cost,
+                            fee: None,
+                            variant: None,
+                            sender: None,
+                            tip: None,
                         },
                         None,
                     );
@@ -1018,6 +1349,7 @@ impl Cold {
                 }
             }
             ColdMsg::Closed { mint, pnl, .. } => {
+                self.lane(crate::real::LaneCmd::Released { mint });
                 {
                     let mut r = lock(&self.p.report);
                     r.positions_closed += 1;
@@ -1099,7 +1431,18 @@ impl Cold {
         seed[..8].copy_from_slice(&slot.to_le_bytes());
         let value = next_value(&seed);
         if self.p.cfg.mode.is_real() {
-            // Real modes: the keeper sends the burn; the account stream reports the value.
+            // Real modes: the lane sends the AdvanceNonce-only burn on the value
+            // our variants carry; the nonce poll reports the new value.
+            self.burning_since.insert(i, slot);
+            if let Some(r) = &self.p.cfg.real {
+                self.lane(crate::real::LaneCmd::Burn {
+                    idx: i as u16,
+                    account: pool.account(i),
+                    value: prev,
+                    signer: r.signer.clone(),
+                });
+            }
+            self.write_nonce_row(i);
             return;
         }
         pool.on_value(i, value, slot);
@@ -1126,6 +1469,367 @@ impl Cold {
             .due_for_burn(slot, self.p.cfg.burn_after_slots.max(1))
         {
             self.burn(i);
+        }
+        // real: a burn whose value change never showed is sent again (three
+        // failures quarantine the nonce)
+        let stale: Vec<usize> = self
+            .burning_since
+            .iter()
+            .filter(|(_, at)| slot.saturating_sub(**at) >= BURN_RETRY_SLOTS)
+            .map(|(i, _)| *i)
+            .collect();
+        for i in stale {
+            self.retry_burn(i, slot);
+        }
+    }
+
+    fn retry_burn(&mut self, i: usize, slot: u64) {
+        let pool = &self.p.nonces;
+        if pool.packed(i).state != NonceState::Burning {
+            self.burning_since.remove(&i);
+            return;
+        }
+        if pool.burn_failed(i) == NonceState::Quarantined {
+            self.burning_since.remove(&i);
+            lock(&self.p.report)
+                .probe
+                .error(format!("nonce {i} quarantined after 3 burns"));
+            self.write_nonce_row(i);
+            return;
+        }
+        self.burning_since.insert(i, slot);
+        if let Some(r) = &self.p.cfg.real {
+            self.lane(crate::real::LaneCmd::Burn {
+                idx: i as u16,
+                account: pool.account(i),
+                value: pool.value(i),
+                signer: r.signer.clone(),
+            });
+        }
+    }
+
+    /// One event of the real fill lane.
+    fn on_lane(&mut self, e: crate::real::LaneEvent) {
+        use crate::real::LaneEvent as E;
+        let ledger = self.p.ledger.clone();
+        match e {
+            E::Landed(l) => self.on_landed(l),
+            E::Dropped {
+                intent,
+                primary,
+                burned,
+            } => {
+                let Some(ri) = self.real_intents.get(&intent).copied() else {
+                    return;
+                };
+                let sig = primary.map(|v| v.sig).unwrap_or([0; 64]);
+                if let Some(l) = &ledger {
+                    l.fill(
+                        FillRow {
+                            sig,
+                            intent_id: intent as i64,
+                            mint: ri.mint,
+                            slot: ri.slot,
+                            tx_index: None,
+                            tokens: 0,
+                            sol_delta: 0,
+                            err: Some("dropped: the nonce advanced without our transaction".into()),
+                            buyers_ahead: 0,
+                            rival_sol_ahead: 0,
+                            late: false,
+                            fail_reason: Some("dropped".into()),
+                            fail_cost: 0,
+                            fee: Some(0),
+                            variant: primary.map(|v| v.variant),
+                            sender: primary.map(|v| v.label.to_string()),
+                            tip: None,
+                        },
+                        Some(if burned {
+                            IntentState::Burned
+                        } else {
+                            IntentState::Failed
+                        }),
+                    );
+                }
+                {
+                    let mut r = lock(&self.p.report);
+                    r.unfilled += 1;
+                    let p = &mut r.probe;
+                    p.resolved += 1;
+                    p.dropped += 1;
+                    *p.fail_reasons.entry("dropped".into()).or_default() += 1;
+                    p.row(LandingRow {
+                        intent,
+                        mint: ri.mint.to_string(),
+                        outcome: "dropped".into(),
+                        sig: b58(&sig),
+                        variant: primary.map(|v| v.variant),
+                        sender: primary.map(|v| v.label.to_string()),
+                        bid: ri.bid,
+                        create_slot: ri.slot,
+                        fail_reason: Some("dropped".into()),
+                        ..Default::default()
+                    });
+                    p.derive();
+                }
+                self.to_hot_q.push_back(HotIn::RealFailed {
+                    intent,
+                    cost: 0,
+                    dropped: true,
+                });
+            }
+            E::OwnTrade {
+                sig,
+                slot,
+                mint,
+                trade,
+            } => {
+                if !trade.is_buy {
+                    lock(&self.p.report).probe.sells_landed += 1;
+                }
+                let t = crate::real::trade_of(&trade, mint, self.p.cfg.owner, slot);
+                self.to_hot_q.push_back(HotIn::RealTrade { sig, trade: t });
+            }
+            E::SellFailed { sig, fee, reason } => {
+                let mut r = lock(&self.p.report);
+                r.probe.sells_failed += 1;
+                r.probe
+                    .error(format!("sell {} failed ({reason}), fee {fee}", b58(&sig)));
+            }
+            E::Balance { mint, tokens, slot } => {
+                self.to_hot_q
+                    .push_back(HotIn::RealBalance { mint, tokens, slot });
+            }
+            E::Nonce { idx, value, slot } => {
+                let i = idx as usize;
+                if i < self.p.nonces.len() {
+                    let from = self.p.nonces.on_value(i, value, slot);
+                    self.burning_since.remove(&i);
+                    self.p.rslog.push(Rec::NonceEvt {
+                        idx,
+                        from: from as u8,
+                        to: NonceState::Free as u8,
+                        slot,
+                        value,
+                        intent: self.nonce_intent.get(i).copied().unwrap_or(0),
+                    });
+                    if from == NonceState::Burning {
+                        lock(&self.p.report).nonce_burns += 1;
+                    }
+                    self.write_nonce_row(i);
+                }
+            }
+            E::BurnSent { idx, sig, ok, err } => {
+                {
+                    let mut r = lock(&self.p.report);
+                    if ok {
+                        r.probe.burns_sent += 1;
+                    } else {
+                        r.probe.burns_failed += 1;
+                        r.probe.error(format!("burn of nonce {idx}: {err}"));
+                    }
+                }
+                if let Some(l) = &ledger {
+                    l.sent(SendRow {
+                        sig,
+                        intent_id: self.nonce_intent.get(idx as usize).copied().unwrap_or(0) as i64,
+                        variant: 0,
+                        sender: "rpc".into(),
+                        prio: 0,
+                        tip: 0,
+                        sent_ns: rugsnipe_feed::clock::mono_ns(),
+                        result: if ok { "accepted" } else { "failed" }.into(),
+                        bid: 0,
+                        sent_unix_ms: crate::now_ms(),
+                        kind: "burn".into(),
+                        err: (!ok).then(|| err.clone()),
+                    });
+                }
+            }
+            E::Wallet { lamports } => {
+                self.p.risk.set_hot_balance(lamports);
+                lock(&self.p.report).probe.wallet_lamports = lamports;
+            }
+            E::Blockhash { hash, slot } => {
+                let at = if slot > 0 {
+                    slot
+                } else {
+                    self.p.shared.slot_now.load(Relaxed)
+                };
+                self.p.shared.set_blockhash(hash, at);
+            }
+            E::Error(e) => lock(&self.p.report).probe.error(e),
+            E::Calls(n) => lock(&self.p.report).probe.rpc_calls += n as u64,
+        }
+    }
+
+    /// A real buy landed: the `fills` row with its real cost, rank and
+    /// variant; the `shadow` row with the premium (`filled`) or the
+    /// slippage failure; the hot loop opens on our TradeEvent or ends the
+    /// intent with the cost.
+    fn on_landed(&mut self, l: crate::real::Landed) {
+        let Some(ri) = self.real_intents.get(&l.intent).copied() else {
+            return;
+        };
+        let ledger = self.p.ledger.clone();
+        let ok = l.fail.is_none();
+        let var = l.var;
+        let tokens = l.trade.map_or(0, |t| t.tokens);
+        let sol_delta = if ok {
+            -(l.trade.map_or(0, |t| t.sol.saturating_add(t.fee)) as i64)
+        } else {
+            -(l.fee as i64)
+        };
+        let (reason, err_text) = match &l.fail {
+            Some((r, t)) => (Some(r.clone()), Some(format!("failed: {t}"))),
+            None if l.trade.is_none() => (None, Some("landed without our TradeEvent".into())),
+            None => (None, None),
+        };
+        if let Some(ld) = &ledger {
+            ld.fill(
+                FillRow {
+                    sig: l.sig,
+                    intent_id: l.intent as i64,
+                    mint: ri.mint,
+                    slot: l.slot,
+                    tx_index: l.rank.tx_index,
+                    tokens,
+                    sol_delta,
+                    err: err_text,
+                    buyers_ahead: l.rank.tp_ahead,
+                    rival_sol_ahead: l.rank.rival_sol_ahead,
+                    late: l.late,
+                    fail_reason: reason.clone(),
+                    fail_cost: if ok { 0 } else { l.fee },
+                    fee: Some(l.fee),
+                    variant: var.map(|v| v.variant),
+                    sender: var.map(|v| v.label.to_string()),
+                    tip: var.map(|v| v.tip),
+                },
+                Some(match (ok, l.late) {
+                    (true, true) => IntentState::LateFill,
+                    (true, false) => IntentState::Landed,
+                    (false, _) => IntentState::Failed,
+                }),
+            );
+            // the probe verdict reads `shadow` for the premium of landed trades and
+            // the failure class of slippage losers (others carry fills.fail_reason)
+            let outcome = match (ok, reason.as_deref()) {
+                (true, _) => Some(ShadowOutcome::Filled),
+                (false, Some("slippage")) => Some(ShadowOutcome::Slippage),
+                _ => None,
+            };
+            if let Some(o) = outcome {
+                let info = l.rank.info;
+                ld.shadow(ShadowRow {
+                    intent_id: l.intent as i64,
+                    mint: ri.mint,
+                    model: "probe".into(),
+                    outcome: o.as_str().into(),
+                    create_slot: ri.slot,
+                    create_index: info.create_index,
+                    block_txs: info.block_txs,
+                    bundle_trades: info.bundle_trades,
+                    bundle_wallets: info.bundle_wallets,
+                    our_index: l.rank.tx_index,
+                    tp_ahead: l.rank.tp_ahead,
+                    tp_behind: l.rank.tp_behind,
+                    s0_failed: info.s0_failed,
+                    premium_bps: l.rank.premium_bps.unwrap_or(0),
+                    post_bundle_v: info.post_bundle_v,
+                    post_bundle_t: info.post_bundle_t,
+                    post_bundle_mcap: info.post_bundle_mcap,
+                    cost: if ok { 0 } else { l.fee },
+                });
+            }
+        }
+        {
+            let mut r = lock(&self.p.report);
+            if ok {
+                r.fills += 1;
+            } else {
+                r.unfilled += 1;
+            }
+            let p = &mut r.probe;
+            p.resolved += 1;
+            if let Some(e) = &l.rank.error {
+                p.error(format!("rank of {}: {e}", b58(&l.sig)));
+            }
+            let label = var.map_or("?", |v| v.label).to_string();
+            let vkey = var.map_or("?".to_string(), |v| v.variant.to_string());
+            let st = p.by_sender.entry(label.clone()).or_default();
+            st.fees_paid_lamports += l.fee;
+            if ok {
+                st.landed += 1;
+                st.tips_paid_lamports += var.map_or(0, |v| v.tip);
+            } else {
+                st.landed_failed += 1;
+            }
+            let vs = p.by_variant.entry(vkey).or_default();
+            if ok {
+                vs.landed += 1;
+                p.landed += 1;
+                p.ahead_sum += l.rank.tp_ahead as u64;
+                if let Some(x) = l.rank.premium_bps {
+                    p.premiums.push(x);
+                }
+                if l.late {
+                    p.late_fills += 1;
+                }
+            } else {
+                vs.landed_failed += 1;
+                p.landed_failed += 1;
+                p.failed_cost_lamports += l.fee;
+                *p.fail_reasons
+                    .entry(reason.clone().unwrap_or_default())
+                    .or_default() += 1;
+            }
+            p.row(LandingRow {
+                intent: l.intent,
+                mint: ri.mint.to_string(),
+                outcome: if ok { "landed" } else { "failed" }.into(),
+                sig: b58(&l.sig),
+                variant: var.map(|v| v.variant),
+                sender: var.map(|v| v.label.to_string()),
+                bid: ri.bid,
+                prio: var.map(|v| v.prio),
+                tip: var.map(|v| v.tip),
+                create_slot: ri.slot,
+                slot: Some(l.slot),
+                slot_offset: Some(l.slot.saturating_sub(ri.slot)),
+                tx_index: l.rank.tx_index,
+                buyers_ahead: l.rank.tp_ahead,
+                buyers_behind: l.rank.tp_behind,
+                premium_bps: l.rank.premium_bps,
+                fee: l.fee,
+                fail_reason: reason,
+                late: l.late,
+            });
+            p.derive();
+        }
+        let _ = ri.spend;
+        let _ = ri.nonce_idx;
+        match (ok, l.trade) {
+            (true, Some(t)) => {
+                let trade = crate::real::trade_of(&t, ri.mint, self.p.cfg.owner, l.slot);
+                self.to_hot_q.push_back(HotIn::RealBuy {
+                    intent: l.intent,
+                    sig: l.sig,
+                    trade,
+                });
+            }
+            (true, None) => {
+                // landed without a readable TradeEvent: size it from the balance
+                self.lane(crate::real::LaneCmd::Held {
+                    intent: l.intent,
+                    mint: ri.mint,
+                });
+            }
+            (false, _) => self.to_hot_q.push_back(HotIn::RealFailed {
+                intent: l.intent,
+                cost: l.fee,
+                dropped: false,
+            }),
         }
     }
 
@@ -1198,6 +1902,9 @@ impl Cold {
 
     fn every_second(&mut self) {
         self.flush_outcomes(false);
+        self.lane(crate::real::LaneCmd::Slot(
+            self.p.shared.slot_now.load(Relaxed),
+        ));
         let hb = self.p.shared.heartbeat.load(Relaxed);
         let alive = hb != self.last_hb;
         self.last_hb = hb;
@@ -1323,16 +2030,8 @@ impl Cold {
     }
 }
 
-fn sender_name(id: u8) -> &'static str {
-    match id {
-        0 => "paper",
-        1 => "rpcsend",
-        2 => "helius",
-        3 => "nozomi",
-        4 => "astralane",
-        5 => "jito",
-        _ => "nextblock",
-    }
+fn b58(b: &[u8]) -> String {
+    bs58::encode(b).into_string()
 }
 
 fn watch_row(e: &rugsnipe_core::watchlist::DynEntry) -> WatchDynRow {

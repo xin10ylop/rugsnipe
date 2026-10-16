@@ -266,6 +266,12 @@ impl RiskGate {
             .unwrap_or(0)
     }
 
+    /// A position found on chain at start (recovery: an earlier run's or an
+    /// orphan balance) takes a position slot until it closes.
+    pub fn adopt_position(&self) {
+        self.open_positions.fetch_add(1, AcqRel);
+    }
+
     /// An intent that never filled (failed, burned): give back its position slot.
     pub fn release_unfilled(&self) {
         let _ = self
@@ -299,6 +305,28 @@ impl RiskGate {
             } else {
                 op.consec_losses.store(0, Release);
             }
+        }
+    }
+
+    /// A real buy that landed and failed (or was dropped: `cost = 0`): its
+    /// position slot comes back and what it cost (`meta.fee`) counts toward
+    /// the daily loss (kills at the cap). Not an operator loss: a lost race
+    /// is the expected failure mode and never latches the operator.
+    pub fn on_attempt_failed(&self, cost: u64, now_unix: u64) {
+        self.release_unfilled();
+        if cost == 0 {
+            return;
+        }
+        let day = day_of(now_unix);
+        if self.loss_day.swap(day, AcqRel) != day {
+            self.realized_today.store(0, Release);
+        }
+        let pnl = -(cost.min(i64::MAX as u64) as i64);
+        let total = self.realized_today.fetch_add(pnl, AcqRel) + pnl;
+        if self.caps.max_daily_loss_lamports > 0
+            && total <= -(self.caps.max_daily_loss_lamports as i64)
+        {
+            self.kill(KillReason::DailyLoss);
         }
     }
 
@@ -582,6 +610,33 @@ mod tests {
         );
         g.release_unfilled();
         assert!(g.decide(&inp(Mode::Live)).is_fire());
+    }
+
+    #[test]
+    fn failed_attempts_count_toward_the_daily_loss_not_the_operator_latch() {
+        let mut caps = caps();
+        caps.max_daily_loss_lamports = 2_000_000;
+        caps.max_consec_losses_per_op = 1;
+        let g = RiskGate::new(caps);
+        g.set_hot_balance(3_000_000_000);
+        let i = inp(Mode::Live);
+        let now = i.now_unix;
+        assert!(g.decide(&i).is_fire());
+        assert_eq!(g.open_positions(), 1);
+        g.on_attempt_failed(0, now); // dropped: free
+        assert_eq!((g.open_positions(), g.realized_today(now)), (0, 0));
+        assert!(g.decide(&i).is_fire());
+        g.on_attempt_failed(1_500_000, now);
+        assert_eq!(g.realized_today(now), -1_500_000);
+        assert_eq!(
+            g.op_consec_losses(1),
+            0,
+            "a lost race is not an operator loss"
+        );
+        assert!(!g.is_killed());
+        assert!(g.decide(&i).is_fire());
+        g.on_attempt_failed(600_000, now);
+        assert!(g.is_killed(), "the daily loss cap latches the kill");
     }
 
     #[test]

@@ -4,7 +4,7 @@
 //! threads, and the hot loop itself (returned to the caller, which runs it
 //! on its own thread).
 
-use crate::cold::{self, ArmReload, ColdCfg, ColdParts, ColdReport, E2Cfg};
+use crate::cold::{self, ArmReload, ColdCfg, ColdParts, ColdReport, E2Cfg, RealCold};
 use crate::hot::{HotCfg, HotLoop, HotParts, Shared};
 use crate::msgs::{ColdMsg, FireJob, HotIn};
 use crate::setup::{self, ArmState};
@@ -20,8 +20,11 @@ use rugsnipe_core::rslog::{box_id, RslogWriter};
 use rugsnipe_core::watchlist::Watchlist;
 use rugsnipe_core::Mode;
 use rugsnipe_feed::{FeedHealth, FiredSet};
+use rugsnipe_state::chain::ChainRead;
 use rugsnipe_state::recovery::{recover, RecoverCtx, RecoveryReport};
-use rugsnipe_state::{Ledger, StateStore};
+use rugsnipe_state::rows::NonceRowState;
+use rugsnipe_state::{Ledger, RpcBudget, StateStore};
+use rugsnipe_tx::nonce::NoncePool;
 use rugsnipe_tx::senders::{ApiKeys, SenderSet};
 use rugsnipe_tx::signer::HotSigner;
 use serde::Serialize;
@@ -64,6 +67,39 @@ pub struct AppOpts {
     pub paper_balance: u64,
     /// `--live` was given on the command line.
     pub live_flag: bool,
+    /// Probe only: where the keys are, what the box measured, the chain.
+    pub real: Option<RealOpts>,
+}
+
+/// What a probe process needs beyond the config (docs/06 section 6): the
+/// measured environment, the credentials directory and the chain source.
+pub struct RealOpts {
+    /// `$CREDENTIALS_DIRECTORY` (`rugsnipe-hot` reads it from the
+    /// environment only: keys come from systemd credentials).
+    pub creds_dir: PathBuf,
+    /// Measured clock offset (`chronyc tracking`); `None` = unknown (refused).
+    pub clock_offset_ms: Option<f64>,
+    /// A post-execution feed (gRPC / shreds) is enabled and healthy.
+    pub post_exec_feed_healthy: bool,
+    /// `--probe-dry`: sign everything with the real key, send nothing
+    /// (the post-execution feed requirement is waived: nothing can land).
+    pub dry: bool,
+    /// JSON-RPC of the real fill lane, nonce seeding and recovery.
+    pub rpc_url: String,
+    /// Chain reads for recovery and nonce seeding (`None`: public JSON-RPC
+    /// on `rpc_url`, feature `rpc`).
+    pub chain: Option<Box<dyn ChainRead + Send + Sync>>,
+}
+
+impl core::fmt::Debug for RealOpts {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("RealOpts")
+            .field("creds_dir", &self.creds_dir)
+            .field("clock_offset_ms", &self.clock_offset_ms)
+            .field("post_exec_feed_healthy", &self.post_exec_feed_healthy)
+            .field("dry", &self.dry)
+            .finish_non_exhaustive()
+    }
 }
 
 /// A running process minus the hot loop.
@@ -81,6 +117,11 @@ pub struct App {
     pub armset_gate: ArmSetGate,
     pub armset_error: Option<String>,
     pub recovery: Option<RecoveryReport>,
+    /// The wallet (probe: the real probe key; paper: the throwaway one).
+    pub signer: Arc<HotSigner>,
+    pub nonces: Arc<NoncePool>,
+    /// A copy of the compiled templates (the dry run's self-test).
+    pub templates: setup::Templates,
     store: Option<StateStore>,
     cold: Option<JoinHandle<()>>,
     sender: Option<JoinHandle<u64>>,
@@ -144,37 +185,66 @@ impl Quantiles {
     }
 }
 
-/// The safety gate for real modes (docs/06 section 6): every refusal is
-/// returned. Paper needs nothing. This binary measures neither the clock
-/// offset nor a post-execution feed, so probe/live are refused here.
-pub fn real_mode_gate(
+/// Parse `chronyc -c tracking` (CSV): field 5 is the system clock's offset
+/// from NTP time in seconds. Returns milliseconds.
+pub fn parse_chrony_tracking(csv: &str) -> Option<f64> {
+    let line = csv.lines().find(|l| l.split(',').count() >= 6)?;
+    let secs: f64 = line.split(',').nth(4)?.trim().parse().ok()?;
+    secs.is_finite().then_some(secs * 1_000.0)
+}
+
+/// The clock offset measured by chrony (`None` if `chronyc` is missing or
+/// unsynchronised: probe is then refused as "clock offset unknown").
+pub fn chrony_offset_ms() -> Option<f64> {
+    let out = std::process::Command::new("chronyc")
+        .args(["-c", "tracking"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    parse_chrony_tracking(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// The facts the safety gate checks for a real mode: the measured clock
+/// and post-execution feed, the credentials' permission bits, the ArmSet.
+/// Without [`RealOpts`] everything external is unknown (and refused).
+pub fn real_env(
     cfg: &Config,
     gate: ArmSetGate,
     armset_probe_stage: Option<rugsnipe_core::config::ProbeStage>,
     live_flag: bool,
-) -> Result<(), String> {
-    if !cfg.mode.mode.is_real() {
-        return Ok(());
-    }
-    let env = ValidateEnv {
-        clock_offset_ms: None,
-        post_exec_feed_healthy: false,
+    real: Option<&RealOpts>,
+) -> ValidateEnv {
+    ValidateEnv {
+        clock_offset_ms: real.and_then(|r| r.clock_offset_ms),
+        post_exec_feed_healthy: real.is_some_and(|r| r.post_exec_feed_healthy || r.dry),
         armset: gate,
-        credential_modes: Default::default(),
+        credential_modes: real
+            .map(|r| crate::keys::credential_modes(cfg, &r.creds_dir))
+            .unwrap_or_default(),
         live_cli_flag: live_flag,
         arm_live_token: false,
         armset_probe_stage,
-    };
-    let v = cfg.validate(&env);
-    if v.ok() {
+    }
+}
+
+/// The safety gate for real modes (docs/06 section 6): every refusal is
+/// returned. Paper needs nothing. Live is refused in this build whatever the
+/// gates say; probe needs every `Config::validate` check to pass on `env`.
+pub fn real_mode_gate(cfg: &Config, env: &ValidateEnv) -> Result<(), String> {
+    if !cfg.mode.mode.is_real() {
         return Ok(());
     }
-    Err(v
-        .refusals
-        .iter()
-        .map(|r| format!("  - {r}"))
-        .collect::<Vec<_>>()
-        .join("\n"))
+    let v = cfg.validate(env);
+    let mut lines: Vec<String> = v.refusals.iter().map(|r| format!("  - {r}")).collect();
+    if cfg.mode.mode == Mode::Live {
+        lines.push("  - live is refused in this build (probe only)".into());
+    }
+    if lines.is_empty() {
+        return Ok(());
+    }
+    Err(lines.join("\n"))
 }
 
 /// Assemble the process. Real modes are refused unless every gate passes.
@@ -214,25 +284,67 @@ pub fn build(o: AppOpts) -> Result<App, String> {
             return Err("in-memory ArmSets are paper only".into());
         }
     }
-    // --- safety gate (refuses probe/live with every reason)
+    // --- safety gate (refuses live, and probe with every reason)
     let stage = armset.as_ref().and_then(|a| a.probe_stage);
-    real_mode_gate(&cfg, gate, stage, o.live_flag)
-        .map_err(|r| format!("mode {mode} refused:\n{r}"))?;
-    let env = ValidateEnv {
-        armset: gate,
-        ..Default::default()
+    if mode == Mode::Paper && o.real.is_some() {
+        return Err("real options given in paper mode (bug)".into());
+    }
+    let env = real_env(&cfg, gate, stage, o.live_flag, o.real.as_ref());
+    let mut gate_err = real_mode_gate(&cfg, &env).err();
+    if mode.is_real() && o.real.is_none() {
+        let line = "  - no real options (credentials, clock, post-execution feed, chain)";
+        gate_err = Some(match gate_err {
+            Some(e) => format!("{e}\n{line}"),
+            None => line.to_string(),
+        });
+    }
+    if mode == Mode::Probe && gate_err.is_none() {
+        let buyers = cfg.senders.real_enabled();
+        if !buyers.iter().any(|n| *n != "rpcsend" && *n != "tpu") {
+            gate_err =
+                Some("  - probe needs at least one HTTP sender enabled under [senders]".into());
+        }
+    }
+    if let Some(e) = gate_err {
+        return Err(format!("mode {mode} refused:\n{e}"));
+    }
+    // --- wallet and senders (probe: the probe key from systemd credentials)
+    let (signer, api): (Arc<HotSigner>, ApiKeys) = match (&o.real, mode) {
+        (Some(r), Mode::Probe) => {
+            let k = crate::keys::load_real_keys(&cfg, &r.creds_dir).map_err(|rs| {
+                format!(
+                    "mode {mode} refused:\n{}",
+                    rs.iter()
+                        .map(|r| format!("  - {r}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                )
+            })?;
+            (Arc::new(k.signer), k.api)
+        }
+        (_, Mode::Paper) => (
+            Arc::new(setup::throwaway_signer().map_err(|e| e.to_string())?),
+            ApiKeys::default(),
+        ),
+        _ => {
+            return Err(format!(
+                "mode {mode} refused: no key loading for it in this build"
+            ))
+        }
     };
+    let dry = o.real.as_ref().is_some_and(|r| r.dry);
     let senders = Arc::new(
-        SenderSet::build(&cfg, &env, &ApiKeys::default()).map_err(|e| format!("senders: {e:?}"))?,
+        if dry {
+            SenderSet::build_dry(&cfg, &env, &api)
+        } else {
+            SenderSet::build(&cfg, &env, &api)
+        }
+        .map_err(|e| format!("senders: {e:?}"))?,
     );
+    drop(api);
     if mode == Mode::Paper && !senders.real().is_empty() {
         return Err("paper mode built a real sender (bug)".into());
     }
-    // --- wallet
-    let signer: Arc<HotSigner> = match mode {
-        Mode::Paper => Arc::new(setup::throwaway_signer().map_err(|e| e.to_string())?),
-        _ => return Err("real-mode key loading is not part of this build".into()),
-    };
     let owner = signer.pubkey();
     // --- watchlist + ArmSet state
     let watch = Arc::new(Watchlist::new());
@@ -253,8 +365,14 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     if mode == Mode::Paper {
         risk.set_hot_balance(o.paper_balance);
     }
-    // --- nonce pool, templates
-    let nonces = Arc::new(setup::paper_nonce_pool(owner, cfg.tx.nonce_pool as usize));
+    // --- nonce pool (probe: the wallet's on-chain accounts, seeded from chain
+    // during recovery; every slot is unknown until then), templates
+    let nonces = Arc::new(if mode == Mode::Paper {
+        setup::paper_nonce_pool(owner, cfg.tx.nonce_pool as usize)
+    } else {
+        let n = (cfg.tx.nonce_pool as usize).max(1);
+        NoncePool::new(owner, &rugsnipe_tx::sysix::pool_addresses(&owner, "buy", n))
+    });
     let templates = setup::templates(&cfg, owner, &nonces)?;
     let policy = setup::exit_policy(&cfg)?;
     // --- entry filter (docs/04 section 2): loaded once, refused if broken
@@ -270,6 +388,42 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     };
     // --- state.db + recovery (before READY)
     let mut outcomes = vec![];
+    if mode.is_real() && o.state_path.is_none() {
+        return Err(format!(
+            "mode {mode} refused: a real mode needs --state (recovery, ledger)"
+        ));
+    }
+    // probe: the chain source for recovery and nonce seeding
+    #[allow(unused_mut)]
+    let mut real_opts = o.real;
+    let chain: Option<Box<dyn ChainRead + Send + Sync>> = match real_opts.as_mut() {
+        Some(r) => match r.chain.take() {
+            Some(c) => Some(c),
+            None => {
+                #[cfg(feature = "rpc")]
+                {
+                    let b = Arc::new(RpcBudget::new(cfg.rpc_budget.keeper.max(1) as f64));
+                    Some(Box::new(rugsnipe_state::chain::RpcChain::new(
+                        &r.rpc_url, b,
+                    )))
+                }
+                #[cfg(not(feature = "rpc"))]
+                {
+                    return Err(format!(
+                        "mode {mode} refused: this binary has no chain reads (build with --features real-senders)"
+                    ));
+                }
+            }
+        },
+        None => None,
+    };
+    let nonce_accounts: Vec<(Pubkey, &'static str, u16)> = if mode.is_real() {
+        (0..nonces.len())
+            .map(|i| (nonces.account(i), "buy", i as u16))
+            .collect()
+    } else {
+        vec![]
+    };
     let (store, ledger, recovery) = match &o.state_path {
         Some(p) => {
             let s = StateStore::open(p).map_err(|e| format!("state.db: {e}"))?;
@@ -279,19 +433,34 @@ pub fn build(o: AppOpts) -> Result<App, String> {
                 &c,
                 &l,
                 &RecoverCtx {
-                    owner: None,
+                    owner: mode.is_real().then_some(owner),
                     mode: mode.as_str(),
-                    nonce_accounts: &[],
-                    chain: None,
+                    nonce_accounts: &nonce_accounts,
+                    chain: chain.as_deref().map(|c| c as &dyn ChainRead),
                 },
             )
             .map_err(|e| format!("recovery: {e}"))?;
+            if mode.is_real() {
+                seed_nonces(&nonces, &rep);
+                match chain.as_deref().map(|c| c.balance(&owner)) {
+                    Some(Ok(b)) => risk.set_hot_balance(b),
+                    Some(Err(e)) => eprintln!("wallet balance: {e} (the real lane retries)"),
+                    None => {}
+                }
+            }
             // the entry filter's outcome store, as the last run left it
             outcomes = rugsnipe_state::store::load_outcomes(&c)
                 .map_err(|e| format!("state.db outcomes: {e}"))?;
             l.kv("mode", mode.as_str());
             l.kv("box", cfg.box_.id.clone());
-            l.kv("paper_wallet", owner.to_string());
+            l.kv(
+                if mode == Mode::Paper {
+                    "paper_wallet"
+                } else {
+                    "wallet"
+                },
+                owner.to_string(),
+            );
             l.kv("armset_ver", arm.load().ver.to_string());
             l.kv("armset_sha", sha.clone());
             l.kv("started_unix", now.to_string());
@@ -395,6 +564,17 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         paper_start_balance: o.paper_balance,
         filter: filter.clone(),
         filter_mode: cfg.entry.filter_mode,
+        real: real_opts.as_ref().map(|r| RealCold {
+            lane: crate::real::LaneCfg {
+                rpc_url: r.rpc_url.clone(),
+                // the keeper's share of the RPC budget: statuses, landed
+                // transactions, nonces, balances, blockhash
+                budget: Arc::new(RpcBudget::new(cfg.rpc_budget.keeper.max(1) as f64)),
+                owner,
+                dry: r.dry,
+            },
+            signer: signer.clone(),
+        }),
     };
     let cold = cold::spawn(ColdParts {
         cfg: cold_cfg,
@@ -421,15 +601,15 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     hot_cfg.fill_timeout_slots = o.fill_timeout_slots;
     hot_cfg.fill_lane = fill_lane;
     hot_cfg.filter = filter;
-    let hot = HotLoop::new(HotParts {
+    let mut hot = HotLoop::new(HotParts {
         cfg: hot_cfg,
         watch: watch.clone(),
         arm: arm.clone(),
         risk: risk.clone(),
         fired,
-        nonces,
-        signer,
-        templates,
+        nonces: nonces.clone(),
+        signer: signer.clone(),
+        templates: templates.clone(),
         senders: senders.clone(),
         rslog: hot_log,
         cold: cold_tx,
@@ -438,6 +618,21 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         stats: stats.clone(),
         shared: shared.clone(),
     });
+    // probe: every token balance recovery found gets an exit owner (I2/I6)
+    if mode.is_real() {
+        if let Some(rep) = &recovery {
+            for p in &rep.open_positions {
+                if !hot.adopt(p.mint, p.tokens, p.intent_id as u64) {
+                    eprintln!(
+                        "recovery: no position slot for {} ({} tokens)",
+                        p.mint, p.tokens
+                    );
+                } else {
+                    risk.adopt_position();
+                }
+            }
+        }
+    }
     Ok(App {
         hot,
         shared,
@@ -452,6 +647,9 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         armset_gate: gate,
         armset_error,
         recovery,
+        signer,
+        nonces,
+        templates,
         state_path: o.state_path.clone(),
         store,
         cold: Some(cold),
@@ -460,7 +658,95 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     })
 }
 
+/// Apply recovery's nonce rows to the pool (seeding from chain): a known
+/// value makes the slot usable for creates after its `last_change_slot`; a
+/// missing, uninitialized or foreign account is quarantined; a slot that was
+/// in flight with an unchanged value is in flight again (its old variants
+/// may still land), so the keeper burns it first.
+pub fn seed_nonces(pool: &NoncePool, rep: &RecoveryReport) {
+    let slot = rep.slot.unwrap_or(0);
+    for r in &rep.nonces {
+        let i = r.idx as usize;
+        if r.pool != "buy" || i >= pool.len() || pool.account(i) != r.pubkey {
+            continue;
+        }
+        match r.state {
+            NonceRowState::Quarantined => pool.quarantine(i),
+            st => {
+                pool.on_value(i, r.value, r.last_change_slot.unwrap_or(slot));
+                let changed = rep.nonce_changed.contains(&r.idx);
+                if !changed && matches!(st, NonceRowState::InFlight | NonceRowState::Burning) {
+                    pool.resume_inflight(i, r.intent_id.unwrap_or(0) as u64, slot);
+                }
+            }
+        }
+    }
+}
+
 impl App {
+    /// `--probe-dry` self-test: the buy template of the first usable nonce,
+    /// patched with placeholder mint keys and the nonce's real value,
+    /// re-targeted and signed with the real key for every configured sender
+    /// (`(sender label, variant)`), plus the AdvanceNonce-only burn of that
+    /// nonce. Nothing is sent; simulate them (`sigVerify = true`) to check
+    /// the key, the nonce account and its authority before funding.
+    pub fn dry_selftest(
+        &self,
+    ) -> (
+        Vec<(&'static str, rugsnipe_tx::senders::Variant)>,
+        Option<Vec<u8>>,
+    ) {
+        let Some(i) = (0..self.nonces.len()).find(|&i| {
+            let p = self.nonces.packed(i);
+            p.state == rugsnipe_tx::nonce::NonceState::Free
+                && p.last_change_slot != rugsnipe_tx::nonce::UNKNOWN_SLOT
+        }) else {
+            return (vec![], None);
+        };
+        let value = self.nonces.value(i);
+        let mint = Pubkey::new_from_array([0x5e; 32]);
+        let bc = pump_codec::pda::bonding_curve(&mint);
+        let keys = rugsnipe_tx::template::MintKeys::curve(
+            mint,
+            bc,
+            pump_codec::pda::associated_bonding_curve(
+                &mint,
+                &pump_codec::constants::TOKEN_2022_PROGRAM_ID,
+            ),
+            pump_codec::pda::ata_spl(&bc, &pump_codec::constants::WSOL_MINT),
+            pump_codec::pda::ata_token_2022(&self.owner, &mint),
+        );
+        let mut t = self.templates.buys[i].clone();
+        t.patch(&rugsnipe_tx::template::Patch {
+            keys: &keys,
+            lifetime: &value,
+            amount: 1_000_000,
+            limit: 1,
+            priority_lamports: 10_000,
+            tip_lamports: 1_000_000,
+            cu_limit: None,
+        });
+        let job = crate::msgs::FireJob {
+            tmpl: t,
+            intent: 1,
+            idx: 0,
+            prio: 10_000,
+            tip: 1_000_000,
+            tip_account: self.templates.tip_account,
+            bid: 1_000_000,
+            real: true,
+        };
+        let targets = self.senders.targets();
+        let vs = crate::sender::plan_variants(std::slice::from_ref(&job), targets, &self.signer)
+            .into_iter()
+            .map(|(k, v)| (targets[k].label(), v))
+            .collect();
+        let burn = rugsnipe_tx::sysix::burn_tx(&self.signer, &self.nonces.account(i), &value)
+            .ok()
+            .map(|(b, _)| b);
+        (vs, burn)
+    }
+
     /// Stop the threads, flush, and collect the summary.
     pub fn shutdown(self, feeds: Vec<serde_json::Value>) -> Summary {
         self.shared.stop.store(true, Release);

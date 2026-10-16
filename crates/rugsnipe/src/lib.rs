@@ -4,7 +4,9 @@
 //! |---|---|
 //! | [`app`] | process assembly shared by the hot and replay binaries (safety gate, wallet, ArmSet, threads) |
 //! | [`hot`] | `HotLoop`: the docs/06 section 7.1 sequence (dedup, CreateHit, class filters, watchlist, RiskGate, V0, nonce, patch, sign, send, record) plus the paper position/exit engine driver; run to completion, no heap after warm-up |
-//! | [`sender`] | sender thread: secondary variants (re-priced, re-signed) through the gated `SenderSet` |
+//! | [`sender`] | sender thread: secondary variants (re-priced, re-signed) through the gated `SenderSet`; in probe one variant per real sender (its tip account and minimum tip), each on a warm worker |
+//! | [`keys`] | probe key loading from `$CREDENTIALS_DIRECTORY` (probe wallet, `api-keys`), with the permission refusals |
+//! | [`real`] | the real fill lane (probe): signature statuses, our own TradeEvent, `meta.fee` of failed buys, landing rank and premium, drops after the nonce burn, sells and balances |
 //! | [`cold`] | cold thread (tokio current-thread runtime): ledger -> `state.db`, kill file + SIGUSR1 latch, exits lease, simulated nonce keeper, funding watcher updates, ArmSet reload, paper E2 fill lane, Prometheus metrics |
 //! | [`e1`] | paper fill model E1 (rank 1 behind the bundle, docs/04): creation-slot reconstruction, verdict, replay tape |
 //! | [`e2`] | paper fill model E2 (end of slot+1 state) from `getSignaturesForAddress` + `getTransaction` |
@@ -29,7 +31,9 @@ pub mod e2;
 pub mod filter;
 pub mod guard;
 pub mod hot;
+pub mod keys;
 pub mod msgs;
+pub mod real;
 pub mod sender;
 pub mod setup;
 pub mod stats;

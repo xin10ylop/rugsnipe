@@ -183,6 +183,7 @@ fn run(args: &[String]) -> Result<i32, String> {
         sigusr1: Arc::new(AtomicBool::new(false)),
         paper_balance: 5_000_000_000,
         live_flag: false,
+        real: None,
     })?;
     // production layout: the hot loop pinned and busy-polling (docs/06 section 7.1)
     let busy = !flag(args, "--sleep-when-idle");

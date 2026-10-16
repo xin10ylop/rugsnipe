@@ -124,3 +124,57 @@ pub fn pool_addresses(authority: &Pubkey, pool: &str, n: usize) -> Vec<Pubkey> {
         .map(|i| create_with_seed(authority, &nonce_seed(pool, i), &SYSTEM_PROGRAM_ID))
         .collect()
 }
+
+/// The keeper's nonce burn (docs/06 section 7.3): a legacy transaction whose
+/// only instruction is `AdvanceNonceAccount`, signed by the authority (fee
+/// payer), with the nonce's current value as its lifetime. Once it lands the
+/// value changes and every pending buy variant on the old value is dead.
+/// Returns the signed transaction and its signature.
+pub fn burn_tx(
+    authority: &crate::signer::HotSigner,
+    nonce: &Pubkey,
+    value: &[u8; 32],
+) -> Result<(Vec<u8>, [u8; 64]), crate::msg::CompileError> {
+    use crate::msg::{compile, Format, KeySpec};
+    let auth = authority.pubkey();
+    let keys = [
+        KeySpec::new(auth, true, true),
+        KeySpec::new(*nonce, false, true),
+        KeySpec::new(RECENT_BLOCKHASHES_SYSVAR_ID, false, false),
+        KeySpec::new(SYSTEM_PROGRAM_ID, false, false),
+    ];
+    let ix = pump_codec::instructions::advance_nonce_account(nonce, &auth);
+    let (mut bytes, layout) = compile(&keys, &[ix], value, Format::Legacy)?;
+    let sig = authority.sign(&bytes[layout.message.0..layout.message.1]);
+    bytes[layout.sigs..layout.sigs + 64].copy_from_slice(&sig);
+    Ok((bytes, sig))
+}
+
+#[cfg(test)]
+mod burn_tests {
+    use super::*;
+    use zeroize::Zeroizing;
+
+    #[test]
+    fn burn_is_one_signed_advance_on_the_nonce_value() {
+        let s = crate::signer::HotSigner::from_seed(&Zeroizing::new([5u8; 32]));
+        let nonce = pool_addresses(&s.pubkey(), "buy", 1)[0];
+        let value = [9u8; 32];
+        let (tx, sig) = burn_tx(&s, &nonce, &value).unwrap();
+        assert_eq!(tx[0], 1, "one signature");
+        assert_eq!(&tx[1..65], &sig);
+        // header 1 signer, 0 ro signed, 2 ro unsigned; 4 keys
+        assert_eq!(&tx[65..69], &[1, 0, 2, 4]);
+        let keys_end = 69 + 4 * 32;
+        assert_eq!(&tx[69..101], s.pubkey().as_ref());
+        assert_eq!(&tx[101..133], nonce.as_ref());
+        assert_eq!(
+            &tx[keys_end..keys_end + 32],
+            &value,
+            "lifetime = nonce value"
+        );
+        assert!(crate::signer::verify(&s.pubkey(), &tx[65..], &sig));
+        // one instruction: system program (key 3), accounts [1, 2, 0], tag 4
+        assert_eq!(&tx[keys_end + 32..], &[1, 3, 3, 1, 2, 0, 4, 4, 0, 0, 0]);
+    }
+}

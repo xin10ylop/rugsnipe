@@ -5,10 +5,14 @@
 //! and sells on a >= `drop_from_peak_bps` drop from the peak price (price ∝
 //! V², so `(v / peak_v)^2`), or after `grace_s` of holding the lease.
 //!
-//! This skeleton never touches a real sender: `dry_run` (the default) only
-//! reports what it would sell; otherwise each sell is patched into the
-//! final-sell template (floor bounds), signed by the paper signer and handed
-//! to the paper sender.
+//! `dry_run` (the default) only reports what it would sell; otherwise each
+//! sell is patched into the final-sell template (dump floor bounds, the
+//! dump bid split once by `BidPolicy::plan_sell`), signed and recorded by the
+//! paper sender. In probe mode with [`GuardReal`] (`rugsnipe-guard
+//! --real-sell`) the same sell goes on a recent blockhash to every real
+//! sender, re-targeted per sender like the hot loop's
+//! ([`crate::sender::plan_variants`]: the provider's tip account and
+//! minimum tip), signed with the probe key.
 
 use pump_codec::constants::{TOKEN_2022_PROGRAM_ID, WSOL_MINT};
 use pump_codec::curve::FeeBps;
@@ -59,6 +63,19 @@ pub enum GuardAction {
         reason: &'static str,
         sig: [u8; 64],
     },
+    /// Real sell variants handed to the senders (`accepted` of `sent`).
+    SentReal {
+        mint: Pubkey,
+        tokens: u64,
+        reason: &'static str,
+        sent: usize,
+        accepted: usize,
+    },
+    /// A real sell could not be built (no recent blockhash): retried next step.
+    SellDeferred {
+        mint: Pubkey,
+        why: &'static str,
+    },
     Released,
 }
 
@@ -71,6 +88,23 @@ pub struct PaperSell {
     /// `[bid]`: the dump bid is split by leader class like every sell
     /// (the guard knows no leader: planned as priority-ordered).
     pub bid: rugsnipe_core::bid::BidPolicy,
+    /// Probe: send for real (else paper only).
+    pub real: Option<GuardReal>,
+}
+
+/// The real sell path of the guard (probe): the gated sender set and a
+/// source of recent blockhashes.
+pub struct GuardReal {
+    pub senders: Arc<rugsnipe_tx::senders::SenderSet>,
+    pub blockhash: Arc<dyn Fn() -> Option<[u8; 32]> + Send + Sync>,
+}
+
+impl core::fmt::Debug for GuardReal {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("GuardReal")
+            .field("senders", &self.senders)
+            .finish_non_exhaustive()
+    }
 }
 
 impl core::fmt::Debug for PaperSell {
@@ -177,8 +211,8 @@ impl Guard {
             } else {
                 continue;
             };
-            self.sold.insert(p.mint);
             if self.cfg.dry_run || self.sell.is_none() {
+                self.sold.insert(p.mint);
                 out.push(GuardAction::WouldSell {
                     mint: p.mint,
                     tokens: p.tokens,
@@ -187,6 +221,20 @@ impl Guard {
                 continue;
             }
             let s = self.sell.as_mut().expect("checked");
+            let lifetime = match &s.real {
+                Some(r) => match (r.blockhash)() {
+                    Some(h) => h,
+                    None => {
+                        out.push(GuardAction::SellDeferred {
+                            mint: p.mint,
+                            why: "no recent blockhash",
+                        });
+                        continue;
+                    }
+                },
+                None => [0x22; 32],
+            };
+            self.sold.insert(p.mint);
             let owner = s.signer.pubkey();
             let bc = pda::bonding_curve(&p.mint);
             let keys = MintKeys::curve(
@@ -212,7 +260,7 @@ impl Guard {
             );
             s.template.patch(&Patch {
                 keys: &keys,
-                lifetime: &[0x22; 32],
+                lifetime: &lifetime,
                 amount: p.tokens,
                 limit: min_out,
                 priority_lamports: plan.priority_lamports,
@@ -230,6 +278,34 @@ impl Guard {
                 Some(s.tip_account),
             );
             let _ = s.paper.send(&var);
+            if let Some(r) = &s.real {
+                let job = crate::msgs::FireJob {
+                    tmpl: s.template.clone(),
+                    intent: p.intent_id as u64,
+                    idx: 0xC0,
+                    prio: plan.priority_lamports,
+                    tip: plan.tip_lamports,
+                    tip_account: s.tip_account,
+                    bid: self.policy.dump_tip_lamports,
+                    real: true,
+                };
+                let targets = r.senders.real();
+                let vs =
+                    crate::sender::plan_variants(std::slice::from_ref(&job), targets, &s.signer);
+                let sent = vs.len();
+                let accepted = vs
+                    .iter()
+                    .filter(|(k, v)| targets[*k].send(v).is_ok())
+                    .count();
+                out.push(GuardAction::SentReal {
+                    mint: p.mint,
+                    tokens: p.tokens,
+                    reason,
+                    sent,
+                    accepted,
+                });
+                continue;
+            }
             out.push(GuardAction::Sold {
                 mint: p.mint,
                 tokens: p.tokens,

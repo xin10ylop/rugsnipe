@@ -53,13 +53,19 @@ relay = { enabled = false, socket = "/run/rugsnipe/pp.sock" }    # collector's P
 grpc = { enabled = false, endpoint = "", token = "GRPC_TOKEN", stale_ms = 2_000 }
 shreds = { enabled = false, bind = "0.0.0.0:7733", sources = ["dz_edge", "helius"] }
 probe_live_require = "post_exec"
-[senders]
+[senders]                                          # probe: one variant per sender on the intent's single durable nonce
+# `key` is a NAME inside the api-keys credential (/etc/rugsnipe/keys/api-keys.toml, root 0400), never the key:
+#   HELIUS_KEY = "..."   NOZOMI_KEY = "..."   ASTRALANE_KEY = "..."   BLOCKRAZOR_KEY = "..."   NEXTBLOCK_KEY = "..." (optional)
+# Each sender's tip goes to its own tip accounts and is raised to its minimum (a tip reverts with a failed buy);
+# min_tip can only raise the provider floor (Nozomi silently drops tips below 0.001 SOL).
 paper = { enabled = true }
 rpcsend = { enabled = true, url = "https://api.mainnet-beta.solana.com", sells_only = true }
-helius = { enabled = false, url = "http://fra-sender.helius-rpc.com/fast", swqos_only = true, min_tip = 5_000 }
-nozomi = { enabled = false, url = "http://fra2.nozomi.temporal.xyz", key = "NOZOMI_KEY", min_tip = 1_000_000 }
-astralane = { enabled = false, key = "ASTRALANE_KEY", min_tip = 1_000_000 }
-jito = { enabled = false, region = "auto", max_rps = 1 }
+helius = { enabled = false, url = "http://fra-sender.helius-rpc.com/fast", key = "HELIUS_KEY" }        # 0.001 SOL; 50 req/s with a key (1/s keyless)
+helius_swqos = { enabled = false, url = "http://fra-sender.helius-rpc.com/fast" }                      # &swqos_only=true, 5,000 lamports; uses helius.key
+nozomi = { enabled = false, url = "http://fra2.nozomi.temporal.xyz", key = "NOZOMI_KEY", min_tip = 1_000_000 }   # batch send, 5/s
+astralane = { enabled = false, url = "http://fr.gateway.astralane.io/irisb", key = "ASTRALANE_KEY", min_tip = 1_000_000 }
+blockrazor = { enabled = false, url = "http://frankfurt.solana.blockrazor.xyz:443/sendTransaction", key = "BLOCKRAZOR_KEY" }  # mode fast, 0.0001 SOL, 3 TPS
+jito = { enabled = false, regions = ["frankfurt", "amsterdam"], max_rps = 1 }                       # bundleOnly; 1 req/s per IP per region; the pay-on-success primary only
 nextblock = { enabled = false, key = "NEXTBLOCK_KEY" }
 tpu = { enabled = false, leaders_ahead = 2 }
 [rpc_budget]                                       # req/s per public-RPC egress IP; roles sum <= 32

@@ -7,16 +7,21 @@
 //! | Helius Sender `/fast` | JSON-RPC `sendTransaction` (`skipPreflight`, `maxRetries: 0`); `?swqos_only=true` | 0.001 SOL; 5,000 lamports with `swqos_only` |
 //! | Nozomi | Batch Send `POST /api/sendBatch?c=KEY`, body `(u16 BE len ‖ tx)*`, octet-stream | 0.001 SOL |
 //! | Astralane | `POST /irisb?api-key=KEY&method=sendTransaction`, raw tx bytes | 0.001 SOL (config) |
-//! | Jito block engine | `POST /api/v1/transactions?bundleOnly=true` JSON-RPC `sendTransaction`; `sendBundle` on `/api/v1/bundles` | 1,000 lamports; 1 req/s per IP |
+//! | Jito block engine (one sender per region, `frankfurt`, `amsterdam`) | `POST /api/v1/transactions?bundleOnly=true` JSON-RPC `sendTransaction` (a failed bundle-only transaction is not committed: costs nothing); `sendBundle` on `/api/v1/bundles` | 1,000 lamports; 1 req/s per IP per region (token bucket) |
 //! | NextBlock | `POST /api/v2/submit`, `Authorization: KEY`, JSON `{"transaction":{"content":b64},"frontRunningProtection":false}` | 0.001 SOL |
+//! | BlockRazor (docs.blockrazor.io, 2026-10-16) | `POST /sendTransaction`, header `apikey: KEY`, JSON `{"transaction":b64,"mode":"fast","revertProtection":false}`; keep-alive `POST /health` | 100,000 lamports (0.0001 SOL); 3 TPS |
+//!
+//! The Helius key goes in the query (`/fast?api-key=KEY`, 50 req/s per
+//! region; keyless is 1 req/s per IP); the `swqos_only` leg is a second
+//! sender on the same nonce.
 
 use super::http::{json_rpc_send_body, HttpConn, HttpTarget};
 use super::{
-    check_tip, now_ms, ApiKeys, Breaker, SendError, SendResult, Sender, SenderId, Variant,
+    check_tip, now_ms, ApiKeys, Breaker, SendError, SendResult, Sender, SenderId, TokenBucket,
+    Variant,
 };
 use pump_codec::Pubkey;
 use rugsnipe_core::config::HttpSenderCfg;
-use std::sync::atomic::{AtomicU64, Ordering::*};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -89,6 +94,39 @@ pub const NEXTBLOCK_TIP_ACCOUNTS: [Pubkey; 8] = [
     pk("nextBLoCkPMgmG8ZgJtABeScP35qLa2AMCNKntAP7Xc"),
 ];
 
+/// BlockRazor tip accounts (docs.blockrazor.io "Priority Fee & Tip",
+/// 2026-10-16; `GET /getTipAccounts` serves the current list).
+pub const BLOCKRAZOR_TIP_ACCOUNTS: [Pubkey; 15] = [
+    pk("68Pwb4jS7eZATjDfhmTXgRJjCiZmw1L7Huy4HNpnxJ3o"),
+    pk("4ABhJh5rZPjv63RBJBuyWzBK3g9gWMUQdTZP2kiW31V9"),
+    pk("B2M4NG5eyZp5SBQrSdtemzk5TqVuaWGQnowGaCBt8GyM"),
+    pk("5jA59cXMKQqZAVdtopv8q3yyw9SYfiE3vUCbt7p8MfVf"),
+    pk("5YktoWygr1Bp9wiS1xtMtUki1PeYuuzuCF98tqwYxf61"),
+    pk("295Avbam4qGShBYK7E9H5Ldew4B3WyJGmgmXfiWdeeyV"),
+    pk("EDi4rSy2LZgKJX74mbLTFk4mxoTgT6F7HxxzG2HBAFyK"),
+    pk("BnGKHAC386n4Qmv9xtpBVbRaUTKixjBe3oagkPFKtoy6"),
+    pk("Dd7K2Fp7AtoN8xCghKDRmyqr5U169t48Tw5fEd3wT9mq"),
+    pk("AP6qExwrbRgBAVaehg4b5xHENX815sMabtBzUzVB4v8S"),
+    pk("8EpzWhsr7uyZkfVD7MTHoWqupM14xngzMeUcCkWbY1UG"),
+    pk("56XRik27PddNnR7JkHKqd5pWdMHeqje7TCm1gsdmvnTP"),
+    pk("2DJNtR1tT7vfub7sDJ6v9NGmrzGVFUer5FvjhEcWEpvv"),
+    pk("3AveZTS3PJo5qKEqHJci5bjW8neufriirr9mJXfsv4iH"),
+    pk("9DC798ezxU2f2i8ggQ4vsqrsNxdDWJWAFg4cT1xLDR1X"),
+];
+
+/// Minimum tips (lamports) below which a provider ignores or drops a
+/// transaction; a configured `min_tip` can only raise these.
+pub mod min_tips {
+    pub const HELIUS: u64 = 1_000_000;
+    pub const HELIUS_SWQOS: u64 = 5_000;
+    /// Nozomi silently drops tips below 0.001 SOL.
+    pub const NOZOMI: u64 = 1_000_000;
+    pub const ASTRALANE: u64 = 1_000_000;
+    pub const JITO: u64 = 1_000;
+    pub const NEXTBLOCK: u64 = 1_000_000;
+    pub const BLOCKRAZOR: u64 = 100_000;
+}
+
 /// Default endpoints (Frankfurt).
 pub mod endpoints {
     pub const HELIUS: &str = "http://fra-sender.helius-rpc.com/fast";
@@ -96,6 +134,22 @@ pub mod endpoints {
     pub const ASTRALANE: &str = "http://fr.gateway.astralane.io/irisb";
     pub const JITO: &str = "http://frankfurt.mainnet.block-engine.jito.wtf";
     pub const NEXTBLOCK: &str = "http://fra.nextblock.io";
+    pub const BLOCKRAZOR: &str = "http://frankfurt.solana.blockrazor.xyz:443/sendTransaction";
+}
+
+/// `jito_<region>` as a static label (unknown regions: `jito`).
+pub fn jito_label(region: &str) -> &'static str {
+    match region {
+        "frankfurt" => "jito_frankfurt",
+        "amsterdam" => "jito_amsterdam",
+        "london" => "jito_london",
+        "dublin" => "jito_dublin",
+        "ny" => "jito_ny",
+        "slc" => "jito_slc",
+        "tokyo" => "jito_tokyo",
+        "singapore" => "jito_singapore",
+        _ => "jito",
+    }
 }
 
 /// How the request body is shaped.
@@ -109,6 +163,8 @@ pub enum Wire {
     Raw,
     /// NextBlock JSON.
     NextBlock,
+    /// BlockRazor JSON (`mode = fast`).
+    BlockRazor,
 }
 
 /// One HTTP provider.
@@ -122,9 +178,12 @@ pub struct HttpSender {
     opts: &'static str,
     conn: Mutex<(HttpConn, Vec<u8>)>,
     breaker: Breaker,
-    /// Minimum ms between requests (0 = unlimited).
-    min_interval_ms: u64,
-    last_ms: AtomicU64,
+    /// Requests per second (`max_rps`; 0 = unlimited); the burst is the
+    /// rate capped at 4, so both variants of an intent go out together on a
+    /// path that allows 2 req/s or more, and Jito (1 req/s) takes one.
+    bucket: TokenBucket,
+    label: &'static str,
+    buy_variants: u8,
 }
 
 impl core::fmt::Debug for HttpSender {
@@ -132,6 +191,7 @@ impl core::fmt::Debug for HttpSender {
         // never print headers or the path: they can hold API keys
         f.debug_struct("HttpSender")
             .field("id", &self.id)
+            .field("label", &self.label)
             .field("min_tip", &self.min_tip)
             .finish_non_exhaustive()
     }
@@ -165,13 +225,21 @@ impl HttpSender {
                 Vec::with_capacity(4_096),
             )),
             breaker: Breaker::new(5, 10_000),
-            min_interval_ms: if max_rps == 0 {
-                0
-            } else {
-                1_000 / max_rps as u64
-            },
-            last_ms: AtomicU64::new(0),
+            bucket: TokenBucket::new(max_rps as f64, max_rps.clamp(1, 4) as f64),
+            label: id.name(),
+            buy_variants: if id == SenderId::Jito { 1 } else { 2 },
         }
+    }
+
+    /// Ledger / summary name (`jito_frankfurt`, ...).
+    pub fn with_label(mut self, label: &'static str) -> Self {
+        self.label = label;
+        self
+    }
+
+    /// The request path (tests; may hold an API key: never print it).
+    pub fn path(&self) -> &str {
+        &self.path
     }
 
     pub fn breaker(&self) -> &Breaker {
@@ -181,17 +249,6 @@ impl HttpSender {
     /// Open the connection ahead of time.
     pub fn warm(&self) -> Result<(), SendError> {
         self.conn.lock().unwrap_or_else(|e| e.into_inner()).0.warm()
-    }
-
-    fn rate_ok(&self, now: u64) -> bool {
-        if self.min_interval_ms == 0 {
-            return true;
-        }
-        self.last_ms
-            .fetch_update(AcqRel, Acquire, |last| {
-                (now >= last + self.min_interval_ms).then_some(now)
-            })
-            .is_ok()
     }
 
     /// Send several transactions in one request where the wire allows it
@@ -226,7 +283,7 @@ impl HttpSender {
         if !self.breaker.allow(now) {
             return SendResult::Failed(SendError::BreakerOpen);
         }
-        if !self.rate_ok(now) {
+        if !self.bucket.try_take() {
             return SendResult::Failed(SendError::RateLimited);
         }
         let mut g = self.conn.lock().unwrap_or_else(|e| e.into_inner());
@@ -236,6 +293,7 @@ impl HttpSender {
             Wire::NozomiBatch | Wire::Raw => "application/octet-stream",
             _ => "application/json",
         };
+        let json_errors = matches!(self.wire, Wire::JsonRpc | Wire::BlockRazor);
         let hdrs: Vec<(&str, &str)> = self
             .headers
             .iter()
@@ -247,7 +305,7 @@ impl HttpSender {
         match r {
             Ok(s) if (200..300).contains(&s) => {
                 // JSON-RPC errors come back as 200 with an "error" member
-                if matches!(self.wire, Wire::JsonRpc) && contains(conn.last_body(), b"\"error\"") {
+                if json_errors && contains(conn.last_body(), b"\"error\"") {
                     self.breaker.on_failure(now_ms());
                     let msg = String::from_utf8_lossy(conn.last_body())
                         .chars()
@@ -278,9 +336,38 @@ fn contains(h: &[u8], n: &[u8]) -> bool {
     h.windows(n.len()).any(|w| w == n)
 }
 
+fn push_b64(b: &mut Vec<u8>, bytes: &[u8]) {
+    use base64::Engine as _;
+    let start = b.len();
+    b.resize(
+        start + base64::encoded_len(bytes.len(), true).unwrap_or(0),
+        0,
+    );
+    let n = base64::engine::general_purpose::STANDARD
+        .encode_slice(bytes, &mut b[start..])
+        .unwrap_or(0);
+    b.truncate(start + n);
+}
+
 impl Sender for HttpSender {
     fn id(&self) -> SenderId {
         self.id
+    }
+    fn label(&self) -> &'static str {
+        self.label
+    }
+    fn buy_variants(&self) -> u8 {
+        self.buy_variants
+    }
+    fn warm(&self) -> Result<(), SendError> {
+        HttpSender::warm(self)
+    }
+    fn send_batch(&self, vs: &[&Variant]) -> Vec<SendResult> {
+        if self.wire == Wire::NozomiBatch && vs.len() > 1 {
+            let r = self.send_many(vs);
+            return vs.iter().map(|_| r.clone()).collect();
+        }
+        vs.iter().map(|v| self.send(v)).collect()
     }
     fn tip_accounts(&self) -> &[Pubkey] {
         self.tips
@@ -307,19 +394,16 @@ impl Sender for HttpSender {
                 b.extend_from_slice(v.bytes());
             }),
             Wire::NextBlock => self.request(|b| {
-                use base64::Engine as _;
                 b.clear();
                 b.extend_from_slice(br#"{"transaction":{"content":""#);
-                let start = b.len();
-                b.resize(
-                    start + base64::encoded_len(v.bytes().len(), true).unwrap_or(0),
-                    0,
-                );
-                let n = base64::engine::general_purpose::STANDARD
-                    .encode_slice(v.bytes(), &mut b[start..])
-                    .unwrap_or(0);
-                b.truncate(start + n);
+                push_b64(b, v.bytes());
                 b.extend_from_slice(br#""},"frontRunningProtection":false}"#);
+            }),
+            Wire::BlockRazor => self.request(|b| {
+                b.clear();
+                b.extend_from_slice(br#"{"transaction":""#);
+                push_b64(b, v.bytes());
+                b.extend_from_slice(br#"","mode":"fast","revertProtection":false}"#);
             }),
         }
     }
@@ -372,21 +456,25 @@ pub fn build(name: &str, c: &HttpSenderCfg, keys: &ApiKeys) -> Result<Box<dyn Se
             if !c.key.is_empty() {
                 t = t.with_query(&format!("api-key={}", key("helius")?));
             }
-            let min = if c.min_tip > 0 {
-                c.min_tip
-            } else if c.swqos_only {
-                5_000
+            let (id, floor) = if c.swqos_only {
+                (SenderId::HeliusSwqos, min_tips::HELIUS_SWQOS)
             } else {
-                1_000_000
+                (SenderId::Helius, min_tips::HELIUS)
+            };
+            // keyless: 1 req/s per IP; with a key 50 req/s per region
+            let rps = match (c.max_rps, c.key.is_empty()) {
+                (0, true) => 1,
+                (0, false) => 50,
+                (n, _) => n,
             };
             HttpSender::new(
-                SenderId::Helius,
+                id,
                 Wire::JsonRpc,
                 t,
                 &HELIUS_TIP_ACCOUNTS,
-                min,
+                c.min_tip.max(floor),
                 vec![],
-                c.max_rps,
+                rps,
             )
         }
         "nozomi" => {
@@ -397,9 +485,9 @@ pub fn build(name: &str, c: &HttpSenderCfg, keys: &ApiKeys) -> Result<Box<dyn Se
                 Wire::NozomiBatch,
                 t,
                 &NOZOMI_TIP_ACCOUNTS,
-                c.min_tip.max(1_000_000),
+                c.min_tip.max(min_tips::NOZOMI),
                 vec![],
-                c.max_rps,
+                if c.max_rps == 0 { 5 } else { c.max_rps },
             )
         }
         "astralane" => {
@@ -408,7 +496,13 @@ pub fn build(name: &str, c: &HttpSenderCfg, keys: &ApiKeys) -> Result<Box<dyn Se
                 "api-key={}&method=sendTransaction",
                 key("astralane")?
             ));
-            let min = if c.min_tip > 0 { c.min_tip } else { 1_000_000 };
+            // VIP tiers lower the minimum: a configured min_tip may go below
+            // the free-tier 0.001 SOL, never below VIP3's 10,000 lamports
+            let min = if c.min_tip > 0 {
+                c.min_tip.max(10_000)
+            } else {
+                min_tips::ASTRALANE
+            };
             HttpSender::new(
                 SenderId::Astralane,
                 Wire::Raw,
@@ -416,14 +510,23 @@ pub fn build(name: &str, c: &HttpSenderCfg, keys: &ApiKeys) -> Result<Box<dyn Se
                 &ASTRALANE_TIP_ACCOUNTS,
                 min,
                 vec![],
-                c.max_rps,
+                if c.max_rps == 0 { 5 } else { c.max_rps },
             )
         }
         "jito" => {
-            let base = if c.region.is_empty() || c.region == "auto" {
-                url(endpoints::JITO)
+            // an explicit url wins (tests, proxies); else the region's host
+            let region = if c.region.is_empty() || c.region == "auto" {
+                "frankfurt"
             } else {
-                format!("http://{}.mainnet.block-engine.jito.wtf", c.region)
+                c.region.as_str()
+            };
+            if !region.chars().all(|ch| ch.is_ascii_lowercase()) {
+                return Err(format!("jito region {region:?}"));
+            }
+            let base = if c.url.is_empty() {
+                format!("http://{region}.mainnet.block-engine.jito.wtf")
+            } else {
+                c.url.clone()
             };
             let t = HttpTarget::parse(&base)?.with_path("/api/v1/transactions?bundleOnly=true");
             let headers = if c.key.is_empty() {
@@ -431,20 +534,32 @@ pub fn build(name: &str, c: &HttpSenderCfg, keys: &ApiKeys) -> Result<Box<dyn Se
             } else {
                 vec![("x-jito-auth".to_string(), key("jito")?)]
             };
-            let min = if c.min_tip > 0 { c.min_tip } else { 1_000 };
             HttpSender::new(
                 SenderId::Jito,
                 Wire::JsonRpc,
                 t,
                 &pump_codec::constants::JITO_TIP_ACCOUNTS,
-                min,
+                c.min_tip.max(min_tips::JITO),
                 headers,
                 c.max_rps.max(1),
+            )
+            .with_label(jito_label(region))
+        }
+        "blockrazor" => {
+            let t = HttpTarget::parse(&url(endpoints::BLOCKRAZOR))?;
+            HttpSender::new(
+                SenderId::BlockRazor,
+                Wire::BlockRazor,
+                t,
+                &BLOCKRAZOR_TIP_ACCOUNTS,
+                c.min_tip.max(min_tips::BLOCKRAZOR),
+                vec![("apikey".to_string(), key("blockrazor")?)],
+                if c.max_rps == 0 { 3 } else { c.max_rps },
             )
         }
         "nextblock" => {
             let t = HttpTarget::parse(&url(endpoints::NEXTBLOCK))?.with_path("/api/v2/submit");
-            let min = if c.min_tip > 0 { c.min_tip } else { 1_000_000 };
+            let min = c.min_tip.max(min_tips::NEXTBLOCK);
             HttpSender::new(
                 SenderId::NextBlock,
                 Wire::NextBlock,

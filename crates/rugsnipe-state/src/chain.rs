@@ -22,6 +22,10 @@ pub trait ChainRead {
     fn token_balances(&self, owner: &Pubkey) -> Result<Vec<TokenBalance>, String>;
     /// Raw account data (`None` = account missing), in `keys` order.
     fn accounts(&self, keys: &[Pubkey]) -> Result<Vec<Option<Vec<u8>>>, String>;
+    /// Lamports of `key` (the wallet balance the risk gate needs).
+    fn balance(&self, _key: &Pubkey) -> Result<u64, String> {
+        Err("balance: not supported by this chain source".into())
+    }
 }
 
 /// Parse a `getTokenAccountsByOwner` (jsonParsed) `result`.
@@ -128,6 +132,16 @@ mod rpc_chain {
                 out.extend(parse_token_accounts(&r));
             }
             Ok(out)
+        }
+
+        fn balance(&self, key: &Pubkey) -> Result<u64, String> {
+            self.call(
+                "getBalance",
+                json!([key.to_string(), {"commitment": "confirmed"}]),
+            )?
+            .get("value")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| "getBalance: no value".into())
         }
 
         fn accounts(&self, keys: &[Pubkey]) -> Result<Vec<Option<Vec<u8>>>, String> {

@@ -238,6 +238,7 @@ pub fn build(
         sigusr1: Arc::new(AtomicBool::new(false)),
         paper_balance: 5_000_000_000,
         live_flag: false,
+        real: None,
     })
     .expect("paper app builds without keys")
 }
@@ -402,4 +403,178 @@ pub fn decision(summary: &serde_json::Value, label: &str) -> u64 {
         .find(|d| d[0] == label)
         .map(|d| d[1].as_u64().unwrap())
         .unwrap_or(0)
+}
+
+// ------------------------------------------------- mock JSON-RPC / chain
+
+/// A JSON-RPC server on 127.0.0.1 (HTTP/1.1 keep-alive, one thread per
+/// connection): `handler(method, params)` returns the `result` (or `Err` for
+/// a JSON-RPC error). Returns the URL and the method log.
+pub fn serve_rpc<F>(handler: F) -> (String, Arc<std::sync::Mutex<Vec<String>>>)
+where
+    F: Fn(&str, &serde_json::Value) -> Result<serde_json::Value, String> + Send + Sync + 'static,
+{
+    use std::io::{BufRead, BufReader, Read, Write};
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/", l.local_addr().unwrap());
+    let log = Arc::new(std::sync::Mutex::new(vec![]));
+    let handler = Arc::new(handler);
+    let log2 = log.clone();
+    std::thread::spawn(move || {
+        for s in l.incoming() {
+            let Ok(s) = s else { continue };
+            let (h, log) = (handler.clone(), log2.clone());
+            std::thread::spawn(move || {
+                let mut w = s.try_clone().unwrap();
+                let mut r = BufReader::new(s);
+                loop {
+                    let mut len = 0usize;
+                    let mut first = true;
+                    loop {
+                        let mut line = String::new();
+                        if r.read_line(&mut line).unwrap_or(0) == 0 {
+                            return;
+                        }
+                        if first && line.trim().is_empty() {
+                            continue;
+                        }
+                        first = false;
+                        if line == "\r\n" {
+                            break;
+                        }
+                        if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                            len = v.trim().parse().unwrap_or(0);
+                        }
+                    }
+                    let mut body = vec![0u8; len];
+                    if r.read_exact(&mut body).is_err() {
+                        return;
+                    }
+                    let req: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
+                    let method = req["method"].as_str().unwrap_or("").to_string();
+                    log.lock().unwrap().push(method.clone());
+                    let resp = match h(&method, &req["params"]) {
+                        Ok(v) => {
+                            serde_json::json!({"jsonrpc": "2.0", "id": req["id"], "result": v})
+                        }
+                        Err(e) => serde_json::json!({"jsonrpc": "2.0", "id": req["id"],
+                            "error": {"code": -32000, "message": e}}),
+                    }
+                    .to_string();
+                    let out = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{resp}",
+                        resp.len()
+                    );
+                    if w.write_all(out.as_bytes()).is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    (url, log)
+}
+
+/// `Program data:` line of a TradeEvent (2024 layout) on `c` after the trade.
+pub fn trade_log_line(
+    mint: &Pubkey,
+    user: &Pubkey,
+    buy: bool,
+    sol: u64,
+    tok: u64,
+    c: &CurveState,
+) -> String {
+    use base64::Engine as _;
+    let mut d = pump_codec::constants::event::TRADE.to_vec();
+    d.extend_from_slice(mint.as_ref());
+    d.extend_from_slice(&sol.to_le_bytes());
+    d.extend_from_slice(&tok.to_le_bytes());
+    d.push(buy as u8);
+    d.extend_from_slice(user.as_ref());
+    d.extend_from_slice(&0i64.to_le_bytes());
+    d.extend_from_slice(&c.virtual_sol.to_le_bytes());
+    d.extend_from_slice(&c.virtual_token.to_le_bytes());
+    format!(
+        "Program data: {}",
+        base64::engine::general_purpose::STANDARD.encode(d)
+    )
+}
+
+/// A `getTransaction` (jsonParsed) result: `signers` sign, the logs carry
+/// `logs` (TradeEvent lines), `err` is `meta.err`.
+pub fn tx_json(
+    slot: u64,
+    signers: &[Pubkey],
+    logs: &[String],
+    err: serde_json::Value,
+    fee: u64,
+) -> serde_json::Value {
+    let mut all = vec![format!(
+        "Program {} invoke [1]",
+        pump_codec::constants::PUMP_PROGRAM_ID
+    )];
+    all.extend(logs.iter().cloned());
+    all.push(format!(
+        "Program {} success",
+        pump_codec::constants::PUMP_PROGRAM_ID
+    ));
+    let keys: Vec<serde_json::Value> = signers
+        .iter()
+        .map(|k| serde_json::json!({"pubkey": k.to_string(), "signer": true, "writable": true}))
+        .collect();
+    serde_json::json!({"slot": slot, "blockTime": 1_791_000_000,
+        "meta": {"err": err, "fee": fee, "logMessages": all},
+        "transaction": {"message": {"accountKeys": keys}}})
+}
+
+/// An initialized nonce account (80 bytes) of `authority` holding `value`.
+pub fn nonce_account_data(authority: &Pubkey, value: [u8; 32]) -> Vec<u8> {
+    let mut d = vec![];
+    d.extend_from_slice(&1u32.to_le_bytes());
+    d.extend_from_slice(&1u32.to_le_bytes());
+    d.extend_from_slice(authority.as_ref());
+    d.extend_from_slice(&value);
+    d.extend_from_slice(&5_000u64.to_le_bytes());
+    d
+}
+
+/// Sign `set` with `key` into `dir` as `armset-<ver>-<sha>.json` + `.sig`
+/// (what `rugsnipe-ctl armset sign` writes); returns the JSON path.
+pub fn signed_armset(
+    dir: &std::path::Path,
+    set: &ArmSet,
+    key: &rugsnipe_tx::signer::HotSigner,
+) -> PathBuf {
+    let bytes = serde_json::to_vec(set).unwrap();
+    let sha = rugsnipe_core::armset::sha256_hex(&bytes);
+    let p = dir.join(format!("armset-{}-{sha}.json", set.ver));
+    std::fs::write(&p, &bytes).unwrap();
+    std::fs::write(
+        format!("{}.sig", p.display()),
+        bs58::encode(key.sign(&bytes)).into_string(),
+    )
+    .unwrap();
+    p
+}
+
+/// A solana-keygen JSON keypair of `seed`.
+pub fn keypair_json(seed: u8) -> String {
+    let s = rugsnipe_tx::signer::HotSigner::from_seed(&zeroize::Zeroizing::new([seed; 32]));
+    let mut all = vec![seed; 32];
+    all.extend_from_slice(s.pubkey().as_ref());
+    format!(
+        "[{}]",
+        all.iter()
+            .map(|b| b.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    )
+}
+
+/// Write `text` at `dir/name` with `mode`.
+pub fn write_mode(dir: &std::path::Path, name: &str, text: &str, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    let p = dir.join(name);
+    std::fs::write(&p, text).unwrap();
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(mode)).unwrap();
 }

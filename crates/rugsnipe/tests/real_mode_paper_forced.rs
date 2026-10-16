@@ -35,7 +35,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::*};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-/// A local HTTP endpoint that counts accepted connections and answers 200.
+/// A local HTTP endpoint that counts the HTTP requests it receives and
+/// answers 200. (A real mode warms its sender connections at start: a bare
+/// TCP connect without a request is not a send, so requests are counted.)
 struct Mock {
     port: u16,
     accepted: Arc<AtomicU64>,
@@ -55,13 +57,26 @@ impl Mock {
             while !s.load(Acquire) {
                 match l.accept() {
                     Ok((mut c, _)) => {
-                        a.fetch_add(1, AcqRel);
-                        let _ = c.set_read_timeout(Some(Duration::from_millis(200)));
-                        let mut b = [0u8; 4096];
-                        let _ = c.read(&mut b);
-                        let _ = c.write_all(
-                            b"HTTP/1.1 200 OK\r\nContent-Length: 36\r\n\r\n{\"jsonrpc\":\"2.0\",\"result\":\"x\",\"id\":1}",
-                        );
+                        let a = a.clone();
+                        let s = s.clone();
+                        std::thread::spawn(move || {
+                            let _ = c.set_read_timeout(Some(Duration::from_millis(50)));
+                            let mut b = [0u8; 4096];
+                            while !s.load(Acquire) {
+                                match c.read(&mut b) {
+                                    Ok(0) => return,
+                                    Ok(n) => {
+                                        if b[..n].starts_with(b"POST ") {
+                                            a.fetch_add(1, AcqRel);
+                                        }
+                                        let _ = c.write_all(
+                                            b"HTTP/1.1 200 OK\r\nContent-Length: 36\r\n\r\n{\"jsonrpc\":\"2.0\",\"result\":\"x\",\"id\":1}",
+                                        );
+                                    }
+                                    Err(_) => {}
+                                }
+                            }
+                        });
                     }
                     Err(_) => std::thread::sleep(Duration::from_millis(5)),
                 }
@@ -440,11 +455,9 @@ fn run_cases(cases: &[Case]) {
                 "{case}: nothing recorded as paper"
             );
             let (pairs, _) = run_sender(r, &dir);
-            assert_eq!(
-                pairs,
-                2 * (1 + cfg!(feature = "real-senders") as u64),
-                "{case}"
-            );
+            // both variants recorded as paper copies; Jito takes the
+            // pay-on-success primary only (1 req/s per IP and region)
+            assert_eq!(pairs, 2 + cfg!(feature = "real-senders") as u64, "{case}");
             if cfg!(feature = "real-senders") {
                 let t0 = Instant::now();
                 while mock.accepted() == 0 && t0.elapsed() < Duration::from_secs(3) {
@@ -514,6 +527,7 @@ fn a_real_job_reaches_the_mock_sender() {
         prio: 1_000,
         tip: 1_000_000,
         tip_account: t.tip_account,
+        bid: 1_000_000,
         real: true,
     })
     .unwrap();

@@ -377,6 +377,49 @@ impl NoncePool {
         self.packed(idx).state
     }
 
+    /// Never fire on this slot (account missing, not initialized, or held by
+    /// another authority at seeding); only [`NoncePool::unquarantine`] clears it.
+    pub fn quarantine(&self, idx: usize) {
+        let _ = self.slots[idx].word.fetch_update(AcqRel, Acquire, |w| {
+            Some(
+                Packed {
+                    state: NonceState::Quarantined,
+                    ..Packed::unpack(w)
+                }
+                .pack(),
+            )
+        });
+    }
+
+    /// Recovery: a slot that was in flight when the process stopped (its
+    /// value has not changed since): the old variants may still land, so it
+    /// is InFlight again from `now_slot` and the keeper burns it.
+    pub fn resume_inflight(&self, idx: usize, intent: u64, now_slot: u64) {
+        let s = &self.slots[idx];
+        let moved = s
+            .word
+            .fetch_update(AcqRel, Acquire, |w| {
+                let p = Packed::unpack(w);
+                (p.state == NonceState::Free).then(|| {
+                    Packed {
+                        state: NonceState::InFlight,
+                        ..p
+                    }
+                    .pack()
+                })
+            })
+            .is_ok();
+        if moved {
+            s.since_slot.store(now_slot, Release);
+            s.intent.store(intent, Release);
+        }
+    }
+
+    /// Slot at which `idx` was claimed (InFlight) or 0.
+    pub fn since_slot(&self, idx: usize) -> u64 {
+        self.slots[idx].since_slot.load(Acquire)
+    }
+
     /// Operator clears a quarantine (after inspecting the account).
     pub fn unquarantine(&self, idx: usize) {
         let _ = self.slots[idx].word.fetch_update(AcqRel, Acquire, |w| {

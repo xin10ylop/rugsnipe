@@ -4,11 +4,20 @@
 //! |---|---|---|---|
 //! | [`paper::Paper`] | always | always (the only sender in paper mode) | **never** (no socket code in the module) |
 //! | `RpcSend` | feature `rpc` | probe/live after `Config::validate` passes | JSON-RPC `sendTransaction` over TLS, off the hot thread |
-//! | `Helius`, `Nozomi`, `Astralane`, `Jito`, `NextBlock` | feature `senders` | same gate | fixed-buffer HTTP/1.1 over warm `TcpStream`s |
+//! | `Helius`, `HeliusSwqos`, `Nozomi`, `Astralane`, `BlockRazor`, `Jito` (one per region), `NextBlock` | feature `senders` | same gate | fixed-buffer HTTP/1.1 over warm `TcpStream`s |
 //!
 //! Every real sender knows its tip accounts and minimum tip and refuses a
 //! variant whose tip goes elsewhere or is too small **before** touching the
-//! network, and sits behind a [`Breaker`].
+//! network, and sits behind a [`Breaker`] and a [`TokenBucket`].
+//!
+//! **One variant per sender.** Each provider has its own tip accounts, so
+//! the sender thread re-targets every bid plan per sender
+//! ([`tip_plan`]): the tip account is the provider's (rotated, and distinct
+//! between senders that share a tip-account set, so every variant has its
+//! own signature), the tip is `max(plan tip, provider minimum)` (a tip only
+//! moves when the buy succeeds, so the floor costs nothing on failure and
+//! Nozomi never silently drops a variant), and all of them ride the intent's
+//! single durable nonce, so at most one executes.
 
 pub mod paper;
 
@@ -40,6 +49,8 @@ pub enum SenderId {
     Astralane = 4,
     Jito = 5,
     NextBlock = 6,
+    HeliusSwqos = 7,
+    BlockRazor = 8,
 }
 
 impl SenderId {
@@ -52,7 +63,25 @@ impl SenderId {
             Self::Astralane => "astralane",
             Self::Jito => "jito",
             Self::NextBlock => "nextblock",
+            Self::HeliusSwqos => "helius_swqos",
+            Self::BlockRazor => "blockrazor",
         }
+    }
+
+    /// From the rslog / ledger byte.
+    pub fn from_u8(b: u8) -> Option<Self> {
+        Some(match b {
+            0 => Self::Paper,
+            1 => Self::Rpc,
+            2 => Self::Helius,
+            3 => Self::Nozomi,
+            4 => Self::Astralane,
+            5 => Self::Jito,
+            6 => Self::NextBlock,
+            7 => Self::HeliusSwqos,
+            8 => Self::BlockRazor,
+            _ => return None,
+        })
     }
 }
 
@@ -226,6 +255,87 @@ pub trait Sender: Send + Sync + core::fmt::Debug {
     fn min_tip(&self) -> u64 {
         0
     }
+    /// Name in the ledger and the summary (`jito_frankfurt`, ...).
+    fn label(&self) -> &'static str {
+        self.id().name()
+    }
+    /// Buy variants of one intent this path takes (Jito: 1, the
+    /// pay-on-success primary, because of its 1 req/s per IP and region).
+    fn buy_variants(&self) -> u8 {
+        2
+    }
+    /// Open the connection ahead of time (no-op where there is none).
+    fn warm(&self) -> Result<(), SendError> {
+        Ok(())
+    }
+    /// Several variants in one request where the wire allows it (Nozomi
+    /// batch send); one result per variant.
+    fn send_batch(&self, vs: &[&Variant]) -> Vec<SendResult> {
+        vs.iter().map(|v| self.send(v)).collect()
+    }
+}
+
+/// Tip account and tip of variant `idx` of `intent` for one sender.
+/// `ordinal` is the sender's position in the set: senders that share a tip
+/// account set (Jito regions, the two Helius legs) get different accounts,
+/// so no two variants of one intent share a signature. The tip is raised to
+/// the provider's minimum (it reverts with a failed buy). `None` for a path
+/// without tips (`rpcsend`).
+pub fn tip_plan(
+    s: &dyn Sender,
+    ordinal: usize,
+    idx: u8,
+    intent: u64,
+    plan_tip: u64,
+) -> Option<(Pubkey, u64)> {
+    let accts = s.tip_accounts();
+    if accts.is_empty() {
+        return None;
+    }
+    let k = (intent as usize % accts.len() + 3 * ordinal + (idx & 0x7f) as usize) % accts.len();
+    Some((accts[k], plan_tip.max(s.min_tip())))
+}
+
+/// Token bucket: `rate` tokens per second, at most `burst` saved.
+#[derive(Debug)]
+pub struct TokenBucket {
+    rate: f64,
+    burst: f64,
+    state: std::sync::Mutex<(f64, std::time::Instant)>,
+}
+
+impl TokenBucket {
+    /// `rate <= 0` = unlimited.
+    pub fn new(rate: f64, burst: f64) -> Self {
+        let burst = burst.max(1.0);
+        Self {
+            rate,
+            burst,
+            state: std::sync::Mutex::new((burst, std::time::Instant::now())),
+        }
+    }
+    pub fn rate(&self) -> f64 {
+        self.rate
+    }
+    /// Take one token now if there is one.
+    pub fn try_take(&self) -> bool {
+        self.try_take_at(std::time::Instant::now())
+    }
+    pub fn try_take_at(&self, now: std::time::Instant) -> bool {
+        if self.rate <= 0.0 {
+            return true;
+        }
+        let mut g = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let dt = now.saturating_duration_since(g.1).as_secs_f64();
+        g.0 = (g.0 + dt * self.rate).min(self.burst);
+        g.1 = now;
+        if g.0 >= 1.0 {
+            g.0 -= 1.0;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 /// Shared pre-network check for tip-requiring senders.
@@ -358,6 +468,10 @@ pub enum BuildError {
 pub struct SenderSet {
     pub mode: Mode,
     pub paper: Arc<paper::Paper>,
+    /// `--probe-dry`: the real senders are built (their tip accounts and
+    /// minimum tips shape the signed variants) but never used: every send
+    /// goes to the paper recorder and [`SenderSet::real`] is empty.
+    pub dry: bool,
     real: Vec<Box<dyn Sender>>,
 }
 
@@ -365,6 +479,7 @@ impl core::fmt::Debug for SenderSet {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("SenderSet")
             .field("mode", &self.mode)
+            .field("dry", &self.dry)
             .field(
                 "real",
                 &self.real.iter().map(|s| s.id().name()).collect::<Vec<_>>(),
@@ -386,6 +501,7 @@ impl SenderSet {
             return Ok(Self {
                 mode,
                 paper,
+                dry: false,
                 real: vec![],
             });
         }
@@ -394,11 +510,44 @@ impl SenderSet {
             return Err(BuildError::Refused(v.refusals));
         }
         let real = build_real(cfg, keys)?;
-        Ok(Self { mode, paper, real })
+        Ok(Self {
+            mode,
+            paper,
+            dry: false,
+            real,
+        })
     }
 
-    /// Senders that can move money (empty in paper mode).
+    /// `--probe-dry` (probe mode only): validated like [`SenderSet::build`]
+    /// (`env` is the caller's, with the post-execution feed waived for a run
+    /// that sends nothing), the real senders are constructed for their tip
+    /// accounts and minimum tips but no request ever leaves: they are not
+    /// warmed, [`SenderSet::real`] is empty and every send is recorded.
+    pub fn build_dry(cfg: &Config, env: &ValidateEnv, keys: &ApiKeys) -> Result<Self, BuildError> {
+        if cfg.mode.mode != Mode::Probe {
+            return Err(BuildError::Config {
+                sender: "dry",
+                why: "--probe-dry needs mode = probe".into(),
+            });
+        }
+        let mut s = Self::build(cfg, env, keys)?;
+        s.dry = true;
+        Ok(s)
+    }
+
+    /// Senders that can move money (empty in paper mode and in a dry run).
     pub fn real(&self) -> &[Box<dyn Sender>] {
+        if self.dry {
+            &[]
+        } else {
+            &self.real
+        }
+    }
+
+    /// The senders variants are shaped for (tip accounts, minimum tips):
+    /// the real ones, also in a dry run. Never send through these directly;
+    /// use [`SenderSet::real`].
+    pub fn targets(&self) -> &[Box<dyn Sender>] {
         &self.real
     }
 
@@ -407,7 +556,7 @@ impl SenderSet {
     pub fn send_all(&self, v: &Variant) -> Vec<(SenderId, SendResult)> {
         let mut out = vec![(SenderId::Paper, self.paper.send(v))];
         if self.mode.is_real() {
-            for s in &self.real {
+            for s in self.real() {
                 out.push((s.id(), s.send(v)));
             }
         }
@@ -435,23 +584,42 @@ fn build_real(cfg: &Config, keys: &ApiKeys) -> Result<Vec<Box<dyn Sender>>, Buil
             feature: "rpc",
         });
     }
-    for (name, c) in [
-        ("helius", &s.helius),
-        ("nozomi", &s.nozomi),
-        ("astralane", &s.astralane),
-        ("jito", &s.jito),
-        ("nextblock", &s.nextblock),
-    ] {
+    for (name, c) in s.http() {
         if !c.enabled {
             continue;
         }
         #[cfg(feature = "senders")]
-        out.push(
-            providers::build(name, c, keys).map_err(|why| BuildError::Config {
+        {
+            let mut c = c.clone();
+            if name == "helius_swqos" {
+                c.swqos_only = true;
+                if c.key.is_empty() {
+                    c.key = s.helius.key.clone();
+                }
+            }
+            let built = if name == "jito" && !c.regions.is_empty() {
+                c.regions
+                    .iter()
+                    .map(|r| {
+                        let mut one = c.clone();
+                        one.region = r.clone();
+                        providers::build(name, &one, keys)
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            } else {
+                // the swqos leg is a Helius sender with `swqos_only`
+                let kind = if name == "helius_swqos" {
+                    "helius"
+                } else {
+                    name
+                };
+                providers::build(kind, &c, keys).map(|s| vec![s])
+            };
+            out.extend(built.map_err(|why| BuildError::Config {
                 sender: name_static(name),
                 why,
-            })?,
-        );
+            })?);
+        }
         #[cfg(not(feature = "senders"))]
         return Err(BuildError::FeatureMissing {
             sender: name_static(name),
@@ -470,8 +638,10 @@ fn build_real(cfg: &Config, keys: &ApiKeys) -> Result<Vec<Box<dyn Sender>>, Buil
 fn name_static(n: &str) -> &'static str {
     match n {
         "helius" => "helius",
+        "helius_swqos" => "helius_swqos",
         "nozomi" => "nozomi",
         "astralane" => "astralane",
+        "blockrazor" => "blockrazor",
         "jito" => "jito",
         _ => "nextblock",
     }

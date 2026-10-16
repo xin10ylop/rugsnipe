@@ -12,7 +12,7 @@ Background: `docs/04-strategy.md` (what we trade and the go/no-go rule, §7), `d
 
 | Can | Cannot yet (blocks the step named) |
 |---|---|
-| Shadow mode (paper, no money): every multi-wallet bundled launch gets a would-be entry right behind the bundle, a measured premium, the LEAD exits replayed on the real tape, and failed attempts charged at their modelled cost | **Probe and live.** `rugsnipe-hot` refuses every real mode ("this build has no real key loading or real senders"). Missing (task list #12): real key loading, real senders in the hot binary, the real fill lane (our own TradeEvent, `meta.fee` of our failed transactions), kill-latch persistence, chain-derived daily loss, the TPU sender, nonce seeding from chain, Telegram alerts. **Step 9 is blocked** until these land |
+| Shadow mode (paper, no money): every multi-wallet bundled launch gets a would-be entry right behind the bundle, a measured premium, the LEAD exits replayed on the real tape, and failed attempts charged at their modelled cost | **Probe (partly) and live.** Built (task #12, first half, 2026-10-16): probe key loading from systemd credentials, the real senders in the hot binary (Helius incl. the `swqos_only` leg, Jito Frankfurt + Amsterdam `bundleOnly`, Nozomi, Astralane, BlockRazor, NextBlock), the real fill lane (our own TradeEvent, `meta.fee` of our failed buys, rank and premium, drops after the nonce burn, real sells and balances), nonce seeding from chain, recovery adoption, `--probe-dry`. Still missing (second half): the **gRPC (post-execution) feed**, so real buys cannot fire yet (free feeds stay paper and probe start is refused with "no healthy post-execution feed"; `--probe-dry` works), kill-latch persistence, the chain-derived daily loss, kill triggers beyond the file/signal/daily cap, the leader schedule, Telegram alerts, the TPU sender. **Live is refused in this build.** Step 9 runs up to the dry run |
 | Read rule (a) of the go/no-go gate: EV per attempt with a 90% lower bound (`analysis/scripts/shadow_gate.py`) | **Rule (b)** (are we ahead of the first follower?). The shadow lane *assumes* rank 1; our real rank needs real sends or a shred feed. It is decided in the probe |
 | Feeds: `logsSubscribe` over any websocket URL, PumpPortal, the collector relay | Yellowstone gRPC, DoubleZero Edge or Helius shreds: not in the hot binary. Do not buy them yet |
 | Bid policy: tip after the buy (pay on success) where the leader orders by tip (Jito-Agave), priority fee clamped by `bid.failed_attempt_lamports_max` elsewhere (BAM, Harmonic, other); sells take the same split, the bid paid once (docs/03 §6.1) | The leader's class per slot (no leader schedule in the hot path): paper uses the stake-weighted mix |
@@ -104,6 +104,12 @@ sudo chmod 0400 /etc/rugsnipe/keys/*
 sudo $EDITOR /etc/rugsnipe/keys/api-keys.toml && sudo chmod 0400 /etc/rugsnipe/keys/api-keys.toml   # names in §13
 sudo bash ~/rugsnipe/deploy/install.sh --role hot              # refuses group/world-readable keys
 ```
+
+`api-keys.toml` is one `NAME = "value"` per line (comments with `#`); the names are the `key` values of
+the `[senders]` tables: `HELIUS_KEY`, `NOZOMI_KEY`, `ASTRALANE_KEY`, `BLOCKRAZOR_KEY`, and optionally
+`NEXTBLOCK_KEY`. `rugsnipe-hot` reads the keys **only** from `$CREDENTIALS_DIRECTORY` (systemd
+`LoadCredential=`, already in the units), refuses a missing, malformed or group/world-readable
+credential, refuses a sender whose key name is not in the file, and never prints a key.
 
 ## 5. The shadow configuration
 
@@ -267,10 +273,11 @@ SELECT f.tertile, s.outcome, COUNT(*) FROM filter f JOIN shadow s ON s.intent_id
 by assumption). It is decided in the probe: probe-A measures our real landing rank, and the gate's (b)
 is read on probe-B (docs/06 §9.5).
 
-## 9. Moving to probe (blocked in this build)
+## 9. Moving to probe (dry run works; real buys wait for the gRPC feed)
 
-**When:** only if step 8 says `GO on (a)`, **and** the build has real mode (§0; task #12). Until then,
-stop here and keep shadow running.
+**When:** only if step 8 says `GO on (a)`, **and** the build has the post-execution feed (§0; the second
+half of task #12). Until then you can do every step below up to and including the dry run (step 5 of
+**How**), then keep shadow running.
 
 **What** (docs/04 §7 step 2, `[probe]` in the config): two stages, both with `max_sol_cost` +2% and the
 LEAD exits. `[probe] stage` selects the caps; each narrows the `[risk]` cap of the same name, and a
@@ -289,7 +296,7 @@ the break-even for the measured failed-attempt cost over 200 attempts; or the st
 hit (the risk gate latches the kill itself). **Enter B** only if probe-A ends with a landing rate above
 that break-even and a median premium at or below +2% (`PROBE-A COMPLETE: ENTER PROBE-B`).
 
-**How**, once the build supports it:
+**How** (steps 1-5 work in this build; step 6 needs the gRPC feed):
 
 1. The probe ArmSet (on ohio1), stage A first:
    ```bash
@@ -297,8 +304,19 @@ that break-even and a median premium at or below +2% (`PROBE-A COMPLETE: ENTER P
    sudo /opt/rugsnipe/bin/rugsnipe-ctl armset sign --key /etc/rugsnipe/keys/armset-signing.key --in /tmp/probe-a.json --out-dir /tmp/armset
    ```
    It carries `probe_allowed = true`, `probe_stage = "a"`, the class operator in state `probe` at 0.02 SOL,
-   never `gate_passed`. For B: `--probe-stage b` (0.25 SOL) and a new `--ver`.
-2. `/etc/rugsnipe/rugsnipe.toml` (from `config/rugsnipe.example.toml`): `[mode] mode = "probe"`,
+   never `gate_passed`. For B: `--probe-stage b` (0.25 SOL) and a new `--ver`. Copy both files
+   (`armset-2-<sha>.json` and `.sig`) to `/var/lib/rugsnipe/armsets/` on fra1.
+2. Keys (§4): `probe-keypair.json` and `api-keys.toml` in `/etc/rugsnipe/keys/`, root 0400. Stages A and
+   B both trade from the probe wallet. Example `api-keys.toml` (values from the providers' dashboards,
+   docs/research/infra-shopping-2026.md §5):
+   ```toml
+   HELIUS_KEY = "..."       # Helius Sender at 50 req/s (keyless is 1 req/s per IP)
+   NOZOMI_KEY = "..."
+   ASTRALANE_KEY = "..."
+   BLOCKRAZOR_KEY = "..."   # the BlockRazor auth token (header apikey)
+   # NEXTBLOCK_KEY = "..."  # only with a NextBlock plan
+   ```
+3. `/etc/rugsnipe/rugsnipe.toml` (from `config/rugsnipe.example.toml`): `[mode] mode = "probe"`,
    `[probe] stage = "a"` (the example's `a`/`b` profiles and `kill` table as shipped), and **every** cap
    non-zero (validation refuses a zero). The `[risk]` values are ceilings for both stages:
 
@@ -307,25 +325,69 @@ that break-even and a median premium at or below +2% (`PROBE-A COMPLETE: ENTER P
    | `risk.max_probe_lamports` | `250_000_000` | ceiling; stage A narrows it to 0.02 SOL, B keeps 0.25 SOL |
    | `risk.max_probes_per_day` | `300` | attempts, not fills; A narrows to 50 |
    | `risk.max_open_positions` | `2` (or the example's 4) | A narrows to 1, B to 2; a LEAD position lives about 2 s |
-   | `risk.max_daily_loss_lamports` | `1_000_000_000` | A narrows to 0.2 SOL, B keeps 1 SOL |
-   | `risk.max_consec_losses_per_op` | `20` | the class arm is one operator and the median LEAD trade is a small loss; 5 would suspend it constantly |
+   | `risk.max_daily_loss_lamports` | `1_000_000_000` | A narrows to 0.2 SOL, B keeps 1 SOL; every failed attempt's `meta.fee` counts |
+   | `risk.min_hot_balance_lamports` | `100_000_000` | a buy needs this + the stake + the bid in the wallet (the lane reads the balance every 2 s): keep it below what you fund |
+   | `risk.max_consec_losses_per_op` | `20` | the class arm is one operator and the median LEAD trade is a small loss; 5 would suspend it constantly (lost races do not count) |
    | `risk.max_buys_per_op_per_day`, `max_buys_per_hour` | `300`, `40` | |
    | `risk.max_bid_lamports` | `25_000_000` | the bid itself; the failed-attempt part is capped below |
    | `bid.failed_attempt_lamports_max` | `1_000_000` | most a lost race may cost (docs/03 §6.1) |
    | `bid.split` | as shipped | Jito-Agave pays on success (tip); BAM, Harmonic, other bid with the capped priority fee. Change BAM only when probe-A shows its variant landing better with the tip |
    | `tx.cu_limit`, `tx.lads_bytes` | `88_000`, `12_124_160` | after `cargo run --release -p rugsnipe-ctl --features rpc -- sim --n 3` confirms the fit |
-   | `tx.nonce_pool` | `32` | create them with `rugsnipe-ctl nonce init --authority <PROBE_PUBKEY> --count 32` (prints unsigned transactions for review) |
+   | `tx.nonce_pool` | `32` | create them with `rugsnipe-ctl nonce init --authority <PROBE_PUBKEY> --count 32` (prints unsigned transactions for review); at start the hot binary reads every pool account from chain and quarantines a missing, uninitialized or foreign-authority one |
+   | `rpc_budget.keeper` | `8` | the real fill lane's share (statuses, landed transactions, nonce accounts, balances, blockhash) |
 
-3. Fund the probe wallet with what the caps allow you to lose plus working capital (1 SOL for A,
-   2-3 SOL for B), check and start:
+   `[senders]`: enable the paths you have keys for, exactly as the example names them: `helius`
+   (`key = "HELIUS_KEY"`, 0.001 SOL minimum), `helius_swqos` (`&swqos_only=true`, 5,000 lamports, uses
+   `helius.key`), `nozomi` (`NOZOMI_KEY`, never below 0.001 SOL: Nozomi silently drops lower tips),
+   `astralane` (`ASTRALANE_KEY`), `blockrazor` (`BLOCKRAZOR_KEY`, mode `fast`, 0.0001 SOL, 3 TPS),
+   `jito` (`regions = ["frankfurt", "amsterdam"]`, `max_rps = 1`: one 1 req/s token bucket per region, the
+   pay-on-success primary only). Each sender gets its own variant of every attempt (its tip accounts,
+   `tip = max(bid, its minimum)`), all on the intent's one durable nonce, so at most one lands and at most
+   one tip is paid; a tip only moves when the buy succeeds.
+4. Fund the probe wallet with what the caps allow you to lose plus working capital (1 SOL for A,
+   2-3 SOL for B) and check the config as root:
    ```bash
    /opt/rugsnipe/bin/rugsnipe-ctl config validate /etc/rugsnipe/rugsnipe.toml --creds /etc/rugsnipe/keys \
      --clock-offset-ms <from chronyc tracking> --post-exec-healthy --armset /var/lib/rugsnipe/armsets/armset-2-<sha>.json
-   sudo systemctl enable --now rugsnipe.target
    ```
    `config validate` prints the ArmSet's `probe_stage` and refuses a mismatch with `[probe] stage` (and
    `stage = "b"` with an ArmSet that names no stage).
-4. **Read the kill rule** at least daily, and at the end of each stage:
+5. **Dry run on the box** (works now, before or after funding; sends nothing). The binary loads the real
+   probe key from systemd credentials, seeds the nonce pool from chain, signs every variant with the real
+   key, records them instead of sending, and prints a self-test: one signed buy per configured sender
+   (placeholder mint, the first usable nonce's real value) and the nonce burn (AdvanceNonce only), each
+   as base64 with a read-only `simulateTransaction` result (`sigVerify = true`):
+   ```bash
+   sudo systemd-run --unit rugsnipe-probe-dry --uid rugsnipe --gid rugsnipe --pipe --wait \
+     -p LoadCredential=probe-keypair:/etc/rugsnipe/keys/probe-keypair.json \
+     -p LoadCredential=api-keys:/etc/rugsnipe/keys/api-keys.toml \
+     /opt/rugsnipe/bin/rugsnipe-hot --config /etc/rugsnipe/rugsnipe.toml --probe-dry \
+       --armset /var/lib/rugsnipe/armsets/armset-2-<sha>.json --state /var/lib/rugsnipe/probe-dry.db \
+       --rpc-url <your RPC> --duration-s 60 --no-metrics --pin-core none
+   ```
+   Read it: `dry self-test: <sender> variant 0 sig ... tip ... prio ...` for every sender (a missing one
+   is not enabled or its key is missing), then `dry first signed buy ...: <base64>` and
+   `dry nonce burn ...: <base64>` with `simulateTransaction err=...`. Before funding the fee payer does
+   not exist and both say `AccountNotFound`: that already proves the signature verifies. After funding
+   the burn must simulate with `err=null` (the key, the nonce account and its authority are right) and
+   the buy must fail at its ATA or pump instruction (index 3 or later: the placeholder mint), never at
+   instruction 0 (the nonce). Any refusal (key permissions, ArmSet, stage, clock, caps) is printed with
+   every reason and nothing starts. Use a separate `--state` for dry runs.
+6. **Start** (needs the gRPC feed, task #12 second half; until then the service refuses probe with
+   "no healthy post-execution feed"): add the ArmSet and the RPC to the unit with a drop-in, then start:
+   ```bash
+   sudo systemctl edit rugsnipe-hot     # [Service] / ExecStart= / ExecStart=/opt/rugsnipe/bin/rugsnipe-hot --config /etc/rugsnipe/rugsnipe.toml --armset /var/lib/rugsnipe/armsets/armset-2-<sha>.json --rpc-url <your RPC>
+   sudo systemctl enable --now rugsnipe.target
+   ```
+   A position opens only on our own TradeEvent (the feed's or the landed transaction's) or a token
+   balance, never on a send; a buy that lands and fails costs its `meta.fee` (counted toward the daily
+   loss); nothing landed means the keeper burns the nonce after `tx.burn_after_slots` and the attempt
+   is `dropped` at no cost. Sells go through the same senders on a recent blockhash; a position closes
+   on our own sell TradeEvent or a zero balance. If the hot box stops, `rugsnipe-guard --real-sell
+   --armset ... --rpc-url ...` (probe only) sells through the same senders. The end-of-run summary's
+   `cold.probe` block has the landing stats per sender and per variant (bid, rank, premium, failed cost),
+   and `state.db` `kv.probe_report` keeps the last one.
+7. **Read the kill rule** at least daily, and at the end of each stage:
    ```bash
    cd /opt/rugsnipe/src
    sudo -u rugsnipe /opt/rugsnipe/venv/bin/python -I analysis/scripts/shadow_gate.py --probe \
@@ -341,8 +403,9 @@ that break-even and a median premium at or below +2% (`PROBE-A COMPLETE: ENTER P
    `cold.paper` block carries the same inputs (`attempts_scored`, `landing_rate`, `failed_cost_lamports_mean`,
    `median_premium_bps_fills`, `ev_per_attempt`, `ev_per_attempt_se`, `ev_per_attempt_90ci`). Raw rows are
    in `state.db` (`fills`, `positions`, `exits`, `sends`; failed attempts carry `fills.fail_cost` = the
-   `meta.fee` of the failed transaction). Per leader class needs the leader schedule (task #12); until then
-   the split is per variant.
+   `meta.fee` of the failed transaction, 0 for a dropped send; `fills.variant` / `fills.sender` / `fills.fee`
+   / `fills.tip` name the landed variant). Per leader class needs the leader schedule (task #12, second
+   half); until then the split is per variant and per sender.
 
 **Live** needs the docs/06 §9.5 gate for the class-arm LEAD (`gate_passed` in a signed ArmSet): (a) shadow
 over ≥ 1,000 launches and a full day with the hour-cluster 90% lower bound of the EV per attempt above 0;
@@ -463,7 +526,7 @@ EV of the frozen LEAD. Two consecutive weeks with the 90% lower bound below zero
 | Helius LaserStream fra (post-exec gRPC) | 499-999 | probe | **no** (same) |
 | DoubleZero Edge FRA seat (leader shreds) | 1,500 | live, after the gate | **no** (no shred feed yet) |
 | Helius shred delivery per IP | 800-1,000 | live, after the gate | **no** |
-| NextBlock sender | 249+ | live, if an A/B shows value | sender code only, not in the hot binary |
+| NextBlock sender | 249+ | live, if an A/B shows value | yes, optional (`[senders] nextblock`, feature `real-senders`) |
 | Landed buy, all-in | ~0.004 SOL median per landed buy (p75 0.014) | probe, live | |
 | Failed attempt (modelled, docs/03 §6.1) | ~0.00073 SOL at the defaults (range 0.00036-0.001); at most `bid.failed_attempt_lamports_max` | probe, live | |
 
@@ -481,13 +544,15 @@ config uses.
 | `armset-signing-key` (`armset-signing.key`) | ArmSet signing key (ohio1 only, never fra1) | no | pubkey in `[secrets] armset_pubkey` |
 | `api-keys` (`api-keys.toml`) | the table below | | `[secrets] api_keys` |
 | `GRPC_TOKEN` | SVS gRPC or Helius LaserStream token | $150 / $499-999 | `[feeds] grpc.token` (feed not built yet) |
+| `HELIUS_KEY` | Helius Sender `fra-sender` (free key: 50 req/s per region) | per-tx tip, 0.001 SOL; 5,000 lamports on the `swqos_only` leg | `[senders] helius.key` (`helius_swqos` uses it too) |
 | `NOZOMI_KEY` | Nozomi (Temporal) sender | per-tx tip, min 0.001 SOL | `[senders] nozomi.key` |
 | `ASTRALANE_KEY` | Astralane sender | per-tx tip, 0.001 SOL (0.00001 at VIP3) | `[senders] astralane.key` |
-| `NEXTBLOCK_KEY` | NextBlock sender | $249+/mo | `[senders] nextblock.key` |
+| `BLOCKRAZOR_KEY` | BlockRazor sender (auth token, header `apikey`), mode `fast` | free, per-tx tip min 0.0001 SOL, 3 TPS | `[senders] blockrazor.key` |
+| `NEXTBLOCK_KEY` | NextBlock sender (optional) | $249+/mo (trial 1 tx/10 s) | `[senders] nextblock.key` |
 | `TG_TOKEN` | Telegram alert bot | free | `[obs] alert.telegram` (alerts not built yet) |
 | `HC_URL` | healthchecks.io dead-man URL | free tier | `[obs] alert.deadman` |
-| (none) | Helius Sender `fra-sender` | per-tx tip, 0.001 SOL or 5,000 lamports `swqos_only` | `[senders] helius` (keyless, 1 req/s per IP) |
-| (none) | Jito block engine Frankfurt | per-bundle tip, min 1,000 lamports | `[senders] jito` (1 req/s per IP per region) |
+| (none) | Helius Sender without a key | as above | `[senders] helius` with no `key` (1 req/s per IP) |
+| (none) | Jito block engine Frankfurt + Amsterdam, `bundleOnly` | per-tx tip, min 1,000 lamports; a failed bundle-only transaction costs nothing | `[senders] jito.regions` (1 req/s per IP per region, one token bucket each) |
 | (DZ ID pubkey) | DoubleZero Edge seat | $1,500/mo | applied for at doublezero.xyz with the box's DZ ID; no API key |
 | (seat token, IP-bound) | Helius shred delivery | $800-1,000/mo | Helius dashboard, one seat per IP |
 

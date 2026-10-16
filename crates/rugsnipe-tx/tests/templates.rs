@@ -910,3 +910,69 @@ fn bid_plans_keep_a_failed_attempt_within_the_cap() {
         }
     }
 }
+
+#[test]
+fn tip_account_patch_retargets_the_tip_and_keeps_the_message_exact() {
+    // One template, any provider's tip account (each sender has its own):
+    // the patched transaction equals a scratch build with that account, the
+    // tip stays the last instruction and goes to the new account only.
+    let helius = Pubkey::from_str_const("4ACfpUFoaSD9bfPdeu6DBt89gB6ENTeHBXCAi87NhDEE");
+    let mut rng = Rng(0x71b5);
+    for f in [TxFormat::Legacy, TxFormat::V1] {
+        let p = params(&mut rng, f, true, false);
+        let k = real_keys(rng.key(), &p);
+        let lifetime = [3u8; 32];
+        let mut t = Template::buy(&p).unwrap();
+        assert_eq!(t.tip_account(), p.tip_account);
+        t.patch(&Patch {
+            keys: &k,
+            lifetime: &lifetime,
+            amount: 20_000_000,
+            limit: 7,
+            priority_lamports: 10_000,
+            tip_lamports: 1_000_000,
+            cu_limit: None,
+        });
+        assert!(t.set_tip_account(&helius));
+        assert_eq!(t.tip_account(), Some(helius));
+        assert_eq!(t.tip_lamports(), Some(1_000_000));
+        let sem = decompile(t.bytes());
+        let (buy, tip) = buy_and_tip(&sem, &helius);
+        assert_eq!(
+            tip,
+            Some(sem.len() - 1),
+            "{f:?}: tip last, to the new account"
+        );
+        assert!(buy < sem.len() - 1);
+        let (_, old) = buy_and_tip(&sem, &p.tip_account.unwrap());
+        assert_eq!(old, None, "{f:?}: nothing goes to the template's account");
+        let scratch = Template::buy(&CurveParams {
+            tip_account: Some(helius),
+            ..p
+        })
+        .unwrap();
+        let mut s2 = scratch.clone();
+        s2.patch(&Patch {
+            keys: &k,
+            lifetime: &lifetime,
+            amount: 20_000_000,
+            limit: 7,
+            priority_lamports: 10_000,
+            tip_lamports: 1_000_000,
+            cu_limit: None,
+        });
+        assert_eq!(
+            decompile(s2.bytes()),
+            sem,
+            "{f:?}: same instructions as a scratch build"
+        );
+    }
+    // a template without a tip has nothing to retarget
+    let p = CurveParams {
+        tip_account: None,
+        ..params(&mut rng, TxFormat::Legacy, true, false)
+    };
+    let mut t = Template::buy(&p).unwrap();
+    assert!(!t.set_tip_account(&helius));
+    assert_eq!(t.tip_account(), None);
+}

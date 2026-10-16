@@ -98,6 +98,9 @@ pub struct Shared {
     /// This process holds the exits lease (sells allowed).
     pub exits_owned: AtomicBool,
     pub stop: AtomicBool,
+    /// Recent blockhash and the slot it was read at (real sells; the cold
+    /// lane refreshes it every few seconds). `None` = no real sell possible.
+    pub blockhash: std::sync::Mutex<Option<([u8; 32], u64)>>,
 }
 
 impl Default for Shared {
@@ -107,7 +110,22 @@ impl Default for Shared {
             heartbeat: AtomicU64::new(0),
             exits_owned: AtomicBool::new(true),
             stop: AtomicBool::new(false),
+            blockhash: std::sync::Mutex::new(None),
         }
+    }
+}
+
+impl Shared {
+    pub fn set_blockhash(&self, hash: [u8; 32], slot: u64) {
+        *self.blockhash.lock().unwrap_or_else(|e| e.into_inner()) = Some((hash, slot));
+    }
+    /// The blockhash if it was read within the last 60 slots of `slot_now`
+    /// (a blockhash lives ~150 slots).
+    pub fn fresh_blockhash(&self) -> Option<[u8; 32]> {
+        let now = self.slot_now.load(Relaxed);
+        let g = self.blockhash.lock().unwrap_or_else(|e| e.into_inner());
+        g.filter(|(_, at)| now == 0 || now.saturating_sub(*at) <= 60)
+            .map(|(h, _)| h)
     }
 }
 
@@ -279,7 +297,14 @@ struct Slot {
     /// The entry filter's features (with the signer's and the best bundle
     /// wallet's LEAD-outcome counts), from the cold lane.
     feat: Option<(Feat, u32, u32)>,
+    /// Real positions: signatures of our own trades already applied (the
+    /// feed and the real fill lane can both report one).
+    own_sigs: [[u8; 64]; OWN_SIGS],
+    own_n: usize,
 }
+
+/// Own-trade signatures remembered per position.
+const OWN_SIGS: usize = 8;
 
 /// Plain counters for reports (the metrics hold the same numbers).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
@@ -300,6 +325,12 @@ pub struct LoopCounters {
     pub e1_replayed_trades: u64,
     /// Intents the entry filter dropped (`entry.filter_mode = "skip"`).
     pub filtered: u64,
+    /// Real (probe): buys that landed and failed / were dropped, own trades
+    /// applied, real sells skipped for want of a fresh blockhash.
+    pub real_failed: u64,
+    pub real_dropped: u64,
+    pub own_trades: u64,
+    pub sells_no_blockhash: u64,
 }
 
 /// Everything [`HotLoop::new`] needs.
@@ -496,6 +527,10 @@ impl HotLoop {
                         self.stats.wire_misses.inc();
                     }
                 }
+            }
+            Payload::Trade(t) if t.user == self.owner && self.cfg.mode.is_real() => {
+                // our own TradeEvent from the feed: opens / sizes a real position
+                self.on_own_trade(t.sig.0, trade_from_lite(&t));
             }
             Payload::Trade(t) => self.on_trade(trade_from_lite(&t)),
             Payload::Funding(f) => {
@@ -780,6 +815,7 @@ impl HotLoop {
                 prio: prio0,
                 tip: tip0,
                 tip_account,
+                bid,
                 real: true,
             };
             if self.fire.push(job).is_err() {
@@ -804,6 +840,7 @@ impl HotLoop {
                 prio: plan1.priority_lamports,
                 tip: plan1.tip_lamports,
                 tip_account,
+                bid,
                 // a paper decision's secondary variant is recorded, never sent
                 real,
             };
@@ -842,10 +879,16 @@ impl HotLoop {
                 sig: v.sig,
                 variant: 0,
                 sender,
+                label: SenderId::Paper.name(),
                 prio: prio0,
                 tip: tip0,
+                bid,
                 sent_ns,
+                sent_unix_ms: now_ms,
                 result,
+                err: "",
+                http: 0,
+                kind: VariantKind::Buy as u8,
             });
         }
         self.send_cold(ColdMsg::Intent {
@@ -866,6 +909,22 @@ impl HotLoop {
             real,
         });
         self.send_cold(ColdMsg::WatchMint(hit.mint));
+        if real {
+            // the real fill lane: find our transaction, read our TradeEvent
+            self.send_cold(ColdMsg::RealPending {
+                intent,
+                mint: hit.mint,
+                bc: hit.bc,
+                create_sig: hit.sig,
+                slot,
+                creator: hit.creator_arg,
+                user: hit.user,
+                nonce_idx: claim.idx as u16,
+                nonce_value: claim.value,
+                spend,
+                bid,
+            });
+        }
         if !real {
             self.send_cold(ColdMsg::PaperPending {
                 intent,
@@ -931,6 +990,8 @@ impl HotLoop {
             replaying: false,
             replay_slot: slot,
             feat: None,
+            own_sigs: [[0u8; 64]; OWN_SIGS],
+            own_n: 0,
         });
         self.stats.positions_open.set(self.positions() as i64);
     }
@@ -1081,7 +1142,207 @@ impl HotLoop {
                     self.replay_end(i, horizon);
                 }
             }
+            HotIn::RealBuy { intent, sig, trade } => {
+                if self.find_intent(intent).is_some() {
+                    self.on_own_trade(sig, trade);
+                }
+            }
+            HotIn::RealTrade { sig, trade } => self.on_own_trade(sig, trade),
+            HotIn::RealFailed {
+                intent,
+                cost,
+                dropped,
+            } => self.real_failed(intent, cost, dropped),
+            HotIn::RealBalance { mint, tokens, slot } => {
+                let Some(i) = self.find_mint(&mint) else {
+                    return;
+                };
+                // a pending intent opens on its own TradeEvent (the lane sends
+                // it first); a balance only sizes or closes a held position
+                if self.slots[i].as_ref().is_some_and(|s| s.real && s.filled) {
+                    let now = Now {
+                        ms: crate::now_ms(),
+                        slot: slot.max(self.slot_now),
+                    };
+                    self.exit_event(i, ExitEvent::Balance { tokens, slot }, now);
+                }
+            }
         }
+    }
+
+    /// Our own trade on a held mint (real positions only): a buy opens the
+    /// position (never a send: docs/06 section 8), a sell sizes or closes
+    /// it. The feed and the real fill lane can both report one trade: each
+    /// signature is applied once.
+    fn on_own_trade(&mut self, sig: [u8; 64], t: Trade) {
+        let Some(i) = self.find_mint(&t.mint) else {
+            return;
+        };
+        let owner = self.owner;
+        let Some(s) = self.slots[i].as_mut() else {
+            return;
+        };
+        if !s.real || t.user != owner {
+            return;
+        }
+        if s.own_sigs[..s.own_n.min(OWN_SIGS)].contains(&sig) {
+            return;
+        }
+        s.own_sigs[s.own_n % OWN_SIGS] = sig;
+        s.own_n += 1;
+        self.counters.own_trades += 1;
+        let now = Now {
+            ms: crate::now_ms(),
+            slot: t.slot.max(self.slot_now),
+        };
+        if t.is_buy && !s.filled {
+            s.filled = true;
+            let (intent, mint) = (s.intent, s.pos.mint);
+            let (buf, n) = (s.buf, s.buf_len);
+            s.buf_len = 0;
+            self.counters.fills += 1;
+            self.stats.fills.inc();
+            self.exit_event(i, ExitEvent::Trade(t), now);
+            self.send_cold(ColdMsg::RealHeld { intent, mint });
+            for tr in buf[..n].iter().flatten() {
+                if tr.slot > t.slot && self.slots[i].is_some() {
+                    self.exit_event(i, ExitEvent::Trade(*tr), now);
+                }
+            }
+            return;
+        }
+        if !t.is_buy {
+            // the order this fill answers (same size first, else the oldest)
+            let p = &s.pos;
+            let order = p
+                .pending
+                .iter()
+                .flatten()
+                .find(|o| o.order.tokens == t.token_amount)
+                .or_else(|| p.pending.iter().flatten().next())
+                .map(|o| o.order);
+            let (mint, owner) = (p.mint, p.owner);
+            self.counters.sell_fills += 1;
+            self.stats.sell_fills.inc();
+            let reason = order.map_or(rugsnipe_exit::ExitReason::MaxHold, |o| o.reason);
+            self.stats.exits[reason_index(reason)].inc();
+            self.send_cold(ColdMsg::Exit {
+                mint,
+                sig,
+                reason,
+                venue: t.venue,
+                tokens: t.token_amount,
+                sol_delta: t.sol_amount.saturating_sub(t.fee_lamports) as i64,
+                slot: t.slot,
+                owner,
+                try_no: order.map_or(0, |o| o.try_no),
+            });
+        }
+        self.exit_event(i, ExitEvent::Trade(t), now);
+        if let Some(s) = self.slots[i].as_ref() {
+            let snap = s.pos;
+            self.send_cold(ColdMsg::Position(snap));
+        }
+    }
+
+    /// A real buy landed and failed (`cost` = `meta.fee`) or nothing landed
+    /// (dropped): the intent ends without a position and its slot of the
+    /// risk gate comes back, the cost counting toward the daily loss.
+    fn real_failed(&mut self, intent: u64, cost: u64, dropped: bool) {
+        let Some(i) = self.find_intent(intent) else {
+            return;
+        };
+        let Some(s) = self.slots[i].as_ref() else {
+            return;
+        };
+        if !s.real || s.filled {
+            return; // our own TradeEvent already opened it: the trade wins
+        }
+        let mint = s.pos.mint;
+        self.slots[i] = None;
+        self.risk.on_attempt_failed(cost, crate::now_unix());
+        if dropped {
+            self.counters.real_dropped += 1;
+        } else {
+            self.counters.real_failed += 1;
+        }
+        self.counters.unfilled += 1;
+        self.stats.unfilled.inc();
+        self.stats.positions_open.set(self.positions() as i64);
+        self.send_cold(ColdMsg::UnwatchMint(mint));
+    }
+
+    /// Recovery (real modes): a token balance found on chain at start gets an
+    /// exit owner. The position opens on the balance (`orphan` origin) with
+    /// the curve keys derived from the mint, and its balance is polled.
+    /// `false` when no position slot is free.
+    pub fn adopt(&mut self, mint: Pubkey, tokens: u64, intent: u64) -> bool {
+        if tokens == 0 || self.find_mint(&mint).is_some() {
+            return true;
+        }
+        let Some(free) = self.slots.iter().position(|s| s.is_none()) else {
+            return false;
+        };
+        // an orphan balance (no intent of ours) gets the intent id a decision
+        // on that mint would have had
+        let intent = if intent == 0 {
+            IntentId::new(&mint, &self.owner).0
+        } else {
+            intent
+        };
+        let bc = pda::bonding_curve(&mint);
+        let keys = MintKeys::curve(
+            mint,
+            bc,
+            pda::associated_bonding_curve(&mint, &TOKEN_2022_PROGRAM_ID),
+            pda::ata_spl(&bc, &WSOL_MINT),
+            pda::ata_token_2022(&self.owner, &mint),
+        );
+        let pos = Position::pending(
+            mint,
+            self.owner,
+            intent,
+            self.cfg.policy,
+            BundleSet::default(),
+            Pubkey::default(),
+            self.cfg.fees,
+            pump_codec::curve::TOKEN_TOTAL_SUPPLY,
+        );
+        let slot = self.slot_now;
+        self.slots[free] = Some(Slot {
+            pos,
+            intent,
+            op_slot: 0,
+            create_slot: slot,
+            spend: 0,
+            v0: 0,
+            t0: 0,
+            min_out: 0,
+            nonce_idx: u16::MAX,
+            keys,
+            sig0: [0; 64],
+            filled: true,
+            real: true,
+            deadline: u64::MAX,
+            buf: [None; TRADE_BUF],
+            buf_len: 0,
+            attempts: [None; MAX_ATTEMPTS],
+            e1: false,
+            replaying: false,
+            replay_slot: slot,
+            feat: None,
+            own_sigs: [[0u8; 64]; OWN_SIGS],
+            own_n: 0,
+        });
+        let now = Now {
+            ms: crate::now_ms(),
+            slot,
+        };
+        self.exit_event(free, ExitEvent::Balance { tokens, slot }, now);
+        self.send_cold(ColdMsg::WatchMint(mint));
+        self.send_cold(ColdMsg::RealHeld { intent, mint });
+        self.stats.positions_open.set(self.positions() as i64);
+        true
     }
 
     /// Test and replay hook: hand a cold-lane message to the loop directly.
@@ -1781,9 +2042,23 @@ impl HotLoop {
         // reaches a real sender
         let paper = !(self.cfg.mode.is_real() && s.real);
         let mut sig = [0u8; 64];
+        // a real sell needs a recent blockhash (final sells close the
+        // account; the sell nonce pool is not built yet)
+        let lifetime = if paper {
+            Some(PAPER_BLOCKHASH)
+        } else {
+            self.shared.fresh_blockhash()
+        };
         if !owned {
             self.stats.sells_not_owner.inc();
+        } else if lifetime.is_none() && order.venue == Venue::Curve {
+            self.counters.sells_no_blockhash += 1;
+            self.rslog.push(Rec::Risk {
+                kind: 0x43,
+                value: order.order_id as i64,
+            });
         } else if order.venue == Venue::Curve {
+            let lifetime = lifetime.unwrap_or(PAPER_BLOCKHASH);
             let t = if order.close_account {
                 &mut self.tmpl.sell_final
             } else {
@@ -1798,7 +2073,7 @@ impl HotLoop {
             let (prio, tip) = (plan.priority_lamports, plan.tip_lamports);
             t.patch(&Patch {
                 keys: &s.keys,
-                lifetime: &PAPER_BLOCKHASH,
+                lifetime: &lifetime,
                 amount: order.tokens,
                 limit: order.min_sol_output,
                 priority_lamports: prio,
@@ -1827,6 +2102,7 @@ impl HotLoop {
                     prio,
                     tip,
                     tip_account: self.tmpl.tip_account,
+                    bid: order.tip_lamports,
                     real: true,
                 };
                 if self.fire.push(job).is_err() {

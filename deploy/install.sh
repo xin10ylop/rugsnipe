@@ -392,15 +392,19 @@ else
     fi
   fi
   run "$CARGO_HOME_DIR/bin/rustup" toolchain install "$TOOLCHAIN" --profile minimal -c rustfmt -c clippy
-  log "rust: cargo build --release --locked --workspace (toolchain $TOOLCHAIN, target $TARGET_DIR)"
+  # the hot role's binaries carry the real senders (probe; paper never builds one and live
+  # stays refused in this build); the analytics role builds the default features
+  FEATURES=()
+  [ "$ROLE" = hot ] && FEATURES=(--features rugsnipe/real-senders)
+  log "rust: cargo build --release --locked --workspace ${FEATURES[*]} (toolchain $TOOLCHAIN, target $TARGET_DIR)"
   if [ "$DRY_RUN" = 0 ]; then
-    if ! (cd "$SRC" && "$CARGO_HOME_DIR/bin/cargo" "+$TOOLCHAIN" build --release --locked --workspace); then
+    if ! (cd "$SRC" && "$CARGO_HOME_DIR/bin/cargo" "+$TOOLCHAIN" build --release --locked --workspace "${FEATURES[@]}"); then
       # the hot role cannot run without its binaries; the analytics role only loses rugsnipe-ctl
       [ "$ROLE" = hot ] && die "cargo build failed"
       warn "cargo build failed; continuing (the analytics role does not need the Rust binaries)"
     fi
   else
-    printf '[dry-run] (cd %s && cargo +%s build --release --locked --workspace)\n' "$SRC" "$TOOLCHAIN"
+    printf '[dry-run] (cd %s && cargo +%s build --release --locked --workspace %s)\n' "$SRC" "$TOOLCHAIN" "${FEATURES[*]}"
   fi
   for b in "${RUST_BINS[@]}"; do
     if [ -x "$TARGET_DIR/release/$b" ]; then

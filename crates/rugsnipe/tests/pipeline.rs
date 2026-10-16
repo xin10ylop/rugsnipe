@@ -297,6 +297,7 @@ fn sigusr1_latches_the_kill() {
         sigusr1: flag.clone(),
         paper_balance: 1,
         live_flag: false,
+        real: None,
     })
     .unwrap();
     flag.store(true, std::sync::atomic::Ordering::Release);
@@ -335,6 +336,7 @@ fn real_modes_are_refused_by_the_library_and_the_binary() {
             sigusr1: Default::default(),
             paper_balance: 1,
             live_flag: true,
+            real: None,
         });
         let e = r.expect_err("real mode refused");
         for want in ["cu_limit", "clock offset", "post-execution", "ArmSet"] {

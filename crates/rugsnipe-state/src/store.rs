@@ -262,8 +262,8 @@ pub fn apply(c: &Connection, w: &Write) -> rusqlite::Result<bool> {
         }
         Write::Send(r) => {
             c.execute(
-                "INSERT OR REPLACE INTO sends(sig, intent_id, variant, sender, prio, tip, sent_ns, result)
-                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+                "INSERT OR REPLACE INTO sends(sig, intent_id, variant, sender, prio, tip, sent_ns, result, bid, sent_unix_ms,
+                   kind, err) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
                 params![
                     b58(&r.sig),
                     r.intent_id,
@@ -272,14 +272,19 @@ pub fn apply(c: &Connection, w: &Write) -> rusqlite::Result<bool> {
                     r.prio as i64,
                     r.tip as i64,
                     r.sent_ns as i64,
-                    r.result
+                    r.result,
+                    r.bid as i64,
+                    r.sent_unix_ms as i64,
+                    r.kind,
+                    r.err
                 ],
             )?;
         }
         Write::Fill(r) => {
             c.execute(
                 "INSERT OR REPLACE INTO fills(sig, intent_id, mint, slot, tx_index, tokens, sol_delta, err, buyers_ahead,
-                   rival_sol_ahead, late, fail_reason, fail_cost) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+                   rival_sol_ahead, late, fail_reason, fail_cost, fee, variant, sender, tip)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
                 params![
                     b58(&r.sig),
                     r.intent_id,
@@ -293,7 +298,11 @@ pub fn apply(c: &Connection, w: &Write) -> rusqlite::Result<bool> {
                     r.rival_sol_ahead as i64,
                     r.late as i64,
                     r.fail_reason,
-                    r.fail_cost as i64
+                    r.fail_cost as i64,
+                    r.fee.map(|x| x as i64),
+                    r.variant,
+                    r.sender,
+                    r.tip.map(|x| x as i64)
                 ],
             )?;
         }

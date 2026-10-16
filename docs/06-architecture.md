@@ -137,6 +137,8 @@ kv(k TEXT PRIMARY KEY, v TEXT);   -- armset_ver, last_wallet_sig, programdata sl
 -- fills.fail_reason TEXT ('premium','slippage','not_in_slot0','class') + fills.fail_cost INT, and
 shadow(intent_id PK, mint, model, outcome, create_slot, create_index, block_txs, bundle_trades, bundle_wallets,
   our_index, tp_ahead, tp_behind, s0_failed, premium_bps, post_bundle_v, post_bundle_t, post_bundle_mcap, cost);
+-- schema v4 (probe, real sends): sends.bid / sent_unix_ms / kind ('buy','sell','burn') / err, and
+-- fills.fee (meta.fee) / variant / sender / tip of the landed transaction; shadow.model = 'probe' for real landings
 ```
 
 A version-1 file is upgraded in place (`schema::migrate`: columns added, `intents` copied to the new CHECK).
@@ -522,6 +524,16 @@ An ArmSet funder sending a fresh recipient (pre-balance 0) an amount in ≤ 5 **
 
 **Paper recorder.** Every `CreateHit` (hit or miss) logs per-feed `recv_ns` (the `FiredSet` race gives feed lead for free), the decision and the would-send bytes. `landing.py` joins these to the rivals that landed in slots 0-1 (`tx_index`, SOL), the earliest slot we could reach (send time + RTT to the leader's metro), and an estimated `buyers_ahead` for Jito-Agave leaders only.
 
+
+**Status (2026-10-16, task #12 first half).**
+- *Built (probe):* probe key loading from `$CREDENTIALS_DIRECTORY` only (`probe-keypair`, `api-keys`; missing, malformed, group/world-readable or systemd `ABSENT` credentials and sender key names missing from `api-keys` are refused; `rugsnipe::keys`).
+- *Built (probe):* the real senders in `rugsnipe-hot` behind `--features real-senders`: Helius `/fast?api-key=` plus the `swqos_only` leg, Jito `frankfurt` + `amsterdam` `bundleOnly` (a 1 req/s token bucket per region, the pay-on-success primary only), Nozomi batch send, Astralane `irisb`, BlockRazor `sendTransaction` mode `fast`, NextBlock. Each sender gets its own variant of every attempt: its tip account (rotated, unique inside the intent), `tip = max(bid, its minimum)`, the class plan's priority fee, all on the intent's one durable nonce (`rugsnipe::sender::plan_variants`). Every send is a `sends` row (sender, variant, bid, tip, priority, wall-clock time, error).
+- *Built (probe):* the real fill lane (`rugsnipe::real`). A position opens only on our own TradeEvent (the feed's or the landed transaction's) or a token balance. A landed buy is ranked in its slot: block index, third-party buyers ahead and behind, premium over the post-bundle price. A landed failure costs `meta.fee` (`e1::failed_tx_fee`; 6002/6042 = `slippage`). Nothing landed means the keeper's AdvanceNonce burn, then `dropped` at no cost; a variant that beats the burn is a late fill.
+- *Built (probe):* real sells on a recent blockhash through the same senders (`BidPolicy::plan_sell`) and the guard's `--real-sell`; a position closes on our own sell TradeEvent or a zero balance.
+- *Built (probe):* nonce seeding from chain at recovery (foreign-authority accounts quarantined); recovered balances adopted with an exit owner; `--probe-dry` (sign with the real key, record, simulate, send nothing).
+- *Built (probe):* the per-sender and per-variant landing stats in the summary (`cold.probe`) and `kv.probe_report`. The `fills` / `shadow` rows carry exactly what `shadow_gate.py --probe` reads; paper intents forced to paper inside a probe run are written with `intents.mode = 'paper'`.
+- *Missing (second half):* the gRPC post-execution feed, so real buys cannot fire yet (probe start is refused with "no healthy post-execution feed"; `--probe-dry` works); kill-latch persistence in `state.db`; the chain-derived daily loss (failed attempts' `meta.fee` and closed positions count today); the remaining kill triggers (send-error ratio, unexplained drop, upgrade gate, disk, clock, drift); the leader schedule (per-class bids and stats); Telegram alerts; the TPU sender; the sell nonce pool (partial sells use a blockhash); PumpSwap real sells.
+- *Live:* refused in this build.
 ## 11. Multi-region scheduler
 
 **Phase 1** is fra1 alone until the gate passes. **Phase 2** adds a second box; docs/03 §4 picks Tokyo (TeraSwitch TYO2, +7.8 points of same-slot coverage) before Amsterdam (AMS3), so the phase-2 box is tyo1, with ams1 as the third. The owner of each 4-slot window (still 4 slots under Alpenglow) is `argmin(rtt[box][tpuQuic metro])`. The backup fires at half tip only if the owner's heartbeat (wg0, 50 ms) is older than 150 ms. The nonce rule makes overlap harmless; roles exist for Jito's 1 req/s/IP/region limit and fee accounting. The heartbeat carries `{armset_ver, role_epoch, killed, mode}`, so a kill propagates, and each box computes the chain-derived loss itself, which makes the cap global.

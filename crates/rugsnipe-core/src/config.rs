@@ -311,6 +311,9 @@ pub struct HttpSenderCfg {
     pub region: String,
     /// Requests per second allowed per IP (Jito, keyless Helius: 1).
     pub max_rps: u32,
+    /// Jito only: block-engine regions, one sender (and one 1 req/s token
+    /// bucket) each, e.g. `["frankfurt", "amsterdam"]`; empty = `region`.
+    pub regions: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -326,10 +329,16 @@ pub struct SendersCfg {
     pub paper: Toggle,
     pub rpcsend: RpcSendCfg,
     pub helius: HttpSenderCfg,
+    /// Helius Sender with `&swqos_only=true` (5,000-lamport minimum tip), a
+    /// second leg on the same durable nonce (shares `helius.key`'s name if
+    /// its own `key` is empty).
+    pub helius_swqos: HttpSenderCfg,
     pub nozomi: HttpSenderCfg,
     pub astralane: HttpSenderCfg,
     pub jito: HttpSenderCfg,
     pub nextblock: HttpSenderCfg,
+    /// BlockRazor `sendTransaction`, mode `fast` (0.0001 SOL minimum tip, 3 TPS).
+    pub blockrazor: HttpSenderCfg,
     pub tpu: TpuCfg,
 }
 impl SendersCfg {
@@ -339,13 +348,7 @@ impl SendersCfg {
         if self.rpcsend.enabled {
             v.push("rpcsend");
         }
-        for (n, s) in [
-            ("helius", &self.helius),
-            ("nozomi", &self.nozomi),
-            ("astralane", &self.astralane),
-            ("jito", &self.jito),
-            ("nextblock", &self.nextblock),
-        ] {
+        for (n, s) in self.http() {
             if s.enabled {
                 v.push(n);
             }
@@ -354,6 +357,19 @@ impl SendersCfg {
             v.push("tpu");
         }
         v
+    }
+
+    /// Every HTTP sender table with its name, in fan-out order.
+    pub fn http(&self) -> [(&'static str, &HttpSenderCfg); 7] {
+        [
+            ("helius", &self.helius),
+            ("helius_swqos", &self.helius_swqos),
+            ("nozomi", &self.nozomi),
+            ("astralane", &self.astralane),
+            ("blockrazor", &self.blockrazor),
+            ("jito", &self.jito),
+            ("nextblock", &self.nextblock),
+        ]
     }
 }
 
@@ -1389,15 +1405,11 @@ impl Config {
             Mode::Live => creds.push(&self.secrets.hot_keypair),
             Mode::Paper => {}
         }
-        let http_enabled = [
-            &self.senders.helius,
-            &self.senders.nozomi,
-            &self.senders.astralane,
-            &self.senders.jito,
-            &self.senders.nextblock,
-        ]
-        .iter()
-        .any(|s| s.enabled && !s.key.is_empty());
+        let http_enabled = self
+            .senders
+            .http()
+            .iter()
+            .any(|(_, s)| s.enabled && !s.key.is_empty());
         if http_enabled {
             creds.push(&self.secrets.api_keys);
         }

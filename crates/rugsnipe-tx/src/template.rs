@@ -138,6 +138,9 @@ pub struct PatchTable {
     pub cu_limit: Option<usize>,
     /// Tip lamports (System transfer data + 4).
     pub tip: Option<usize>,
+    /// The tip account key (a writable non-signer: any provider's tip
+    /// account may be written here per variant, [`Template::set_tip_account`]).
+    pub tip_account: Option<usize>,
     /// Signature block and count.
     pub sigs: usize,
     pub n_sigs: usize,
@@ -455,6 +458,7 @@ fn finish(
     cu_limit: u32,
     kind: TemplateKind,
     placeholders: &[Pubkey; 5],
+    tip_account: Option<Pubkey>,
 ) -> Template {
     let priority = match (format, price_ix, layout.v1_priority) {
         (TxFormat::V1, _, Some(o)) => PriorityField::V1Total { offset: o },
@@ -477,6 +481,7 @@ fn finish(
         priority,
         cu_limit: cu_field,
         tip: tip_ix.map(|i| layout.ix_data[i] + 4),
+        tip_account: tip_account.map(|k| find_key(keys, &layout, &k)),
         sigs: layout.sigs,
         n_sigs: layout.n_sigs,
         message: layout.message,
@@ -528,6 +533,7 @@ impl Template {
             p.cu_limit,
             TemplateKind::Buy,
             &PLACEHOLDERS,
+            p.tip_account,
         ))
     }
 
@@ -559,6 +565,7 @@ impl Template {
             p.cu_limit,
             TemplateKind::Sell { close_account },
             &PLACEHOLDERS,
+            p.tip_account,
         ))
     }
 
@@ -589,6 +596,7 @@ impl Template {
             p.cu_limit,
             TemplateKind::AmmSell,
             &PLACEHOLDERS,
+            p.tip_account,
         ))
     }
 
@@ -674,6 +682,36 @@ impl Template {
         if let Some(o) = self.table.tip {
             self.buf[o..o + 8].copy_from_slice(&lamports.to_le_bytes());
         }
+    }
+
+    /// Change only the tip account (per sender: each provider has its own
+    /// tip accounts). The key sits in the writable non-signer class, so any
+    /// plain system account keeps the message valid; it must not equal
+    /// another key of the message (provider tip accounts never do). Clears
+    /// nothing (re-sign afterwards). `false` if the template has no tip.
+    #[inline]
+    pub fn set_tip_account(&mut self, account: &Pubkey) -> bool {
+        match self.table.tip_account {
+            Some(o) => {
+                self.buf[o..o + 32].copy_from_slice(account.as_ref());
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The tip account currently in the message.
+    pub fn tip_account(&self) -> Option<Pubkey> {
+        self.table
+            .tip_account
+            .map(|o| Pubkey::new_from_array(self.buf[o..o + 32].try_into().unwrap()))
+    }
+
+    /// The tip lamports currently in the message.
+    pub fn tip_lamports(&self) -> Option<u64> {
+        self.table
+            .tip
+            .map(|o| u64::from_le_bytes(self.buf[o..o + 8].try_into().unwrap()))
     }
 
     /// Write signature `i` (signature order = signer key order).

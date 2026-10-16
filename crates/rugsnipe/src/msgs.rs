@@ -34,10 +34,42 @@ pub enum ColdMsg {
         sig: [u8; 64],
         variant: u8,
         sender: u8,
+        /// The sender's ledger name (`jito_frankfurt`, `helius_swqos`, ...).
+        label: &'static str,
         prio: u64,
         tip: u64,
+        /// The base bid B the plan was split from.
+        bid: u64,
         sent_ns: u64,
+        sent_unix_ms: u64,
         result: u8,
+        /// Key-free failure name (`""` when accepted / recorded).
+        err: &'static str,
+        /// HTTP status of an `http` failure.
+        http: u16,
+        /// `VariantKind` byte (buy / sell / burn).
+        kind: u8,
+    },
+    /// A real intent (probe): what the real fill lane needs to find our
+    /// transaction, read our TradeEvent and rank it in its slot (sent right
+    /// after its `Intent`).
+    RealPending {
+        intent: u64,
+        mint: Pubkey,
+        bc: Pubkey,
+        create_sig: [u8; 64],
+        slot: u64,
+        creator: Pubkey,
+        user: Pubkey,
+        nonce_idx: u16,
+        nonce_value: [u8; 32],
+        spend: u64,
+        bid: u64,
+    },
+    /// A real position is open (or still held): poll its token balance.
+    RealHeld {
+        intent: u64,
+        mint: Pubkey,
     },
     /// Paper buy resolved (filled at the E1/E2 state, or failed: E2 above
     /// `v_max`, or an E1 failure with its reason and cost).
@@ -183,6 +215,29 @@ pub enum HotIn {
     },
     /// The replay tape is complete up to `horizon`.
     E1End { intent: u64, horizon: u64 },
+    /// Real (probe): our buy landed and succeeded; `trade` is our own
+    /// TradeEvent from the landed transaction (the position opens on it).
+    RealBuy {
+        intent: u64,
+        sig: [u8; 64],
+        trade: Trade,
+    },
+    /// Real: our buy landed and failed (`cost` = its `meta.fee`), or
+    /// nothing landed and the nonce moved on (`dropped`, cost 0).
+    RealFailed {
+        intent: u64,
+        cost: u64,
+        dropped: bool,
+    },
+    /// Real: one of our own trades on a held mint (a sell, or a buy variant
+    /// that beat the burn), from the landed transaction's TradeEvent.
+    RealTrade { sig: [u8; 64], trade: Trade },
+    /// Real: the chain token balance of a held mint.
+    RealBalance {
+        mint: Pubkey,
+        tokens: u64,
+        slot: u64,
+    },
     /// The E2 state for a paper intent (`ok = false`: resolution failed,
     /// the hot loop falls back to its buffered trades at the deadline).
     PaperFill {
@@ -207,6 +262,8 @@ pub struct FireJob {
     pub prio: u64,
     pub tip: u64,
     pub tip_account: Pubkey,
+    /// The base bid B (before the class split; ledger `sends.bid`).
+    pub bid: u64,
     /// `true` only for a `Decision::Fire` intent (or a sell of its position)
     /// in probe/live. Anything else (paper mode, or a decision forced to paper
     /// in a real mode: regime freeze, ArmSet gate, op not armed) goes to the

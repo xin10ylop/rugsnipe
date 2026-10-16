@@ -86,8 +86,8 @@ fn schema_has_every_spec_table_and_column() {
     let c = s.reader().unwrap();
     let want: &[(&str, &str)] = &[
         ("intents", "intent_id,mint,op_id,box,mode,armset_ver,slot,bank_id,via,feed_class,spend,v_max,min_tokens_out,nonce_idx,nonce_value,decided_ns,state"),
-        ("sends", "sig,intent_id,variant,sender,prio,tip,sent_ns,result"),
-        ("fills", "sig,intent_id,mint,slot,tx_index,tokens,sol_delta,err,buyers_ahead,rival_sol_ahead,late,fail_reason,fail_cost"),
+        ("sends", "sig,intent_id,variant,sender,prio,tip,sent_ns,result,bid,sent_unix_ms,kind,err"),
+        ("fills", "sig,intent_id,mint,slot,tx_index,tokens,sol_delta,err,buyers_ahead,rival_sol_ahead,late,fail_reason,fail_cost,fee,variant,sender,tip"),
         ("positions", "mint,intent_id,opened_slot,tokens,cost,v_fill,peak_v,bundle_json,policy_json,origin,state,sell_spend,closed_slot"),
         ("exits", "sig,mint,reason,venue,tokens,sol_delta,slot,owner,try_no"),
         ("nonces", "pubkey,pool,idx,value,last_change_slot,state,intent_id,since_slot"),
@@ -133,6 +133,10 @@ fn ledger_flow_and_intent_state_machine() {
         tip: 1_020_000,
         sent_ns: 50,
         result: "recorded".into(),
+        bid: 0,
+        sent_unix_ms: 0,
+        kind: "buy".into(),
+        err: None,
     });
     l.fill(
         FillRow {
@@ -149,6 +153,10 @@ fn ledger_flow_and_intent_state_machine() {
             late: false,
             fail_reason: None,
             fail_cost: 0,
+            fee: None,
+            variant: None,
+            sender: None,
+            tip: None,
         },
         None,
     );
@@ -183,6 +191,10 @@ fn ledger_flow_and_intent_state_machine() {
             late: false,
             fail_reason: None,
             fail_cost: 0,
+            fee: None,
+            variant: None,
+            sender: None,
+            tip: None,
         },
         Some(IntentState::Landed),
     );
@@ -291,6 +303,10 @@ fn version_1_file_migrates_to_version_2() {
             late: false,
             fail_reason: Some("premium".into()),
             fail_cost: 3_000_000,
+            fee: None,
+            variant: None,
+            sender: None,
+            tip: None,
         },
         None,
     );
@@ -473,6 +489,8 @@ fn recovery_reconciles_positions_nonces_and_orphans() {
     let mut accounts = std::collections::HashMap::new();
     accounts.insert(n0, nonce_data(&auth, [0xaa; 32])); // advanced while down
     accounts.insert(n2, nonce_data(&auth, [0xbb; 32])); // new account
+    let n3 = Pubkey::new_unique();
+    accounts.insert(n3, nonce_data(&Pubkey::new_unique(), [0xcc; 32])); // foreign authority
     let chain = MockChain {
         slot: 500,
         balances: vec![
@@ -499,13 +517,18 @@ fn recovery_reconciles_positions_nonces_and_orphans() {
         ],
         accounts,
     };
-    let nonce_accounts = [(n0, "buy", 0u16), (n1, "buy", 1), (n2, "buy", 2)];
+    let nonce_accounts = [
+        (n0, "buy", 0u16),
+        (n1, "buy", 1),
+        (n2, "buy", 2),
+        (n3, "buy", 3),
+    ];
     let c = s.reader().unwrap();
     let rep = recover(
         &c,
         &l,
         &RecoverCtx {
-            owner: Some(Pubkey::new_unique()),
+            owner: Some(auth),
             mode: "live",
             nonce_accounts: &nonce_accounts,
             chain: Some(&chain),
@@ -541,6 +564,11 @@ fn recovery_reconciles_positions_nonces_and_orphans() {
     );
     assert_eq!(by(n2).state, NonceRowState::Free);
     assert_eq!(by(n2).last_change_slot, Some(500));
+    assert_eq!(
+        by(n3).state,
+        NonceRowState::Quarantined,
+        "another authority's nonce: never fire"
+    );
 }
 
 #[test]

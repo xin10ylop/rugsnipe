@@ -319,6 +319,7 @@ fn skip_mode_without_a_model_is_refused() {
         sigusr1: Default::default(),
         paper_balance: 1,
         live_flag: false,
+        real: None,
     });
     assert!(r.err().unwrap().contains("filter_model"));
     let _ = std::fs::remove_dir_all(&dir);

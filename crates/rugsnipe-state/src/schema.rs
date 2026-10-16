@@ -10,10 +10,13 @@
 //! operator history behind the score, the feature vector) and the live
 //! outcome store `outcomes` (our own LEAD outcome of every launch we
 //! decided on, written 10 s after the launch at the earliest, reloaded at
-//! start). [`migrate`] upgrades version-1 and -2 files in place.
+//! start). Version 4 (probe, real sends): `sends.bid` (the base bid),
+//! `sends.sent_unix_ms`, `sends.kind` (`buy`/`sell`/`burn`) and `sends.err`,
+//! and on `fills` the landed transaction's `fee` (`meta.fee`), `variant`,
+//! `sender` and `tip`. [`migrate`] upgrades version-1, -2 and -3 files in place.
 
 /// Schema version stored in `PRAGMA user_version`.
-pub const VERSION: i64 = 3;
+pub const VERSION: i64 = 4;
 
 /// DDL (idempotent).
 pub const DDL: &str = r#"
@@ -21,9 +24,10 @@ CREATE TABLE IF NOT EXISTS intents(intent_id INTEGER PRIMARY KEY, mint TEXT NOT 
   bank_id INT, via TEXT CHECK(via IN('signer','fee_payer','funding','class')), feed_class TEXT, spend INT, v_max INT,
   min_tokens_out INT, nonce_idx INT, nonce_value TEXT, decided_ns INT,
   state TEXT CHECK(state IN('paper','sent','landed','failed','burned','late_fill')), UNIQUE(mint, mode));
-CREATE TABLE IF NOT EXISTS sends(sig TEXT PRIMARY KEY, intent_id INT, variant INT, sender TEXT, prio INT, tip INT, sent_ns INT, result TEXT);
+CREATE TABLE IF NOT EXISTS sends(sig TEXT PRIMARY KEY, intent_id INT, variant INT, sender TEXT, prio INT, tip INT, sent_ns INT, result TEXT,
+  bid INT, sent_unix_ms INT, kind TEXT, err TEXT);
 CREATE TABLE IF NOT EXISTS fills(sig TEXT PRIMARY KEY, intent_id INT, mint TEXT, slot INT, tx_index INT, tokens INT, sol_delta INT, err TEXT,
-  buyers_ahead INT, rival_sol_ahead INT, late INT, fail_reason TEXT, fail_cost INT);
+  buyers_ahead INT, rival_sol_ahead INT, late INT, fail_reason TEXT, fail_cost INT, fee INT, variant INT, sender TEXT, tip INT);
 CREATE TABLE IF NOT EXISTS positions(mint TEXT PRIMARY KEY, intent_id INT, opened_slot INT, tokens INT, cost INT, v_fill INT, peak_v INT,
   bundle_json TEXT, policy_json TEXT, origin TEXT CHECK(origin IN('intent','orphan')),
   state TEXT CHECK(state IN('open','exiting','closed')), sell_spend INT, closed_slot INT);
@@ -88,9 +92,21 @@ pub fn configure(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
 pub fn migrate(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
     conn.execute_batch(DDL)?;
     // v1 -> v2: failed-buy columns on fills, `via = 'class'` on intents
-    for (col, ty) in [("fail_reason", "TEXT"), ("fail_cost", "INT")] {
-        if !has_column(conn, "fills", col)? {
-            conn.execute_batch(&format!("ALTER TABLE fills ADD COLUMN {col} {ty}"))?;
+    // v3 -> v4: real-send columns
+    for (table, col, ty) in [
+        ("fills", "fail_reason", "TEXT"),
+        ("fills", "fail_cost", "INT"),
+        ("fills", "fee", "INT"),
+        ("fills", "variant", "INT"),
+        ("fills", "sender", "TEXT"),
+        ("fills", "tip", "INT"),
+        ("sends", "bid", "INT"),
+        ("sends", "sent_unix_ms", "INT"),
+        ("sends", "kind", "TEXT"),
+        ("sends", "err", "TEXT"),
+    ] {
+        if !has_column(conn, table, col)? {
+            conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {col} {ty}"))?;
         }
     }
     let intents_sql: String = conn.query_row(

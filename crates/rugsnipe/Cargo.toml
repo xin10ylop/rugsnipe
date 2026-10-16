@@ -9,9 +9,10 @@ publish.workspace = true
 
 [features]
 default = []
-# Real senders (feature-gated twice: here AND by Config::validate + a signed,
-# gate_passed ArmSet at runtime). Never enabled for paper runs.
-real-senders = ["rugsnipe-tx/senders", "rugsnipe-tx/rpc"]
+# Real senders (feature-gated twice: here AND by Config::validate + a signed
+# probe_allowed ArmSet at runtime; live stays refused). Implies `rpc` (the real
+# fill lane's recovery and nonce seeding read the chain). Paper never builds one.
+real-senders = ["rugsnipe-tx/senders", "rugsnipe-tx/rpc", "rpc"]
 # Chain reads for recovery / guard prices (public JSON-RPC inside the RPC budget).
 rpc = ["rugsnipe-state/rpc"]
 

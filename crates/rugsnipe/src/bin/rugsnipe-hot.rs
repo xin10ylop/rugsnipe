@@ -3,9 +3,19 @@
 //! Paper mode is the default and the only mode that runs without keys: the
 //! wallet is a throwaway keypair generated at start, the only sender is the
 //! paper recorder (no socket), and every decision is recorded (rslog +
-//! state.db). Probe/live are refused unless every gate of docs/06 section 6
-//! passes, which this build cannot satisfy (no clock or post-exec feed
-//! measurement, no key loading, real senders not compiled in).
+//! state.db).
+//!
+//! **Probe** (docs/08 section 9) runs only when every gate of docs/06
+//! section 6 passes: a signed ArmSet with `probe_allowed` and the config's
+//! `probe_stage`, every cap, the clock offset measured by `chronyc`, a
+//! healthy post-execution feed, the probe wallet and `api-keys` from
+//! `$CREDENTIALS_DIRECTORY` (0400), and the real senders compiled in
+//! (`--features real-senders`). Real buys need a live-class feed (gRPC /
+//! shreds; not in this build yet): decisions from the free feeds stay paper.
+//! `--probe-dry` signs everything with the real key (the per-sender buy
+//! variants of a self-test included), prints the first signed transaction
+//! and its `simulateTransaction` result (read-only, `sigVerify = true`) and
+//! sends nothing. **Live** is refused in this build.
 //!
 //! ```text
 //! rugsnipe-hot --config config/paper.example.toml --armset <armset-V-SHA.json> \
@@ -26,12 +36,15 @@ use std::sync::atomic::{AtomicBool, Ordering::*};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const USAGE: &str = "usage: rugsnipe-hot --config <toml> [--mode paper|probe|live] [--live]
+const USAGE: &str =
+    "usage: rugsnipe-hot --config <toml> [--mode paper|probe|live] [--live] [--probe-dry]
     [--armset <armset-V-SHA.json>] [--paper-unsigned-armset] [--regime <name>]
     [--state <state.db>] [--rslog-dir <dir>] [--duration-s N] [--record <dir>]
     [--max-watches N] [--rpc-url <https url>] [--no-e2] [--lane-rps R] [--no-metrics]
     [--pin-core N|none] [--busy-poll] [--fill-timeout-slots N] [--summary <json>]
 
+  --probe-dry  probe mode: load the real keys, sign with them, send nothing; print
+               the first signed transaction (base64) and simulateTransaction results
   --no-e2      no paper fill lane (every model falls back to E2 from buffered trades)
   --lane-rps   total requests/s of the E1 lane (default 3.5, or 2 when the ArmSet has
                funders, whose lookups share the 4 req/s public budget); the E2 lane
@@ -52,6 +65,66 @@ fn main() {
     }
 }
 
+/// `--probe-dry`: print the self-test transactions (signed with the real
+/// key, never sent) and their read-only `simulateTransaction` results.
+fn dry_selftest(app: &app::App, rpc_url: &str) {
+    use base64::Engine as _;
+    let (variants, burn) = app.dry_selftest();
+    if variants.is_empty() {
+        eprintln!(
+            "dry self-test: no usable nonce account (create them with `rugsnipe-ctl nonce init --authority {}`)",
+            app.owner
+        );
+    }
+    for (label, v) in &variants {
+        eprintln!(
+            "dry self-test: {label} variant {} sig {} tip {} prio {} ({} bytes)",
+            v.idx,
+            v.signature_b58(),
+            v.tip_lamports,
+            v.priority_lamports,
+            v.bytes().len()
+        );
+    }
+    let mut txs: Vec<(String, Vec<u8>)> = vec![];
+    if let Some((label, v)) = variants.first() {
+        txs.push((
+            format!("first signed buy ({label}, placeholder mint)"),
+            v.bytes().to_vec(),
+        ));
+    }
+    if let Some(b) = burn {
+        txs.push(("nonce burn (AdvanceNonce only)".into(), b));
+    }
+    for (what, tx) in txs {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&tx);
+        println!("dry {what}: {b64}");
+        #[cfg(feature = "rpc")]
+        {
+            let c = rugsnipe_tx::rpc::RpcClient::new(rpc_url);
+            let r = c.call(
+                "simulateTransaction",
+                serde_json::json!([b64, {"encoding": "base64", "sigVerify": true,
+                    "replaceRecentBlockhash": false, "commitment": "confirmed"}]),
+            );
+            match r {
+                Ok(v) => println!(
+                    "dry {what}: simulateTransaction err={} units={} logs={}",
+                    v["value"]["err"],
+                    v["value"]["unitsConsumed"],
+                    v["value"]["logs"].as_array().map(|l| l.len()).unwrap_or(0)
+                ),
+                Err(e) => println!("dry {what}: simulateTransaction failed: {e}"),
+            }
+        }
+        #[cfg(not(feature = "rpc"))]
+        {
+            let _ = rpc_url;
+            println!("dry {what}: simulateTransaction skipped (built without the rpc feature)");
+        }
+    }
+}
+
 fn run(args: &[String]) -> Result<(), String> {
     let cfg_path = opt(args, "--config").ok_or(format!("--config required\n{USAGE}"))?;
     let mut cfg = rugsnipe::setup::load_config(&PathBuf::from(cfg_path))?;
@@ -60,6 +133,10 @@ fn run(args: &[String]) -> Result<(), String> {
     }
     let mode = cfg.mode.mode;
     let live_flag = flag(args, "--live");
+    let dry = flag(args, "--probe-dry");
+    if dry && mode != Mode::Probe {
+        return Err("--probe-dry needs mode = probe (paper never loads keys)".into());
+    }
     let v = cfg.validate(&Default::default());
     for w in &v.warnings {
         eprintln!("config warning: {w}");
@@ -78,7 +155,11 @@ fn run(args: &[String]) -> Result<(), String> {
         Some(p) => ArmChoice::File(PathBuf::from(p)),
         None => ArmChoice::None,
     };
-    // Real modes are refused before any network connection is opened.
+    let rpc_url = opt(args, "--rpc-url")
+        .unwrap_or("https://api.mainnet-beta.solana.com")
+        .to_string();
+    // Real modes are refused before any feed, state file or sender exists.
+    let mut real_opts = None;
     if mode.is_real() {
         let (gate, stage) = match &armset {
             ArmChoice::File(p) => {
@@ -92,11 +173,49 @@ fn run(args: &[String]) -> Result<(), String> {
             }
             _ => (rugsnipe_core::config::ArmSetGate::Missing, None),
         };
-        app::real_mode_gate(&cfg, gate, stage, live_flag)
-            .map_err(|r| format!("mode {mode} refused:\n{r}"))?;
-        return Err(format!(
-            "mode {mode}: this build has no real key loading or real senders; refusing"
-        ));
+        let creds = rugsnipe::keys::credentials_dir();
+        let opts = app::RealOpts {
+            creds_dir: creds.clone().unwrap_or_default(),
+            clock_offset_ms: app::chrony_offset_ms(),
+            // no post-execution feed (gRPC / shreds) is built into this binary
+            post_exec_feed_healthy: false,
+            dry,
+            rpc_url: rpc_url.clone(),
+            chain: None,
+        };
+        let env = app::real_env(&cfg, gate, stage, live_flag, Some(&opts));
+        let mut lines: Vec<String> = app::real_mode_gate(&cfg, &env)
+            .err()
+            .map(|e| e.lines().map(String::from).collect())
+            .unwrap_or_default();
+        if !cfg!(feature = "real-senders") {
+            lines.push(
+                "  - this binary has no real senders (build with --features real-senders)".into(),
+            );
+        }
+        match &creds {
+            Err(r) => lines.push(format!("  - {r}")),
+            Ok(dir) if mode == Mode::Probe => {
+                if let Err(rs) = rugsnipe::keys::load_real_keys(&cfg, dir) {
+                    for r in rs {
+                        let l = format!("  - {r}");
+                        if !lines.contains(&l) {
+                            lines.push(l);
+                        }
+                    }
+                }
+            }
+            Ok(_) => {}
+        }
+        if !lines.is_empty() {
+            return Err(format!("mode {mode} refused:\n{}", lines.join("\n")));
+        }
+        if dry {
+            eprintln!(
+                "--probe-dry: real keys loaded; every transaction is signed and recorded, nothing is sent"
+            );
+        }
+        real_opts = Some(opts);
     }
 
     // --- signals: SIGUSR1 = kill latch (buys stop, exits continue); INT/TERM = stop
@@ -109,9 +228,6 @@ fn run(args: &[String]) -> Result<(), String> {
     }
 
     // --- feeds (each adapter on its own thread)
-    let rpc_url = opt(args, "--rpc-url")
-        .unwrap_or("https://api.mainnet-beta.solana.com")
-        .to_string();
     let funders: Vec<pump_codec::Pubkey> = match &armset {
         ArmChoice::File(p) => std::fs::read(p)
             .ok()
@@ -215,6 +331,7 @@ fn run(args: &[String]) -> Result<(), String> {
         sigusr1: usr1,
         paper_balance,
         live_flag,
+        real: real_opts,
     })?;
     if let Some(r) = &app.recovery {
         eprintln!(
@@ -224,10 +341,19 @@ fn run(args: &[String]) -> Result<(), String> {
             r.nonces.len()
         );
     }
+    if dry {
+        dry_selftest(&app, &rpc_url);
+    }
     eprintln!(
-        "rugsnipe-hot {} mode={} paper_wallet={} (throwaway) armset={:?}{} watch_funders={} rslog={}",
+        "rugsnipe-hot {} mode={}{} {}={} armset={:?}{} watch_funders={} rslog={}",
         rugsnipe::VERSION,
         mode,
+        if dry { " (dry)" } else { "" },
+        if mode == Mode::Paper {
+            "paper_wallet(throwaway)"
+        } else {
+            "probe_wallet"
+        },
         app.owner,
         app.armset_gate,
         app.armset_error
@@ -312,8 +438,18 @@ fn run(args: &[String]) -> Result<(), String> {
                         )
                     })
                     .collect();
+                let probe = if mode.is_real() {
+                    let p = &r.probe;
+                    format!(
+                        " | probe attempts {} landed {} failed {} dropped {} fail_cost {} wallet {}",
+                        p.attempts, p.landed, p.landed_failed, p.dropped, p.failed_cost_lamports,
+                        p.wallet_lamports
+                    )
+                } else {
+                    String::new()
+                };
                 format!(
-                    "lane {}/{} calls {} | {:?} | landing {:.2} net {} lamports | filter {} {}",
+                    "lane {}/{} calls {} | {:?} | landing {:.2} net {} lamports | filter {} {}{probe}",
                     r.e1_resolved,
                     r.e1_requested,
                     r.e1_rpc_calls,

@@ -6,7 +6,9 @@
 //!   closed; a different balance resizes it (size always comes from the
 //!   chain); a non-zero token account with no DB position becomes an
 //!   `orphan` position (it still needs an exit owner, I2/I6);
-//! * **nonces**: each pool account is read; a value different from the DB
+//! * **nonces** (seeding the pool from chain): each pool account is read; a
+//!   missing, uninitialized or foreign-authority account is `quarantined`
+//!   (never fired on); a value different from the DB
 //!   means an advance landed (a buy variant or a burn) while we were down,
 //!   so the slot becomes `free` with the new value and
 //!   `last_change_slot = now` (the no-double-buy rule then refuses every
@@ -200,9 +202,12 @@ pub fn recover(c: &Connection, ledger: &Ledger, ctx: &RecoverCtx<'_>) -> Result<
             if !keys.is_empty() {
                 let datas = chain.accounts(&keys).map_err(StateError::Chain)?;
                 for ((key, pool, idx), data) in ctx.nonce_accounts.iter().zip(datas) {
+                    // a nonce held by another authority can never be advanced
+                    // by our variants or burns: treat it like a missing one
                     let parsed = data
                         .as_deref()
-                        .and_then(rugsnipe_tx::nonce::parse_nonce_account);
+                        .and_then(rugsnipe_tx::nonce::parse_nonce_account)
+                        .filter(|(auth, _, _)| *auth == owner);
                     let existing = nonces.iter().position(|n| n.pubkey == *key);
                     let row = match (parsed, existing) {
                         (None, Some(i)) => {
