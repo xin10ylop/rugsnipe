@@ -52,11 +52,7 @@ fn start(dir: &std::path::Path, run: u32, duration_s: u64) -> Started {
 }
 
 fn finish(s: Started, dir: &std::path::Path, run: u32) -> (serde_json::Value, String) {
-    let Started {
-        mut child,
-        stop,
-        relay,
-    } = s;
+    let Started { child, stop, relay } = s;
     let out = child.wait_with_output().unwrap();
     stop.store(true, Release);
     let _ = relay.join();

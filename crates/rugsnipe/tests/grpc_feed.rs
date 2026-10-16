@@ -74,7 +74,7 @@ fn paper_binary_runs_the_grpc_feed_and_compares_first_seen() {
     );
     assert!(cfg.contains("grpc = {"));
     std::fs::write(dir.join("paper.toml"), cfg).unwrap();
-    let mut child = hot_cmd(
+    let child = hot_cmd(
         &dir.join("paper.toml"),
         &dir.join("armset.json"),
         &dir.join("state.db"),

@@ -189,7 +189,7 @@ fn chain_triggers_latch_persist_and_survive_a_restart() {
     }
     assert_eq!(app.hot.counters.intents, 0);
     let summary = app.shutdown(vec![]);
-    assert_eq!(summary.cold.killed, true);
+    assert!(summary.cold.killed);
     assert!(summary.cold.kill_triggers["unexplained_drop"]
         .detail
         .contains("1000000000"));
