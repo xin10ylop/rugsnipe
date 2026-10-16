@@ -285,6 +285,7 @@ fn run(args: &[String]) -> Result<(), String> {
     let mut healths = vec![];
     let mut logsws_handle = None;
     // --- the post-execution feed first (probe waits for it before anything else)
+    #[allow(unused_mut)]
     let mut post_exec: Option<rugsnipe::cold::PostExecFeed> = None;
     #[allow(unused_mut, unused_assignments)]
     let mut grpc_stats_line: Option<Box<dyn Fn() -> String>> = None;
