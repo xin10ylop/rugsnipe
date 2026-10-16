@@ -217,6 +217,53 @@ pub fn load_real_keys(cfg: &Config, dir: &Path) -> Result<RealKeys, Vec<Refusal>
     }
 }
 
+/// A named secret that is not a sender key: the gRPC `x-token`
+/// (`[feeds] grpc.x_token`) and the Telegram bot token / chat id
+/// (`[obs] alert.telegram` / `alert.chat`). Looked up as a `NAME = "value"`
+/// line of the `api-keys` credential first, then as a credential file of
+/// that name (one line). Works in every mode (paper may run the gRPC feed:
+/// a feed, not a sender) and never touches a wallet. `Ok(None)`: not found;
+/// a group/world-accessible file is refused.
+pub fn named_secret(
+    cfg: &Config,
+    dir: &Path,
+    name: &str,
+) -> Result<Option<Zeroizing<String>>, Refusal> {
+    if name.is_empty() {
+        return Ok(None);
+    }
+    if !cfg.secrets.api_keys.is_empty() {
+        match check_file(&cfg.secrets.api_keys, dir) {
+            Ok(p) => {
+                let k = read_api_keys(&p, &cfg.secrets.api_keys)?;
+                if let Some(v) = k.get(name).filter(|v| !v.is_empty()) {
+                    return Ok(Some(Zeroizing::new(v.to_string())));
+                }
+            }
+            Err(Refusal::CredentialMissing(_)) => {}
+            Err(e) => return Err(e),
+        }
+    }
+    match check_file(name, dir) {
+        Ok(p) => {
+            let raw = Zeroizing::new(
+                std::fs::read(&p).map_err(|_| Refusal::CredentialMissing(name.into()))?,
+            );
+            let text =
+                Zeroizing::new(
+                    String::from_utf8(raw.to_vec()).map_err(|_| Refusal::Invalid {
+                        field: "secrets",
+                        why: format!("credential {name:?} is not UTF-8"),
+                    })?,
+                );
+            let v = text.trim();
+            Ok((!v.is_empty()).then(|| Zeroizing::new(v.to_string())))
+        }
+        Err(Refusal::CredentialMissing(_)) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 fn key_refusal(name: &str, e: &KeyError) -> Refusal {
     match e {
         KeyError::Permissions(m) => Refusal::CredentialPermissive {
@@ -393,6 +440,41 @@ mod tests {
         let m = credential_modes(&cfg, &d);
         assert_eq!(m["probe-keypair"], Some(0o400));
         assert_eq!(m["api-keys"], None);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn named_secrets_come_from_api_keys_or_their_own_file() {
+        let d = dir("named");
+        let cfg = probe_cfg();
+        write(
+            &d,
+            "api-keys",
+            "HELIUS_KEY = \"h\"\nGRPC_TOKEN = \"tok-1\"\n",
+            0o400,
+        );
+        assert_eq!(
+            named_secret(&cfg, &d, "GRPC_TOKEN")
+                .unwrap()
+                .as_deref()
+                .map(|s| s.as_str()),
+            Some("tok-1")
+        );
+        assert!(named_secret(&cfg, &d, "TG_TOKEN").unwrap().is_none());
+        write(&d, "TG_CHAT", "-100123\n", 0o400);
+        assert_eq!(
+            named_secret(&cfg, &d, "TG_CHAT")
+                .unwrap()
+                .as_deref()
+                .map(|s| s.as_str()),
+            Some("-100123")
+        );
+        write(&d, "TG_TOKEN", "bot:x", 0o644);
+        assert!(matches!(
+            named_secret(&cfg, &d, "TG_TOKEN"),
+            Err(Refusal::CredentialPermissive { .. })
+        ));
+        assert!(named_secret(&cfg, &d, "").unwrap().is_none());
         let _ = std::fs::remove_dir_all(&d);
     }
 

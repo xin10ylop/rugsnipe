@@ -18,6 +18,7 @@ rugsnipe-sim = { path = "../rugsnipe-sim" }
 rugsnipe-core = { path = "../rugsnipe-core" }
 rugsnipe-tx = { path = "../rugsnipe-tx" }
 rugsnipe-exit = { path = "../rugsnipe-exit" }
+rugsnipe-state = { path = "../rugsnipe-state" }
 base64 = { workspace = true }
 bs58 = { workspace = true }
 serde_json = { workspace = true }
@@ -25,6 +26,7 @@ zeroize = "1.9"
 
 [dev-dependencies]
 tempfile = "3"
+rusqlite = { version = "0.40", features = ["bundled"] }
 ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize"] }
 
 [lints.clippy]

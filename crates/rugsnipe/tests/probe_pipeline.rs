@@ -181,6 +181,9 @@ fn probe_attempts_open_only_on_our_own_trade_event_and_close_on_our_sell() {
     cfg.probe.stage = ProbeStage::A;
     cfg.tx.cu_limit = 88_000;
     cfg.tx.lads_bytes = 12_124_160;
+    // the post-execution feed is configured (RealOpts carries its health)
+    cfg.feeds.grpc.enabled = true;
+    cfg.feeds.grpc.url = "https://grpc.invalid".into();
     cfg.tx.nonce_pool = 8;
     cfg.secrets.probe_keypair = "probe-keypair".into();
     cfg.secrets.hot_keypair = "hot-keypair".into();
@@ -223,6 +226,10 @@ fn probe_attempts_open_only_on_our_own_trade_event_and_close_on_our_sell() {
             rpc_url,
             chain: Some(Box::new(MockChain { owner })),
         }),
+        post_exec: None,
+        leader_rpc: None,
+        alerts: None,
+        trigger_tuning: None,
     })
     .expect("probe builds with every gate passing");
     assert_eq!(app.owner, owner, "the probe wallet from the credential");
@@ -547,6 +554,9 @@ fn probe_dry_signs_with_the_real_key_and_sends_nothing() {
     cfg.mode.mode = Mode::Probe;
     cfg.tx.cu_limit = 88_000;
     cfg.tx.lads_bytes = 12_124_160;
+    // the post-execution feed is configured (RealOpts carries its health)
+    cfg.feeds.grpc.enabled = true;
+    cfg.feeds.grpc.url = "https://grpc.invalid".into();
     cfg.tx.nonce_pool = 4;
     cfg.secrets.probe_keypair = "probe-keypair".into();
     cfg.secrets.api_keys = "api-keys".into();
@@ -585,6 +595,10 @@ fn probe_dry_signs_with_the_real_key_and_sends_nothing() {
             rpc_url,
             chain: Some(Box::new(MockChain { owner })),
         }),
+        post_exec: None,
+        leader_rpc: None,
+        alerts: None,
+        trigger_tuning: None,
     })
     .expect("a dry probe builds without a post-execution feed");
     assert!(app.senders.dry);
@@ -706,6 +720,9 @@ fn recovery_adopts_chain_balances_and_closes_them_on_a_zero_balance() {
     cfg.mode.mode = Mode::Probe;
     cfg.tx.cu_limit = 88_000;
     cfg.tx.lads_bytes = 12_124_160;
+    // the post-execution feed is configured (RealOpts carries its health)
+    cfg.feeds.grpc.enabled = true;
+    cfg.feeds.grpc.url = "https://grpc.invalid".into();
     cfg.tx.nonce_pool = 2;
     cfg.secrets.probe_keypair = "probe-keypair".into();
     cfg.secrets.armset_pubkey = signing.pubkey().to_string();
@@ -741,6 +758,10 @@ fn recovery_adopts_chain_balances_and_closes_them_on_a_zero_balance() {
             rpc_url,
             chain: Some(Box::new(Orphan { owner, mint })),
         }),
+        post_exec: None,
+        leader_rpc: None,
+        alerts: None,
+        trigger_tuning: None,
     })
     .unwrap();
     let rec = app.recovery.clone().unwrap();

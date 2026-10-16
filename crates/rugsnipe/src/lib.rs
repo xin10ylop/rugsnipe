@@ -5,7 +5,10 @@
 //! | [`app`] | process assembly shared by the hot and replay binaries (safety gate, wallet, ArmSet, threads) |
 //! | [`hot`] | `HotLoop`: the docs/06 section 7.1 sequence (dedup, CreateHit, class filters, watchlist, RiskGate, V0, nonce, patch, sign, send, record) plus the paper position/exit engine driver; run to completion, no heap after warm-up |
 //! | [`sender`] | sender thread: secondary variants (re-priced, re-signed) through the gated `SenderSet`; in probe one variant per real sender (its tip account and minimum tip), each on a warm worker |
-//! | [`keys`] | probe key loading from `$CREDENTIALS_DIRECTORY` (probe wallet, `api-keys`), with the permission refusals |
+//! | [`keys`] | probe key loading from `$CREDENTIALS_DIRECTORY` (probe wallet, `api-keys`), with the permission refusals; named secrets (gRPC x-token, Telegram) |
+//! | [`leader`] | leader schedule per epoch + `getClusterNodes` classes (Jito-Agave, BAM, Harmonic, Firedancer, other), a lock-free per-slot snapshot for the hot loop |
+//! | [`triggers`] | the kill triggers of docs/06 section 13 as pure evaluators (send errors, unexplained drop, upgrade, disk, clock, drift, feed stale, marked-to-market daily loss) |
+//! | [`alerts`] | optional Telegram alerts (start, kill, hourly) and `/kill` polling, off the hot thread |
 //! | [`real`] | the real fill lane (probe): signature statuses, our own TradeEvent, `meta.fee` of failed buys, landing rank and premium, drops after the nonce burn, sells and balances |
 //! | [`cold`] | cold thread (tokio current-thread runtime): ledger -> `state.db`, kill file + SIGUSR1 latch, exits lease, simulated nonce keeper, funding watcher updates, ArmSet reload, paper E2 fill lane, Prometheus metrics |
 //! | [`e1`] | paper fill model E1 (rank 1 behind the bundle, docs/04): creation-slot reconstruction, verdict, replay tape |
@@ -21,6 +24,7 @@
 //! tokio runtime) -> **hot loop** (pinned when `core_affinity` can) -> sender
 //! thread; the cold thread owns everything that may block or allocate.
 
+pub mod alerts;
 pub mod alloc_count;
 pub mod app;
 pub mod cli;
@@ -29,14 +33,17 @@ pub mod convert;
 pub mod e1;
 pub mod e2;
 pub mod filter;
+pub mod firstseen;
 pub mod guard;
 pub mod hot;
 pub mod keys;
+pub mod leader;
 pub mod msgs;
 pub mod real;
 pub mod sender;
 pub mod setup;
 pub mod stats;
+pub mod triggers;
 
 /// Wall-clock milliseconds since the Unix epoch.
 pub fn now_ms() -> u64 {

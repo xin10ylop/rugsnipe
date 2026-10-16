@@ -211,3 +211,46 @@ def test_probe_reads_the_real_fill_lane_rows_unchanged() -> None:
         assert abs(o["median_premium"] - 0.015) < 1e-12 and o["premiums_measured"] == 1, o
         assert o["by_variant"] == {"0": {"attempts": 2, "landed": 1}, "1": {"attempts": 2, "landed": 0}}, o
         assert o["verdict"] == "CONTINUE probe-A", o["verdict"]
+        assert isinstance(o["by_leader_class"], str), "a v4 file has no leader class column"
+
+
+DDL_V5_EXTRA = """
+ALTER TABLE intents ADD COLUMN leader_class TEXT; ALTER TABLE sends ADD COLUMN leader_class TEXT;
+ALTER TABLE fills ADD COLUMN leader_class TEXT;
+"""
+
+
+def test_probe_splits_attempts_by_leader_class() -> None:
+    """Schema v5: the landing slot's leader class on fills (else the create slot's on intents) splits the
+    probe stats per class (task #12: per-class bids and landing)."""
+    with tempfile.TemporaryDirectory() as d:
+        db = Path(d) / "v5.db"
+        con = sqlite3.connect(db)
+        con.executescript(DDL + DDL_V4_EXTRA + DDL_V5_EXTRA)
+        slot, stake = 420_000_000, 20_000_000
+        #  (intent, landed, fills.leader_class, intents.leader_class)
+        rows = [(1, True, "jito_agave", "jito_agave"), (2, False, "jito_agave", "jito_agave"),
+                (3, False, "bam", "bam"), (4, False, None, "harmonic"), (5, True, "bam", "bam")]
+        for i, landed, fl, il in rows:
+            mint = f"m{i}"
+            con.execute("INSERT INTO intents(intent_id, mint, mode, slot, spend, state, leader_class) VALUES (?,?,?,?,?,?,?)",
+                        (i, mint, "probe", slot + i, stake, "landed" if landed else "failed", il))
+            con.execute("INSERT INTO sends(sig, intent_id, variant, kind, leader_class) VALUES (?,?,?,?,?)",
+                        (f"s{i}", i, 0, "buy", il))
+            if landed:
+                con.execute("INSERT INTO fills(sig, intent_id, mint, slot, tokens, sol_delta, fail_cost, leader_class) "
+                            "VALUES (?,?,?,?,?,?,?,?)", (f"s{i}", i, mint, slot + i, 1, -stake, 0, fl))
+                con.execute("INSERT INTO positions(mint, intent_id, state) VALUES (?,?,?)", (mint, i, "closed"))
+                con.execute("INSERT INTO exits(sig, mint, reason, sol_delta) VALUES (?,?,?,?)", (f"x{i}", mint, "tp0", 25_000_000))
+            else:
+                con.execute("INSERT INTO fills(sig, intent_id, mint, slot, tokens, sol_delta, fail_reason, fail_cost, leader_class) "
+                            "VALUES (?,?,?,?,?,?,?,?,?)", (f"s{i}", i, mint, slot + i, 0, -15_000, "slippage", 15_000, fl))
+        con.commit()
+        con.close()
+        o = _probe(db, "a")
+        c = o["by_leader_class"]
+        assert c["jito_agave"]["attempts"] == 2 and c["jito_agave"]["landed"] == 1, c
+        assert c["bam"]["attempts"] == 2 and c["bam"]["landed"] == 1, c
+        assert c["harmonic"]["attempts"] == 1 and c["harmonic"]["landed"] == 0, c   # from intents (fills NULL)
+        assert c["bam"]["failed_cost_lamports"] == 15_000, c
+        assert abs(c["jito_agave"]["landing_rate"] - 0.5) < 1e-12, c

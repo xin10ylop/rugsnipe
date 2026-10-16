@@ -14,6 +14,8 @@
 //! rugsnipe-ctl armset verify <file> --pubkey PK [--sig FILE] [--regime R] [--max-age S] [--now UNIX]
 //! rugsnipe-ctl armset keygen --out FILE           (dev/paper signing key; refused inside a git tree except keys/)
 //! rugsnipe-ctl armset sign --key FILE --in JSON [--out-dir DIR]   (writes armset-<ver>-<sha>.json + .sig)
+//! rugsnipe-ctl kill status --state DB        (the persisted kill latch and every trigger row)
+//! rugsnipe-ctl unkill --state DB             (local only: clears the persisted latch; restart the service after)
 //! ```
 //!
 //! Nothing here signs or sends: nonce init/close print **unsigned**
@@ -90,12 +92,66 @@ pub fn run(args: &[String]) -> Out {
         ["armset", "verify", file, ..] => armset_verify(file, &args[3..]),
         ["armset", "keygen", ..] => armset_keygen(&args[2..]),
         ["armset", "sign", ..] => armset_sign(&args[2..]),
+        ["kill", "status", ..] => kill_status(&args[2..]),
+        ["unkill", ..] => unkill(&args[1..]),
         _ => Err(USAGE.to_string()),
     };
     r.unwrap_or_else(err)
 }
 
-pub const USAGE: &str = "usage: rugsnipe-ctl <config validate FILE | template dump | sim | nonce init | nonce close | armset verify FILE | armset keygen | armset sign> [options]\n(see `rugsnipe-ctl` crate docs for options)";
+pub const USAGE: &str = "usage: rugsnipe-ctl <config validate FILE | template dump | sim | nonce init | nonce close | armset verify FILE | armset keygen | armset sign | kill status | unkill> [options]\n(see `rugsnipe-ctl` crate docs for options)";
+
+fn state_path(args: &[String]) -> Result<&Path, String> {
+    let p = opt(args, "--state").ok_or("--state <state.db> required")?;
+    if !Path::new(p).exists() {
+        return Err(format!("{p}: no such state.db"));
+    }
+    Ok(Path::new(p))
+}
+
+/// `kill status`: the persisted latch (docs/08 section 10) and every trigger row.
+pub fn kill_status(args: &[String]) -> Result<Out, String> {
+    let p = state_path(args)?;
+    let c = rugsnipe_state::store::open_conn(p).map_err(|e| format!("{}: {e}", p.display()))?;
+    let mut t = String::new();
+    match rugsnipe_state::killkv::latched(&c).map_err(|e| e.to_string())? {
+        Some(l) => {
+            let _ = writeln!(t, "KILLED: {} at {} ({})", l.reason, l.unix, l.detail);
+        }
+        None => {
+            let _ = writeln!(t, "not killed");
+        }
+    }
+    for (name, l) in rugsnipe_state::killkv::triggers(&c).map_err(|e| e.to_string())? {
+        let _ = writeln!(
+            t,
+            "trigger {name}: {} at {} ({})",
+            l.reason, l.unix, l.detail
+        );
+    }
+    Ok(Out { text: t, code: 0 })
+}
+
+/// `unkill`: clear the persisted latch. Local and deliberate: the operator
+/// runs it on the box (the hot process re-reads it at start; restart the
+/// service after). The trigger rows stay as history.
+pub fn unkill(args: &[String]) -> Result<Out, String> {
+    let p = state_path(args)?;
+    let c = rugsnipe_state::store::open_conn(p).map_err(|e| format!("{}: {e}", p.display()))?;
+    match rugsnipe_state::killkv::unkill(&c, now_unix()).map_err(|e| e.to_string())? {
+        Some(l) => Ok(Out {
+            text: format!(
+                "unkilled: cleared the latch {} ({}, at {}); restart rugsnipe-hot for buys to resume (remove the kill file first if it exists)\n",
+                l.reason, l.detail, l.unix
+            ),
+            code: 0,
+        }),
+        None => Ok(Out {
+            text: "not killed: nothing to clear\n".into(),
+            code: 0,
+        }),
+    }
+}
 
 /// Mode bits of a credential file (`None` if missing).
 fn mode_of(p: &Path) -> Option<u32> {

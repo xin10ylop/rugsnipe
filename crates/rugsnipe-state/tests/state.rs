@@ -53,6 +53,7 @@ fn intent(mint: Pubkey, mode: &str, state: IntentState) -> IntentRow {
         nonce_value: [1; 32],
         decided_ns: 42,
         state,
+        leader_class: None,
     }
 }
 
@@ -85,9 +86,9 @@ fn schema_has_every_spec_table_and_column() {
     let s = StateStore::open(&p).unwrap();
     let c = s.reader().unwrap();
     let want: &[(&str, &str)] = &[
-        ("intents", "intent_id,mint,op_id,box,mode,armset_ver,slot,bank_id,via,feed_class,spend,v_max,min_tokens_out,nonce_idx,nonce_value,decided_ns,state"),
-        ("sends", "sig,intent_id,variant,sender,prio,tip,sent_ns,result,bid,sent_unix_ms,kind,err"),
-        ("fills", "sig,intent_id,mint,slot,tx_index,tokens,sol_delta,err,buyers_ahead,rival_sol_ahead,late,fail_reason,fail_cost,fee,variant,sender,tip"),
+        ("intents", "intent_id,mint,op_id,box,mode,armset_ver,slot,bank_id,via,feed_class,spend,v_max,min_tokens_out,nonce_idx,nonce_value,decided_ns,state,leader_class"),
+        ("sends", "sig,intent_id,variant,sender,prio,tip,sent_ns,result,bid,sent_unix_ms,kind,err,leader_class"),
+        ("fills", "sig,intent_id,mint,slot,tx_index,tokens,sol_delta,err,buyers_ahead,rival_sol_ahead,late,fail_reason,fail_cost,fee,variant,sender,tip,leader_class"),
         ("positions", "mint,intent_id,opened_slot,tokens,cost,v_fill,peak_v,bundle_json,policy_json,origin,state,sell_spend,closed_slot"),
         ("exits", "sig,mint,reason,venue,tokens,sol_delta,slot,owner,try_no"),
         ("nonces", "pubkey,pool,idx,value,last_change_slot,state,intent_id,since_slot"),
@@ -97,6 +98,7 @@ fn schema_has_every_spec_table_and_column() {
         ("lease", "name,owner,hb_unix_ms,epoch"),
         ("kv", "k,v"),
         ("shadow", "intent_id,mint,model,outcome,create_slot,create_index,block_txs,bundle_trades,bundle_wallets,our_index,tp_ahead,tp_behind,s0_failed,premium_bps,post_bundle_v,post_bundle_t,post_bundle_mcap,cost"),
+        ("feed_bundle", "mint,intent_id,slot,create_index,trades,bundle_wallets,s0_third,dev_sol,bundle_sol,me_sol,closed,run_close_ms,out_of_order,features"),
     ];
     for (t, cols) in want {
         let mut st = c.prepare(&format!("PRAGMA table_info({t})")).unwrap();
@@ -137,6 +139,7 @@ fn ledger_flow_and_intent_state_machine() {
         sent_unix_ms: 0,
         kind: "buy".into(),
         err: None,
+        leader_class: Some("bam".into()),
     });
     l.fill(
         FillRow {
@@ -157,6 +160,7 @@ fn ledger_flow_and_intent_state_machine() {
             variant: None,
             sender: None,
             tip: None,
+            leader_class: None,
         },
         None,
     );
@@ -195,6 +199,7 @@ fn ledger_flow_and_intent_state_machine() {
             variant: None,
             sender: None,
             tip: None,
+            leader_class: None,
         },
         Some(IntentState::Landed),
     );
@@ -246,7 +251,7 @@ fn ledger_flow_and_intent_state_machine() {
         Some("3")
     );
     let counts = rugsnipe_state::schema::row_counts(&c).unwrap();
-    assert_eq!(counts.len(), 14);
+    assert_eq!(counts.len(), 15);
     drop(c);
     // durable across reopen
     assert!(s.close() >= 8);
@@ -307,6 +312,7 @@ fn version_1_file_migrates_to_version_2() {
             variant: None,
             sender: None,
             tip: None,
+            leader_class: None,
         },
         None,
     );

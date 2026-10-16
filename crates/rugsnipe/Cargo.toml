@@ -8,7 +8,10 @@ license.workspace = true
 publish.workspace = true
 
 [features]
-default = []
+# The Yellowstone gRPC post-execution feed is built into the hot binary by default
+# (it only connects when `[feeds] grpc.enabled = true`).
+default = ["grpc"]
+grpc = ["rugsnipe-feed/grpc"]
 # Real senders (feature-gated twice: here AND by Config::validate + a signed
 # probe_allowed ArmSet at runtime; live stays refused). Implies `rpc` (the real
 # fill lane's recovery and nonce seeding read the chain). Paper never builds one.
@@ -38,10 +41,13 @@ signal-hook = { version = "0.4", default-features = false, features = ["iterator
 sd-notify = "0.5"
 core_affinity = "0.8"
 rusqlite = { version = "0.40", features = ["bundled"] }
+libc = "0.2"
 # Cold runtime only (state, metrics, paper-fill lane); the hot loop never touches it.
 tokio = { version = "1.53", default-features = false, features = ["rt", "net", "time", "io-util", "macros", "sync"] }
 
 [dev-dependencies]
+rugsnipe-feed = { path = "../rugsnipe-feed", features = ["grpc-mock"] }
+yellowstone-grpc-proto = { workspace = true }
 ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize"] }
 
 [lints.clippy]

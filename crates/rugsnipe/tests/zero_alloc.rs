@@ -1,7 +1,10 @@
 //! The hot thread does not allocate after warm-up (docs/06 section 14 item 5):
 //! decisions (match, risk, nonce, patch, sign, paper send, record), paper
-//! fills, exit decisions, simulated sell fills, closes and ticks, all under a
-//! counting global allocator that only counts this thread.
+//! fills, exit decisions, simulated sell fills, closes and ticks, and the
+//! gRPC wire path (transaction bytes + meta trailer -> `TxView` ->
+//! `create_hit` with the lookup tables' addresses and inner instructions,
+//! recorded mainnet creates: v0 with lookups, v1, a launcher CPI), all under
+//! a counting global allocator that only counts this thread.
 
 mod common;
 
@@ -117,16 +120,45 @@ fn hot_thread_allocates_nothing_after_warm_up() {
     cfg.risk.max_buys_per_op_per_day = 1_000;
     cfg.risk.max_buys_per_hour = 1_000;
     let mut app = build(cfg, armset(&devs, &[]), &dir, 3, true);
+    // gRPC wire creates (recorded mainnet transactions with their trailer)
+    let wire = |names: &[&str], slot: u64| {
+        WireFeed::new(
+            names
+                .iter()
+                .enumerate()
+                .map(|(i, n)| {
+                    let (tx, meta) = fixture_wire(&codec_fixture(n), 10 + i as u32);
+                    (slot + i as u64, tx, meta)
+                })
+                .collect(),
+        )
+    };
     // warm-up: the same kinds of events with other mints
     let mut buf = FeedBuf::with_capacity(64, 1 << 16);
-    let mut warm = FeedMux::new(vec![Box::new(VecFeed::new(round(&devs[..4], 1_000, 1)))]);
+    let mut warm = FeedMux::new(vec![
+        Box::new(VecFeed::new(round(&devs[..4], 1_000, 1))),
+        Box::new(wire(
+            &[
+                "fresh_v0alt_create_v2_buy_v3",
+                "v1_create_v2_buy",
+                "fresh_v1_cpi_create_v2_bexq_v2",
+            ],
+            1_000,
+        )),
+    ]);
     run(&mut app, &mut warm, &mut buf, 4);
+    let wire_misses = app.stats.wire_misses.get();
     // the feed (and its dedup ring) is built before counting starts
-    let mut counted = FeedMux::new(vec![Box::new(VecFeed::new(round(
-        &devs[4..],
-        2_000,
-        10_000,
-    )))]);
+    let counted_wire = [
+        "fresh_v0alt_create_v2_inner_buy",
+        "v0_create_v2_buy_v3",
+        "fresh_v0alt_create_v2_buy18",
+        "v1_create_v2_buy_b",
+    ];
+    let mut counted = FeedMux::new(vec![
+        Box::new(VecFeed::new(round(&devs[4..], 2_000, 10_000))),
+        Box::new(wire(&counted_wire, 2_000)),
+    ]);
     let before = app.hot.counters;
     alloc_count::reset();
     alloc_count::set_counting(true);
@@ -135,6 +167,15 @@ fn hot_thread_allocates_nothing_after_warm_up() {
     let (allocs, bytes) = alloc_count::counts();
     let after = app.hot.counters;
     assert_eq!(after.intents - before.intents, 4, "{after:?}");
+    assert_eq!(
+        app.stats.wire_misses.get(),
+        wire_misses,
+        "every wire create decoded"
+    );
+    assert!(
+        after.creates - before.creates >= 4 * 3 + counted_wire.len() as u64,
+        "the wire creates reached the decision path: {after:?}"
+    );
     assert_eq!(after.fills - before.fills, 4);
     assert!(after.sell_fills - before.sell_fills >= 4);
     assert_eq!(after.closed - before.closed, 4);

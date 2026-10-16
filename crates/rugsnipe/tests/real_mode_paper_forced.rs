@@ -104,6 +104,9 @@ fn live_cfg(dir: &std::path::Path, _mock_port: u16) -> Config {
     c.mode.mode = Mode::Live;
     c.tx.cu_limit = 88_000;
     c.tx.lads_bytes = 12_124_160;
+    // the post-execution feed is configured (its health is the env's)
+    c.feeds.grpc.enabled = true;
+    c.feeds.grpc.url = "https://grpc.invalid".into();
     c.secrets.hot_keypair = "hot-keypair".into();
     c.secrets.probe_keypair = "probe-keypair".into();
     c.secrets.api_keys = "api-keys".into();
@@ -203,6 +206,7 @@ fn rig(cfg: &Config, set: &ArmSet, verified: bool, dir: &std::path::Path) -> Rig
         fire: fire_tx,
         stats: stats.clone(),
         shared: Arc::new(Shared::default()),
+        leaders: rugsnipe::leader::empty_snapshot(),
     });
     Rig {
         hot,
@@ -529,6 +533,7 @@ fn a_real_job_reaches_the_mock_sender() {
         tip_account: t.tip_account,
         bid: 1_000_000,
         real: true,
+        leader: rugsnipe::leader::UNKNOWN,
     })
     .unwrap();
     drop(tx);

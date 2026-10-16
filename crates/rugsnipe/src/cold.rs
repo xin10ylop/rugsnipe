@@ -19,12 +19,23 @@
 //!   and per-variant landing stats ([`ProbeReport`]); the keeper's burns are
 //!   real transactions there;
 //! * ArmSet reload on file change; feed health -> rslog + decode-miss kill;
+//! * kill triggers ([`crate::triggers`]): send-error ratio, unexplained
+//!   wallet drop, pump upgrade, disk, clock, gRPC drift and staleness, the
+//!   daily loss marked to market; every trigger is a `kv.kill_trigger:<name>`
+//!   row; the latch itself is persisted (`kv.kill_latch`) so a restart stays
+//!   killed until a local `rugsnipe-ctl unkill`; Telegram alerts (optional);
+//! * the leader schedule lane ([`crate::leader`]) and the per-class stats;
+//! * the post-execution feed: held-mint watches, bundle runs of the
+//!   creation slot (`feed_bundle`), the first-seen benchmark ([`crate::firstseen`]);
 //! * Prometheus text endpoint on the configured listen addresses.
 
+use crate::firstseen::{FirstSeen, FirstSeenReport};
 use crate::hot::Shared;
+use crate::leader::{ClientClass, LeaderEvent, LeaderSnapshot};
 use crate::msgs::{ColdMsg, HotIn, ShadowInfo};
 use crate::setup::{load_armset_file, ArmState};
 use crate::stats::HotStats;
+use crate::triggers::{self as trig, names as tn, BalanceWatch, CheckEvent, Mark, SendErrWindow};
 use arc_swap::ArcSwap;
 use prometheus_client::registry::Registry;
 use pump_codec::Pubkey;
@@ -92,6 +103,159 @@ pub struct ColdCfg {
     pub filter_mode: rugsnipe_core::config::FilterMode,
     /// Probe: the real fill lane and the signer of the keeper's burns.
     pub real: Option<RealCold>,
+    /// Kill triggers and the persisted latch.
+    pub triggers: TriggerCfg,
+    /// Telegram bot token and chat id (both from credentials), `/kill` polling.
+    pub alerts: Option<AlertCreds>,
+    /// The leader schedule lane (`None`: the schedule stays empty).
+    pub leader_lane: Option<crate::leader::LeaderCfg>,
+    /// A latch restored from `state.db` at start.
+    pub restored_latch: Option<rugsnipe_state::killkv::Latch>,
+}
+
+/// Telegram credentials (zeroized on drop; never printed).
+#[derive(Clone)]
+pub struct AlertCreds {
+    pub api_base: String,
+    pub token: zeroize::Zeroizing<String>,
+    pub chat: zeroize::Zeroizing<String>,
+    pub hourly: bool,
+    pub commands: bool,
+}
+
+impl core::fmt::Debug for AlertCreds {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("AlertCreds")
+            .field("api_base", &self.api_base)
+            .field("hourly", &self.hourly)
+            .field("commands", &self.commands)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Kill-trigger settings (`[risk]`, docs/06 section 13).
+#[derive(Debug, Clone)]
+pub struct TriggerCfg {
+    /// Probe/live: triggers latch the kill. Paper: they are reported only
+    /// (`would_kill`).
+    pub enforce: bool,
+    pub send_error_window: usize,
+    pub send_error_ratio: f64,
+    pub unexplained_drop_lamports: u64,
+    /// Added to every real intent's stake as its known cost upper bound
+    /// (bid floor of the senders, failed-attempt cap, ATA rent, fees).
+    pub spend_pad_lamports: u64,
+    pub max_disk_used_pct: f64,
+    /// The state partition (`None`: no disk check).
+    pub state_dir: Option<PathBuf>,
+    pub kill_clock_offset_ms: f64,
+    /// Read `chronyc` every minute.
+    pub clock_check: bool,
+    pub max_slot_drift: u64,
+    pub daily_loss_cap: u64,
+    /// The post-execution feed's stale threshold (ms).
+    pub feed_stale_ms: u64,
+    /// `getSlot` / programdata reads (rpc url + budget); `None`: off.
+    pub chain_checks: Option<(String, Arc<RpcBudget>)>,
+    /// pump's programdata head as an earlier run stored it.
+    pub programdata_baseline: Option<trig::ProgramData>,
+    /// Chain-check periods: `getSlot` (drift) and programdata (upgrade).
+    pub slot_check_ms: u64,
+    pub upgrade_check_ms: u64,
+}
+
+impl Default for TriggerCfg {
+    fn default() -> Self {
+        Self {
+            enforce: false,
+            send_error_window: 50,
+            send_error_ratio: 0.2,
+            unexplained_drop_lamports: 50_000_000,
+            spend_pad_lamports: 0,
+            max_disk_used_pct: 90.0,
+            state_dir: None,
+            kill_clock_offset_ms: 50.0,
+            clock_check: false,
+            max_slot_drift: 8,
+            daily_loss_cap: 0,
+            feed_stale_ms: 2_000,
+            chain_checks: None,
+            programdata_baseline: None,
+            slot_check_ms: 10_000,
+            upgrade_check_ms: 60_000,
+        }
+    }
+}
+
+/// The post-execution feed as the cold thread sees it (watch / unwatch,
+/// health, stats for the summary), without naming the gRPC types.
+pub struct PostExecFeed {
+    pub health: Arc<FeedHealth>,
+    pub watch: Box<dyn Fn(Pubkey, bool) + Send>,
+    pub stats: Box<dyn Fn() -> serde_json::Value + Send>,
+    pub bundles: Option<std::sync::mpsc::Receiver<rugsnipe_feed::bundle::BundleRun>>,
+}
+
+impl core::fmt::Debug for PostExecFeed {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PostExecFeed")
+            .field("src", &self.health.src)
+            .finish_non_exhaustive()
+    }
+}
+
+/// One trigger that fired (summary, `kv.kill_trigger:<name>`).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct TriggerRow {
+    pub unix: u64,
+    pub reason: String,
+    pub detail: String,
+}
+
+/// The latest readings behind the triggers (summary, status line).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ChecksReport {
+    pub disk_used_pct: Option<f64>,
+    pub clock_offset_ms: Option<f64>,
+    pub clock_unknown_reads: u64,
+    pub rpc_slot: u64,
+    pub feed_slot: u64,
+    pub drift_slots: Option<u64>,
+    pub programdata_slot: Option<u64>,
+    pub send_errors_in_window: usize,
+    pub sends_in_window: usize,
+    pub mtm_today_lamports: i64,
+    pub open_marks: usize,
+    pub check_errors: Vec<String>,
+    pub check_rpc_calls: u64,
+}
+
+/// The leader schedule as published (summary).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct LeaderReport {
+    pub epoch: Option<u64>,
+    pub known_slots: usize,
+    pub leaders_missing_from_gossip: u32,
+    pub slots_by_class: BTreeMap<String, u64>,
+    pub publishes: u64,
+    pub rpc_calls: u64,
+    pub errors: Vec<String>,
+}
+
+/// The creation-slot bundle runs the feed assembled (summary).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct FeedBundleReport {
+    pub runs: u64,
+    pub with_intent: u64,
+    pub closed: BTreeMap<String, u64>,
+    pub with_bundle: u64,
+    pub mean_bundle_wallets: f64,
+    pub mean_run_close_ms: f64,
+    pub out_of_order_trades: u64,
+    #[serde(skip)]
+    wallets_sum: u64,
+    #[serde(skip)]
+    close_ms_sum: f64,
 }
 
 /// The real fill lane's settings (probe).
@@ -175,6 +339,8 @@ pub struct ProbeReport {
     pub fail_reasons: BTreeMap<String, u64>,
     pub by_sender: BTreeMap<String, SenderStats>,
     pub by_variant: BTreeMap<String, VariantStats>,
+    /// Landings per leader class of the landing slot (`unknown` without a schedule).
+    pub by_leader_class: BTreeMap<String, VariantStats>,
     pub sells_landed: u64,
     pub sells_failed: u64,
     pub burns_sent: u64,
@@ -261,6 +427,21 @@ pub struct ColdReport {
     pub paper: PaperReport,
     /// Probe: real sends, landings per sender and variant, real costs.
     pub probe: ProbeReport,
+    /// Kill triggers that fired (probe/live latch; also in `kv`).
+    pub kill_triggers: BTreeMap<String, TriggerRow>,
+    /// Paper: triggers that would have latched in a real mode.
+    pub would_kill: BTreeMap<String, String>,
+    /// The latch restored from `state.db` at start (`rugsnipe-ctl unkill` clears it).
+    pub kill_restored: Option<String>,
+    pub checks: ChecksReport,
+    /// Which feed saw each create first and the others' lag.
+    pub first_seen: FirstSeenReport,
+    pub feed_bundle: FeedBundleReport,
+    pub leaders: LeaderReport,
+    /// Telegram: queued / sent / failed / dropped, `/kill` commands.
+    pub alerts: BTreeMap<String, u64>,
+    /// The post-execution feed's adapter counters.
+    pub grpc: serde_json::Value,
 }
 
 /// Paper (shadow) totals: verdicts, landing rate, premium, exits, P&L and
@@ -525,6 +706,10 @@ pub struct ColdParts {
     pub report: Arc<Mutex<ColdReport>>,
     /// The outcome store's rows from `state.db` (reloaded at start).
     pub outcomes: Vec<rugsnipe_state::rows::OutcomeRow>,
+    /// The post-execution (gRPC) feed, when one runs.
+    pub post_exec: Option<PostExecFeed>,
+    /// The leader schedule (shared with the hot loop).
+    pub leaders: LeaderSnapshot,
 }
 
 /// Start the cold thread; it returns when `shared.stop` is set and the
@@ -576,6 +761,20 @@ struct Cold {
     /// Slot each Burning nonce's burn was sent at (re-sent after
     /// [`BURN_RETRY_SLOTS`]; quarantined after three failures).
     burning_since: HashMap<usize, u64>,
+    send_errs: SendErrWindow,
+    balance: BalanceWatch,
+    marks: HashMap<Pubkey, Mark>,
+    first_seen: FirstSeen,
+    alerts: crate::alerts::Alerts,
+    checks_rx: Option<tokio::sync::mpsc::UnboundedReceiver<CheckEvent>>,
+    leader_rx: Option<tokio::sync::mpsc::UnboundedReceiver<LeaderEvent>>,
+    lanes_stop: Arc<AtomicBool>,
+    /// The trigger that latched first (the persisted latch's detail).
+    first_trigger: Option<(String, String)>,
+    pd_baseline: Option<trig::ProgramData>,
+    hourly_at: u64,
+    /// Creator set of each pending intent's mint (feed bundle runs).
+    mint_info: HashMap<Pubkey, (u64, Pubkey, Pubkey)>,
 }
 
 /// A burn not confirmed by a new nonce value after this many slots is re-sent.
@@ -606,6 +805,7 @@ impl Cold {
             p.cfg.round_trip_lamports,
         );
         lock(&p.report).paper.filter = lane.report.clone();
+        let tc = p.cfg.triggers.clone();
         Self {
             lane,
             p,
@@ -627,6 +827,69 @@ impl Cold {
             real_intents: HashMap::new(),
             early_sent: vec![],
             burning_since: HashMap::new(),
+            send_errs: SendErrWindow::new(tc.send_error_window, tc.send_error_ratio),
+            balance: BalanceWatch::new(tc.unexplained_drop_lamports),
+            marks: HashMap::new(),
+            first_seen: FirstSeen::new(),
+            alerts: crate::alerts::Alerts::disabled(),
+            checks_rx: None,
+            leader_rx: None,
+            lanes_stop: Arc::new(AtomicBool::new(false)),
+            first_trigger: None,
+            pd_baseline: tc.programdata_baseline,
+            hourly_at: crate::now_unix() + 3_600,
+            mint_info: HashMap::new(),
+        }
+    }
+
+    /// A kill trigger fired: in probe/live latch the kill (first reason
+    /// wins), record `kv.kill_trigger:<name>` and alert; in paper report it.
+    fn fire_trigger(&mut self, name: &str, reason: KillReason, detail: String) {
+        if !self.p.cfg.triggers.enforce {
+            lock(&self.p.report)
+                .would_kill
+                .entry(name.to_string())
+                .or_insert(detail);
+            return;
+        }
+        let unix = crate::now_unix();
+        {
+            let mut r = lock(&self.p.report);
+            if r.kill_triggers.contains_key(name) {
+                return; // already recorded (the latch holds)
+            }
+            r.kill_triggers.insert(
+                name.to_string(),
+                TriggerRow {
+                    unix,
+                    reason: reason.name().into(),
+                    detail: detail.clone(),
+                },
+            );
+        }
+        eprintln!("kill trigger {name}: {detail}");
+        if let Some(l) = &self.p.ledger {
+            let row = rugsnipe_state::killkv::Latch {
+                reason: reason.name().into(),
+                unix,
+                detail: detail.clone(),
+            };
+            l.kv(
+                &format!("{}{name}", rugsnipe_state::killkv::TRIGGER_PREFIX),
+                row.to_json(),
+            );
+        }
+        if self.first_trigger.is_none() {
+            self.first_trigger = Some((name.to_string(), detail));
+        }
+        self.p.risk.kill(reason);
+        self.kill_checks();
+    }
+
+    /// The post-execution feed's watch (held mints) next to the logs path's.
+    fn feed_watch(&self, m: Pubkey, on: bool) {
+        if let Some(f) = &self.p.post_exec {
+            (f.watch)(m, on);
         }
     }
 
@@ -662,6 +925,58 @@ impl Cold {
             self.lane_tx = Some(ctx);
             self.lane_rx = Some(erx);
         }
+        if let Some((url, budget)) = self.p.cfg.triggers.chain_checks.clone() {
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+            let (a, b) = (
+                self.p.cfg.triggers.slot_check_ms,
+                self.p.cfg.triggers.upgrade_check_ms,
+            );
+            tokio::spawn(trig::chain_checks(
+                url,
+                budget,
+                a,
+                b,
+                tx,
+                self.lanes_stop.clone(),
+            ));
+            self.checks_rx = Some(rx);
+        }
+        if let Some(lc) = self.p.cfg.leader_lane.clone() {
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+            tokio::spawn(crate::leader::run(
+                lc,
+                self.p.leaders.clone(),
+                tx,
+                self.lanes_stop.clone(),
+            ));
+            self.leader_rx = Some(rx);
+        }
+        if let Some(a) = self.p.cfg.alerts.clone() {
+            self.alerts = crate::alerts::Alerts::start(&a.api_base, a.token, a.chat, a.commands);
+        }
+        if let Some(l) = &self.p.cfg.restored_latch {
+            let txt = format!("{} ({}): {}", l.reason, l.unix, l.detail);
+            eprintln!(
+                "KILL latch restored from state.db: {txt}; buys stay off until `rugsnipe-ctl unkill --state <db>`"
+            );
+            let mut r = lock(&self.p.report);
+            r.kill_restored = Some(txt);
+            r.killed = true;
+            r.kill_reason = Some(l.reason.clone());
+            drop(r);
+            self.was_killed = self.p.risk.is_killed();
+        }
+        self.alerts.send(format!(
+            "rugsnipe {} started on {} (mode {}){}",
+            crate::VERSION,
+            self.p.cfg.box_id,
+            self.mode_str(),
+            if self.p.risk.is_killed() {
+                ": KILLED (latch restored)"
+            } else {
+                ""
+            }
+        ));
         self.write_nonce_rows(0);
         if let Some(a) = &self.p.cfg.armset {
             self.armset_mtime = std::fs::metadata(&a.path).and_then(|m| m.modified()).ok();
@@ -685,7 +1000,11 @@ impl Cold {
             if n.is_multiple_of(200) {
                 self.armset_reload();
             }
+            if n.is_multiple_of(1_200) {
+                self.every_minute();
+            }
             if self.p.shared.stop.load(Acquire) {
+                self.lanes_stop.store(true, Release);
                 // final drain once the hot loop and the sender dropped their ends
                 for _ in 0..150 {
                     self.drain();
@@ -867,6 +1186,33 @@ impl Cold {
             }
             self.to_hot_q.extend(e1_messages(&r));
         }
+        let mut checks = vec![];
+        if let Some(rx) = self.checks_rx.as_mut() {
+            while let Ok(e) = rx.try_recv() {
+                checks.push(e);
+            }
+        }
+        for e in checks {
+            self.on_check(e);
+        }
+        let mut lev = vec![];
+        if let Some(rx) = self.leader_rx.as_mut() {
+            while let Ok(e) = rx.try_recv() {
+                lev.push(e);
+            }
+        }
+        for e in lev {
+            self.on_leader(e);
+        }
+        let mut runs = vec![];
+        if let Some(rx) = self.p.post_exec.as_ref().and_then(|f| f.bundles.as_ref()) {
+            while let Ok(r) = rx.try_recv() {
+                runs.push(r);
+            }
+        }
+        for r in runs {
+            self.on_bundle_run(r);
+        }
         let mut evs = vec![];
         if let Some(rx) = self.lane_rx.as_mut() {
             while let Ok(e) = rx.try_recv() {
@@ -940,9 +1286,17 @@ impl Cold {
                 nonce_value,
                 decided_ns,
                 real,
+                leader,
             } => {
                 lock(&self.p.report).intents += 1;
                 self.lane.on_intent(intent, spend);
+                if real {
+                    // the wallet may fall by this much for this intent
+                    self.balance.on_spend(
+                        spend.saturating_add(self.p.cfg.triggers.spend_pad_lamports),
+                        crate::now_ms(),
+                    );
+                }
                 if let Some(i) = self.nonce_intent.get_mut(nonce_idx as usize) {
                     *i = intent;
                 }
@@ -977,6 +1331,7 @@ impl Cold {
                         } else {
                             IntentState::Paper
                         },
+                        leader_class: ClientClass::name_of(leader).map(str::to_string),
                     });
                 }
                 self.write_nonce_row(nonce_idx as usize);
@@ -996,6 +1351,7 @@ impl Cold {
                 err,
                 http,
                 kind,
+                leader,
             } => {
                 lock(&self.p.report).sends += 1;
                 let kind = match kind {
@@ -1028,9 +1384,23 @@ impl Cold {
                                 err.to_string()
                             }
                         }),
+                        leader_class: ClientClass::name_of(leader).map(str::to_string),
                     });
                 }
                 if sender != 0 && self.real_intents.contains_key(&intent) {
+                    // the send-error ratio over the last N real sends
+                    let w = self.send_errs.on_send(result == 1);
+                    {
+                        let mut r = lock(&self.p.report);
+                        r.checks.send_errors_in_window = self.send_errs.errors();
+                        r.checks.sends_in_window = self.send_errs.len();
+                    }
+                    if let Some(d) = w {
+                        self.fire_trigger(tn::SEND_ERRORS, KillReason::SendErrors, d);
+                    }
+                    if kind == rugsnipe_tx::senders::VariantKind::Sell && result == 1 {
+                        self.balance.on_spend(prio + tip + 10_000, crate::now_ms());
+                    }
                     {
                         let mut r = lock(&self.p.report);
                         let st = r.probe.by_sender.entry(label.to_string()).or_default();
@@ -1083,6 +1453,7 @@ impl Cold {
                 spend,
                 bid,
             } => {
+                self.mint_info.insert(mint, (intent, creator, user));
                 lock(&self.p.report).probe.attempts += 1;
                 self.real_intents.insert(
                     intent,
@@ -1177,6 +1548,7 @@ impl Cold {
                             variant: None,
                             sender: None,
                             tip: None,
+                            leader_class: self.class_name_at(slot),
                         },
                         None,
                     );
@@ -1254,11 +1626,29 @@ impl Cold {
                 if let Some(h) = &self.p.logsws {
                     h.watch_mint(m);
                 }
+                self.feed_watch(m, true);
             }
             ColdMsg::UnwatchMint(m) => {
                 lock(&self.p.report).unwatch_mint += 1;
                 if let Some(h) = &self.p.logsws {
                     h.unwatch_mint(m);
+                }
+                self.feed_watch(m, false);
+                self.marks.remove(&m);
+            }
+            ColdMsg::FeedSeen {
+                src,
+                sig_hash,
+                recv_ns,
+                ..
+            } => {
+                self.first_seen.on_seen(src, sig_hash, recv_ns);
+            }
+            ColdMsg::Mark(p) => {
+                if p.state == PositionState::Closed || p.tokens == 0 {
+                    self.marks.remove(&p.mint);
+                } else {
+                    self.marks.insert(p.mint, trig::position_mark(&p));
                 }
             }
             ColdMsg::PaperPending {
@@ -1276,6 +1666,7 @@ impl Cold {
                 rate60,
                 rate600,
             } => {
+                self.mint_info.insert(mint, (intent, creator, user));
                 self.lane
                     .on_pending(intent, mint, user, decided_unix_ms, rate60, rate600);
                 if let Some(e1) = self.p.cfg.e1.clone() {
@@ -1349,6 +1740,7 @@ impl Cold {
                 }
             }
             ColdMsg::Closed { mint, pnl, .. } => {
+                self.marks.remove(&mint);
                 self.lane(crate::real::LaneCmd::Released { mint });
                 {
                     let mut r = lock(&self.p.report);
@@ -1543,6 +1935,7 @@ impl Cold {
                             variant: primary.map(|v| v.variant),
                             sender: primary.map(|v| v.label.to_string()),
                             tip: None,
+                            leader_class: self.class_name_at(ri.slot),
                         },
                         Some(if burned {
                             IntentState::Burned
@@ -1643,12 +2036,19 @@ impl Cold {
                         sent_unix_ms: crate::now_ms(),
                         kind: "burn".into(),
                         err: (!ok).then(|| err.clone()),
+                        leader_class: None,
                     });
+                }
+                if ok {
+                    self.balance.on_spend(20_000, crate::now_ms());
                 }
             }
             E::Wallet { lamports } => {
                 self.p.risk.set_hot_balance(lamports);
                 lock(&self.p.report).probe.wallet_lamports = lamports;
+                if let Some(d) = self.balance.on_balance(lamports, crate::now_ms()) {
+                    self.fire_trigger(tn::UNEXPLAINED_DROP, KillReason::UnexplainedDrop, d);
+                }
             }
             E::Blockhash { hash, slot } => {
                 let at = if slot > 0 {
@@ -1705,6 +2105,7 @@ impl Cold {
                     variant: var.map(|v| v.variant),
                     sender: var.map(|v| v.label.to_string()),
                     tip: var.map(|v| v.tip),
+                    leader_class: self.class_name_at(l.slot),
                 },
                 Some(match (ok, l.late) {
                     (true, true) => IntentState::LateFill,
@@ -1743,6 +2144,7 @@ impl Cold {
                 });
             }
         }
+        let self_class = self.class_name_at(l.slot);
         {
             let mut r = lock(&self.p.report);
             if ok {
@@ -1764,6 +2166,13 @@ impl Cold {
                 st.tips_paid_lamports += var.map_or(0, |v| v.tip);
             } else {
                 st.landed_failed += 1;
+            }
+            let ck = self_class.clone().unwrap_or_else(|| "unknown".into());
+            let cs = p.by_leader_class.entry(ck).or_default();
+            if ok {
+                cs.landed += 1;
+            } else {
+                cs.landed_failed += 1;
             }
             let vs = p.by_variant.entry(vkey).or_default();
             if ok {
@@ -1865,6 +2274,20 @@ impl Cold {
         if self.p.sigusr1.swap(false, AcqRel) {
             self.p.risk.kill(KillReason::Signal);
         }
+        if self.alerts.kill_requested.swap(false, AcqRel) {
+            self.p.risk.kill(KillReason::Remote);
+            if let Some(l) = &self.p.ledger {
+                let row = rugsnipe_state::killkv::Latch {
+                    reason: KillReason::Remote.name().into(),
+                    unix: crate::now_unix(),
+                    detail: "Telegram /kill".into(),
+                };
+                l.kv(
+                    &format!("{}telegram", rugsnipe_state::killkv::TRIGGER_PREFIX),
+                    row.to_json(),
+                );
+            }
+        }
         let killed = self.p.risk.is_killed();
         self.p.stats.killed.set(killed as i64);
         if killed && !self.was_killed {
@@ -1882,6 +2305,234 @@ impl Cold {
             r.kill_reason = Some(format!("{reason:?}"));
             drop(r);
             self.write_risk_row();
+            // the latch survives a restart: kv.kill_latch until `ctl unkill`
+            let detail = match &self.first_trigger {
+                Some((n, d)) => format!("{n}: {d}"),
+                None => format!("{reason:?}"),
+            };
+            if let Some(l) = &self.p.ledger {
+                let row = rugsnipe_state::killkv::Latch {
+                    reason: reason.name().into(),
+                    unix: crate::now_unix(),
+                    detail: detail.clone(),
+                };
+                l.kv(rugsnipe_state::killkv::LATCH_KEY, row.to_json());
+                l.flush();
+            }
+            self.alerts.send(format!(
+                "KILL on {} ({}): {detail}. Buys stopped, exits continue; unkill is local (rugsnipe-ctl unkill).",
+                self.p.cfg.box_id,
+                self.mode_str()
+            ));
+        }
+    }
+
+    /// Leader class name of a slot (schedule lookup).
+    fn class_name_at(&self, slot: u64) -> Option<String> {
+        self.p
+            .leaders
+            .load()
+            .class_at(slot)
+            .map(|c| c.as_str().to_string())
+    }
+
+    fn on_check(&mut self, e: CheckEvent) {
+        let t = self.p.cfg.triggers.clone();
+        match e {
+            CheckEvent::RpcSlot(rpc) => {
+                let feed = self
+                    .p
+                    .post_exec
+                    .as_ref()
+                    .map_or(0, |f| f.health.last_slot.load(Relaxed));
+                {
+                    let mut r = lock(&self.p.report);
+                    r.checks.rpc_slot = rpc;
+                    r.checks.feed_slot = feed;
+                    r.checks.drift_slots = (feed > 0).then(|| rpc.saturating_sub(feed));
+                }
+                if self.p.post_exec.is_some() {
+                    if let Some(d) = trig::drift_exceeded(feed, rpc, t.max_slot_drift) {
+                        self.fire_trigger(tn::DRIFT, KillReason::Drift, d);
+                    }
+                }
+            }
+            CheckEvent::ProgramData(h) => {
+                lock(&self.p.report).checks.programdata_slot = Some(h.slot);
+                match self.pd_baseline {
+                    None => {
+                        self.pd_baseline = Some(h);
+                        if let Some(l) = &self.p.ledger {
+                            l.kv("pump_programdata", h.to_kv());
+                        }
+                    }
+                    Some(b) => {
+                        if let Some(d) = trig::upgrade_changed(&b, &h) {
+                            self.fire_trigger(tn::PROGRAM_UPGRADE, KillReason::ProgramUpgrade, d);
+                        }
+                    }
+                }
+            }
+            CheckEvent::Error(e) => {
+                let mut r = lock(&self.p.report);
+                if r.checks.check_errors.len() < 8 {
+                    r.checks.check_errors.push(e);
+                }
+            }
+            CheckEvent::Calls(n) => lock(&self.p.report).checks.check_rpc_calls += n as u64,
+        }
+    }
+
+    fn on_leader(&mut self, e: LeaderEvent) {
+        let mut r = lock(&self.p.report);
+        match e {
+            LeaderEvent::Published {
+                epoch,
+                known_slots,
+                missing,
+                classes,
+            } => {
+                r.leaders.epoch = Some(epoch);
+                r.leaders.known_slots = known_slots;
+                r.leaders.leaders_missing_from_gossip = missing;
+                r.leaders.publishes += 1;
+                r.leaders.slots_by_class = classes
+                    .iter()
+                    .map(|(c, n)| (c.as_str().to_string(), *n))
+                    .collect();
+            }
+            LeaderEvent::Error(e) => {
+                if r.leaders.errors.len() < 8 {
+                    r.leaders.errors.push(e);
+                }
+            }
+            LeaderEvent::Calls(n) => r.leaders.rpc_calls += n as u64,
+        }
+    }
+
+    /// A creation slot's bundle run from the feed: the entry filter's 17
+    /// bundle features computed from the stream (`feed_bundle` row for a
+    /// launch we decided on).
+    fn on_bundle_run(&mut self, run: rugsnipe_feed::bundle::BundleRun) {
+        let info = self.mint_info.get(&run.mint).copied();
+        let mut cset: Vec<Pubkey> = run
+            .trades
+            .iter()
+            .filter(|t| t.is_create)
+            .map(|t| t.user)
+            .collect();
+        if let Some((_, creator, user)) = info {
+            cset.push(creator);
+            cset.push(user);
+        }
+        let trades: Vec<crate::filter::S0Trade> = run
+            .trades
+            .iter()
+            .map(|t| crate::filter::S0Trade {
+                index: t.index,
+                is_create: t.is_create,
+                user: t.user,
+                is_buy: t.is_buy,
+                sol: t.sol,
+                tok: t.tok,
+                v: t.v,
+                t: t.t,
+            })
+            .collect();
+        let b = crate::filter::bundle_features(&trades, &cset, None);
+        let close_ms = run.run_closed_ns.saturating_sub(run.create_ns) as f64 / 1e6;
+        {
+            let mut r = lock(&self.p.report);
+            let f = &mut r.feed_bundle;
+            f.runs += 1;
+            *f.closed.entry(run.closed.as_str().to_string()).or_default() += 1;
+            f.out_of_order_trades += run.out_of_order as u64;
+            f.close_ms_sum += close_ms;
+            f.mean_run_close_ms = f.close_ms_sum / f.runs as f64;
+            if let Some(b) = &b {
+                f.with_bundle += 1;
+                f.wallets_sum += b.wallets.len() as u64;
+                f.mean_bundle_wallets = f.wallets_sum as f64 / f.with_bundle as f64;
+            }
+            if info.is_some() {
+                f.with_intent += 1;
+            }
+        }
+        let Some((intent, _, _)) = info else {
+            return;
+        };
+        if let Some(l) = &self.p.ledger {
+            l.writer().send(Write::FeedBundle(FeedBundleRow {
+                mint: run.mint,
+                intent_id: Some(intent as i64),
+                slot: run.slot,
+                create_index: run.create_index,
+                trades: run.trades.len() as u32,
+                bundle_wallets: b.as_ref().map_or(0, |b| b.wallets.len() as u32),
+                s0_third: b.as_ref().map_or(0, |b| b.s0_third),
+                dev_sol: b.as_ref().map_or(0.0, |b| b.x[2]),
+                bundle_sol: b.as_ref().map_or(0.0, |b| b.x[1]),
+                me_sol: b.as_ref().map_or(0.0, |b| b.x[4]),
+                closed: run.closed.as_str().into(),
+                run_close_ms: close_ms,
+                out_of_order: run.out_of_order,
+                features: b.map(|b| serde_json::to_string(&b.x.to_vec()).unwrap_or_default()),
+            }));
+        }
+    }
+
+    /// Disk, clock (every minute), Telegram's hourly summary.
+    fn every_minute(&mut self) {
+        let t = self.p.cfg.triggers.clone();
+        if let Some(dir) = &t.state_dir {
+            match trig::disk_used_pct(dir) {
+                Ok(pct) => {
+                    lock(&self.p.report).checks.disk_used_pct = Some(pct);
+                    if let Some(d) = trig::disk_exceeded(pct, t.max_disk_used_pct) {
+                        self.fire_trigger(tn::DISK, KillReason::Disk, d);
+                    }
+                }
+                Err(e) => {
+                    let mut r = lock(&self.p.report);
+                    if r.checks.check_errors.len() < 8 {
+                        r.checks.check_errors.push(format!("statvfs: {e}"));
+                    }
+                }
+            }
+        }
+        if t.clock_check {
+            let off = trig::chrony_offset_ms();
+            {
+                let mut r = lock(&self.p.report);
+                r.checks.clock_offset_ms = off;
+                if off.is_none() {
+                    r.checks.clock_unknown_reads += 1;
+                }
+            }
+            if let Some(d) = trig::clock_exceeded(off, t.kill_clock_offset_ms) {
+                self.fire_trigger(tn::CLOCK, KillReason::Clock, d);
+            }
+        }
+        let now = crate::now_unix();
+        if now >= self.hourly_at {
+            self.hourly_at = now + 3_600;
+            if self.p.cfg.alerts.as_ref().is_some_and(|a| a.hourly) {
+                let r = lock(&self.p.report).clone();
+                self.alerts.send(format!(
+                    "rugsnipe {} hourly ({}): intents {} sends {} fills {} closed {} realized {} lamports; probe attempts {} landed {} failed {}; killed {}",
+                    self.p.cfg.box_id,
+                    self.mode_str(),
+                    r.intents,
+                    r.sends,
+                    r.fills,
+                    r.positions_closed,
+                    r.realized_lamports,
+                    r.probe.attempts,
+                    r.probe.landed,
+                    r.probe.landed_failed,
+                    r.kill_reason.as_deref().unwrap_or("no")
+                ));
+            }
         }
     }
 
@@ -1902,6 +2553,50 @@ impl Cold {
 
     fn every_second(&mut self) {
         self.flush_outcomes(false);
+        // the post-execution feed: stale in a real mode latches the kill
+        if let Some(f) = &self.p.post_exec {
+            let s = f.health.snapshot();
+            let stale = trig::feed_stale(
+                s.connected,
+                s.since_frame_ms,
+                self.p.cfg.triggers.feed_stale_ms,
+            );
+            let stats = (f.stats)();
+            lock(&self.p.report).grpc = stats;
+            if let Some(d) = stale {
+                self.fire_trigger(tn::FEED_STALE, KillReason::FeedStale, d);
+            }
+        }
+        // the daily loss marked to market: closed + failed + open at the curve
+        if self.p.cfg.mode.is_real() {
+            let marks: Vec<Mark> = self.marks.values().copied().collect();
+            let mtm = trig::mtm_today(self.p.risk.realized_today(crate::now_unix()), &marks);
+            {
+                let mut r = lock(&self.p.report);
+                r.checks.mtm_today_lamports = mtm;
+                r.checks.open_marks = marks.len();
+            }
+            if let Some(d) = trig::daily_loss_exceeded(mtm, self.p.cfg.triggers.daily_loss_cap) {
+                self.fire_trigger(tn::DAILY_LOSS, KillReason::DailyLoss, d);
+            }
+        }
+        {
+            let fs = self.first_seen.report();
+            let st = &self.alerts.stats;
+            let mut r = lock(&self.p.report);
+            r.first_seen = fs;
+            r.alerts = [
+                ("queued", st.queued.load(Relaxed)),
+                ("sent", st.sent.load(Relaxed)),
+                ("failed", st.failed.load(Relaxed)),
+                ("dropped", st.dropped.load(Relaxed)),
+                ("kill_commands", st.kill_commands.load(Relaxed)),
+            ]
+            .into_iter()
+            .filter(|_| self.alerts.enabled())
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
+        }
         self.lane(crate::real::LaneCmd::Slot(
             self.p.shared.slot_now.load(Relaxed),
         ));

@@ -12,6 +12,11 @@ default = ["ws"]
 # Websocket adapters (LogsWs, PumpPortal) and the cold JSON-RPC client. They run on
 # their own thread with a current-thread tokio runtime; the hot poll() never touches tokio.
 ws = ["dep:tokio", "dep:tokio-tungstenite", "dep:tokio-rustls", "dep:rustls", "dep:rustls-native-certs", "dep:futures-util"]
+# Yellowstone gRPC (Dragon's Mouth) post-execution feed: Triton, Alchemy, Helius LaserStream,
+# SVS... (docs/research/infra-shopping-2026.md section 1). Own thread + tokio runtime, like `ws`.
+grpc = ["ws", "dep:yellowstone-grpc-client", "dep:yellowstone-grpc-proto", "dep:tonic"]
+# A local Yellowstone server (tonic, loopback h2c) for tests in this and other crates.
+grpc-mock = ["grpc"]
 
 [dependencies]
 pump-codec = { workspace = true }
@@ -27,6 +32,9 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
 rustls-native-certs = { version = "0.8", optional = true }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"], optional = true }
+yellowstone-grpc-client = { workspace = true, optional = true }
+yellowstone-grpc-proto = { workspace = true, optional = true }
+tonic = { version = "0.14.6", default-features = false, features = ["tls-ring"], optional = true }
 
 [dev-dependencies]
 proptest = { version = "1.12", default-features = false, features = ["std"] }
@@ -40,3 +48,7 @@ too_many_arguments = "allow"
 [[example]]
 name = "tail"
 required-features = ["ws"]
+
+[[test]]
+name = "grpc_mock"
+required-features = ["grpc-mock"]

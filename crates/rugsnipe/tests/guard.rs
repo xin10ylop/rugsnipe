@@ -195,6 +195,9 @@ fn guard_real_sell_goes_through_the_real_senders_on_a_recent_blockhash() {
     cfgt.mode.mode = rugsnipe_core::Mode::Probe;
     cfgt.tx.cu_limit = 88_000;
     cfgt.tx.lads_bytes = 12_124_160;
+    // a probe config names its post-execution feed (the guard itself reads none)
+    cfgt.feeds.grpc.enabled = true;
+    cfgt.feeds.grpc.url = "https://grpc.invalid".into();
     cfgt.secrets.probe_keypair = "probe-keypair".into();
     cfgt.secrets.armset_pubkey = Pubkey::new_unique().to_string();
     cfgt.secrets.cold_wallet = Pubkey::new_unique().to_string();

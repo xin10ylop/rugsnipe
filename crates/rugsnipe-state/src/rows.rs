@@ -102,6 +102,9 @@ pub struct IntentRow {
     pub nonce_value: [u8; 32],
     pub decided_ns: u64,
     pub state: IntentState,
+    /// Client class of the create slot's leader (`jito_agave`, `bam`,
+    /// `harmonic`, `firedancer`, `other`); `None` = no leader schedule.
+    pub leader_class: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -122,6 +125,8 @@ pub struct SendRow {
     pub kind: String,
     /// The provider's refusal, first 200 characters (never request data).
     pub err: Option<String>,
+    /// Leader class the variant was planned for.
+    pub leader_class: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -149,6 +154,31 @@ pub struct FillRow {
     pub variant: Option<u8>,
     pub sender: Option<String>,
     pub tip: Option<u64>,
+    /// Leader class of the slot the transaction landed in (real) or of the
+    /// create slot (paper).
+    pub leader_class: Option<String>,
+}
+
+/// `feed_bundle`: the creation slot's bundle run as the gRPC feed saw it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FeedBundleRow {
+    pub mint: Pubkey,
+    pub intent_id: Option<i64>,
+    pub slot: u64,
+    pub create_index: Option<u32>,
+    pub trades: u32,
+    pub bundle_wallets: u32,
+    pub s0_third: u32,
+    pub dev_sol: f64,
+    pub bundle_sol: f64,
+    pub me_sol: f64,
+    /// `slot_ended` / `timeout` / `evicted`.
+    pub closed: String,
+    /// Create seen -> bundle run complete (ms).
+    pub run_close_ms: f64,
+    pub out_of_order: u32,
+    /// The 17 bundle features (JSON array), `None` if not computable.
+    pub features: Option<String>,
 }
 
 /// `shadow`: the shadow-mode entry of one paper intent (docs/04 section 7).

@@ -69,6 +69,17 @@ pub struct AppOpts {
     pub live_flag: bool,
     /// Probe only: where the keys are, what the box measured, the chain.
     pub real: Option<RealOpts>,
+    /// The post-execution (gRPC) feed for the cold thread: held-mint
+    /// watches, health (stale / drift triggers), bundle runs.
+    pub post_exec: Option<crate::cold::PostExecFeed>,
+    /// Run the leader schedule lane against this RPC (probe; paper only
+    /// with `--leader-schedule`).
+    pub leader_rpc: Option<String>,
+    /// Telegram alerts (credentials found).
+    pub alerts: Option<crate::cold::AlertCreds>,
+    /// Tests: adjust the trigger settings derived from the config (e.g. the
+    /// chain-check periods). `None` in the binaries.
+    pub trigger_tuning: Option<fn(&mut crate::cold::TriggerCfg)>,
 }
 
 /// What a probe process needs beyond the config (docs/06 section 6): the
@@ -122,6 +133,8 @@ pub struct App {
     pub nonces: Arc<NoncePool>,
     /// A copy of the compiled templates (the dry run's self-test).
     pub templates: setup::Templates,
+    /// The leader schedule (empty until the lane publishes).
+    pub leaders: crate::leader::LeaderSnapshot,
     store: Option<StateStore>,
     cold: Option<JoinHandle<()>>,
     sender: Option<JoinHandle<u64>>,
@@ -388,6 +401,8 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     };
     // --- state.db + recovery (before READY)
     let mut outcomes = vec![];
+    let mut restored_latch = None;
+    let mut programdata_baseline = None;
     if mode.is_real() && o.state_path.is_none() {
         return Err(format!(
             "mode {mode} refused: a real mode needs --state (recovery, ledger)"
@@ -451,6 +466,19 @@ pub fn build(o: AppOpts) -> Result<App, String> {
             // the entry filter's outcome store, as the last run left it
             outcomes = rugsnipe_state::store::load_outcomes(&c)
                 .map_err(|e| format!("state.db outcomes: {e}"))?;
+            // a kill latched by an earlier run stays latched (docs/06 section 13)
+            restored_latch = rugsnipe_state::killkv::latched(&c)
+                .map_err(|e| format!("state.db kill latch: {e}"))?;
+            if let Some(l) = &restored_latch {
+                risk.kill(
+                    rugsnipe_core::risk::KillReason::from_name(&l.reason)
+                        .unwrap_or(rugsnipe_core::risk::KillReason::Persisted),
+                );
+            }
+            programdata_baseline = rugsnipe_state::store::kv_get(&c, "pump_programdata")
+                .ok()
+                .flatten()
+                .and_then(|v| crate::triggers::ProgramData::from_kv(&v));
             l.kv("mode", mode.as_str());
             l.kv("box", cfg.box_.id.clone());
             l.kv(
@@ -529,6 +557,60 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         (l, _) => (None, l),
     };
     let fill_lane = e1_lane.is_some() || e2_lane.is_some();
+    let leaders = crate::leader::empty_snapshot();
+    // one budget for the keeper's reads: real fill lane, chain checks, leaders
+    let keeper_budget = Arc::new(RpcBudget::new(cfg.rpc_budget.keeper.max(1) as f64));
+    let eff = cfg.effective_risk();
+    let triggers = crate::cold::TriggerCfg {
+        enforce: mode.is_real(),
+        send_error_window: cfg.risk.send_error_window.max(1) as usize,
+        send_error_ratio: cfg.risk.send_error_kill_ratio,
+        unexplained_drop_lamports: cfg.risk.unexplained_drop_lamports,
+        // a real intent's stake plus the most it can cost besides: the bid as a
+        // tip (raised to the senders' 0.001 SOL floors), the failed-attempt cap,
+        // the Token-2022 ATA rent and fees
+        spend_pad_lamports: cfg.risk.max_bid_lamports.max(1_000_000)
+            + cfg.bid.failed_attempt_lamports_max
+            + 1_513_840
+            + 20_000,
+        max_disk_used_pct: cfg.risk.max_disk_used_pct,
+        state_dir: o
+            .state_path
+            .as_ref()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+            .map(|d| {
+                if d.as_os_str().is_empty() {
+                    PathBuf::from(".")
+                } else {
+                    d
+                }
+            }),
+        kill_clock_offset_ms: cfg.risk.kill_clock_offset_ms,
+        clock_check: mode.is_real(),
+        max_slot_drift: cfg.risk.max_slot_drift,
+        daily_loss_cap: eff.max_daily_loss_lamports,
+        feed_stale_ms: cfg.feeds.grpc.stale_ms,
+        chain_checks: real_opts
+            .as_ref()
+            .map(|r| (r.rpc_url.clone(), keeper_budget.clone())),
+        programdata_baseline,
+        slot_check_ms: 10_000,
+        upgrade_check_ms: 60_000,
+    };
+    let mut triggers = triggers;
+    if let Some(f) = o.trigger_tuning {
+        f(&mut triggers);
+    }
+    let leader_lane = o.leader_rpc.clone().map(|url| crate::leader::LeaderCfg {
+        rpc_url: url,
+        budget: if mode.is_real() {
+            keeper_budget.clone()
+        } else {
+            Arc::new(RpcBudget::new(1.0))
+        },
+        nodes_every_s: 180,
+        epoch_every_s: 60,
+    });
     let cold_cfg = ColdCfg {
         box_id: cfg.box_.id.clone(),
         mode,
@@ -568,13 +650,18 @@ pub fn build(o: AppOpts) -> Result<App, String> {
             lane: crate::real::LaneCfg {
                 rpc_url: r.rpc_url.clone(),
                 // the keeper's share of the RPC budget: statuses, landed
-                // transactions, nonces, balances, blockhash
-                budget: Arc::new(RpcBudget::new(cfg.rpc_budget.keeper.max(1) as f64)),
+                // transactions, nonces, balances, blockhash (shared with the
+                // chain checks and the leader lane)
+                budget: keeper_budget.clone(),
                 owner,
                 dry: r.dry,
             },
             signer: signer.clone(),
         }),
+        triggers,
+        alerts: o.alerts.clone(),
+        leader_lane,
+        restored_latch,
     };
     let cold = cold::spawn(ColdParts {
         cfg: cold_cfg,
@@ -595,6 +682,8 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         sigusr1: o.sigusr1,
         report: report.clone(),
         outcomes,
+        post_exec: o.post_exec,
+        leaders: leaders.clone(),
     })
     .map_err(|e| e.to_string())?;
     let mut hot_cfg = HotCfg::from_config(&cfg, policy);
@@ -617,6 +706,7 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         fire: fire_tx,
         stats: stats.clone(),
         shared: shared.clone(),
+        leaders: leaders.clone(),
     });
     // probe: every token balance recovery found gets an exit owner (I2/I6)
     if mode.is_real() {
@@ -650,6 +740,7 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         signer,
         nonces,
         templates,
+        leaders,
         state_path: o.state_path.clone(),
         store,
         cold: Some(cold),
@@ -735,6 +826,7 @@ impl App {
             tip_account: self.templates.tip_account,
             bid: 1_000_000,
             real: true,
+            leader: crate::leader::UNKNOWN,
         };
         let targets = self.senders.targets();
         let vs = crate::sender::plan_variants(std::slice::from_ref(&job), targets, &self.signer)

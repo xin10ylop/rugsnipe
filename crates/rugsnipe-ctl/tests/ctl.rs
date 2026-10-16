@@ -351,3 +351,53 @@ fn sim_without_rpc_feature_explains() {
     assert_eq!(out.code, 2);
     assert!(out.text.contains("--features rpc"), "{}", out.text);
 }
+
+#[test]
+fn kill_status_and_local_unkill() {
+    let d = tmpdir();
+    let db = d.path().join("state.db");
+    let dbs = db.display().to_string();
+    // no state.db: refused
+    let out = run(&s(&["unkill", "--state", &dbs]));
+    assert_eq!(out.code, 2, "{}", out.text);
+    // a latch and a trigger as the cold thread writes them
+    let c = rugsnipe_state::store::open_conn(&db).unwrap();
+    let l = rugsnipe_state::killkv::Latch {
+        reason: "unexplained_drop".into(),
+        unix: 1_791_000_000,
+        detail: "wallet fell 300000000 lamports".into(),
+    };
+    c.execute(
+        "INSERT INTO kv(k, v) VALUES(?1, ?2), (?3, ?2)",
+        rusqlite::params![
+            rugsnipe_state::killkv::LATCH_KEY,
+            l.to_json(),
+            "kill_trigger:unexplained_drop"
+        ],
+    )
+    .unwrap();
+    drop(c);
+    let out = run(&s(&["kill", "status", "--state", &dbs]));
+    assert_eq!(out.code, 0);
+    assert!(
+        out.text.starts_with("KILLED: unexplained_drop"),
+        "{}",
+        out.text
+    );
+    assert!(
+        out.text.contains("trigger unexplained_drop"),
+        "{}",
+        out.text
+    );
+    let out = run(&s(&["unkill", "--state", &dbs]));
+    assert_eq!(out.code, 0);
+    assert!(out.text.starts_with("unkilled"), "{}", out.text);
+    let out = run(&s(&["kill", "status", "--state", &dbs]));
+    assert!(out.text.starts_with("not killed"), "{}", out.text);
+    assert!(
+        out.text.contains("trigger unexplained_drop"),
+        "history stays"
+    );
+    let out = run(&s(&["unkill", "--state", &dbs]));
+    assert!(out.text.starts_with("not killed"));
+}

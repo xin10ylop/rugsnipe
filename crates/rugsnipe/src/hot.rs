@@ -45,6 +45,7 @@
 
 use crate::convert::{hit_from_lite, trade_from_lite, v0_of};
 use crate::filter::{CreateRate, Feat, Model};
+use crate::leader::{ClientClass, LeaderSnapshot, UNKNOWN as LEADER_UNKNOWN};
 use crate::msgs::{reason_code, reason_index, ColdMsg, FireJob, HotIn, ShadowInfo};
 use crate::setup::{min_tokens_out, op_armed, ArmState, Templates};
 use crate::stats::{code, HotStats};
@@ -65,6 +66,7 @@ use rugsnipe_exit::{
     SellOrder, Trade, Venue,
 };
 use rugsnipe_feed::clock::mono_ns;
+use rugsnipe_feed::wiremeta::{WireMeta, EMPTY_INNER, MAX_INNER, MAX_LOADED};
 use rugsnipe_feed::{Feed, FeedBuf, FeedEvent, FeedSrc, FeedStatus, Fired, FiredSet, Payload};
 use rugsnipe_tx::nonce::NoncePool;
 use rugsnipe_tx::senders::{Sender as _, SenderId, SenderSet, Variant, VariantKind};
@@ -220,17 +222,42 @@ impl HotCfg {
     /// priority-ordered class the bid as the priority fee, never both
     /// (docs/03 section 6.1).
     pub fn sell_plan(&self, bid: u64, n_sigs: u8) -> BidPlan {
-        self.bid_policy.plan_sell(self.leader_class, bid, n_sigs)
+        self.sell_plan_at(None, bid, n_sigs)
+    }
+
+    /// [`HotCfg::sell_plan`] for a leader class read from the schedule
+    /// (`leader_class`, when set, overrides it).
+    pub fn sell_plan_at(&self, class: Option<LeaderClass>, bid: u64, n_sigs: u8) -> BidPlan {
+        self.bid_policy
+            .plan_sell(self.leader_class.or(class), bid, n_sigs)
     }
 
     /// The variants of one snipe: the primary for the leader's class (or a
     /// tip-ordered leader when unknown) and, when unknown, a priority-ordered
     /// secondary. Every plan's failed cost is within the cap.
     pub fn bid_plans(&self, bid: u64, n_sigs: u8) -> (BidPlan, BidPlan) {
+        self.bid_plans_at(None, None, bid, n_sigs)
+    }
+
+    /// The variants for the leaders of the create slot (`cur`) and the next
+    /// slot (`next`) from the leader schedule (docs/03 section 6: slot+1
+    /// has the same leader 75% of the time). Both known and equal: both
+    /// variants bid for that class; different: the primary bids for `cur`,
+    /// the secondary for `next`; `cur` unknown: the pay-on-success primary
+    /// and the clamped priority secondary. `leader_class`, when set,
+    /// overrides the schedule.
+    pub fn bid_plans_at(
+        &self,
+        cur: Option<LeaderClass>,
+        next: Option<LeaderClass>,
+        bid: u64,
+        n_sigs: u8,
+    ) -> (BidPlan, BidPlan) {
         let p = &self.bid_policy;
-        match self.leader_class {
-            Some(c) => (p.plan(c, bid, n_sigs), p.plan(c, bid, n_sigs)),
-            None => (
+        match (self.leader_class, cur, next) {
+            (Some(c), _, _) => (p.plan(c, bid, n_sigs), p.plan(c, bid, n_sigs)),
+            (None, Some(c), n) => (p.plan(c, bid, n_sigs), p.plan(n.unwrap_or(c), bid, n_sigs)),
+            (None, None, _) => (
                 p.plan(LeaderClass::JitoAgave, bid, n_sigs),
                 p.plan(LeaderClass::Harmonic, bid, n_sigs),
             ),
@@ -241,10 +268,16 @@ impl HotCfg {
     /// base fee plus the priority fee of the variant matching the leader
     /// (tips revert), weighted by `leader_mix` when the leader is unknown.
     pub fn failed_attempt_cost(&self, bid: u64, n_sigs: u8) -> u64 {
+        self.failed_attempt_cost_at(None, bid, n_sigs)
+    }
+
+    /// [`HotCfg::failed_attempt_cost`] with the create slot leader's class
+    /// from the schedule (`leader_class`, when set, overrides it).
+    pub fn failed_attempt_cost_at(&self, class: Option<LeaderClass>, bid: u64, n_sigs: u8) -> u64 {
         if self.failed_attempt_lamports > 0 {
             return self.failed_attempt_lamports;
         }
-        match self.leader_class {
+        match self.leader_class.or(class) {
             Some(c) => self.bid_policy.plan(c, bid, n_sigs).failed_cost(n_sigs),
             None => self
                 .bid_policy
@@ -350,6 +383,8 @@ pub struct HotParts {
     pub fire: rtrb::Producer<FireJob>,
     pub stats: Arc<HotStats>,
     pub shared: Arc<Shared>,
+    /// The leader schedule (cold lane publishes; empty = unknown).
+    pub leaders: LeaderSnapshot,
 }
 
 /// The hot loop.
@@ -384,6 +419,10 @@ pub struct HotLoop {
     pub counters: LoopCounters,
     /// Creates per 60 / 600 s (entry filter feature).
     rates: CreateRate,
+    leaders: LeaderSnapshot,
+    /// Scratch for the ALT-loaded addresses of a wire event (no allocation).
+    loaded: Box<[Pubkey]>,
+    last_mark_ns: u64,
 }
 
 impl core::fmt::Debug for HotLoop {
@@ -438,7 +477,18 @@ impl HotLoop {
             hist_event: hist(),
             counters: LoopCounters::default(),
             rates: CreateRate::new(crate::now_ms()),
+            leaders: p.leaders,
+            loaded: vec![Pubkey::default(); MAX_LOADED].into_boxed_slice(),
+            last_mark_ns: 0,
         }
+    }
+
+    /// Classes of the leaders of `slot` and `slot + 1` (schedule lookup:
+    /// lock-free, no allocation).
+    #[inline]
+    fn leader_classes(&self, slot: u64) -> (Option<ClientClass>, Option<ClientClass>) {
+        let m = self.leaders.load();
+        (m.class_at(slot), m.class_at(slot + 1))
     }
 
     /// The paper wallet (template fee payer / position owner).
@@ -511,19 +561,33 @@ impl HotLoop {
                 );
             }
             Payload::Wire(w) => {
-                let raw = buf.wire(w);
-                match pump_codec::tx::TxView::parse(raw) {
-                    Ok(tx) => match pump_codec::create_hit(&tx, None, &[], self.cfg.fees) {
-                        Ok(Some(mut hit)) => {
-                            hit.slot = Some(ev.slot);
-                            self.on_create(ev.src, ev.recv_ns, ev.slot, ev.bank_id, &hit, t0);
-                        }
-                        Ok(None) => {}
-                        Err(_) => {
-                            self.stats.wire_misses.inc();
-                        }
-                    },
-                    Err(_) => {
+                // raw transaction + (gRPC) the post-execution trailer: the
+                // lookup tables' addresses and the inner instructions resolve
+                // v0 creates and launcher CPIs; all on the stack / scratch
+                let meta = WireMeta::parse(buf.wire_meta(w));
+                if meta.is_some_and(|m| m.failed()) {
+                    return; // a failed transaction created nothing
+                }
+                let res = match pump_codec::tx::TxView::parse(buf.wire_tx(w)) {
+                    Ok(tx) => {
+                        let mut inner = [EMPTY_INNER; MAX_INNER];
+                        let (nl, ni) = match &meta {
+                            Some(m) => (m.loaded_into(&mut self.loaded), m.inner_into(&mut inner)),
+                            None => (0, 0),
+                        };
+                        let loaded = (nl > 0).then(|| &self.loaded[..nl]);
+                        pump_codec::create_hit(&tx, loaded, &inner[..ni], self.cfg.fees)
+                            .map_err(|_| ())
+                    }
+                    Err(_) => Err(()),
+                };
+                match res {
+                    Ok(Some(mut hit)) => {
+                        hit.slot = Some(ev.slot);
+                        self.on_create(ev.src, ev.recv_ns, ev.slot, ev.bank_id, &hit, t0);
+                    }
+                    Ok(None) => {}
+                    Err(()) => {
                         self.stats.wire_misses.inc();
                     }
                 }
@@ -603,9 +667,22 @@ impl HotLoop {
         });
         self.rslog
             .push(Rec::CreateHit(CreateHitRec::from_hit(s, hit)));
+        // the first-seen benchmark: every feed's copy, before first-wins
+        self.send_cold(ColdMsg::FeedSeen {
+            src,
+            sig_hash: xxhash_rust::xxh3::xxh3_64(&hit.sig),
+            recv_ns,
+            slot,
+        });
         let intent = IntentId::new(&hit.mint, &self.owner).0;
         // 2: first-wins per mint and feed class
         if let Fired::Already { .. } = self.fired.first(&hit.mint, src_class(src), src) {
+            return self.decision(intent, hit, code::ALREADY_FIRED, 0, 0, 0, 0, 0);
+        }
+        // across classes: a mint already held or pending from the other
+        // class's feed (the gRPC copy of a create the logs path saw first, or
+        // the reverse) is one launch, one intent
+        if self.find_mint(&hit.mint).is_some() {
             return self.decision(intent, hit, code::ALREADY_FIRED, 0, 0, 0, 0, 0);
         }
         // creates of the last 60 / 600 s, before this one (entry filter)
@@ -783,7 +860,16 @@ impl HotLoop {
         // the bid where the leader orders by it; the priority fee stays at the
         // floor there and is clamped by bid.failed_attempt_lamports_max elsewhere
         let n_sigs = self.tmpl.buys[claim.idx].table.n_sigs.clamp(1, 2) as u8;
-        let (plan0, plan1) = self.cfg.bid_plans(bid, n_sigs);
+        // the leaders of the create slot and the next one (schedule)
+        let (lc0, lc1) = self.leader_classes(slot);
+        let leader0 = lc0.map_or(LEADER_UNKNOWN, |c| c as u8);
+        let leader1 = lc1.or(lc0).map_or(LEADER_UNKNOWN, |c| c as u8);
+        let (plan0, plan1) = self.cfg.bid_plans_at(
+            lc0.map(ClientClass::bid_class),
+            lc1.map(ClientClass::bid_class),
+            bid,
+            n_sigs,
+        );
         let (prio0, tip0) = (plan0.priority_lamports, plan0.tip_lamports);
         let tip_account = self.tmpl.tip_account;
         let t = &mut self.tmpl.buys[claim.idx];
@@ -817,6 +903,7 @@ impl HotLoop {
                 tip_account,
                 bid,
                 real: true,
+                leader: leader0,
             };
             if self.fire.push(job).is_err() {
                 self.counters.ring_full += 1;
@@ -832,7 +919,10 @@ impl HotLoop {
             .saturating_record(sent_ns.saturating_sub(t0).max(1));
         self.hist_wire
             .saturating_record(sent_ns.saturating_sub(recv_ns).max(1));
-        if self.cfg.secondary_variant {
+        // the secondary variant bids for another class (unknown leader, or a
+        // different leader next slot); the same plan twice would be the same
+        // transaction (one signature), so it is not sent again
+        if self.cfg.secondary_variant && plan1 != plan0 {
             let job = FireJob {
                 tmpl: t.clone(),
                 intent,
@@ -843,6 +933,7 @@ impl HotLoop {
                 bid,
                 // a paper decision's secondary variant is recorded, never sent
                 real,
+                leader: leader1,
             };
             if self.fire.push(job).is_err() {
                 self.counters.ring_full += 1;
@@ -889,6 +980,7 @@ impl HotLoop {
                 err: "",
                 http: 0,
                 kind: VariantKind::Buy as u8,
+                leader: leader0,
             });
         }
         self.send_cold(ColdMsg::Intent {
@@ -907,6 +999,7 @@ impl HotLoop {
             nonce_value: claim.value,
             decided_ns: sent_ns,
             real,
+            leader: leader0,
         });
         self.send_cold(ColdMsg::WatchMint(hit.mint));
         if real {
@@ -1485,8 +1578,15 @@ impl HotLoop {
                 .buys
                 .first()
                 .map_or(1, |t| t.table.n_sigs.clamp(1, 2) as u8);
-            self.cfg
-                .failed_attempt_cost(self.cfg.bid_lamports.min(self.cfg.max_bid), n_sigs)
+            let class = self.slots[i]
+                .as_ref()
+                .and_then(|s| self.leaders.load().class_at(s.create_slot))
+                .map(ClientClass::bid_class);
+            self.cfg.failed_attempt_cost_at(
+                class,
+                self.cfg.bid_lamports.min(self.cfg.max_bid),
+                n_sigs,
+            )
         } else {
             0
         };
@@ -1807,6 +1907,17 @@ impl HotLoop {
             let now = if s.e1 { self.e1_now(s, now.slot) } else { now };
             self.exit_event(i, ExitEvent::Tick, now);
         }
+        // held real positions marked at their current curve (daily loss)
+        if now_ns.saturating_sub(self.last_mark_ns) >= 1_000_000_000 {
+            self.last_mark_ns = now_ns;
+            for i in 0..MAX_POS {
+                let snap = match self.slots[i].as_ref() {
+                    Some(s) if s.real && s.filled => s.pos,
+                    _ => continue,
+                };
+                self.send_cold(ColdMsg::Mark(snap));
+            }
+        }
         if now_ns.saturating_sub(self.last_gauge_ns) >= 2_000_000_000 {
             self.last_gauge_ns = now_ns;
             self.stats
@@ -2067,9 +2178,12 @@ impl HotLoop {
             // the sell bid goes through the bid policy: priority floor + tip on
             // a tip-ordered class, the bid as the priority fee elsewhere; never
             // the same bid as both (docs/03 section 6.1)
-            let plan = self
-                .cfg
-                .sell_plan(order.tip_lamports, t.table.n_sigs.clamp(1, 2) as u8);
+            let sell_class = self.leaders.load().class_at(self.slot_now + 1);
+            let plan = self.cfg.sell_plan_at(
+                sell_class.map(ClientClass::bid_class),
+                order.tip_lamports,
+                t.table.n_sigs.clamp(1, 2) as u8,
+            );
             let (prio, tip) = (plan.priority_lamports, plan.tip_lamports);
             t.patch(&Patch {
                 keys: &s.keys,
@@ -2104,6 +2218,7 @@ impl HotLoop {
                     tip_account: self.tmpl.tip_account,
                     bid: order.tip_lamports,
                     real: true,
+                    leader: sell_class.map_or(LEADER_UNKNOWN, |c| c as u8),
                 };
                 if self.fire.push(job).is_err() {
                     self.counters.ring_full += 1;

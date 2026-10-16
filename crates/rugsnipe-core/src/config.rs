@@ -136,7 +136,19 @@ pub struct RiskCfg {
     pub armset_max_age_s: u64,
     pub decode_miss_kill_ratio: f64,
     pub send_error_kill_ratio: f64,
+    /// Start refusal: the clock offset a real mode may start with.
     pub max_clock_offset_ms: f64,
+    /// Kill triggers (docs/06 section 13; `rugsnipe::triggers`), probe/live:
+    /// the send-error ratio is read over the last `send_error_window` sends;
+    pub send_error_window: u64,
+    /// the wallet may fall by at most our known spends plus this between two reads;
+    pub unexplained_drop_lamports: u64,
+    /// the state partition's used share (percent);
+    pub max_disk_used_pct: f64,
+    /// a running box's clock offset (`chronyc -c tracking`);
+    pub kill_clock_offset_ms: f64,
+    /// how far the gRPC feed's slot may trail `getSlot`.
+    pub max_slot_drift: u64,
 }
 impl Default for RiskCfg {
     /// Every cap 0 = missing (probe/live refused); paper works.
@@ -160,6 +172,11 @@ impl Default for RiskCfg {
             decode_miss_kill_ratio: 0.01,
             send_error_kill_ratio: 0.20,
             max_clock_offset_ms: 5.0,
+            send_error_window: 50,
+            unexplained_drop_lamports: 50_000_000,
+            max_disk_used_pct: 90.0,
+            kill_clock_offset_ms: 50.0,
+            max_slot_drift: 8,
         }
     }
 }
@@ -208,14 +225,34 @@ pub struct RelayCfg {
     pub socket: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+/// `grpc = { enabled, url, x_token, stale_ms, bundle_run }`: the Yellowstone
+/// post-execution feed (docs/08 section 9). `x_token` is a **name** inside
+/// the `api-keys` credential (or a credential file of that name), never the
+/// token; empty = no `x-token` header (IP-allow-listed endpoints).
+/// `endpoint` / `token` are accepted as the older spellings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct GrpcCfg {
     pub enabled: bool,
-    pub endpoint: String,
-    /// Credential name of the token.
-    pub token: String,
+    #[serde(alias = "endpoint")]
+    pub url: String,
+    #[serde(alias = "token")]
+    pub x_token: String,
     pub stale_ms: u64,
+    /// Also stream every pump transaction to assemble the creation slot's
+    /// bundle run (the entry filter's bundle features from the feed).
+    pub bundle_run: bool,
+}
+impl Default for GrpcCfg {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            url: String::new(),
+            x_token: "GRPC_TOKEN".into(),
+            stale_ms: 2_000,
+            bundle_run: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -627,11 +664,30 @@ impl Default for WatchCfg {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+/// `alert = { telegram, chat, deadman, hourly, commands }`: credential
+/// **names** (in the `api-keys` credential or files of that name). Telegram
+/// is optional: without both the token and the chat id nothing is sent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct AlertCfg {
     pub telegram: String,
+    pub chat: String,
     pub deadman: String,
+    /// An hourly summary message.
+    pub hourly: bool,
+    /// Poll the bot for `/kill` (latches the kill; unkill stays local).
+    pub commands: bool,
+}
+impl Default for AlertCfg {
+    fn default() -> Self {
+        Self {
+            telegram: String::new(),
+            chat: "TG_CHAT".into(),
+            deadman: String::new(),
+            hourly: true,
+            commands: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -988,6 +1044,8 @@ pub enum Refusal {
         max: f64,
     },
     NoPostExecFeed,
+    /// Probe/live with no post-execution feed configured (`feeds.grpc`).
+    NoPostExecFeedConfigured,
     ArmSet(ArmSetGate),
     GateNotPassed,
     ProbeNotAllowed,
@@ -1021,6 +1079,10 @@ impl core::fmt::Display for Refusal {
             Self::ClockUnknown => write!(f, "clock offset unknown"),
             Self::ClockOffset { ms, max } => write!(f, "clock offset {ms} ms > {max} ms"),
             Self::NoPostExecFeed => write!(f, "no healthy post-execution feed"),
+            Self::NoPostExecFeedConfigured => write!(
+                f,
+                "no post-execution feed configured (feeds.probe_live_require = post_exec: enable feeds.grpc with a Yellowstone url)"
+            ),
             Self::ArmSet(s) => write!(f, "ArmSet not usable: {s:?}"),
             Self::GateNotPassed => write!(
                 f,
@@ -1209,6 +1271,60 @@ impl Config {
         }
         if self.feeds.logsws.enabled && !self.feeds.logsws.url.starts_with("wss://") {
             inv(&mut r, "feeds.logsws.url", "must be wss://");
+        }
+        if self.feeds.probe_live_require != "post_exec" {
+            inv(
+                &mut r,
+                "feeds.probe_live_require",
+                "must be \"post_exec\" (probe and live fire only from a post-execution feed)",
+            );
+        }
+        let g = &self.feeds.grpc;
+        if g.enabled {
+            if !(g.url.starts_with("https://") || g.url.starts_with("http://")) {
+                inv(
+                    &mut r,
+                    "feeds.grpc.url",
+                    "must be an https:// Yellowstone endpoint (http:// only for a local server)",
+                );
+            } else if g.url.starts_with("http://")
+                && !(g.url.starts_with("http://127.") || g.url.starts_with("http://localhost"))
+            {
+                w.push(format!(
+                    "feeds.grpc.url {} is plain http: the x-token travels unencrypted",
+                    g.url
+                ));
+            }
+            if !(200..=60_000).contains(&g.stale_ms) {
+                inv(&mut r, "feeds.grpc.stale_ms", "must be in [200, 60000]");
+            }
+            if g.x_token.chars().any(|c| c.is_whitespace() || c == '=') {
+                inv(
+                    &mut r,
+                    "feeds.grpc.x_token",
+                    "is a credential NAME (e.g. GRPC_TOKEN), not the token",
+                );
+            }
+        }
+        let rk = &self.risk;
+        if rk.send_error_window < 10 {
+            inv(&mut r, "risk.send_error_window", "must be >= 10 sends");
+        }
+        if !(rk.max_disk_used_pct > 0.0 && rk.max_disk_used_pct <= 100.0) {
+            inv(&mut r, "risk.max_disk_used_pct", "must be in (0, 100]");
+        }
+        if !(rk.kill_clock_offset_ms.is_finite() && rk.kill_clock_offset_ms > 0.0) {
+            inv(&mut r, "risk.kill_clock_offset_ms", "must be > 0");
+        }
+        if rk.max_slot_drift == 0 {
+            inv(&mut r, "risk.max_slot_drift", "must be >= 1 slot");
+        }
+        if self.obs.alert.commands && self.obs.alert.telegram.is_empty() {
+            inv(
+                &mut r,
+                "obs.alert.commands",
+                "needs obs.alert.telegram (the bot token's credential name)",
+            );
         }
         if self.risk.min_hot_balance_lamports > self.risk.max_hot_balance_lamports
             && self.risk.max_hot_balance_lamports != 0
@@ -1434,6 +1550,11 @@ impl Config {
                 max: self.risk.max_clock_offset_ms,
             }),
             _ => {}
+        }
+        // the post-execution class: the gRPC feed (no shred feed is built
+        // into this binary, so `feeds.shreds` alone does not count)
+        if !self.feeds.grpc.enabled {
+            r.push(Refusal::NoPostExecFeedConfigured);
         }
         if !env.post_exec_feed_healthy {
             r.push(Refusal::NoPostExecFeed);

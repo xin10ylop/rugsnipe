@@ -10,8 +10,12 @@
 //! `probe_stage`, every cap, the clock offset measured by `chronyc`, a
 //! healthy post-execution feed, the probe wallet and `api-keys` from
 //! `$CREDENTIALS_DIRECTORY` (0400), and the real senders compiled in
-//! (`--features real-senders`). Real buys need a live-class feed (gRPC /
-//! shreds; not in this build yet): decisions from the free feeds stay paper.
+//! (`--features real-senders`). Real buys need the post-execution feed:
+//! `[feeds] grpc` (Yellowstone, feature `grpc`, on by default) is started
+//! first and must deliver within `--feed-wait-s` (default 20 s), else probe
+//! is refused with "no healthy post-execution feed"; decisions from the free
+//! feeds stay paper. A gRPC feed configured in paper mode runs too (a feed,
+//! not a sender: the first-seen benchmark compares it with the logs path).
 //! `--probe-dry` signs everything with the real key (the per-sender buy
 //! variants of a self-test included), prints the first signed transaction
 //! and its `simulateTransaction` result (read-only, `sigVerify = true`) and
@@ -42,10 +46,13 @@ const USAGE: &str =
     [--state <state.db>] [--rslog-dir <dir>] [--duration-s N] [--record <dir>]
     [--max-watches N] [--rpc-url <https url>] [--no-e2] [--lane-rps R] [--no-metrics]
     [--pin-core N|none] [--busy-poll] [--fill-timeout-slots N] [--summary <json>]
+    [--feed-wait-s N] [--leader-schedule]
 
   --probe-dry  probe mode: load the real keys, sign with them, send nothing; print
                the first signed transaction (base64) and simulateTransaction results
   --no-e2      no paper fill lane (every model falls back to E2 from buffered trades)
+  --feed-wait-s  probe: how long the gRPC feed may take to deliver its first slot (default 20)
+  --leader-schedule  paper: also run the leader schedule lane (probe always does)
   --lane-rps   total requests/s of the E1 lane (default 3.5, or 2 when the ArmSet has
                funders, whose lookups share the 4 req/s public budget); the E2 lane
                uses rpc_budget.hot / 2 per method";
@@ -158,8 +165,38 @@ fn run(args: &[String]) -> Result<(), String> {
     let rpc_url = opt(args, "--rpc-url")
         .unwrap_or("https://api.mainnet-beta.solana.com")
         .to_string();
-    // Real modes are refused before any feed, state file or sender exists.
+    // --- the gRPC feed's x-token (paper may run the gRPC feed: a feed, not
+    // a sender; the token is a credential like the sender keys)
+    if cfg.feeds.grpc.enabled && !cfg!(feature = "grpc") {
+        return Err(
+            "feeds.grpc is enabled but this binary has no gRPC feed (build with --features grpc)"
+                .into(),
+        );
+    }
+    let grpc_token: Option<zeroize::Zeroizing<String>> = if cfg.feeds.grpc.enabled
+        && !cfg.feeds.grpc.x_token.is_empty()
+    {
+        let name = &cfg.feeds.grpc.x_token;
+        let found = match rugsnipe::keys::credentials_dir() {
+            Ok(d) => rugsnipe::keys::named_secret(&cfg, &d, name)
+                .map_err(|r| format!("feeds.grpc.x_token: {r}"))?,
+            Err(_) => None,
+        };
+        match found {
+                Some(t) => Some(t),
+                None => {
+                    return Err(format!(
+                        "feeds.grpc.x_token {name:?}: not found as a line of the api-keys credential nor as $CREDENTIALS_DIRECTORY/{name} (empty x_token = no x-token header)"
+                    ))
+                }
+            }
+    } else {
+        None
+    };
+    // Real modes are refused before any feed, state file or sender exists
+    // (the post-execution feed's health is checked once it runs, below).
     let mut real_opts = None;
+    let mut wallet: Option<pump_codec::Pubkey> = None;
     if mode.is_real() {
         let (gate, stage) = match &armset {
             ArmChoice::File(p) => {
@@ -177,8 +214,9 @@ fn run(args: &[String]) -> Result<(), String> {
         let opts = app::RealOpts {
             creds_dir: creds.clone().unwrap_or_default(),
             clock_offset_ms: app::chrony_offset_ms(),
-            // no post-execution feed (gRPC / shreds) is built into this binary
-            post_exec_feed_healthy: false,
+            // checked for real once the gRPC feed runs (below); assumed here so
+            // that every other refusal is reported before any socket opens
+            post_exec_feed_healthy: true,
             dry,
             rpc_url: rpc_url.clone(),
             chain: None,
@@ -195,8 +233,9 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         match &creds {
             Err(r) => lines.push(format!("  - {r}")),
-            Ok(dir) if mode == Mode::Probe => {
-                if let Err(rs) = rugsnipe::keys::load_real_keys(&cfg, dir) {
+            Ok(dir) if mode == Mode::Probe => match rugsnipe::keys::load_real_keys(&cfg, dir) {
+                Ok(k) => wallet = Some(k.signer.pubkey()),
+                Err(rs) => {
                     for r in rs {
                         let l = format!("  - {r}");
                         if !lines.contains(&l) {
@@ -204,7 +243,7 @@ fn run(args: &[String]) -> Result<(), String> {
                         }
                     }
                 }
-            }
+            },
             Ok(_) => {}
         }
         if !lines.is_empty() {
@@ -245,6 +284,106 @@ fn run(args: &[String]) -> Result<(), String> {
     let mut feeds: Vec<Box<dyn Feed + Send>> = vec![];
     let mut healths = vec![];
     let mut logsws_handle = None;
+    // --- the post-execution feed first (probe waits for it before anything else)
+    let mut post_exec: Option<rugsnipe::cold::PostExecFeed> = None;
+    #[allow(unused_mut, unused_assignments)]
+    let mut grpc_stats_line: Option<Box<dyn Fn() -> String>> = None;
+    #[cfg(feature = "grpc")]
+    if cfg.feeds.grpc.enabled {
+        use rugsnipe_feed::grpc::{Grpc, GrpcConfig};
+        let mut g = Grpc::spawn(GrpcConfig {
+            url: cfg.feeds.grpc.url.clone(),
+            x_token: grpc_token.as_ref().map(|t| t.to_string()),
+            stale_ms: cfg.feeds.grpc.stale_ms,
+            wallet,
+            bundle_run: cfg.feeds.grpc.bundle_run,
+            max_watches: num(args, "--max-watches", 64usize)?,
+            ..Default::default()
+        })
+        .map_err(|e| format!("grpc feed: {e}"))?;
+        let h = g.handle();
+        healths.push(g.health_arc().clone());
+        if mode.is_real() {
+            let wait = num(args, "--feed-wait-s", 20u64)?;
+            let t0 = Instant::now();
+            let healthy = loop {
+                let hs = h.health().snapshot();
+                if hs.connected && hs.last_slot > 0 && !hs.stale {
+                    break true;
+                }
+                if t0.elapsed() >= Duration::from_secs(wait) || term.load(Acquire) {
+                    break false;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            };
+            let hs = h.health().snapshot();
+            eprintln!(
+                "grpc feed {}: connected {} slot {} reconnects {} ({} ms)",
+                cfg.feeds.grpc.url,
+                hs.connected,
+                hs.last_slot,
+                hs.reconnects,
+                t0.elapsed().as_millis()
+            );
+            if let Some(o) = real_opts.as_mut() {
+                let o: &mut app::RealOpts = o;
+                o.post_exec_feed_healthy = healthy;
+            }
+            if !healthy && !dry {
+                g.shutdown();
+                return Err(format!(
+                    "mode {mode} refused:\n  - no healthy post-execution feed (gRPC {}: connected {}, last slot {}, reconnects {} after {wait} s)",
+                    cfg.feeds.grpc.url, hs.connected, hs.last_slot, hs.reconnects
+                ));
+            }
+        }
+        let bundles = g.take_bundles();
+        let (hw, hs) = (h.clone(), h.clone());
+        post_exec = Some(rugsnipe::cold::PostExecFeed {
+            health: h.health().clone(),
+            watch: Box::new(move |m, on| {
+                if on {
+                    hw.watch_mint(m);
+                } else {
+                    hw.unwatch_mint(m);
+                }
+            }),
+            stats: Box::new(move || {
+                use std::sync::atomic::Ordering::Relaxed as R;
+                let s = hs.stats();
+                serde_json::json!({
+                    "slot": s.slot.load(R), "transactions": s.transactions.load(R),
+                    "wire_events": s.wire_events.load(R), "trade_events": s.trade_events.load(R),
+                    "slot_updates": s.slot_updates.load(R), "pings": s.pings.load(R),
+                    "reordered": s.reordered.load(R), "convert_errors": s.convert_errors.load(R),
+                    "bundle_runs": s.bundle_runs.load(R), "bundle_drops": s.bundle_drops.load(R),
+                    "resubscribes": s.resubscribes.load(R),
+                })
+            }),
+            bundles,
+        });
+        let hl = h.clone();
+        grpc_stats_line = Some(Box::new(move || {
+            use std::sync::atomic::Ordering::Relaxed as R;
+            let s = hl.stats();
+            format!(
+                "grpc: slot {} tx {} pings {} reordered {} runs {}",
+                s.slot.load(R),
+                s.transactions.load(R),
+                s.pings.load(R),
+                s.reordered.load(R),
+                s.bundle_runs.load(R)
+            )
+        }));
+        feeds.push(Box::new(g));
+    }
+    #[cfg(not(feature = "grpc"))]
+    let _ = (&grpc_token, wallet);
+    if mode.is_real() && post_exec.is_none() && !dry {
+        return Err(format!(
+            "mode {mode} refused:\n  - no healthy post-execution feed (feeds.grpc is not enabled)"
+        ));
+    }
     if cfg.feeds.logsws.enabled {
         let lc = LogsWsConfig {
             url: cfg.feeds.logsws.url.clone(),
@@ -310,6 +449,33 @@ fn run(args: &[String]) -> Result<(), String> {
         max_tx: 12,
     });
     let paper_balance = cfg.risk.max_hot_balance_lamports.max(2_000_000_000);
+    // --- Telegram (optional, any mode): both credentials or nothing
+    let alerts = match (&cfg.obs.alert.telegram, rugsnipe::keys::credentials_dir()) {
+        (t, Ok(dir)) if !t.is_empty() => {
+            let tok = rugsnipe::keys::named_secret(&cfg, &dir, t)
+                .map_err(|r| format!("obs.alert.telegram: {r}"))?;
+            let chat = rugsnipe::keys::named_secret(&cfg, &dir, &cfg.obs.alert.chat)
+                .map_err(|r| format!("obs.alert.chat: {r}"))?;
+            match (tok, chat) {
+                (Some(token), Some(chat)) => Some(rugsnipe::cold::AlertCreds {
+                    api_base: "https://api.telegram.org".into(),
+                    token,
+                    chat,
+                    hourly: cfg.obs.alert.hourly,
+                    commands: cfg.obs.alert.commands,
+                }),
+                _ => {
+                    eprintln!(
+                        "telegram alerts off: credentials {:?} / {:?} not found",
+                        t, cfg.obs.alert.chat
+                    );
+                    None
+                }
+            }
+        }
+        _ => None,
+    };
+    let leader_rpc = (mode.is_real() || flag(args, "--leader-schedule")).then(|| rpc_url.clone());
     let mut app = app::build(AppOpts {
         cfg: cfg.clone(),
         armset,
@@ -332,6 +498,10 @@ fn run(args: &[String]) -> Result<(), String> {
         paper_balance,
         live_flag,
         real: real_opts,
+        post_exec,
+        leader_rpc,
+        alerts,
+        trigger_tuning: None,
     })?;
     if let Some(r) = &app.recovery {
         eprintln!(
@@ -460,8 +630,54 @@ fn run(args: &[String]) -> Result<(), String> {
                     tert.join(", ")
                 )
             };
+            let kill = {
+                let r = app.report.lock().unwrap_or_else(|e| e.into_inner());
+                let trig: Vec<String> = r
+                    .kill_triggers
+                    .iter()
+                    .map(|(k, v)| format!("{k}: {}", v.detail))
+                    .chain(
+                        r.would_kill
+                            .iter()
+                            .map(|(k, v)| format!("(paper) {k}: {v}")),
+                    )
+                    .collect();
+                let fs = r
+                    .first_seen
+                    .lag
+                    .iter()
+                    .map(|(k, l)| format!("{k} p50 {:.0} ms (n {})", l.p50_ms, l.n))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "killed {}{}{}{}",
+                    if app.risk.is_killed() {
+                        app.risk.kill_reason().map(|k| k.name()).unwrap_or("yes")
+                    } else {
+                        "no"
+                    },
+                    if trig.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" [{}]", trig.join("; "))
+                    },
+                    if fs.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" | first-seen {fs}")
+                    },
+                    r.leaders
+                        .epoch
+                        .map(|e| format!(" | leaders epoch {e}"))
+                        .unwrap_or_default()
+                )
+            };
+            let g = grpc_stats_line
+                .as_ref()
+                .map(|f| format!(" | {}", f()))
+                .unwrap_or_default();
             eprintln!(
-                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {} | {} | {}",
+                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {} | {kill}{g} | {} | {}",
                 t0.elapsed().as_secs(),
                 c.events,
                 c.creates,

@@ -280,11 +280,49 @@ fn token_account_init<A: AccountLookup + ?Sized>(
     None
 }
 
+/// Pump buys a scan keeps per transaction (more are counted, not kept).
+pub const MAX_SCAN_BUYS: usize = 32;
+/// Token-account creations / inits a scan keeps per transaction.
+pub const MAX_SCAN_INITS: usize = 32;
+
+/// A fixed-capacity list (no heap: `create_hit` runs on the hot thread,
+/// which must not allocate after warm-up).
+struct Fixed<T: Copy, const N: usize> {
+    items: [Option<T>; N],
+    len: usize,
+    /// Pushes refused because the list was full.
+    dropped: usize,
+}
+
+impl<T: Copy, const N: usize> Fixed<T, N> {
+    fn new() -> Self {
+        Self {
+            items: [None; N],
+            len: 0,
+            dropped: 0,
+        }
+    }
+    fn push(&mut self, v: T) {
+        if self.len < N {
+            self.items[self.len] = Some(v);
+            self.len += 1;
+        } else {
+            self.dropped += 1;
+        }
+    }
+    fn iter(&self) -> impl Iterator<Item = &T> {
+        self.items[..self.len].iter().flatten()
+    }
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.items[..self.len].iter_mut().flatten()
+    }
+}
+
 /// Scan state shared by top-level and inner instructions.
 struct Scan<'a> {
     create: Option<(PumpCreate<'a>, u8, Option<u16>)>,
-    buys: Vec<BuyInfo>,
-    inits: Vec<(Pubkey, Pubkey)>,
+    buys: Fixed<BuyInfo, MAX_SCAN_BUYS>,
+    inits: Fixed<(Pubkey, Pubkey), MAX_SCAN_INITS>,
 }
 
 /// Every pump buy (any variant, any mint) in a transaction, in execution
@@ -296,7 +334,7 @@ pub fn pump_buys(
     loaded: Option<&[Pubkey]>,
     inner: &[InnerInstruction<'_>],
 ) -> Result<Vec<BuyInfo>, DecodeError> {
-    Ok(scan(tx, loaded, inner)?.buys)
+    Ok(scan(tx, loaded, inner)?.buys.iter().copied().collect())
 }
 
 fn on_ix<'a, A: AccountLookup>(
@@ -345,8 +383,8 @@ fn scan<'a>(
 ) -> Result<Scan<'a>, DecodeError> {
     let mut s = Scan {
         create: None,
-        buys: Vec::new(),
-        inits: Vec::new(),
+        buys: Fixed::new(),
+        inits: Fixed::new(),
     };
     // Execution order: top-level ix i, then the CPIs it made (meta lists
     // inner instructions grouped by ascending outer index).
@@ -453,7 +491,8 @@ pub fn create_hit(
     let mut n = 0u8;
     let mut sim = CurveState::fresh(cr.args.creator);
     let sol_quote = quote.is_some_and(|q| c::is_sol_like_quote_mint(&q));
-    let mut exact = sol_quote && !mayhem;
+    // a buy beyond the scan's capacity is invisible to the simulation
+    let mut exact = sol_quote && !mayhem && s.buys.dropped == 0;
     let (mut sim_sol, mut sim_tok) = (0u64, 0u64);
     for b in s.buys.iter().filter(|b| b.mint == Some(mint)) {
         n = n.saturating_add(1);

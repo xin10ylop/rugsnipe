@@ -59,18 +59,23 @@
 #![warn(missing_debug_implementations)]
 
 pub mod buf;
+pub mod bundle;
 pub mod clock;
 pub mod config;
 pub mod decode;
 pub mod dedup;
 pub mod event;
 pub mod fired;
+#[cfg(feature = "grpc")]
+pub mod grpc;
 pub mod health;
 pub mod mux;
 pub mod record;
 pub mod relay;
 pub mod replay;
 pub mod ring;
+pub mod wiremeta;
+pub mod wirering;
 #[cfg(feature = "ws")]
 pub mod ws;
 

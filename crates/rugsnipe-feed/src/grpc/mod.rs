@@ -1,0 +1,845 @@
+//! [`Grpc`]: the Yellowstone gRPC ("Dragon's Mouth") post-execution feed
+//! (feature `grpc`; Triton, Alchemy, Helius LaserStream, SVS and the other
+//! standard Yellowstone endpoints of docs/research/infra-shopping-2026.md
+//! section 1).
+//!
+//! One `Subscribe` stream at `processed` commitment with these filters:
+//!
+//! | filter | what | becomes |
+//! |---|---|---|
+//! | `creates` | transactions that mention the pump mint authority `TSLvdd…` (every create), successful only | [`Payload::Wire`] with the re-serialized transaction bytes and a [`crate::wiremeta`] trailer (index, fee, ALT-loaded addresses, inner instructions): `pump_codec::create_hit` runs on the hot thread |
+//! | `wallet` | transactions that mention our wallet (failed ones too) | [`Payload::Trade`] for each of our own pump TradeEvents (the real fill lane's own trade) |
+//! | `mints` | transactions that mention a held mint (watch / unwatch at runtime) | [`Payload::Trade`] for every TradeEvent of a held mint (exit engine) |
+//! | `pump` | (`bundle_run`) every pump program transaction | the creation slot's trades of each new mint, assembled into a [`BundleRun`] for the cold thread |
+//! | `slots` | slot updates | `last_slot` (drift and stale detection) |
+//!
+//! * `x-token` header from the credential named by `[feeds] grpc.x_token`;
+//!   compression off (latency); TCP_NODELAY, HTTP/2 keep-alive;
+//! * the server's pings are answered (load balancers drop silent streams);
+//! * stale detection: no data message (a transaction or a slot update; a
+//!   healthy stream sends a slot every ~400 ms) for `stale_ms` forces a
+//!   reconnect (pings and pongs do not count: a stuck server still answers
+//!   them); reconnects use jittered exponential
+//!   backoff and re-send the current filters;
+//! * dedup semantics of [`crate::FeedMux`]: a wire event's key is its first
+//!   signature, a trade's key its signature and TradeEvent ordinal (the same
+//!   ordinal the logs path gives, so a trade seen on both feeds is one);
+//! * ordering: events carry the slot, the bank id and (in the trailer) the
+//!   transaction index; arrivals out of (slot, index) order are counted in
+//!   `reordered`, and bundle runs are sorted by index.
+//!
+//! The adapter thread decodes protobuf (it allocates); the hot loop only
+//! pops the two rings ([`crate::ring`] for trades, [`crate::wirering`] for
+//! wire bytes): lock-free and allocation-free.
+
+pub mod convert;
+#[cfg(feature = "grpc-mock")]
+pub mod mock;
+
+use crate::buf::FeedBuf;
+use crate::bundle::{BundleAssembler, BundleRun, RunTrade};
+use crate::clock::mono_ns;
+use crate::decode::decode_logs;
+use crate::event::{FeedEvent, FeedSrc, Payload, Sig, TradeLite};
+use crate::health::FeedHealth;
+use crate::ring::{ring, RingFeed, RingSink};
+use crate::wiremeta;
+use crate::wirering::{wire_ring, WireSink, WireSource};
+use crate::{Feed, FeedStatus};
+use futures_util::{SinkExt, StreamExt};
+use pump_codec::constants::{MINT_AUTHORITY, PUMP_PROGRAM_ID};
+use pump_codec::events::{events_from_inner_instructions, InnerInstruction, PumpEvent};
+use pump_codec::Pubkey;
+use std::collections::{HashMap, HashSet};
+use std::io;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::mpsc;
+use yellowstone_grpc_client::{ClientTlsConfig, GeyserGrpcClient};
+use yellowstone_grpc_proto::prelude::{
+    subscribe_update::UpdateOneof, CommitmentLevel, SubscribeRequest, SubscribeRequestFilterSlots,
+    SubscribeRequestFilterTransactions, SubscribeRequestPing, SubscribeUpdate,
+    SubscribeUpdateTransaction,
+};
+
+/// Filter names (the server echoes them in `SubscribeUpdate.filters`).
+pub const F_CREATES: &str = "creates";
+pub const F_WALLET: &str = "wallet";
+pub const F_MINTS: &str = "mints";
+pub const F_PUMP: &str = "pump";
+pub const F_SLOTS: &str = "slots";
+
+/// Settings (`[feeds] grpc = { enabled, url, x_token, stale_ms, bundle_run }`).
+#[derive(Clone, PartialEq)]
+pub struct GrpcConfig {
+    /// `https://host[:port]` (TLS, native roots) or `http://` (plain h2c: local tests).
+    pub url: String,
+    /// The `x-token` value (the credential's content; never logged).
+    pub x_token: Option<String>,
+    pub stale_ms: u64,
+    pub connect_timeout_ms: u64,
+    pub min_backoff_ms: u64,
+    pub max_backoff_ms: u64,
+    /// Trade-event ring (events) and wire ring (bytes) to the hot loop.
+    pub ring_capacity: usize,
+    pub wire_ring_bytes: usize,
+    /// The mention that marks a create (the pump mint authority).
+    pub mention: Pubkey,
+    /// Our wallet (`wallet` filter); `None` = no own-trade filter.
+    pub wallet: Option<Pubkey>,
+    pub watch_mints: Vec<Pubkey>,
+    pub max_watches: usize,
+    /// Also stream every pump transaction to assemble the creation slot's
+    /// bundle run ([`BundleRun`], to the cold thread).
+    pub bundle_run: bool,
+    pub bundle_timeout_ms: u64,
+    /// Client pings when the server is quiet (`<= stale_ms / 3`).
+    pub ping_ms: u64,
+}
+
+impl std::fmt::Debug for GrpcConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GrpcConfig")
+            .field("url", &self.url)
+            .field("x_token", &self.x_token.as_ref().map(|_| "<set>"))
+            .field("stale_ms", &self.stale_ms)
+            .field("wallet", &self.wallet)
+            .field("watch_mints", &self.watch_mints.len())
+            .field("bundle_run", &self.bundle_run)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Default for GrpcConfig {
+    fn default() -> Self {
+        GrpcConfig {
+            url: String::new(),
+            x_token: None,
+            stale_ms: 2_000,
+            connect_timeout_ms: 10_000,
+            min_backoff_ms: 250,
+            max_backoff_ms: 30_000,
+            ring_capacity: 8_192,
+            wire_ring_bytes: 8 << 20,
+            mention: MINT_AUTHORITY,
+            wallet: None,
+            watch_mints: Vec::new(),
+            max_watches: 64,
+            bundle_run: false,
+            bundle_timeout_ms: 2_000,
+            ping_ms: 5_000,
+        }
+    }
+}
+
+/// Control messages to the adapter thread.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Control {
+    WatchMint(Pubkey),
+    UnwatchMint(Pubkey),
+}
+
+/// Counters beyond [`FeedHealth`] (adapter thread writes, anyone reads).
+#[derive(Debug, Default)]
+pub struct GrpcStats {
+    pub transactions: AtomicU64,
+    pub wire_events: AtomicU64,
+    pub trade_events: AtomicU64,
+    pub slot_updates: AtomicU64,
+    pub pings: AtomicU64,
+    pub reordered: AtomicU64,
+    pub convert_errors: AtomicU64,
+    pub bundle_runs: AtomicU64,
+    pub bundle_drops: AtomicU64,
+    pub resubscribes: AtomicU64,
+    /// Highest slot of any update (slot or transaction).
+    pub slot: AtomicU64,
+}
+
+/// The adapter (a [`Feed`]): two rings from the adapter thread.
+#[derive(Debug)]
+pub struct Grpc {
+    events: RingFeed,
+    wire: WireSource,
+    ctl: mpsc::UnboundedSender<Control>,
+    stats: Arc<GrpcStats>,
+    bundles: Option<std::sync::mpsc::Receiver<BundleRun>>,
+}
+
+/// Cloneable control handle (watch / unwatch held mints from the cold
+/// thread after the adapter moved into a [`crate::FeedMux`]).
+#[derive(Debug, Clone)]
+pub struct GrpcHandle {
+    ctl: mpsc::UnboundedSender<Control>,
+    health: Arc<FeedHealth>,
+    stats: Arc<GrpcStats>,
+}
+
+impl GrpcHandle {
+    pub fn watch_mint(&self, k: Pubkey) -> bool {
+        self.ctl.send(Control::WatchMint(k)).is_ok()
+    }
+    pub fn unwatch_mint(&self, k: Pubkey) -> bool {
+        self.ctl.send(Control::UnwatchMint(k)).is_ok()
+    }
+    pub fn health(&self) -> &Arc<FeedHealth> {
+        &self.health
+    }
+    pub fn stats(&self) -> &Arc<GrpcStats> {
+        &self.stats
+    }
+}
+
+impl Grpc {
+    /// Start the adapter thread (its own current-thread tokio runtime).
+    pub fn spawn(cfg: GrpcConfig) -> io::Result<Grpc> {
+        if !(cfg.url.starts_with("https://") || cfg.url.starts_with("http://")) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "grpc url must be http(s)://",
+            ));
+        }
+        let (sink, mut events, stop) = ring(FeedSrc::Grpc, cfg.ring_capacity, cfg.stale_ms);
+        let (wsink, wire) = wire_ring(FeedSrc::Grpc, cfg.wire_ring_bytes, sink.health().clone());
+        let (ctl, ctl_rx) = mpsc::unbounded_channel();
+        let stats = Arc::new(GrpcStats::default());
+        let (btx, brx) = std::sync::mpsc::sync_channel::<BundleRun>(1_024);
+        let st = stats.clone();
+        let bundle = cfg.bundle_run;
+        let h = std::thread::Builder::new()
+            .name("feed-grpc".into())
+            .spawn(move || {
+                let rt = match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(rt) => rt,
+                    Err(_) => return,
+                };
+                let mut a = Adapter::new(cfg, sink, wsink, st, btx);
+                rt.block_on(a.run(stop, ctl_rx));
+            })?;
+        events.set_thread(h);
+        Ok(Grpc {
+            events,
+            wire,
+            ctl,
+            stats,
+            bundles: bundle.then_some(brx),
+        })
+    }
+
+    pub fn handle(&self) -> GrpcHandle {
+        GrpcHandle {
+            ctl: self.ctl.clone(),
+            health: self.events.health_arc().clone(),
+            stats: self.stats.clone(),
+        }
+    }
+
+    pub fn health_arc(&self) -> &Arc<FeedHealth> {
+        self.events.health_arc()
+    }
+
+    pub fn stats(&self) -> &Arc<GrpcStats> {
+        &self.stats
+    }
+
+    /// The bundle-run receiver (with `bundle_run`), for the cold thread.
+    pub fn take_bundles(&mut self) -> Option<std::sync::mpsc::Receiver<BundleRun>> {
+        self.bundles.take()
+    }
+
+    /// Stop the adapter thread and wait for it.
+    pub fn shutdown(&mut self) {
+        self.events.shutdown();
+    }
+}
+
+impl Feed for Grpc {
+    #[inline]
+    fn poll(&mut self, out: &mut FeedBuf) -> FeedStatus {
+        let w = self.wire.poll_into(out);
+        match self.events.poll(out) {
+            FeedStatus::Ready(n) => FeedStatus::Ready(n + w),
+            st if w > 0 => {
+                let _ = st;
+                FeedStatus::Ready(w)
+            }
+            st => st,
+        }
+    }
+
+    fn src(&self) -> FeedSrc {
+        FeedSrc::Grpc
+    }
+
+    fn health(&self) -> Option<&FeedHealth> {
+        self.events.health()
+    }
+}
+
+/// The subscription for the current watch set.
+pub fn build_request(cfg: &GrpcConfig, mints: &[Pubkey]) -> SubscribeRequest {
+    let mut req = SubscribeRequest {
+        commitment: Some(CommitmentLevel::Processed as i32),
+        ..Default::default()
+    };
+    let tx = |include: Vec<String>, failed: bool| SubscribeRequestFilterTransactions {
+        vote: Some(false),
+        failed: (!failed).then_some(false),
+        account_include: include,
+        ..Default::default()
+    };
+    req.transactions.insert(
+        F_CREATES.to_string(),
+        tx(vec![cfg.mention.to_string()], false),
+    );
+    if let Some(w) = cfg.wallet {
+        // failed transactions too: our failed buys are costs
+        req.transactions
+            .insert(F_WALLET.to_string(), tx(vec![w.to_string()], true));
+    }
+    if !mints.is_empty() {
+        req.transactions.insert(
+            F_MINTS.to_string(),
+            tx(mints.iter().map(|m| m.to_string()).collect(), false),
+        );
+    }
+    if cfg.bundle_run {
+        req.transactions.insert(
+            F_PUMP.to_string(),
+            tx(vec![PUMP_PROGRAM_ID.to_string()], false),
+        );
+    }
+    req.slots.insert(
+        F_SLOTS.to_string(),
+        SubscribeRequestFilterSlots {
+            filter_by_commitment: Some(true),
+            ..Default::default()
+        },
+    );
+    req
+}
+
+fn ping_request(id: i32) -> SubscribeRequest {
+    SubscribeRequest {
+        ping: Some(SubscribeRequestPing { id }),
+        ..Default::default()
+    }
+}
+
+/// Jittered exponential backoff (xorshift on the clock).
+fn jitter(ms: u64) -> u64 {
+    let mut x = mono_ns() | 1;
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    ms * (800 + (x % 401)) / 1000
+}
+
+async fn sleep_or_stop(stop: &AtomicBool, ms: u64) {
+    let mut left = ms;
+    while left > 0 && !stop.load(Ordering::Acquire) {
+        let d = left.min(100);
+        tokio::time::sleep(Duration::from_millis(d)).await;
+        left -= d;
+    }
+}
+
+/// Trades of a transaction from its logs (the logs path's ordinals) or,
+/// when the logs were truncated, from its self-CPI events.
+pub fn trades_of(
+    u: &SubscribeUpdateTransaction,
+    keys_full: &[Pubkey],
+    out: &mut Vec<TradeLite>,
+) -> usize {
+    out.clear();
+    let Some(info) = u.transaction.as_ref() else {
+        return 0;
+    };
+    let Some(meta) = info.meta.as_ref() else {
+        return 0;
+    };
+    if meta.err.is_some() {
+        return 0;
+    }
+    let sig = Sig(info.signature.as_slice().try_into().unwrap_or([0; 64]));
+    let o = decode_logs(u.slot, sig, false, &meta.log_messages, out);
+    if !o.truncated && !meta.log_messages_none {
+        return out.len();
+    }
+    // the runtime cut the logs: the CPI events are complete
+    out.clear();
+    let inner: Vec<InnerInstruction<'_>> = meta
+        .inner_instructions
+        .iter()
+        .flat_map(|g| {
+            g.instructions.iter().map(move |ix| InnerInstruction {
+                outer_index: g.index.min(255) as u8,
+                program_id_index: ix.program_id_index.min(255) as u8,
+                accounts: &ix.accounts,
+                data: &ix.data,
+            })
+        })
+        .collect();
+    if let Ok(evs) = events_from_inner_instructions(keys_full, inner, true) {
+        for e in evs {
+            if let PumpEvent::Trade(t) = e.event {
+                let ordinal = out.len().min(255) as u8;
+                out.push(TradeLite {
+                    mint: t.mint,
+                    user: t.user,
+                    is_buy: t.is_buy,
+                    sol_amount: t.sol_amount,
+                    token_amount: t.token_amount,
+                    fee: t
+                        .fee
+                        .unwrap_or(0)
+                        .saturating_add(t.creator_fee.unwrap_or(0)),
+                    virtual_sol_reserves: t.virtual_sol_reserves,
+                    virtual_token_reserves: t.virtual_token_reserves,
+                    slot: u.slot,
+                    sig,
+                    ordinal,
+                });
+            }
+        }
+    }
+    out.len()
+}
+
+struct Adapter {
+    cfg: GrpcConfig,
+    sink: RingSink,
+    wire: WireSink,
+    stats: Arc<GrpcStats>,
+    health: Arc<FeedHealth>,
+    bundles: std::sync::mpsc::SyncSender<BundleRun>,
+    asm: BundleAssembler,
+    mints: Vec<Pubkey>,
+    mint_set: HashSet<Pubkey>,
+    trades: Vec<TradeLite>,
+    meta_buf: Vec<u8>,
+    last_pos: (u64, u32),
+    recent: HashMap<Pubkey, u64>,
+}
+
+impl Adapter {
+    fn new(
+        cfg: GrpcConfig,
+        sink: RingSink,
+        wire: WireSink,
+        stats: Arc<GrpcStats>,
+        bundles: std::sync::mpsc::SyncSender<BundleRun>,
+    ) -> Adapter {
+        let mut mints = cfg.watch_mints.clone();
+        mints.truncate(cfg.max_watches);
+        let health = sink.health().clone();
+        Adapter {
+            asm: BundleAssembler::new(256, cfg.bundle_timeout_ms),
+            mint_set: mints.iter().copied().collect(),
+            mints,
+            cfg,
+            sink,
+            wire,
+            stats,
+            health,
+            bundles,
+            trades: Vec::with_capacity(64),
+            meta_buf: Vec::with_capacity(16 * 1024),
+            last_pos: (0, 0),
+            recent: HashMap::new(),
+        }
+    }
+
+    /// Apply a watch change; `true` when the filters changed.
+    fn apply(&mut self, c: Control) -> bool {
+        match c {
+            Control::WatchMint(m) => {
+                if self.mint_set.contains(&m) || self.mints.len() >= self.cfg.max_watches {
+                    return false;
+                }
+                self.mint_set.insert(m);
+                self.mints.push(m);
+                true
+            }
+            Control::UnwatchMint(m) => {
+                if !self.mint_set.remove(&m) {
+                    return false;
+                }
+                self.mints.retain(|x| *x != m);
+                true
+            }
+        }
+    }
+
+    async fn run(&mut self, stop: Arc<AtomicBool>, mut ctl: mpsc::UnboundedReceiver<Control>) {
+        let mut backoff = self.cfg.min_backoff_ms;
+        while !stop.load(Ordering::Acquire) {
+            let t_conn = mono_ns();
+            // pending watch changes apply to the next subscription
+            while let Ok(c) = ctl.try_recv() {
+                self.apply(c);
+            }
+            match self.session(&stop, &mut ctl).await {
+                Ok(()) | Err(_) => {}
+            }
+            self.health.connected.store(false, Ordering::Relaxed);
+            if stop.load(Ordering::Acquire) {
+                break;
+            }
+            FeedHealth::inc(&self.health.reconnects);
+            if mono_ns().saturating_sub(t_conn) > 60_000_000_000 {
+                backoff = self.cfg.min_backoff_ms;
+            }
+            sleep_or_stop(&stop, jitter(backoff)).await;
+            backoff = (backoff * 2).min(self.cfg.max_backoff_ms);
+        }
+        // hand over what is still open
+        self.asm.on_slot(u64::MAX, mono_ns());
+        self.flush_bundles();
+    }
+
+    async fn connect(&self) -> Result<GeyserGrpcClient, String> {
+        let mut b = GeyserGrpcClient::build_from_shared(self.cfg.url.clone())
+            .map_err(|e| e.to_string())?
+            .x_token(self.cfg.x_token.clone())
+            .map_err(|e| e.to_string())?
+            .connect_timeout(Duration::from_millis(self.cfg.connect_timeout_ms))
+            .timeout(Duration::from_secs(24 * 3600))
+            .tcp_nodelay(true)
+            .http2_keep_alive_interval(Duration::from_secs(10))
+            .keep_alive_timeout(Duration::from_secs(5))
+            .keep_alive_while_idle(true)
+            .max_decoding_message_size(64 << 20);
+        if self.cfg.url.starts_with("https://") {
+            b = b
+                .tls_config(ClientTlsConfig::new().with_native_roots())
+                .map_err(|e| e.to_string())?;
+        }
+        let fut = b.connect();
+        tokio::time::timeout(Duration::from_millis(self.cfg.connect_timeout_ms), fut)
+            .await
+            .map_err(|_| "connect timeout".to_string())?
+            .map_err(|e| e.to_string())
+    }
+
+    async fn session(
+        &mut self,
+        stop: &AtomicBool,
+        ctl: &mut mpsc::UnboundedReceiver<Control>,
+    ) -> Result<(), String> {
+        let mut client = self.connect().await?;
+        let req = build_request(&self.cfg, &self.mints);
+        let (mut sink, mut stream) = tokio::time::timeout(
+            Duration::from_millis(self.cfg.connect_timeout_ms),
+            client.subscribe_with_request(Some(req)),
+        )
+        .await
+        .map_err(|_| "subscribe timeout".to_string())?
+        .map_err(|e| e.to_string())?;
+        self.health.connected.store(true, Ordering::Relaxed);
+        // a fresh stream is not stale until stale_ms passes without messages
+        self.health
+            .last_frame_ns
+            .store(mono_ns(), Ordering::Relaxed);
+        let ping_ms = if self.cfg.stale_ms > 0 {
+            self.cfg.ping_ms.min(self.cfg.stale_ms / 3)
+        } else {
+            self.cfg.ping_ms
+        }
+        .max(200);
+        let mut ping = tokio::time::interval(Duration::from_millis(ping_ms));
+        ping.tick().await;
+        let mut check = tokio::time::interval(Duration::from_millis(50));
+        let mut ping_id: i32 = 1;
+        while !stop.load(Ordering::Acquire) {
+            tokio::select! {
+                m = stream.next() => {
+                    match m {
+                        Some(Ok(u)) => {
+                            if self.on_update(u) {
+                                ping_id = ping_id.wrapping_add(1);
+                                if sink.send(ping_request(ping_id)).await.is_err() {
+                                    return Err("ping reply failed".into());
+                                }
+                            }
+                        }
+                        Some(Err(e)) => return Err(e.to_string()),
+                        None => return Err("stream ended".into()),
+                    }
+                }
+                _ = ping.tick() => {
+                    ping_id = ping_id.wrapping_add(1);
+                    if sink.send(ping_request(ping_id)).await.is_err() {
+                        return Err("ping failed".into());
+                    }
+                }
+                _ = check.tick() => {
+                    let now = mono_ns();
+                    if self.health.is_stale_at(now) {
+                        FeedHealth::inc(&self.health.stale_reconnects);
+                        return Err("stale".into());
+                    }
+                    self.asm.on_tick(now);
+                    self.flush_bundles();
+                }
+                Some(c) = ctl.recv() => {
+                    let mut changed = self.apply(c);
+                    while let Ok(c) = ctl.try_recv() {
+                        changed |= self.apply(c);
+                    }
+                    if changed {
+                        self.stats.resubscribes.fetch_add(1, Ordering::Relaxed);
+                        if sink.send(build_request(&self.cfg, &self.mints)).await.is_err() {
+                            return Err("resubscribe failed".into());
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn bump_slot(&self, slot: u64) {
+        if slot > self.stats.slot.load(Ordering::Relaxed) {
+            self.stats.slot.store(slot, Ordering::Relaxed);
+        }
+        if slot > self.health.last_slot.load(Ordering::Relaxed) {
+            self.health.last_slot.store(slot, Ordering::Relaxed);
+        }
+    }
+
+    fn flush_bundles(&mut self) {
+        for r in self.asm.drain() {
+            self.stats.bundle_runs.fetch_add(1, Ordering::Relaxed);
+            if self.bundles.try_send(r).is_err() {
+                self.stats.bundle_drops.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// Handle one update; `true` when the server pinged (answer it).
+    fn on_update(&mut self, u: SubscribeUpdate) -> bool {
+        let recv = mono_ns();
+        let Some(up) = u.update_oneof else {
+            return false;
+        };
+        match up {
+            // pings and pongs prove the connection, not the data flow: only
+            // transactions and slots refresh the stale detector
+            UpdateOneof::Ping(_) => {
+                self.stats.pings.fetch_add(1, Ordering::Relaxed);
+                return true;
+            }
+            UpdateOneof::Pong(_) => {}
+            UpdateOneof::Slot(s) => {
+                self.health.frame();
+                self.stats.slot_updates.fetch_add(1, Ordering::Relaxed);
+                self.bump_slot(s.slot);
+                self.asm.on_slot(s.slot, recv);
+                self.flush_bundles();
+            }
+            UpdateOneof::Transaction(t) => {
+                self.health.frame();
+                self.on_tx(&u.filters, &t, recv);
+            }
+            _ => {}
+        }
+        false
+    }
+
+    fn on_tx(&mut self, filters: &[String], u: &SubscribeUpdateTransaction, recv: u64) {
+        self.stats.transactions.fetch_add(1, Ordering::Relaxed);
+        let Some(info) = u.transaction.as_ref() else {
+            return;
+        };
+        let Some(tx) = info.transaction.as_ref() else {
+            return;
+        };
+        let slot = u.slot;
+        self.bump_slot(slot);
+        let index = u32::try_from(info.index).ok();
+        // ordering by (slot, index) as delivered
+        let pos = (slot, index.unwrap_or(0));
+        if pos < self.last_pos {
+            self.stats.reordered.fetch_add(1, Ordering::Relaxed);
+        }
+        self.last_pos = self.last_pos.max(pos);
+        let failed = info.meta.as_ref().is_some_and(|m| m.err.is_some());
+        if failed {
+            FeedHealth::inc(&self.health.failed_tx);
+        }
+        let has = |f: &str| filters.iter().any(|x| x == f);
+        let wire = match convert::tx_to_wire(tx) {
+            Ok(w) => w,
+            Err(_) => {
+                self.stats.convert_errors.fetch_add(1, Ordering::Relaxed);
+                FeedHealth::inc(&self.health.decode_errors);
+                return;
+            }
+        };
+        // the full key list (static + loaded) for CPI events and the create check
+        let mut keys: Vec<Pubkey> = tx
+            .message
+            .as_ref()
+            .map(|m| {
+                m.account_keys
+                    .iter()
+                    .filter_map(|k| <[u8; 32]>::try_from(k.as_slice()).ok())
+                    .map(Pubkey::new_from_array)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if let Some(m) = info.meta.as_ref() {
+            for k in m
+                .loaded_writable_addresses
+                .iter()
+                .chain(&m.loaded_readonly_addresses)
+            {
+                if let Ok(a) = <[u8; 32]>::try_from(k.as_slice()) {
+                    keys.push(Pubkey::new_from_array(a));
+                }
+            }
+        }
+        let mut created: Option<Pubkey> = None;
+        if has(F_CREATES) && !failed {
+            self.meta_buf.clear();
+            let m = convert::meta_in(info.meta.as_ref(), index);
+            wiremeta::encode(&m, &mut self.meta_buf);
+            // decode here too (cold side of the thread): health counters and
+            // the mint of the bundle run; the hot thread decodes its own copy
+            created = self.check_create(&wire, &keys);
+            if self.wire.push(recv, slot, u.bank_id, &wire, &self.meta_buf) {
+                self.stats.wire_events.fetch_add(1, Ordering::Relaxed);
+                self.health.event(slot);
+            }
+        }
+        let n = trades_of(u, &keys, &mut self.trades);
+        if n > 0 {
+            let wallet = self.cfg.wallet;
+            for t in self.trades.iter() {
+                if Some(t.user) == wallet || self.mint_set.contains(&t.mint) {
+                    let ev = FeedEvent {
+                        src: FeedSrc::Grpc,
+                        recv_ns: recv,
+                        slot,
+                        bank_id: u.bank_id,
+                        payload: Payload::Trade(*t),
+                    };
+                    if self.sink.push(ev) {
+                        self.stats.trade_events.fetch_add(1, Ordering::Relaxed);
+                        self.health.event(slot);
+                    }
+                }
+            }
+        }
+        if self.cfg.bundle_run {
+            let run_trades: Vec<(Pubkey, RunTrade)> = self
+                .trades
+                .iter()
+                .map(|t| {
+                    (
+                        t.mint,
+                        RunTrade {
+                            index: index.unwrap_or(u32::MAX),
+                            is_create: false,
+                            user: t.user,
+                            is_buy: t.is_buy,
+                            sol: t.sol_amount,
+                            tok: t.token_amount,
+                            v: t.virtual_sol_reserves,
+                            t: t.virtual_token_reserves,
+                        },
+                    )
+                })
+                .collect();
+            if let Some(mint) = created {
+                let own: Vec<RunTrade> = run_trades
+                    .iter()
+                    .filter(|(m, _)| *m == mint)
+                    .map(|(_, t)| *t)
+                    .collect();
+                let sig = Sig(info.signature.as_slice().try_into().unwrap_or([0; 64]));
+                self.asm.on_create(mint, sig, slot, index, recv, &own);
+                self.recent.insert(mint, slot);
+            } else if run_trades.iter().any(|(m, _)| self.recent.contains_key(m)) {
+                self.asm.on_trades(slot, index, recv, &run_trades);
+            } else {
+                // a later index of the slot still closes open bundle runs
+                self.asm.on_trades(slot, index, recv, &[]);
+            }
+            if self.recent.len() > 4_096 {
+                let floor = slot.saturating_sub(4);
+                self.recent.retain(|_, s| *s >= floor);
+            }
+            self.flush_bundles();
+        }
+    }
+
+    /// Decode the create on the adapter thread: health counters and the mint.
+    fn check_create(&self, wire: &[u8], keys: &[Pubkey]) -> Option<Pubkey> {
+        let tx = pump_codec::tx::TxView::parse(wire).ok()?;
+        let n_static = tx.static_account_keys().len();
+        let loaded = (keys.len() > n_static).then(|| &keys[n_static..]);
+        match pump_codec::create_hit(&tx, loaded, &[], pump_codec::curve::FeeBps::DEFAULT) {
+            Ok(Some(h)) => {
+                FeedHealth::inc(&self.health.creates);
+                Some(h.mint)
+            }
+            Ok(None) => None,
+            Err(pump_codec::HitError::CpiCreateNeedsMeta { .. }) => {
+                // a launcher CPI: the hot thread has the inner instructions
+                FeedHealth::inc(&self.health.creates);
+                None
+            }
+            Err(_) => {
+                FeedHealth::inc(&self.health.decode_miss);
+                None
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_has_every_filter() {
+        let w = Pubkey::new_unique();
+        let m = Pubkey::new_unique();
+        let cfg = GrpcConfig {
+            wallet: Some(w),
+            bundle_run: true,
+            ..Default::default()
+        };
+        let r = build_request(&cfg, &[m]);
+        assert_eq!(r.commitment, Some(CommitmentLevel::Processed as i32));
+        let c = &r.transactions[F_CREATES];
+        assert_eq!(c.account_include, vec![MINT_AUTHORITY.to_string()]);
+        assert_eq!((c.vote, c.failed), (Some(false), Some(false)));
+        let wf = &r.transactions[F_WALLET];
+        assert_eq!(wf.account_include, vec![w.to_string()]);
+        assert_eq!(wf.failed, None, "our failed buys are streamed too");
+        assert_eq!(r.transactions[F_MINTS].account_include, vec![m.to_string()]);
+        assert_eq!(
+            r.transactions[F_PUMP].account_include,
+            vec![PUMP_PROGRAM_ID.to_string()]
+        );
+        assert!(r.slots.contains_key(F_SLOTS));
+        let bare = build_request(&GrpcConfig::default(), &[]);
+        assert_eq!(bare.transactions.len(), 1, "creates only");
+        assert!(ping_request(3).ping.is_some_and(|p| p.id == 3));
+        let dbg = format!(
+            "{:?}",
+            GrpcConfig {
+                x_token: Some("secret".into()),
+                ..Default::default()
+            }
+        );
+        assert!(!dbg.contains("secret"), "the token is never printed");
+    }
+}

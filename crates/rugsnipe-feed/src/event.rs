@@ -18,7 +18,7 @@ pub enum FeedSrc {
     Relay = 2,
     /// Recorded frames.
     Replay = 3,
-    /// Yellowstone gRPC (feature, later).
+    /// Yellowstone gRPC (feature `grpc`; post-execution, processed).
     Grpc = 4,
     /// Shreds (later).
     Shreds = 5,
@@ -200,11 +200,24 @@ pub struct TradeLite {
     pub ordinal: u8,
 }
 
-/// Wire bytes of a transaction, stored in a [`crate::FeedBuf`] arena.
+/// Wire bytes of a transaction, stored in a [`crate::FeedBuf`] arena:
+/// `len` bytes at `off`, the raw transaction first and, when `meta_len > 0`,
+/// a post-execution meta trailer of `meta_len` bytes after it
+/// ([`crate::wiremeta`]: transaction index, failure, fee, ALT-loaded
+/// addresses, inner instructions; gRPC only).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WireRef {
     pub off: u32,
     pub len: u32,
+    pub meta_len: u32,
+}
+
+impl WireRef {
+    /// Length of the raw transaction (without the meta trailer).
+    #[inline]
+    pub fn tx_len(&self) -> u32 {
+        self.len.saturating_sub(self.meta_len)
+    }
 }
 
 /// A duplicate that another feed delivered first (the original payload is

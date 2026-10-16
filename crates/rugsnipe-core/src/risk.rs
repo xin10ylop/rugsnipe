@@ -142,30 +142,63 @@ pub enum KillReason {
     Clock,
     Drift,
     Manual,
+    /// The post-execution feed went stale in a real mode.
+    FeedStale,
+    /// A latch persisted in `state.db` by an earlier run (restored at start).
+    Persisted,
 }
 
 impl KillReason {
-    fn from_u8(v: u8) -> Self {
-        use KillReason::*;
-        [
-            None,
-            KillFile,
-            Signal,
-            Remote,
-            DailyLoss,
-            UnexplainedDrop,
-            SendErrors,
-            DecodeMiss,
-            ProgramUpgrade,
-            StaleArmSet,
-            Disk,
-            Clock,
-            Drift,
-            Manual,
-        ]
-        .get(v as usize)
-        .copied()
-        .unwrap_or(Manual)
+    pub const ALL: [KillReason; 16] = [
+        KillReason::None,
+        KillReason::KillFile,
+        KillReason::Signal,
+        KillReason::Remote,
+        KillReason::DailyLoss,
+        KillReason::UnexplainedDrop,
+        KillReason::SendErrors,
+        KillReason::DecodeMiss,
+        KillReason::ProgramUpgrade,
+        KillReason::StaleArmSet,
+        KillReason::Disk,
+        KillReason::Clock,
+        KillReason::Drift,
+        KillReason::Manual,
+        KillReason::FeedStale,
+        KillReason::Persisted,
+    ];
+
+    pub fn from_u8(v: u8) -> Self {
+        Self::ALL
+            .get(v as usize)
+            .copied()
+            .unwrap_or(KillReason::Manual)
+    }
+
+    /// Stable name (`state.db` kv rows, summary, alerts).
+    pub fn name(self) -> &'static str {
+        match self {
+            KillReason::None => "none",
+            KillReason::KillFile => "kill_file",
+            KillReason::Signal => "signal",
+            KillReason::Remote => "remote",
+            KillReason::DailyLoss => "daily_loss",
+            KillReason::UnexplainedDrop => "unexplained_drop",
+            KillReason::SendErrors => "send_errors",
+            KillReason::DecodeMiss => "decode_miss",
+            KillReason::ProgramUpgrade => "program_upgrade",
+            KillReason::StaleArmSet => "stale_armset",
+            KillReason::Disk => "disk",
+            KillReason::Clock => "clock",
+            KillReason::Drift => "drift",
+            KillReason::Manual => "manual",
+            KillReason::FeedStale => "feed_stale",
+            KillReason::Persisted => "persisted",
+        }
+    }
+
+    pub fn from_name(s: &str) -> Option<Self> {
+        Self::ALL.iter().copied().find(|k| k.name() == s)
     }
 }
 

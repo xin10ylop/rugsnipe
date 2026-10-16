@@ -116,6 +116,9 @@ fn armable(mode: Mode) -> Config {
     c.secrets.armset_pubkey = Pubkey::new_unique().to_string();
     c.secrets.cold_wallet = Pubkey::new_unique().to_string();
     c.senders.rpcsend.enabled = false;
+    // probe/live need the post-execution feed configured
+    c.feeds.grpc.enabled = true;
+    c.feeds.grpc.url = "https://grpc.invalid".into();
     c
 }
 

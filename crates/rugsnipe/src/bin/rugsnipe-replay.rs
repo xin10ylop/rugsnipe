@@ -184,6 +184,10 @@ fn run(args: &[String]) -> Result<i32, String> {
         paper_balance: 5_000_000_000,
         live_flag: false,
         real: None,
+        post_exec: None,
+        leader_rpc: None,
+        alerts: None,
+        trigger_tuning: None,
     })?;
     // production layout: the hot loop pinned and busy-polling (docs/06 section 7.1)
     let busy = !flag(args, "--sleep-when-idle");

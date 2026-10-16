@@ -131,6 +131,7 @@ struct Done {
     bid: u64,
     result: SendResult,
     t0: u64,
+    leader: u8,
 }
 
 /// Work for one sender's worker: the variants of one intent.
@@ -138,6 +139,7 @@ struct Batch {
     variants: Vec<Variant>,
     bid: u64,
     t0: u64,
+    leader: u8,
 }
 
 fn spawn_worker(
@@ -163,6 +165,7 @@ fn spawn_worker(
                     bid: b.bid,
                     result,
                     t0: b.t0,
+                    leader: b.leader,
                 });
             }
         }
@@ -231,6 +234,7 @@ pub fn spawn(
                     err: err_name(&d.result),
                     http,
                     kind: d.variant.kind as u8,
+                    leader: d.leader,
                 });
             };
             let mut pending: Vec<FireJob> = vec![];
@@ -272,6 +276,7 @@ pub fn spawn(
                             bid: job.bid,
                             result,
                             t0,
+                            leader: job.leader,
                         };
                         if job.real && senders.mode.is_real() && !senders.dry {
                             // real jobs: the paper copy is counted and logged, the
@@ -287,6 +292,7 @@ pub fn spawn(
                         continue;
                     }
                     let bid = real[0].bid;
+                    let leader = real[0].leader;
                     let planned = plan_variants(&real, senders.targets(), &signer);
                     if senders.dry {
                         // --probe-dry: every per-sender variant is signed and recorded
@@ -302,6 +308,7 @@ pub fn spawn(
                                     bid,
                                     result,
                                     t0,
+                                    leader,
                                 },
                                 &mut sent,
                                 &mut rslog,
@@ -323,6 +330,7 @@ pub fn spawn(
                                     variants: vs,
                                     bid,
                                     t0,
+                                    leader,
                                 });
                             }
                             None => {
@@ -340,6 +348,7 @@ pub fn spawn(
                                             bid,
                                             result,
                                             t0,
+                                            leader,
                                         },
                                         &mut sent,
                                         &mut rslog,
@@ -444,6 +453,7 @@ mod tests {
             tip_account: t.tip_account,
             bid: 3_400_000,
             real: true,
+            leader: crate::leader::UNKNOWN,
         };
         // primary (pay on success: tip = bid) and the priority-ordered secondary (tip 0)
         let jobs = [job(0, 10_000, 3_400_000), job(1, 990_000, 0)];

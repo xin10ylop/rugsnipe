@@ -239,6 +239,10 @@ pub fn build(
         paper_balance: 5_000_000_000,
         live_flag: false,
         real: None,
+        post_exec: None,
+        leader_rpc: None,
+        alerts: None,
+        trigger_tuning: None,
     })
     .expect("paper app builds without keys")
 }
@@ -577,4 +581,89 @@ pub fn write_mode(dir: &std::path::Path, name: &str, text: &str, mode: u32) {
     let p = dir.join(name);
     std::fs::write(&p, text).unwrap();
     std::fs::set_permissions(&p, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+/// Wire events (gRPC shape: transaction + meta trailer) handed out in order
+/// through `push_wire_parts` (no allocation in `poll`).
+pub struct WireFeed {
+    pub items: Vec<(FeedEvent, Vec<u8>, usize)>,
+    pub pos: usize,
+}
+
+impl WireFeed {
+    /// `(slot, tx bytes, meta trailer)` per event, source gRPC.
+    pub fn new(items: Vec<(u64, Vec<u8>, Vec<u8>)>) -> Self {
+        Self {
+            items: items
+                .into_iter()
+                .map(|(slot, tx, meta)| {
+                    let n = meta.len();
+                    let mut b = tx;
+                    b.extend_from_slice(&meta);
+                    (
+                        FeedEvent {
+                            src: FeedSrc::Grpc,
+                            ..ev(slot, Payload::Hit(CreateHitLite::default()))
+                        },
+                        b,
+                        n,
+                    )
+                })
+                .collect(),
+            pos: 0,
+        }
+    }
+}
+
+impl Feed for WireFeed {
+    fn poll(&mut self, out: &mut FeedBuf) -> FeedStatus {
+        let Some((e, b, m)) = self.items.get(self.pos) else {
+            return FeedStatus::Ended;
+        };
+        if out.push_wire_parts(e.src, e.recv_ns, e.slot, e.bank_id, [b, &[]], *m) {
+            self.pos += 1;
+            FeedStatus::Ready(1)
+        } else {
+            FeedStatus::Full
+        }
+    }
+    fn src(&self) -> FeedSrc {
+        FeedSrc::Grpc
+    }
+}
+
+/// A pump-codec transaction fixture.
+pub fn codec_fixture(name: &str) -> serde_json::Value {
+    let p = format!(
+        "{}/../pump-codec/fixtures/tx/{name}.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap()
+}
+
+/// The wire bytes and the gRPC meta trailer the adapter would build for a
+/// fixture transaction (through the same protobuf conversion).
+pub fn fixture_wire(f: &serde_json::Value, index: u32) -> (Vec<u8>, Vec<u8>) {
+    use rugsnipe_feed::grpc::convert::{meta_in, tx_to_wire};
+    use yellowstone_grpc_proto::prelude::subscribe_update::UpdateOneof;
+    let up = rugsnipe_feed::grpc::mock::fixture_update(f, 1, index as u64, &["creates"]).unwrap();
+    let Some(UpdateOneof::Transaction(t)) = up.update_oneof else {
+        panic!("a transaction update")
+    };
+    let info = t.transaction.unwrap();
+    let wire = tx_to_wire(info.transaction.as_ref().unwrap()).unwrap();
+    let mut meta = vec![];
+    rugsnipe_feed::wiremeta::encode(&meta_in(info.meta.as_ref(), Some(index)), &mut meta);
+    (wire, meta)
+}
+
+/// The `logsNotification` frame of a fixture transaction (the logs path's copy).
+pub fn fixture_logs_frame(f: &serde_json::Value, slot: u64) -> String {
+    let r = &f["result"];
+    serde_json::json!({"jsonrpc": "2.0", "method": "logsNotification", "params": {
+        "result": {"context": {"slot": slot}, "value": {
+            "signature": f["signature"].as_str().unwrap_or_else(|| r["transaction"]["signatures"][0].as_str().unwrap()),
+            "err": r["meta"]["err"], "logs": r["meta"]["logMessages"]}},
+        "subscription": 1}})
+    .to_string()
 }

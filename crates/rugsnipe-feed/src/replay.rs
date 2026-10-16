@@ -141,6 +141,7 @@ impl Replay {
                         payload: Payload::Wire(WireRef {
                             off,
                             len: bytes.len() as u32,
+                            meta_len: 0,
                         }),
                     });
                 }
@@ -228,12 +229,13 @@ impl Feed for Replay {
             let ok = match ev.payload {
                 Payload::Wire(w) => {
                     let (o, l) = (w.off as usize, w.len as usize);
-                    out.push_wire(
+                    out.push_wire_parts(
                         ev.src,
                         ev.recv_ns,
                         ev.slot,
                         ev.bank_id,
-                        &self.wire[o..o + l],
+                        [&self.wire[o..o + l], &[]],
+                        w.meta_len as usize,
                     )
                 }
                 _ => out.push(ev),

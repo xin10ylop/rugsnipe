@@ -69,6 +69,7 @@ WHERE s.outcome IN ('filled', 'premium', 'slippage', 'not_in_slot0')
 SQL_PROBE = """
 SELECT i.intent_id, i.mint, i.mode, i.slot, i.spend, f.sig, f.sol_delta, f.fail_reason, COALESCE(f.fail_cost, 0) AS fail_cost,
        s.outcome, s.premium_bps, s.create_slot, (SELECT v.variant FROM sends v WHERE v.sig = f.sig) AS variant,
+       {leader_class} AS leader_class,
        (SELECT SUM(e.sol_delta) FROM exits e WHERE e.mint = i.mint) AS proceeds,
        (SELECT p.state FROM positions p WHERE p.mint = i.mint) AS pos_state
 FROM intents i
@@ -127,11 +128,21 @@ def probe(a) -> int:
     loss_cap = a.daily_loss_cap_lamports or caps["max_daily_loss_lamports"]
     con = sqlite3.connect(f"file:{a.state}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
-    rows = con.execute(SQL_PROBE).fetchall()
+    # schema v5 records the leader class of the landing slot (fills) and of the create slot (intents)
+    def has_col(table, col):
+        return any(r[1] == col for r in con.execute(f"PRAGMA table_info({table})"))
+    if has_col("fills", "leader_class") and has_col("intents", "leader_class"):
+        lc = "COALESCE(f.leader_class, i.leader_class)"
+    elif has_col("fills", "leader_class"):
+        lc = "f.leader_class"
+    else:
+        lc = "NULL"
+    rows = con.execute(SQL_PROBE.format(leader_class=lc)).fetchall()
     if any(r["mode"] == "probe" for r in rows):
         rows = [r for r in rows if r["mode"] == "probe"]      # a probe file: its real attempts only
     ret, slots, landed, prem, fail_costs, open_left = [], [], 0, [], [], 0
     by_variant: dict = {}
+    by_class: dict = {}
     for r in rows:
         spend = r["spend"] or 0
         if spend <= 0:
@@ -153,6 +164,10 @@ def probe(a) -> int:
         v = by_variant.setdefault(r["variant"] if r["variant"] is not None else "?", [0, 0])
         v[0] += 1
         v[1] += 0 if failed else 1
+        k = by_class.setdefault(r["leader_class"] or "unknown", [0, 0, 0])
+        k[0] += 1
+        k[1] += 0 if failed else 1
+        k[2] += cost if failed else 0
         ret.append((net / spend, net))
         slots.append(slot)
     n = len(ret)
@@ -211,7 +226,9 @@ def probe(a) -> int:
         "days_covered": span_days, "worst_day_net_lamports": worst_day, "daily_loss_cap_lamports": loss_cap,
         "max_hour_share_of_positive_pnl": hour_share,
         "by_variant": {str(k): {"attempts": v[0], "landed": v[1]} for k, v in by_variant.items()},
-        "by_leader_class": "not recorded in this build (needs the leader schedule, task #12)",
+        "by_leader_class": ({str(k): {"attempts": v[0], "landed": v[1], "landing_rate": v[1] / v[0] if v[0] else 0.0,
+                                      "failed_cost_lamports": v[2]} for k, v in by_class.items()}
+                            if lc != "NULL" else "not recorded (state.db before schema v5: no leader_class column)"),
         "verdict": verdict,
     }
     if a.json:
@@ -231,6 +248,10 @@ def probe(a) -> int:
         print(f"largest hour        {hour_share:.0%} of the positive P&L")
     for k, v in out["by_variant"].items():
         print(f"  variant {k:3s} attempts {v['attempts']}, landed {v['landed']}")
+    if isinstance(out["by_leader_class"], dict):
+        for k, v in sorted(out["by_leader_class"].items()):
+            print(f"  leader {k:10s} attempts {v['attempts']}, landed {v['landed']} ({v['landing_rate']:.1%}), "
+                  f"failed cost {v['failed_cost_lamports']} lamports")
     print(f"verdict             {verdict}")
     return 0
 

@@ -50,11 +50,16 @@ kill_file = "data/raw/paper/KILL"
 armset_max_age_s = 21_600
 decode_miss_kill_ratio = 0.01
 send_error_kill_ratio = 0.20
-max_clock_offset_ms = 5
+max_clock_offset_ms = 5                            # start refusal
+send_error_window = 50                             # kill triggers (probe/live; docs/06 section 13): error ratio over the last N sends,
+unexplained_drop_lamports = 50_000_000             #   wallet drop beyond known spends, state disk use, running clock offset,
+max_disk_used_pct = 90                             #   gRPC slot behind getSlot
+kill_clock_offset_ms = 50
+max_slot_drift = 8
 [feeds]
 logsws = { enabled = true, url = "wss://api.mainnet-beta.solana.com", stale_ms = 10_000 }
 relay = { enabled = false, socket = "/run/rugsnipe/pp.sock" }    # collector's PumpPortal frames
-grpc = { enabled = false, endpoint = "", token = "GRPC_TOKEN", stale_ms = 2_000 }
+grpc = { enabled = false, url = "https://api.rpcpool.com", x_token = "GRPC_TOKEN", stale_ms = 2_000, bundle_run = true }   # Yellowstone (Triton PAYG / Alchemy): docs/08 section 9; x_token = a NAME in api-keys
 shreds = { enabled = false, bind = "0.0.0.0:7733", sources = ["dz_edge", "helius"] }
 probe_live_require = "post_exec"
 [senders]
@@ -128,7 +133,7 @@ last_transfer_min_frac = 0.9
 [obs]
 metrics_listen = ["127.0.0.1:9464"]
 rslog_dir = "data/raw/paper/rslog"
-alert = { telegram = "TG_TOKEN", deadman = "HC_URL" }   # credential names
+alert = { telegram = "TG_TOKEN", chat = "TG_CHAT", deadman = "HC_URL", hourly = true, commands = false }   # credential names (api-keys lines); Telegram optional
 [ab]                                               # probe/live only
 skip_p = 0.2
 small_arm = [0.2, 0.35]

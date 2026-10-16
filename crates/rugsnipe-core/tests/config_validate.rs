@@ -37,6 +37,9 @@ fn armable(mut c: Config, mode: Mode) -> Config {
     c.tx.lads_bytes = 12_124_160;
     c.secrets.armset_pubkey = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P".into();
     c.secrets.cold_wallet = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P".into();
+    // probe/live need the post-execution feed configured (docs/08 section 9)
+    c.feeds.grpc.enabled = true;
+    c.feeds.grpc.url = "https://api.rpcpool.com".into();
     c
 }
 
@@ -799,5 +802,88 @@ fn probe_stages_narrow_the_risk_caps_and_the_armset_must_agree() {
     // the kill rule is validated in every mode
     let mut c = example();
     c.probe.kill.max_median_premium = 0.0;
+    assert!(!c.validate(&ValidateEnv::default()).ok());
+}
+
+#[test]
+fn grpc_feed_keys_are_validated() {
+    // the new spelling and the old one both parse
+    let new = Config::from_toml_str(
+        "[feeds]\ngrpc = { enabled = true, url = \"https://api.rpcpool.com\", x_token = \"GRPC_TOKEN\", stale_ms = 2000, bundle_run = false }\n",
+    )
+    .unwrap();
+    assert!(new.feeds.grpc.enabled && !new.feeds.grpc.bundle_run);
+    assert_eq!(new.feeds.grpc.x_token, "GRPC_TOKEN");
+    let old = Config::from_toml_str(
+        "[feeds]\ngrpc = { enabled = false, endpoint = \"https://x\", token = \"T\", stale_ms = 2000 }\n",
+    )
+    .unwrap();
+    assert_eq!(
+        (old.feeds.grpc.url.as_str(), old.feeds.grpc.x_token.as_str()),
+        ("https://x", "T")
+    );
+    assert!(old.feeds.grpc.bundle_run, "default on");
+    assert!(Config::from_toml_str("[feeds]\ngrpc = { urll = \"x\" }\n").is_err());
+    // invalid values in every mode
+    let mut c = example();
+    c.feeds.grpc.enabled = true;
+    c.feeds.grpc.url = "grpc.example:10000".into();
+    c.feeds.grpc.stale_ms = 50;
+    c.feeds.grpc.x_token = "abc=def".into();
+    c.feeds.probe_live_require = "none".into();
+    c.risk.send_error_window = 3;
+    c.risk.max_disk_used_pct = 0.0;
+    c.risk.kill_clock_offset_ms = -1.0;
+    c.risk.max_slot_drift = 0;
+    let v = c.validate(&ValidateEnv::default());
+    let fields: Vec<String> = v
+        .refusals
+        .iter()
+        .filter_map(|r| match r {
+            Refusal::Invalid { field, .. } => Some(field.to_string()),
+            _ => None,
+        })
+        .collect();
+    for f in [
+        "feeds.grpc.url",
+        "feeds.grpc.stale_ms",
+        "feeds.grpc.x_token",
+        "feeds.probe_live_require",
+        "risk.send_error_window",
+        "risk.max_disk_used_pct",
+        "risk.kill_clock_offset_ms",
+        "risk.max_slot_drift",
+    ] {
+        assert!(fields.iter().any(|x| x == f), "{f} not refused: {fields:?}");
+    }
+    // plain http to a remote host: a warning (the token is unencrypted)
+    let mut c = example();
+    c.feeds.grpc.enabled = true;
+    c.feeds.grpc.url = "http://grpc.example:10000".into();
+    let v = c.validate(&ValidateEnv::default());
+    assert!(v.ok(), "{:?}", v.refusals);
+    assert!(v.warnings.iter().any(|w| w.contains("plain http")));
+    // paper with the gRPC feed off is fine; probe without it is refused even
+    // when something claims a healthy feed
+    for m in [Mode::Probe, Mode::Live] {
+        let mut c = armable(example(), m);
+        c.feeds.grpc.enabled = false;
+        let v = c.validate(&good_env(&c));
+        assert!(
+            v.refusals.contains(&Refusal::NoPostExecFeedConfigured),
+            "{m}: {:?}",
+            v.refusals
+        );
+        // a shred feed is not built into this binary: it does not count
+        c.feeds.shreds.enabled = true;
+        assert!(c
+            .validate(&good_env(&c))
+            .refusals
+            .contains(&Refusal::NoPostExecFeedConfigured));
+    }
+    // Telegram commands need the bot token's name
+    let mut c = example();
+    c.obs.alert.telegram = String::new();
+    c.obs.alert.commands = true;
     assert!(!c.validate(&ValidateEnv::default()).ok());
 }

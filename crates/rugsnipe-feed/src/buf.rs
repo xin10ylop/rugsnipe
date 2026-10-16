@@ -89,11 +89,29 @@ impl FeedBuf {
         bank_id: u64,
         bytes: &[u8],
     ) -> bool {
-        if self.is_full() || bytes.len() > self.arena_room() || bytes.len() > u32::MAX as usize {
+        self.push_wire_parts(src, recv_ns, slot, bank_id, [bytes, &[]], 0)
+    }
+
+    /// Append a [`Payload::Wire`] event whose arena bytes are the
+    /// concatenation of `parts` (a ring's two halves), the last `meta_len`
+    /// of them a [`crate::wiremeta`] trailer. `false` (nothing written) if
+    /// events or arena are full or `meta_len` exceeds the total.
+    pub fn push_wire_parts(
+        &mut self,
+        src: FeedSrc,
+        recv_ns: u64,
+        slot: u64,
+        bank_id: u64,
+        parts: [&[u8]; 2],
+        meta_len: usize,
+    ) -> bool {
+        let n = parts[0].len() + parts[1].len();
+        if self.is_full() || n > self.arena_room() || n > u32::MAX as usize || meta_len > n {
             return false;
         }
         let off = self.arena.len() as u32;
-        self.arena.extend_from_slice(bytes);
+        self.arena.extend_from_slice(parts[0]);
+        self.arena.extend_from_slice(parts[1]);
         self.events.push(FeedEvent {
             src,
             recv_ns,
@@ -101,16 +119,32 @@ impl FeedBuf {
             bank_id,
             payload: Payload::Wire(WireRef {
                 off,
-                len: bytes.len() as u32,
+                len: n as u32,
+                meta_len: meta_len as u32,
             }),
         });
         true
     }
 
-    /// Bytes of a wire payload of this buffer.
+    /// Bytes of a wire payload of this buffer (transaction and trailer).
     #[inline]
     pub fn wire(&self, w: WireRef) -> &[u8] {
         let (o, l) = (w.off as usize, w.len as usize);
+        self.arena.get(o..o + l).unwrap_or(&[])
+    }
+
+    /// The raw transaction of a wire payload.
+    #[inline]
+    pub fn wire_tx(&self, w: WireRef) -> &[u8] {
+        let (o, l) = (w.off as usize, w.tx_len() as usize);
+        self.arena.get(o..o + l).unwrap_or(&[])
+    }
+
+    /// The meta trailer of a wire payload (empty when there is none).
+    #[inline]
+    pub fn wire_meta(&self, w: WireRef) -> &[u8] {
+        let o = w.off as usize + w.tx_len() as usize;
+        let l = w.meta_len as usize;
         self.arena.get(o..o + l).unwrap_or(&[])
     }
 
@@ -146,9 +180,28 @@ mod tests {
             panic!()
         };
         assert_eq!(b.wire(w), &[5; 8]);
+        assert_eq!(b.wire_tx(w), &[5; 8]);
+        assert!(b.wire_meta(w).is_empty());
         let (cap_e, cap_a) = (b.events.capacity(), b.arena.capacity());
         b.clear();
         assert!(b.is_empty());
         assert_eq!((b.events.capacity(), b.arena.capacity()), (cap_e, cap_a));
+    }
+
+    #[test]
+    fn wire_parts_split_tx_and_meta() {
+        let mut b = FeedBuf::with_capacity(4, 64);
+        assert!(b.push_wire_parts(FeedSrc::Grpc, 1, 2, 3, [&[1, 2, 3], &[4, 9, 9]], 2));
+        assert!(
+            !b.push_wire_parts(FeedSrc::Grpc, 1, 2, 3, [&[1], &[]], 2),
+            "meta > total"
+        );
+        let Payload::Wire(w) = b.events()[0].payload else {
+            panic!()
+        };
+        assert_eq!(b.wire(w), &[1, 2, 3, 4, 9, 9]);
+        assert_eq!(b.wire_tx(w), &[1, 2, 3, 4]);
+        assert_eq!(b.wire_meta(w), &[9, 9]);
+        assert_eq!(b.events()[0].bank_id, 3);
     }
 }

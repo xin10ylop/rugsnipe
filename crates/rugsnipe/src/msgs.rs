@@ -27,6 +27,9 @@ pub enum ColdMsg {
         nonce_value: [u8; 32],
         decided_ns: u64,
         real: bool,
+        /// Client class of the create slot's leader ([`crate::leader::ClientClass`]
+        /// code, [`crate::leader::UNKNOWN`] without a schedule).
+        leader: u8,
     },
     /// One variant handed to one sender.
     Sent {
@@ -49,7 +52,22 @@ pub enum ColdMsg {
         http: u16,
         /// `VariantKind` byte (buy / sell / burn).
         kind: u8,
+        /// Leader class the variant was planned for ([`crate::leader`] code).
+        leader: u8,
     },
+    /// A create seen by one feed (every source, before the first-wins
+    /// check): the first-seen benchmark of docs/08 section 9 compares the
+    /// feeds' receive times per transaction.
+    FeedSeen {
+        src: FeedSrc,
+        /// xxh3 of the create signature.
+        sig_hash: u64,
+        recv_ns: u64,
+        slot: u64,
+    },
+    /// A held real position's snapshot every second (the daily loss is
+    /// marked to market at its current curve).
+    Mark(Position),
     /// A real intent (probe): what the real fill lane needs to find our
     /// transaction, read our TradeEvent and rank it in its slot (sent right
     /// after its `Intent`).
@@ -269,6 +287,9 @@ pub struct FireJob {
     /// in a real mode: regime freeze, ArmSet gate, op not armed) goes to the
     /// paper recorder only, never to a real sender.
     pub real: bool,
+    /// Leader class this variant bids for ([`crate::leader`] code; recorded
+    /// on every send).
+    pub leader: u8,
 }
 
 /// rslog / metrics code of an exit reason.

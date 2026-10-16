@@ -49,6 +49,9 @@ pub enum Write {
         disarmed_until: u64,
     },
     Kv(String, String),
+    KvDelete(String),
+    /// Upsert by mint.
+    FeedBundle(FeedBundleRow),
     /// Reply once everything before it is committed.
     Barrier(SyncSender<()>),
 }
@@ -219,8 +222,8 @@ pub fn apply(c: &Connection, w: &Write) -> rusqlite::Result<bool> {
         Write::Intent(r) => {
             c.execute(
                 "INSERT OR IGNORE INTO intents(intent_id, mint, op_id, box, mode, armset_ver, slot, bank_id, via, feed_class,
-                   spend, v_max, min_tokens_out, nonce_idx, nonce_value, decided_ns, state)
-                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+                   spend, v_max, min_tokens_out, nonce_idx, nonce_value, decided_ns, state, leader_class)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
                 params![
                     r.intent_id,
                     r.mint.to_string(),
@@ -238,7 +241,8 @@ pub fn apply(c: &Connection, w: &Write) -> rusqlite::Result<bool> {
                     r.nonce_idx,
                     b58(&r.nonce_value),
                     r.decided_ns as i64,
-                    r.state.as_str()
+                    r.state.as_str(),
+                    r.leader_class
                 ],
             )?;
         }
@@ -263,7 +267,7 @@ pub fn apply(c: &Connection, w: &Write) -> rusqlite::Result<bool> {
         Write::Send(r) => {
             c.execute(
                 "INSERT OR REPLACE INTO sends(sig, intent_id, variant, sender, prio, tip, sent_ns, result, bid, sent_unix_ms,
-                   kind, err) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+                   kind, err, leader_class) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
                 params![
                     b58(&r.sig),
                     r.intent_id,
@@ -276,15 +280,16 @@ pub fn apply(c: &Connection, w: &Write) -> rusqlite::Result<bool> {
                     r.bid as i64,
                     r.sent_unix_ms as i64,
                     r.kind,
-                    r.err
+                    r.err,
+                    r.leader_class
                 ],
             )?;
         }
         Write::Fill(r) => {
             c.execute(
                 "INSERT OR REPLACE INTO fills(sig, intent_id, mint, slot, tx_index, tokens, sol_delta, err, buyers_ahead,
-                   rival_sol_ahead, late, fail_reason, fail_cost, fee, variant, sender, tip)
-                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+                   rival_sol_ahead, late, fail_reason, fail_cost, fee, variant, sender, tip, leader_class)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
                 params![
                     b58(&r.sig),
                     r.intent_id,
@@ -302,7 +307,8 @@ pub fn apply(c: &Connection, w: &Write) -> rusqlite::Result<bool> {
                     r.fee.map(|x| x as i64),
                     r.variant,
                     r.sender,
-                    r.tip.map(|x| x as i64)
+                    r.tip.map(|x| x as i64),
+                    r.leader_class
                 ],
             )?;
         }
@@ -494,6 +500,32 @@ pub fn apply(c: &Connection, w: &Write) -> rusqlite::Result<bool> {
             c.execute(
                 "INSERT OR REPLACE INTO kv(k, v) VALUES(?1, ?2)",
                 params![k, v],
+            )?;
+        }
+        Write::KvDelete(k) => {
+            c.execute("DELETE FROM kv WHERE k = ?1", params![k])?;
+        }
+        Write::FeedBundle(r) => {
+            c.execute(
+                "INSERT OR REPLACE INTO feed_bundle(mint, intent_id, slot, create_index, trades, bundle_wallets, s0_third,
+                   dev_sol, bundle_sol, me_sol, closed, run_close_ms, out_of_order, features)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+                params![
+                    r.mint.to_string(),
+                    r.intent_id,
+                    r.slot as i64,
+                    r.create_index,
+                    r.trades,
+                    r.bundle_wallets,
+                    r.s0_third,
+                    r.dev_sol,
+                    r.bundle_sol,
+                    r.me_sol,
+                    r.closed,
+                    r.run_close_ms,
+                    r.out_of_order,
+                    r.features
+                ],
             )?;
         }
         Write::Barrier(_) => {}
