@@ -75,7 +75,10 @@ chronyc tracking                                               # |System time| w
 ```
 
 Do **not** enable `rugsnipe.target` during shadow mode: the shadow run below is started by hand with its
-own config and ArmSet. Firewall (ufw): deny incoming by default, allow 22/tcp from your IP, nothing else
+own config and ArmSet. install.sh also writes `rugsnipe-{hot,guard}.service.d/10-start-limit.conf`
+(`StartLimitIntervalSec=3600`, `StartLimitBurst=5`): a probe start takes 5-20 s, so the units' own
+30-in-120 s limit never trips; with the drop-in a crash loop leaves the unit failed after 5 starts in an
+hour (`systemctl reset-failed rugsnipe-hot` after fixing the cause). Firewall (ufw): deny incoming by default, allow 22/tcp from your IP, nothing else
 is needed for shadow mode.
 
 Updating later: `cd ~/rugsnipe && git pull && sudo bash deploy/install.sh --role hot`.
@@ -108,8 +111,17 @@ sudo bash ~/rugsnipe/deploy/install.sh --role hot              # refuses group/w
 
 `api-keys.toml` is one `NAME = "value"` per line (comments with `#`); the names are the `key` values of
 the `[senders]` tables: `HELIUS_KEY`, `NOZOMI_KEY`, `ASTRALANE_KEY`, `BLOCKRAZOR_KEY`, and optionally
-`NEXTBLOCK_KEY`; plus `GRPC_TOKEN` (the gRPC feed's `x-token`, `[feeds] grpc.x_token`) and, for the
-optional Telegram alerts, `TG_TOKEN` and `TG_CHAT`. `rugsnipe-hot` reads the keys **only** from `$CREDENTIALS_DIRECTORY` (systemd
+`NEXTBLOCK_KEY`; plus `GRPC_TOKEN` (the gRPC feed's `x-token`, `[feeds] grpc.x_token`), `RPC_URL`
+(the paid RPC endpoint with its key, e.g. `RPC_URL = "https://mainnet.helius-rpc.com/?api-key=..."`,
+passed as `--rpc-url cred:RPC_URL`), optionally `LOGSWS_URL` / `GRPC_URL` for feed URLs that carry a key
+(`[feeds] logsws.url = "cred:LOGSWS_URL"`), and, for the optional Telegram alerts, `TG_TOKEN` and
+`TG_CHAT`. **A URL with a key never goes on a command line, into a unit file or into the config**: `ps`,
+the journal (`systemd-run` logs its command line) and `/etc/systemd/system/*.d/*.conf` are readable by
+every user. Probe and live refuse a `--rpc-url` or feed URL with a query string (`api-key=...`) unless it
+is `cred:NAME`, refuse a missing `--rpc-url` and the public `api.mainnet-beta.solana.com`; paper still
+takes plain URLs. Every URL the binaries print is redacted to `scheme://host/…?…`; the start prints the
+redacted RPC and feed hosts and the kill file it watches. The pre-commit hook refuses `api-key=<value>`,
+`x-token`/`x_token` values and Telegram bot tokens. `rugsnipe-hot` reads the keys **only** from `$CREDENTIALS_DIRECTORY` (systemd
 `LoadCredential=`, already in the units), refuses a missing, malformed or group/world-readable
 credential, refuses a sender whose key name is not in the file, and never prints a key.
 
@@ -189,7 +201,8 @@ keep accumulating (the tables append).
 
 **Read the status line.** `lane R/Q calls C` is the E1 lane: resolved / requested intents and RPC calls.
 If `R` falls further and further behind `Q`, the public RPC is the bottleneck: add
-`--rpc-url https://<your provider>` and raise both `[rpc_budget] hot` in `shadow.toml` and `--lane-rps`
+`--rpc-url https://<your provider>` (a URL with a key: put it in `api-keys.toml` as `RPC_URL`, add
+`-p LoadCredential=api-keys:/etc/rugsnipe/keys/api-keys.toml` and pass `--rpc-url cred:RPC_URL`) and raise both `[rpc_budget] hot` in `shadow.toml` and `--lane-rps`
 (the lane uses the lower of the two; the paper run ignores the 32 req/s sum rule). `landing` and `net` are
 the running shadow numbers. The 20-minute container runs resolved 320 of 342 intents at 3.5 req/s.
 
@@ -280,6 +293,13 @@ is read on probe-B (docs/06 §9.5).
 **When:** only if step 8 says `GO on (a)`. The build has everything probe-A needs (§0, task #12 both
 halves): the real senders, the real fill lane, the gRPC post-execution feed, the kill triggers and the
 leader schedule.
+
+**Schedule and sizing: follow `docs/research/probe-design-v2.md`** (2026-10-16): stage A is thinned to at
+most 4 attempts per UTC hour and 50 per day over 7-10 days, runs the entry filter in skip mode from day one
+with the outcome store pre-warmed from the shadow state (`analysis/scripts/prewarm_outcomes.py`), adds cheap
+index probes per sender path for landing calibration, and stage B is read as a paired shadow-vs-real test
+with a sequential stopping rule. Do not start stage A before Oct 23 (§11: no probe money across the
+Alpenglow cutover). The commands are in that document's §8. The kill rule of §10 is unchanged.
 
 **What** (docs/04 §7 step 2, `[probe]` in the config): two stages, both with `max_sol_cost` +2% and the
 LEAD exits. `[probe] stage` selects the caps; each narrows the `[risk]` cap of the same name, and a
@@ -405,7 +425,7 @@ that break-even and a median premium at or below +2% (`PROBE-A COMPLETE: ENTER P
      -p LoadCredential=api-keys:/etc/rugsnipe/keys/api-keys.toml \
      /opt/rugsnipe/bin/rugsnipe-hot --config /etc/rugsnipe/rugsnipe.toml --probe-dry \
        --armset /var/lib/rugsnipe/armsets/armset-2-<sha>.json --state /var/lib/rugsnipe/probe-dry.db \
-       --rpc-url <your RPC> --duration-s 60 --no-metrics --pin-core none
+       --rpc-url cred:RPC_URL --duration-s 60 --no-metrics --pin-core none
    ```
    Read it: `dry self-test: <sender> variant 0 sig ... tip ... prio ...` for every sender (a missing one
    is not enabled or its key is missing), then `dry first signed buy ...: <base64>` and
@@ -415,11 +435,22 @@ that break-even and a median premium at or below +2% (`PROBE-A COMPLETE: ENTER P
    the buy must fail at its ATA or pump instruction (index 3 or later: the placeholder mint), never at
    instruction 0 (the nonce). Any refusal (key permissions, ArmSet, stage, clock, caps) is printed with
    every reason and nothing starts. Use a separate `--state` for dry runs.
-6. **Start**: add the ArmSet and the RPC to the unit with a drop-in, then start:
+6. **Start**: add the ArmSet and the RPC credential to the hot unit with a drop-in, write the guard's
+   probe drop-in, enable the units explicitly (the target starts nothing that is not enabled), check
+   and start:
    ```bash
-   sudo systemctl edit rugsnipe-hot     # [Service] / ExecStart= / ExecStart=/opt/rugsnipe/bin/rugsnipe-hot --config /etc/rugsnipe/rugsnipe.toml --armset /var/lib/rugsnipe/armsets/armset-2-<sha>.json --rpc-url <your RPC>
-   sudo systemctl enable --now rugsnipe.target
+   sudo systemctl edit rugsnipe-hot     # [Service] / ExecStart= / ExecStart=/opt/rugsnipe/bin/rugsnipe-hot --config /etc/rugsnipe/rugsnipe.toml --armset /var/lib/rugsnipe/armsets/armset-2-<sha>.json --rpc-url cred:RPC_URL
+   sudo bash ~/rugsnipe/deploy/install.sh --role hot --probe-armset /var/lib/rugsnipe/armsets/armset-2-<sha>.json
+   #   -> /etc/systemd/system/rugsnipe-guard.service.d/30-probe.conf: --real-sell --armset ... --rpc-url cred:RPC_URL
+   sudo systemctl enable rugsnipe-keeper.service rugsnipe-guard.service rugsnipe-hot.service rugsnipe.target
+   systemctl list-dependencies rugsnipe.target      # must list keeper, guard and hot
+   sudo systemctl start rugsnipe.target
+   systemctl status rugsnipe-guard                  # active (running): "REAL sells", then "exits lease held by hot:..."
    ```
+   `risk.kill_file` must be an absolute path under `/run/rugsnipe/` in probe and live (validation
+   refuses anything else; the shipped `/run/rugsnipe/KILL` is right; the paper examples' relative paths
+   are paper-only). After a new ArmSet, re-run install.sh with the new `--probe-armset` and
+   `systemctl daemon-reload && systemctl restart rugsnipe-guard` (not while the guard holds the lease).
    Every other gate is checked first (nothing opens a socket before); then the gRPC feed starts and
    must be connected with a slot update within `--feed-wait-s` (default 20 s): the journal shows
    `grpc feed <url>: connected true slot … (… ms)`. Otherwise probe is refused with
@@ -432,8 +463,16 @@ that break-even and a median premium at or below +2% (`PROBE-A COMPLETE: ENTER P
    balance, never on a send; a buy that lands and fails costs its `meta.fee` (counted toward the daily
    loss); nothing landed means the keeper burns the nonce after `tx.burn_after_slots` and the attempt
    is `dropped` at no cost. Sells go through the same senders on a recent blockhash; a position closes
-   on our own sell TradeEvent or a zero balance. If the hot box stops, `rugsnipe-guard --real-sell
-   --armset ... --rpc-url ...` (probe only) sells through the same senders. The end-of-run summary's
+   on our own sell TradeEvent or a zero balance. If the hot box stops (its heartbeat older than 5 s with
+   a position open), the guard (`--real-sell`, from the drop-in above) takes the exits lease over and
+   sells through the same senders; a sell counts only when the wallet's token balance reads 0 (then it
+   closes the position in `state.db`), otherwise it is re-sent every 3 s (`--retry-ms`) on a fresh
+   blockhash until `risk.max_sell_spend_lamports` of bids, then `CRITICAL: sell of <mint> not confirmed`
+   (sell by hand). When the restarted hot box beats again and no guard sell is in flight, the guard
+   hands the lease back (`hot box is back ...`) and hot resumes its exits. **The daily caps survive a
+   restart**: the start reads today's (UTC) failed-attempt cost, closed P&L, real buys (per day, hour and
+   operator) and the operators' loss latches back from `state.db` (`risk day restored: ...` in the
+   journal) and latches `daily_loss` at once if today is already at the cap. The end-of-run summary's
    `cold.probe` block has the landing stats per sender and per variant (bid, rank, premium, failed cost),
    and `state.db` `kv.probe_report` keeps the last one.
 7. **Read the kill rule** at least daily, and at the end of each stage:
@@ -493,9 +532,22 @@ back killed: the start prints `KILL latch restored from state.db: …`, and the 
 | `clock` | `chronyc -c tracking` offset above 50 ms (start is refused above 5 ms or when chrony is unreadable as the service user) | `kill_clock_offset_ms` |
 | `drift` | the gRPC feed's slot trails `getSlot` (processed) by more than 8 slots (every 10 s) | `max_slot_drift` |
 | `feed_stale` | no data message from the gRPC feed for more than its `stale_ms` | `[feeds] grpc.stale_ms` |
-| `daily_loss` | closed P&L + failed attempts' `meta.fee` + open positions at their current sell quote below minus the daily cap (the stage's cap in probe) | `max_daily_loss_lamports` |
+| `daily_loss` | closed P&L + failed attempts' `meta.fee` + open positions at their current sell quote below minus the daily cap (the stage's cap in probe); also at start, from today's rows in `state.db` | `max_daily_loss_lamports` |
+| `crash_loop` | the 3rd start within an hour that follows an unclean exit (crash, SIGKILL, watchdog, panic: `kv.run_open` was still set; `kv.unclean_starts` lists them) | |
+| `panic` | a panic anywhere in a probe/live process: the hook writes the kill file and `kv.kill_latch`, then aborts (release builds use `panic = "abort"`); systemd restarts it killed | |
 
 The decode-miss ratio (above 1% over 500 creates) and a stale ArmSet keep their earlier behaviour.
+
+**The kill file** is `risk.kill_file`; probe and live refuse anything but an absolute path under
+`/run/rugsnipe/` (the units' tmpfiles directory), and every start prints the path it watches
+(`... | kill file /run/rugsnipe/KILL`). **Crash loops**: besides `crash_loop`, the start-limit drop-in
+(§3) stops a unit after 5 starts in an hour; `systemctl reset-failed <unit>` re-arms it.
+
+**Known gap: no exits-only start.** When a real start is refused (a gate fails: ArmSet, clock, keys,
+feed) the hot process exits, even if recovery would find open positions; it does not start in an
+exits-only mode. The guard covers this: with the hot box down it holds the exits lease and sells every
+open position (grace rule, retried until the balance is 0). Keep the guard running whenever a position
+is open, and check `select mint,state from positions where state!='closed'` before fixing the refusal.
 
 ```bash
 sudo -u rugsnipe /opt/rugsnipe/bin/rugsnipe-ctl kill status --state /var/lib/rugsnipe/state.db
@@ -529,7 +581,8 @@ a failed send is only counted, `cold.alerts`). `commands = true` also polls the 
 Slot timing changes (confirmation ~150 ms, several banks per slot, ticks collapse). Do this that week:
 
 1. **Split the data at the cutover.** Stop the running shadow before Oct 21 15:00 UTC and start a new
-   one with a new `--state` file after it. The go/no-go rule needs a full post-Alpenglow day; pre-cutover
+   one with a new `--state` file after it. No probe money across the cutover: stage A starts Oct 23 at the
+   earliest, after one full post-cutover shadow day (`docs/research/probe-design-v2.md` §6). The go/no-go rule needs a full post-Alpenglow day; pre-cutover
    data does not count toward it.
 2. **Watch the feed and the lane** in the status lines: `miss` (decode misses: buys stop above 1%),
    `reconnects`, and the lane's `create signature not in the curve's history` / `unresolved` share in the
@@ -642,6 +695,8 @@ config uses.
 | `armset-signing-key` (`armset-signing.key`) | ArmSet signing key (ohio1 only, never fra1) | no | pubkey in `[secrets] armset_pubkey` |
 | `api-keys` (`api-keys.toml`) | the table below | | `[secrets] api_keys` |
 | `GRPC_TOKEN` | the Yellowstone gRPC `x-token` (Triton, Alchemy, SVS, LaserStream) | per GB / plan | `[feeds] grpc.x_token` (a line of `api-keys.toml`, or a credential file of that name) |
+| `RPC_URL` | the paid RPC URL with its key (fill lane, burns, blockhashes, guard balances) | vendor plan | `--rpc-url cred:RPC_URL` (hot and guard; never the URL itself on a command line) |
+| `LOGSWS_URL`, `GRPC_URL` (optional) | a feed URL that carries a key | vendor plan | `[feeds] logsws.url = "cred:LOGSWS_URL"`, `grpc.url = "cred:GRPC_URL"` |
 | `HELIUS_KEY` | Helius Sender `fra-sender` (free key: 50 req/s per region) | per-tx tip, 0.001 SOL; 5,000 lamports on the `swqos_only` leg | `[senders] helius.key` (`helius_swqos` uses it too) |
 | `NOZOMI_KEY` | Nozomi (Temporal) sender | per-tx tip, min 0.001 SOL | `[senders] nozomi.key` |
 | `ASTRALANE_KEY` | Astralane sender | per-tx tip, 0.001 SOL (0.00001 at VIP3) | `[senders] astralane.key` |

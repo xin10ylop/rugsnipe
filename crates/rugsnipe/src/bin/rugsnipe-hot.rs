@@ -66,7 +66,8 @@ fn main() {
     match run(&args) {
         Ok(()) => {}
         Err(e) => {
-            eprintln!("rugsnipe-hot: {e}");
+            // a client error can echo the URL it was given (API key in it)
+            eprintln!("rugsnipe-hot: {}", rugsnipe::keys::redact_text(&e));
             std::process::exit(2);
         }
     }
@@ -132,6 +133,43 @@ fn dry_selftest(app: &app::App, rpc_url: &str) {
     }
 }
 
+/// Real modes: a panic anywhere latches the kill before the process aborts
+/// (docs/08 section 10). The hook runs on the panicking thread with no
+/// runtime: it writes the kill file (a plain file write) and `kv.kill_latch`
+/// through its own synchronous SQLite connection (the ledger's writer thread
+/// may never run again), then aborts so systemd restarts a process that
+/// comes back killed (buys off, exits on) instead of limping on.
+fn install_panic_latch(kill_file: PathBuf, state: PathBuf) {
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        prev(info);
+        let detail: String = rugsnipe::keys::redact_text(&info.to_string())
+            .chars()
+            .take(400)
+            .collect();
+        let _ = std::fs::write(&kill_file, format!("panic: {detail}\n"));
+        if let Ok(c) = rusqlite::Connection::open(&state) {
+            let _ = c.busy_timeout(Duration::from_millis(1_000));
+            if matches!(rugsnipe_state::killkv::latched(&c), Ok(None)) {
+                let row = rugsnipe_state::killkv::Latch {
+                    reason: rugsnipe_core::risk::KillReason::Panic.name().into(),
+                    unix: rugsnipe::now_unix(),
+                    detail: detail.clone(),
+                };
+                let _ = c.execute(
+                    "INSERT OR REPLACE INTO kv(k, v) VALUES(?1, ?2)",
+                    rusqlite::params![rugsnipe_state::killkv::LATCH_KEY, row.to_json()],
+                );
+            }
+        }
+        eprintln!(
+            "rugsnipe-hot: PANIC: kill latched ({} and kv.kill_latch); aborting",
+            kill_file.display()
+        );
+        std::process::abort();
+    }));
+}
+
 fn run(args: &[String]) -> Result<(), String> {
     let cfg_path = opt(args, "--config").ok_or(format!("--config required\n{USAGE}"))?;
     let mut cfg = rugsnipe::setup::load_config(&PathBuf::from(cfg_path))?;
@@ -141,6 +179,12 @@ fn run(args: &[String]) -> Result<(), String> {
     let mode = cfg.mode.mode;
     let live_flag = flag(args, "--live");
     let dry = flag(args, "--probe-dry");
+    if mode.is_real() && !dry {
+        install_panic_latch(
+            PathBuf::from(&cfg.risk.kill_file),
+            PathBuf::from(opt(args, "--state").unwrap_or("/var/lib/rugsnipe/state.db")),
+        );
+    }
     if dry && mode != Mode::Probe {
         return Err("--probe-dry needs mode = probe (paper never loads keys)".into());
     }
@@ -162,9 +206,69 @@ fn run(args: &[String]) -> Result<(), String> {
         Some(p) => ArmChoice::File(PathBuf::from(p)),
         None => ArmChoice::None,
     };
-    let rpc_url = opt(args, "--rpc-url")
-        .unwrap_or("https://api.mainnet-beta.solana.com")
-        .to_string();
+    // --- the RPC endpoint: `cred:NAME` reads it from the credentials (the
+    // API key never reaches the command line); real modes refuse a key or a
+    // query string on the command line and the public endpoint
+    let rpc_arg = opt(args, "--rpc-url");
+    // real modes collect these with every other refusal (below)
+    let mut url_refusals: Vec<String> = vec![];
+    if mode.is_real() {
+        match rpc_arg {
+            None => url_refusals.push(
+                "--rpc-url is required (cred:RPC_URL: a line of the api-keys credential); the public api.mainnet-beta.solana.com is rate-limited".into(),
+            ),
+            Some(u) => url_refusals.extend(rugsnipe::keys::real_mode_url_refusal("--rpc-url", u)),
+        }
+        // feed URLs with a query string: refused by Config::validate
+    }
+    let mut resolve = |what: &str, on: bool, u: &str| -> Result<String, String> {
+        if !on {
+            return Ok(String::new());
+        }
+        match rugsnipe::keys::resolve_url(&cfg, what, u) {
+            Ok(v) => Ok(v.to_string()),
+            Err(e) if mode.is_real() => {
+                url_refusals.push(e);
+                Ok(String::new())
+            }
+            Err(e) => Err(e),
+        }
+    };
+    let rpc_url = resolve(
+        "--rpc-url",
+        true,
+        rpc_arg.unwrap_or("https://api.mainnet-beta.solana.com"),
+    )?;
+    let grpc_url = resolve(
+        "feeds.grpc.url",
+        cfg.feeds.grpc.enabled,
+        &cfg.feeds.grpc.url,
+    )?;
+    let logsws_url = resolve(
+        "feeds.logsws.url",
+        cfg.feeds.logsws.enabled,
+        &cfg.feeds.logsws.url,
+    )?;
+    if mode.is_real() && rpc_arg.is_some() && rugsnipe::keys::is_public_mainnet(&rpc_url) {
+        url_refusals.push(
+            "--rpc-url is the public api.mainnet-beta.solana.com (rate-limited: the fill lane, burns and blockhashes need a paid endpoint)".into(),
+        );
+    }
+    eprintln!(
+        "rpc {} | grpc {} | logsws {} | kill file {}",
+        rugsnipe::keys::redact_url(&rpc_url),
+        if grpc_url.is_empty() {
+            "off".into()
+        } else {
+            rugsnipe::keys::redact_url(&grpc_url)
+        },
+        if logsws_url.is_empty() {
+            "off".into()
+        } else {
+            rugsnipe::keys::redact_url(&logsws_url)
+        },
+        cfg.risk.kill_file
+    );
     // --- the gRPC feed's x-token (paper may run the gRPC feed: a feed, not
     // a sender; the token is a credential like the sender keys)
     if cfg.feeds.grpc.enabled && !cfg!(feature = "grpc") {
@@ -226,6 +330,7 @@ fn run(args: &[String]) -> Result<(), String> {
             .err()
             .map(|e| e.lines().map(String::from).collect())
             .unwrap_or_default();
+        lines.extend(url_refusals.iter().map(|r| format!("  - {r}")));
         if !cfg!(feature = "real-senders") {
             lines.push(
                 "  - this binary has no real senders (build with --features real-senders)".into(),
@@ -293,7 +398,7 @@ fn run(args: &[String]) -> Result<(), String> {
     if cfg.feeds.grpc.enabled {
         use rugsnipe_feed::grpc::{Grpc, GrpcConfig};
         let mut g = Grpc::spawn(GrpcConfig {
-            url: cfg.feeds.grpc.url.clone(),
+            url: grpc_url.clone(),
             x_token: grpc_token.as_ref().map(|t| t.to_string()),
             stale_ms: cfg.feeds.grpc.stale_ms,
             wallet,
@@ -320,7 +425,7 @@ fn run(args: &[String]) -> Result<(), String> {
             let hs = h.health().snapshot();
             eprintln!(
                 "grpc feed {}: connected {} slot {} reconnects {} ({} ms)",
-                cfg.feeds.grpc.url,
+                rugsnipe::keys::redact_url(&grpc_url),
                 hs.connected,
                 hs.last_slot,
                 hs.reconnects,
@@ -334,7 +439,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 g.shutdown();
                 return Err(format!(
                     "mode {mode} refused:\n  - no healthy post-execution feed (gRPC {}: connected {}, last slot {}, reconnects {} after {wait} s)",
-                    cfg.feeds.grpc.url, hs.connected, hs.last_slot, hs.reconnects
+                    rugsnipe::keys::redact_url(&grpc_url), hs.connected, hs.last_slot, hs.reconnects
                 ));
             }
         }
@@ -387,7 +492,7 @@ fn run(args: &[String]) -> Result<(), String> {
     }
     if cfg.feeds.logsws.enabled {
         let lc = LogsWsConfig {
-            url: cfg.feeds.logsws.url.clone(),
+            url: logsws_url.clone(),
             stale_ms: cfg.feeds.logsws.stale_ms,
             max_watches: num(args, "--max-watches", 16usize)?,
             watch_funders: funders.clone(),
@@ -557,6 +662,8 @@ fn run(args: &[String]) -> Result<(), String> {
 
     let duration = num(args, "--duration-s", 0u64)?;
     let busy = flag(args, "--busy-poll");
+    // the sender thread yields instead of sleeping on the pinned cores too
+    rugsnipe::sender::set_busy_poll(busy);
     let t0 = Instant::now();
     let mut buf = FeedBuf::with_capacity(1_024, 1 << 20);
     let mut idle = 0u32;

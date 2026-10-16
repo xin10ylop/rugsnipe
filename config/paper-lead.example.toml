@@ -68,6 +68,7 @@ grpc = { enabled = false, url = "https://api.rpcpool.com", x_token = "GRPC_TOKEN
 shreds = { enabled = false, bind = "0.0.0.0:7733", sources = ["dz_edge", "helius"] }
 probe_live_require = "post_exec"
 [senders]
+quarantine_min = 10                                # a sender above risk.send_error_kill_ratio over its own last N sends is skipped this long
 paper = { enabled = true }
 rpcsend = { enabled = false, url = "https://api.mainnet-beta.solana.com", sells_only = true }
 helius = { enabled = false, url = "http://fra-sender.helius-rpc.com/fast", swqos_only = true, min_tip = 5_000 }
@@ -89,9 +90,9 @@ per_host = 10                                      # Python buckets: cap per end
 format = "legacy"
 cu_limit = 0                                       # FLOOR of the per-mint CU limit: the hot path patches 65,000 + 1,500*S per mint
                                                    # (S = sum of 255 - bump over bc, curve base ATA, curve wSOL ATA, our ATA;
-                                                   # research/gap-5), clamped to [cu_limit, 1,400,000]; sells use it as is.
-                                                   # 88_000 recommended; 0 = probe/live refused until `rugsnipe-ctl sim`
-                                                   # confirms the fit (paper falls back to 88,000)
+                                                   # research/gap-5), clamped to [cu_limit, 1,400,000]; sells: max(it, 88,000).
+                                                   # 65_000 recommended; 0 = probe/live refused until `rugsnipe-ctl sim`
+                                                   # confirms the fit (paper falls back to 65,000)
 lads_bytes = 0
 nonce_pool = 32
 sell_nonce_pool = 8
@@ -108,6 +109,7 @@ quantile = 0.75
 split = { jito_agave = [0.0, 1.0], bam = [1.0, 0.0], harmonic = [1.0, 0.0], other = [1.0, 0.0] }
 min_priority_lamports = 10_000                     # header priority fee floor (gap-2: winners p10 1k, p25 45k lamports)
 failed_attempt_lamports_max = 1_000_000            # most a failed attempt may cost (base + priority); priority is clamped to it
+failed_attempt_max_by_class = { jito_agave = 0, bam = 0, harmonic = 0, other = 0 }   # per-class cap override; 0 = the global cap (probe-A arms, docs/06 section 6)
 [probe]                                            # docs/04 section 7, docs/08 section 9; read in mode = "probe" only
 stage = "a"                                        # a | b; a signed ArmSet that names probe_stage must name the same one (b: must name b)
 # each cap narrows the [risk] cap of the same name (the smaller non-zero value binds)
@@ -118,6 +120,8 @@ b = { max_probe_lamports = 250_000_000, max_probes_per_day = 300, max_open_posit
 kill = { min_landed = 100, min_attempts = 400, max_median_premium = 0.03, landing_attempts = 200 }
 [entry]
 max_premium = 0.02                                 # max_sol_cost = post-bundle price + 2%: a rank-3 fill fails cheaply
+bundle_lamports = 4_000_000_000                    # expected bundle SOL outside the create tx: min_tokens_out at
+                                                   # min(v_max, (V0 + this) * sqrt(1 + max_premium)); bigger bundles fail cheaply
 filter = "multi_bundle"                            # >= 1 bundle wallet outside the creator set (gap-3 definition)
 filter_model = "data/reports/strategy/entry_filter_v1.json"   # frozen P(take-profit) trees (docs/04 section 2); "" = off
 filter_mode = "log"                                # log: score + tertile on every intent | skip: also drop score < t1

@@ -195,6 +195,10 @@ pub fn tmpdir(name: &str) -> PathBuf {
     let base = std::env::var_os("RUGSNIPE_TEST_TMP")
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir);
+    // a real mode's kill file must sit under /run/rugsnipe/; the suite's
+    // live in its temp directories (the same value from every test thread,
+    // inherited by the spawned binaries)
+    std::env::set_var("RUGSNIPE_KILL_DIR", &base);
     let d = base.join(format!(
         "rugsnipe-it-{name}-{}-{}",
         std::process::id(),

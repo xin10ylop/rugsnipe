@@ -36,6 +36,8 @@ fn cfg(dry_run: bool, grace_s: u64) -> GuardCfg {
         drop_from_peak_bps: 3_000,
         grace_s,
         dry_run,
+        retry_ms: 3_000,
+        max_sell_spend: 20_000_000,
     }
 }
 
@@ -234,6 +236,7 @@ fn guard_real_sell_goes_through_the_real_senders_on_a_recent_blockhash() {
             real: Some(rugsnipe::guard::GuardReal {
                 senders,
                 blockhash: Arc::new(move || *h2.lock().unwrap()),
+                token_balance: None,
             }),
         }),
     );

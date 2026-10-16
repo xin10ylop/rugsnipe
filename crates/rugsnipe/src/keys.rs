@@ -295,6 +295,165 @@ fn read_api_keys(p: &Path, name: &str) -> Result<ApiKeys, Refusal> {
     })
 }
 
+// ------------------------------------------------------------------ URLs
+/// A URL given as `cred:NAME` is read from the credentials (a line of the
+/// `api-keys` credential or a credential file `NAME`, [`named_secret`]),
+/// so that an API key in a query string or path never appears on a command
+/// line, in `ps`, in a unit file or in the config.
+pub const CRED_PREFIX: &str = "cred:";
+
+/// The credential name of a `cred:NAME` URL.
+pub fn cred_name(url: &str) -> Option<&str> {
+    url.strip_prefix(CRED_PREFIX).map(str::trim)
+}
+
+/// The public mainnet-beta endpoint (rate-limited; never for a real mode).
+pub fn is_public_mainnet(url: &str) -> bool {
+    url_host(url).eq_ignore_ascii_case("api.mainnet-beta.solana.com")
+}
+
+fn url_host(url: &str) -> &str {
+    let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let auth = &rest[..end];
+    let host = auth.rsplit_once('@').map(|(_, h)| h).unwrap_or(auth);
+    host.split(':').next().unwrap_or(host)
+}
+
+/// The printable form of a URL: `scheme://host[:port]`, then `/…` for any
+/// path and `?…` for any query (both can carry an API key); user info is
+/// dropped. A `cred:NAME` URL prints as itself (it holds no secret).
+pub fn redact_url(url: &str) -> String {
+    if url.starts_with(CRED_PREFIX) {
+        return url.to_string();
+    }
+    let (scheme, rest) = match url.split_once("://") {
+        Some((s, r)) => (s, r),
+        None => return "<url>".into(),
+    };
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let auth = &rest[..end];
+    let host = auth.rsplit_once('@').map(|(_, h)| h).unwrap_or(auth);
+    let tail = &rest[end..];
+    let (path, query) = match tail.split_once('?') {
+        Some((p, _)) => (p, true),
+        None => (tail, false),
+    };
+    let mut out = format!("{scheme}://{host}");
+    if !path.is_empty() && path != "/" {
+        out.push_str("/…");
+    }
+    if query {
+        out.push_str("?…");
+    }
+    out
+}
+
+/// Redact every `http(s)://` / `ws(s)://` URL inside a message (errors from
+/// clients can echo the URL they were given).
+pub fn redact_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    loop {
+        let next = ["https://", "http://", "wss://", "ws://"]
+            .iter()
+            .filter_map(|p| rest.find(p))
+            .min();
+        let Some(i) = next else {
+            out.push_str(rest);
+            break;
+        };
+        out.push_str(&rest[..i]);
+        let tail = &rest[i..];
+        let end = tail
+            .find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | ')' | '>' | ','))
+            .unwrap_or(tail.len());
+        out.push_str(&redact_url(&tail[..end]));
+        rest = &tail[end..];
+    }
+    out
+}
+
+/// Why a URL given on the command line or in the config is refused in a
+/// real mode: an API key or any query string must come from a `cred:NAME`
+/// credential instead (`ps`, the journal and unit files are readable).
+pub fn real_mode_url_refusal(what: &str, url: &str) -> Option<String> {
+    if url.starts_with(CRED_PREFIX) {
+        return None;
+    }
+    let l = url.to_ascii_lowercase();
+    if l.contains("api-key=") || l.contains("api_key=") || l.contains("token=") || url.contains('?')
+    {
+        return Some(format!(
+            "{what} {} carries a query string (an API key?) in plain text: put the URL in the api-keys credential and pass cred:NAME",
+            redact_url(url)
+        ));
+    }
+    None
+}
+
+/// Resolve a URL that may be `cred:NAME` (the credentials directory is read
+/// only for a `cred:` URL). Plain URLs come back unchanged.
+pub fn resolve_url(cfg: &Config, what: &str, url: &str) -> Result<Zeroizing<String>, String> {
+    let Some(name) = cred_name(url) else {
+        return Ok(Zeroizing::new(url.to_string()));
+    };
+    if name.is_empty() {
+        return Err(format!(
+            "{what}: cred: needs a credential name (cred:RPC_URL)"
+        ));
+    }
+    let dir = credentials_dir().map_err(|r| format!("{what} {url}: {r}"))?;
+    match named_secret(cfg, &dir, name).map_err(|r| format!("{what} {url}: {r}"))? {
+        Some(v) => Ok(v),
+        None => Err(format!(
+            "{what} {url}: {name:?} is neither a line of the api-keys credential nor $CREDENTIALS_DIRECTORY/{name}"
+        )),
+    }
+}
+
+#[cfg(test)]
+mod url_tests {
+    use super::*;
+
+    #[test]
+    fn redaction_hides_paths_and_queries() {
+        assert_eq!(
+            redact_url("https://mainnet.helius-rpc.com/?api-key=abc"),
+            "https://mainnet.helius-rpc.com?…"
+        );
+        assert_eq!(
+            redact_url("https://x.quiknode.pro/SECRETTOKEN/"),
+            "https://x.quiknode.pro/…"
+        );
+        assert_eq!(
+            redact_url("wss://u:p@h.example:8900"),
+            "wss://h.example:8900"
+        );
+        assert_eq!(redact_url("cred:RPC_URL"), "cred:RPC_URL");
+        let t = redact_text("rpc https://a.b/?api-key=K1 failed (wss://c.d/T0K)");
+        assert!(!t.contains("K1") && !t.contains("T0K"), "{t}");
+        assert!(
+            t.contains("https://a.b?…") && t.contains("wss://c.d/…"),
+            "{t}"
+        );
+    }
+
+    #[test]
+    fn real_mode_refuses_keys_on_the_command_line() {
+        assert!(real_mode_url_refusal("--rpc-url", "https://h.com/?api-key=x").is_some());
+        assert!(real_mode_url_refusal("--rpc-url", "https://h.com/?a=b").is_some());
+        assert!(real_mode_url_refusal("--rpc-url", "https://h.com").is_none());
+        assert!(real_mode_url_refusal("--rpc-url", "cred:RPC_URL").is_none());
+        assert!(is_public_mainnet("https://api.mainnet-beta.solana.com"));
+        assert!(is_public_mainnet("wss://API.mainnet-beta.solana.com/"));
+        assert!(!is_public_mainnet(
+            "https://mainnet.helius-rpc.com/?api-key=x"
+        ));
+        assert_eq!(cred_name("cred:RPC_URL"), Some("RPC_URL"));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -35,7 +35,9 @@ use crate::leader::{ClientClass, LeaderEvent, LeaderSnapshot};
 use crate::msgs::{ColdMsg, HotIn, ShadowInfo};
 use crate::setup::{load_armset_file, ArmState};
 use crate::stats::HotStats;
-use crate::triggers::{self as trig, names as tn, BalanceWatch, CheckEvent, Mark, SendErrWindow};
+use crate::triggers::{
+    self as trig, names as tn, BalanceWatch, CheckEvent, Mark, SenderErrWindows,
+};
 use arc_swap::ArcSwap;
 use prometheus_client::registry::Registry;
 use pump_codec::Pubkey;
@@ -224,6 +226,9 @@ pub struct ChecksReport {
     pub programdata_slot: Option<u64>,
     pub send_errors_in_window: usize,
     pub sends_in_window: usize,
+    /// Senders over the send-error ratio on their own window (the sender
+    /// thread quarantines them for `senders.quarantine_min`).
+    pub senders_degraded: Vec<String>,
     pub mtm_today_lamports: i64,
     pub open_marks: usize,
     pub check_errors: Vec<String>,
@@ -746,6 +751,8 @@ struct Cold {
     to_hot_q: VecDeque<HotIn>,
     last_hb: u64,
     was_killed: bool,
+    /// The risk gate's day as last persisted (`risk` / `op_risk` rows).
+    risk_snap: Option<rugsnipe_core::risk::DaySnapshot>,
     armset_mtime: Option<std::time::SystemTime>,
     nonce_intent: Vec<u64>,
     sender_gone: bool,
@@ -761,7 +768,7 @@ struct Cold {
     /// Slot each Burning nonce's burn was sent at (re-sent after
     /// [`BURN_RETRY_SLOTS`]; quarantined after three failures).
     burning_since: HashMap<usize, u64>,
-    send_errs: SendErrWindow,
+    send_errs: SenderErrWindows,
     balance: BalanceWatch,
     marks: HashMap<Pubkey, Mark>,
     first_seen: FirstSeen,
@@ -819,6 +826,7 @@ impl Cold {
             to_hot_q: VecDeque::new(),
             last_hb: 0,
             was_killed: false,
+            risk_snap: None,
             armset_mtime: None,
             nonce_intent: vec![0; n],
             sender_gone: false,
@@ -827,7 +835,7 @@ impl Cold {
             real_intents: HashMap::new(),
             early_sent: vec![],
             burning_since: HashMap::new(),
-            send_errs: SendErrWindow::new(tc.send_error_window, tc.send_error_ratio),
+            send_errs: SenderErrWindows::new(tc.send_error_window, tc.send_error_ratio, 0),
             balance: BalanceWatch::new(tc.unexplained_drop_lamports),
             marks: HashMap::new(),
             first_seen: FirstSeen::new(),
@@ -1388,12 +1396,15 @@ impl Cold {
                     });
                 }
                 if sender != 0 && self.real_intents.contains_key(&intent) {
-                    // the send-error ratio over the last N real sends
-                    let w = self.send_errs.on_send(result == 1);
+                    // the send-error ratio over each sender's last N real
+                    // sends: the latch only when every sender is degraded
+                    let now = crate::now_ms();
+                    let w = self.send_errs.on_send(label, result == 1, now).kill;
                     {
                         let mut r = lock(&self.p.report);
                         r.checks.send_errors_in_window = self.send_errs.errors();
                         r.checks.sends_in_window = self.send_errs.len();
+                        r.checks.senders_degraded = self.send_errs.degraded(now);
                     }
                     if let Some(d) = w {
                         self.fire_trigger(tn::SEND_ERRORS, KillReason::SendErrors, d);
@@ -2539,20 +2550,57 @@ impl Cold {
     fn write_risk_row(&self) {
         let Some(l) = &self.p.ledger else { return };
         let r = lock(&self.p.report).clone();
+        let now = crate::now_unix();
+        // a real mode persists the gate's own day (closed P&L + failed
+        // attempts, seeded at start from this row and the ledger)
+        let (realized, buys) = if self.p.cfg.mode.is_real() {
+            let d = self.p.risk.day_snapshot(now);
+            (d.realized, d.probes)
+        } else {
+            (r.realized_lamports, r.intents)
+        };
         l.writer().send(Write::Risk(RiskRow {
-            day: utc_day(crate::now_unix()),
+            day: utc_day(now),
             start_balance: self.p.cfg.paper_start_balance,
             deposits: 0,
             sweeps: 0,
-            realized: r.realized_lamports,
-            buys: r.intents,
+            realized,
+            buys,
             killed: r.killed,
             kill_reason: r.kill_reason.clone(),
         }));
     }
 
+    /// Real modes: persist the risk gate's day whenever it changed (the
+    /// daily caps survive a restart: `app::seed_risk_day` reads it back).
+    fn persist_risk_day(&mut self) {
+        if !self.p.cfg.mode.is_real() || self.p.ledger.is_none() {
+            return;
+        }
+        let snap = self.p.risk.day_snapshot(crate::now_unix());
+        if self.risk_snap.as_ref() == Some(&snap) {
+            return;
+        }
+        self.write_risk_row();
+        if let Some(l) = &self.p.ledger {
+            let arm = self.p.arm.load();
+            for o in &snap.ops {
+                if let Some(op) = arm.ops.values().find(|op| op.slot == o.slot) {
+                    l.writer().send(Write::OpRisk {
+                        op_id: op.op_id,
+                        consec_losses: o.consec_losses,
+                        buys_today: o.buys_today as u32,
+                        disarmed_until: o.latched_until_day as u64 * 86_400,
+                    });
+                }
+            }
+        }
+        self.risk_snap = Some(snap);
+    }
+
     fn every_second(&mut self) {
         self.flush_outcomes(false);
+        self.persist_risk_day();
         // the post-execution feed: stale in a real mode latches the kill
         if let Some(f) = &self.p.post_exec {
             let s = f.health.snapshot();
@@ -2617,6 +2665,14 @@ impl Cold {
                     eprintln!("lease: exits lease lost (guard took over); sells suppressed");
                 }
                 self.p.stats.lease_owned.set(ok as i64);
+                // liveness, lease or not: a guard holding `exits` hands it
+                // back once it sees this heartbeat again
+                let _ = rugsnipe_state::lease::beat(
+                    c,
+                    rugsnipe_state::lease::HOT_HEARTBEAT,
+                    &l.owner,
+                    now,
+                );
                 self.p.rslog.push(Rec::Lease {
                     name_hash: 0x6578_6974, // "exit"
                     owner: rugsnipe_core::rslog::box_id(&self.p.cfg.box_id),

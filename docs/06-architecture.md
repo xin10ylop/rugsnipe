@@ -31,7 +31,7 @@ Tags:
 |---|---|---|
 | 1 | "Public data is perishable" | False [V]. **Backfill** 21-30 days now (§9.1); the collector stays for post-Alpenglow data. |
 | 2 | `idx+1` nonce probing on local state allows a cross-box double buy | **No probing**; fire only with the pre-create nonce value (§7.3). Collisions only skip. |
-| 3 | Entry gate: observed bundle (P1), p75 (P3), on-chain bound (P2) | **All in-tx buys** plus on-chain `min_tokens_out(v_max)`: one information set for backtest and live (§7.1). |
+| 3 | Entry gate: observed bundle (P1), p75 (P3), on-chain bound (P2) | **All in-tx buys** plus on-chain `min_tokens_out(V_cap)`, `V_cap = min(v_max, (V0 + entry.bundle_lamports)·√(1 + entry.max_premium))`: one bound for paper E1 and live (§7.1; 2026-10-16, was `v_max` alone). |
 | 4 | Free feeds have no wire bytes | `CreateHit` from `logsSubscribe` CreateEvent + TradeEvents (§7.1); wire decoder covered by fixtures and a `getTransaction` lane. |
 | 5 | `creator_arg` spoofing | Live fire only on a **signer/fee-payer** match; `creator_arg`-only is shadow. Shared fee payers and launchers are never keys. |
 | 6, 7 | Bundle set keyed on signers; single "dev buy" | Sum **every** pump buy in the create tx. The bundle set adds every in-tx buyer and the **owners of credited token accounts** [V]. |
@@ -216,6 +216,7 @@ grpc = { enabled = false, url = "https://api.rpcpool.com", x_token = "GRPC_TOKEN
 shreds = { enabled = false, bind = "0.0.0.0:7733", sources = ["dz_edge", "helius"] }
 probe_live_require = "post_exec"
 [senders]
+quarantine_min = 10                                # a sender over send_error_kill_ratio on its own last N sends is skipped this long
 paper = { enabled = true }
 rpcsend = { enabled = true, url = "https://api.mainnet-beta.solana.com", sells_only = true }
 helius = { enabled = false, url = "http://fra-sender.helius-rpc.com/fast", swqos_only = true, min_tip = 5_000 }
@@ -234,7 +235,7 @@ per_method = 4                                     # Python buckets: per (host, 
 per_host = 10                                      # Python buckets: per host
 [tx]
 format = "legacy"
-cu_limit = 0                                       # FLOOR: the hot path patches 65,000 + 1,500*S per mint (gap-5), clamped to [cu_limit, 1.4M]; 88_000 recommended; 0 = probe/live refused until `ctl sim` confirms the fit
+cu_limit = 0                                       # FLOOR: the hot path patches 65,000 + 1,500*S per mint (gap-5), clamped to [cu_limit, 1.4M]; 65_000 recommended (sells: max(it, 88,000)); 0 = probe/live refused until `ctl sim` confirms the fit
 lads_bytes = 0
 nonce_pool = 32
 sell_nonce_pool = 8
@@ -245,6 +246,7 @@ quantile = 0.75
 split = { jito_agave = [0.0, 1.0], bam = [1.0, 0.0], harmonic = [1.0, 0.0], other = [1.0, 0.0] }   # [priority, tip]; BAM priority-ordered (measured)
 min_priority_lamports = 10_000                     # header priority fee floor of every variant
 failed_attempt_lamports_max = 1_000_000            # base + priority of a failed attempt; priority clamped to it
+failed_attempt_max_by_class = { jito_agave = 0, bam = 0, harmonic = 0, other = 0 }   # per-class override, 0 = the global cap
 [probe]                                            # docs/04 section 7; read in mode = "probe" only
 stage = "a"                                        # a | b; an ArmSet naming probe_stage must agree (b: must name b)
 a = { max_probe_lamports = 20_000_000, max_probes_per_day = 50, max_open_positions = 1, max_daily_loss_lamports = 200_000_000 }
@@ -279,7 +281,8 @@ small_arm = [0.2, 0.35]
 small_lamports = 50_000_000
 size_jitter = 0.10
 [entry]                                            # docs/04 section 6
-max_premium = 0.02                                 # fill cap over the post-bundle price
+max_premium = 0.02                                 # fill cap over the post-bundle price: min_tokens_out at V_cap (section 7.1)
+bundle_lamports = 4_000_000_000                    # expected bundle SOL outside the create tx: V_pb = V0 + this
 filter = "any"                                     # any | multi_bundle (>= 1 bundle wallet outside the creator set)
 filter_model = ""                                  # frozen P(take-profit) trees (data/reports/strategy/entry_filter_v1.json); "" = off
 filter_mode = "log"                                # log: score + tertile on every intent | skip: also drop score < t1 (no send, no cost)
@@ -311,7 +314,20 @@ variant lands per leader class before that changes. Sells take the same split
 (`BidPolicy::plan_sell`): floor priority + the sell bid as a tip on a tip-ordered class, the sell bid
 as the priority fee elsewhere (and for an unknown leader), never both; the buy cap does not clamp a
 sell (`risk.max_sell_spend_lamports` bounds it). Validation refuses a cap below `2 × 5,000 + min_priority_lamports`
-in every mode and warns when a tip class puts part of the bid into the priority fee. While the
+in every mode and warns when a tip class puts part of the bid into the priority fee.
+**Per-class cap (2026-10-16, for the probe-A arm design):** `bid.failed_attempt_max_by_class`
+overrides the cap per leader class (0 = the global cap, the default, so nothing changes unless set).
+At the defaults the static bid of 3.4M lamports is clamped to 990,000 of priority on BAM, Harmonic and
+other leaders (≈ 15M µL/CU at a 65,000 limit) while rivals' median is ≈ 25.8M µL/CU; a probe-A arm can
+raise one class's cap (e.g. `harmonic = 5_000_000`) to measure landing against failed cost without
+changing sizing or the other classes. Sells are not clamped (unchanged).
+**Sells sign once (2026-10-16).** A sell rides a plain blockhash, so per-sender copies with different
+tips would be different signatures that could all land (a partial take-profit selling twice, tips paid
+twice). The sender thread signs one message per sell job (tip to the first tip-taking sender's account)
+and sends the identical bytes only to the senders whose tip check accepts it (`sender::plan_sell`).
+The exit engine's own re-sends (`sell_retry`, new `try_no`) are still separate signatures on a live
+blockhash; a final sell is self-limiting (the second fails on the empty balance), a partial is not
+until the sell nonce pool exists. While the
 leader's class is unknown the primary variant is the pay-on-success one and the secondary the
 clamped priority one, on one durable nonce. **Every failed attempt is recorded with its realised
 cost** in `fills.fail_cost` (and `paper.failed_cost_lamports` / `failed_cost_lamports_mean` in the
@@ -335,7 +351,7 @@ to (`via = class`); the lead policy's universe is a class of launches, not a lis
 
 One file serves both sides: the Rust parser refuses unknown keys, so the Python-only knobs (`[rpc_budget]` `per_method`/`per_host`/`methods`, `[collector]`) are typed there as well.
 
-**Per-mint CU.** `S = Σ (255 − bump)` over `bonding_curve`, the curve's base ATA, the curve's wSOL ATA and our base ATA, recovered from keys the hot path already holds by hashing alone (no curve checks; `S + 4` SHA-256 rounds). The patch writes `65,000 + 1,500·S` (expected cost `63,500 + 1,500·S`: gap-5's `62,310 + 1,500·S` plus 1,185 for `buy_exact_quote_in_v3`) into the v1 header or the legacy `SetComputeUnitLimit`, and re-derives the legacy CU price from the same lamport total. The formula reproduces all 361 gap-5 simulations within −263/+38 CU (`rugsnipe-tx/tests/cu_gap5.rs`); `ctl sim` re-measures it on live mints. **Wallet term:** pump also re-derives the buyer's `user_volume_accumulator`, so S includes `W = 255 − UVA bump` of the hot wallet (computed once at startup; gap-5's wallet has W = 0). Live simulations on 2026-10-14 (F3): a wallet with UVA bump 254 used 1,500 CU more on every mint and one with 252 used 4,500 more, so without W the legacy snipe failed `ComputationalBudgetExceeded` at the per-mint limit; with W all runs fit with 1,050 (legacy) / 1,500 (v1) CU to spare. The wallet's wSOL-ATA bump has no effect. Grinding the hot key to UVA bump 255 (one key in two) makes W = 0. With the recommended 88,000 floor the limit only rises above the floor for S ≥ 16; a lower floor (e.g. 65,000) lets it tighten.
+**Per-mint CU.** `S = Σ (255 − bump)` over `bonding_curve`, the curve's base ATA, the curve's wSOL ATA and our base ATA, recovered from keys the hot path already holds by hashing alone (no curve checks; `S + 4` SHA-256 rounds). The patch writes `65,000 + 1,500·S` (expected cost `63,500 + 1,500·S`: gap-5's `62,310 + 1,500·S` plus 1,185 for `buy_exact_quote_in_v3`) into the v1 header or the legacy `SetComputeUnitLimit`, and re-derives the legacy CU price from the same lamport total. The formula reproduces all 361 gap-5 simulations within −263/+38 CU (`rugsnipe-tx/tests/cu_gap5.rs`); `ctl sim` re-measures it on live mints. **Wallet term:** pump also re-derives the buyer's `user_volume_accumulator`, so S includes `W = 255 − UVA bump` of the hot wallet (computed once at startup; gap-5's wallet has W = 0). Live simulations on 2026-10-14 (F3): a wallet with UVA bump 254 used 1,500 CU more on every mint and one with 252 used 4,500 more, so without W the legacy snipe failed `ComputationalBudgetExceeded` at the per-mint limit; with W all runs fit with 1,050 (legacy) / 1,500 (v1) CU to spare. The wallet's wSOL-ATA bump has no effect. Grinding the hot key to UVA bump 255 (one key in two) makes W = 0. **Floor (2026-10-16): 65,000 recommended** (the formula at S = 0, so the floor never binds and every buy carries its own `65,000 + 1,500·S`). The earlier 88,000 floor covered S ≤ 15 statically but wasted ~22% of priority per CU at the median S = 4 on priority-ordered leaders (`reward / (cost + 1)` ranks by fee per requested CU); the per-mint formula already covers real creates. Sells have no per-mint limit and keep a static `max(tx.cu_limit, 88,000)` (`cu::sell_cu_limit`; gap-5 §8: the exit is `44,300 + 1,500·S3` + 1,464 CloseAccount + 300, 67,064 at S3 = 14).
 
 Validation **refuses probe or live** if any of these holds:
 - a cap is 0 or missing, or `cu_limit = 0`;
@@ -360,13 +376,17 @@ Validation **refuses probe or live** if any of these holds:
 6  if slot_now − hit.slot > max_age_slots or aborted(hit.slot, hit.bank_id): rec(Stale); return
 7  d = risk.decide(op, feed_class, regime(hit.slot), mode); if d == Skip: return   # latch, caps, freeze
 8  V0 = curve after all in-tx buys; if V0 ≥ op.v_max: rec(TooHigh); return
+8b if real and slot_now > hit.slot: rec(LateSlot); return       # fire only in the create slot (paper keeps scoring)
 9  if mode ∈ {probe, live} and H(salt‖mint) < op.ab_skip_p: rec(SkipAB); return
 10 n = nonces.buy[xxh3(mint) % N]; if n.state != Free or n.last_change_slot ≥ hit.slot: rec(NoNonce); return  # simulated in paper
-11 X = op.size·(1 ± jitter); min_out = tokens_out(X, CurveState{v: op.v_max, t: k/op.v_max}, fees)
+11 X = op.size·(1 ± jitter); V_pb = V0 + entry.bundle_lamports; V_cap = min(op.v_max, isqrt(V_pb²·(10⁴ + max_premium_bps)/10⁴))
+   min_out = tokens_out(X, CurveState{v: V_cap, t: k/V_cap}, fees)
 12 tmpl.patch(mint, bc, abc, aqbc_hint or ATA(bc,SPL,WSOL), ATA(us,mint,T22), X, min_out, n.value, bid(class(leader)))
 13 sign → write primary socket; push FireJob to sender cores (other variants, each with its own tip ix)
 14 n.state = InFlight{intent, slot}; rec(Decision, Sent); ledger.push(Intent)
 ```
+
+**Entry bound (2026-10-16).** docs/04 §2 caps `max_sol_cost` at the post-bundle price + `entry.max_premium` (2%), so a fill at rank 3 (≈ +11%) fails cheaply. Price on the curve is `V²/k`, so +p in price is `√(1+p)` in V: step 11 computes `min_tokens_out` at `V_cap`, in integers (`hot::entry_v_cap`). The post-bundle reserve `V_pb` is not observable when we fire: the create's in-tx buys are (V0), but a multi-wallet bundle's other buys are separate transactions of the same Jito bundle. Neither the ArmSet nor E1 carries a per-operator bundle size (E1 reads the realised post-bundle state from confirmed history), so the expectation is one config value, `entry.bundle_lamports` (default 4 SOL, docs/05: median 3 wallets × 1.28 SOL; calibrate it from `shadow.post_bundle_mcap` against V0, or per operator once the ArmSet carries a fingerprint). A bundle bigger than expected fails the buy on `min_tokens_out` (the intended cheap failure); a smaller one leaves the cap loose by `(V_pb,exp / V_pb)²`. **Paper E1 applies the same `min_out`** to its fill (`tokens / (1 + premium)` at the realised post-bundle state, else `slippage`), so paper and live bound the same thing (`tests/entry_bound.rs`); the E2 model (end of slot+1, not a creation-slot entry) keeps the operator's `v_max` bound. Step 8b: a real decision whose lane has already seen a later slot is refused with `late_slot` (0x4d) and nothing is sent; the RiskGate reservation is released like every other refusal.
 
 **Free mode.** `logsSubscribe(mentions: TSLvdd…)` yields the CreateEvent (mint, curve, user, which is a signer, creator, token program, mayhem, quote mint [V, `events.rs`]) and the same transaction's TradeEvents (the in-tx buys). Fee payer and token owners are unknown, so free mode matches on `user` and is **paper only**. A cold lane fetches confirmed `getTransaction` bytes to fill the owners and exercise the wire decoder.
 
@@ -389,6 +409,8 @@ Validation **refuses probe or live** if any of these holds:
 | Free mode | +≈183 ms median → **slot +1 at best** | measured |
 
 Our code is 1-3% of the budget. Effort goes to placement, then feed, then bidding.
+
+**Idle waits (2026-10-16).** The hot unit runs `rugsnipe-hot --busy-poll` (pinned, isolated cores: `deploy/tune-hot.sh`): the feed loop never sleeps and the sender thread yields instead of its 200 µs idle sleep (`sender::set_busy_poll`). Each real sender already has its own worker thread, so the HTTP posts of one intent run concurrently across senders; inside one sender the intent's variants go out in order (Nozomi in one batch request), and the per-sender variants are signed serially on the sender thread (~22-32 µs each on a VM). Workers still block on a channel (a futex wake); spinning them would put up to one busy thread per sender on the same cores as the pinned hot loop.
 
 **Bids.** `B = min(Q_q(point-in-time winning bids[class]) × 1.1, op.ev_cap, max_bid)`, split by leader class (Harmonic ranks on priority; the BAM split is learned in probe). Routing uses the advertised tpuQuic metro and the leader's Jito region.
 
@@ -574,7 +596,7 @@ An ArmSet funder sending a fresh recipient (pre-balance 0) an amount in ≤ 5 **
 
 **Triggers:** kill file, `SIGUSR1` or Telegram `/kill`; the daily-loss cap (wallet SOL + Σ position sell quotes + recoverable ATA rent, against start + deposits − sweeps); an unexplained drop > 0.05 SOL; send errors > 20% over 5 min; decode-miss > 1%; a program upgrade or FeeConfig change; a stale ArmSet; disk > 90%; clock offset > 50 ms; reconcile drift > 60 s.
 
-*Implemented (2026-10-16, `rugsnipe::triggers`, docs/08 §10):* the file, the signal and Telegram `/kill`; the latch persisted in `state.db` (survives SIGKILL and restart; local `rugsnipe-ctl unkill`); send errors > 20% of the **last 50 sends**; an unexplained drop beyond the known spends of the last 120 s + 0.05 SOL; a pump program upgrade (programdata deployed slot / authority; FeeConfig changes are not watched yet); disk > 90%; clock > 50 ms; **gRPC drift** > 8 slots behind `getSlot` and a **stale gRPC feed**; the daily loss as closed P&L + failed attempts' `meta.fee` + open positions at their current curve (deposits and sweeps are not modelled: the cap is on today's trading P&L); decode-miss > 1%; a stale ArmSet (exits only).
+*Implemented (2026-10-16, `rugsnipe::triggers`, docs/08 §10):* the file, the signal and Telegram `/kill`; the latch persisted in `state.db` (survives SIGKILL and restart; local `rugsnipe-ctl unkill`); send errors **per sender** (2026-10-16): a sender with > 20% of its own last 50 sends failed is quarantined for `senders.quarantine_min` (10 min; the sender thread skips it, the summary's `checks.senders_degraded` lists it) and the latch fires only when every sender that has sent is degraded (the best sender's own ratio is above 20%), so one dead provider no longer kills the run; an unexplained drop beyond the known spends of the last 120 s + 0.05 SOL; a pump program upgrade (programdata deployed slot / authority; FeeConfig changes are not watched yet); disk > 90%; clock > 50 ms; **gRPC drift** > 8 slots behind `getSlot` and a **stale gRPC feed**; the daily loss as closed P&L + failed attempts' `meta.fee` + open positions at their current curve (deposits and sweeps are not modelled: the cap is on today's trading P&L); decode-miss > 1%; a stale ArmSet (exits only).
 
 **Metrics and alerts.** `prometheus-client` on loopback and wg0: feed lag and first-seen share, decode misses, stage latency, intents by decision, sends and breakers, landed slot offset, positions, exits by reason, free nonces, wallet, daily P&L, mode, ArmSet age, lease owner, drift. Critical alerts: killed; a position whose exit feed is down or owned by guard; a sell failing 5 tries; hot down 30 s; drift; upgrade; low balance. A daily digest gives per-operator stats.
 

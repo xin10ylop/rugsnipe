@@ -32,6 +32,10 @@ pub mod code {
     /// of a create is recorded only (the gRPC copy decides, so a late-feed
     /// paper intent can never hold the mint's slot).
     pub const FREE_FEED_DEFERS: u8 = 0x4c;
+    /// A real decision that runs after the create slot (the lane's slot is
+    /// already past it): the buy could not land in the creation slot, so it
+    /// is not sent (docs/04 section 2: fire only in the create slot).
+    pub const LATE_SLOT: u8 = 0x4d;
     /// Metrics only: a paper decision that a real mode would have skipped
     /// (rslog keeps the RiskGate code and the `would_skip` reason).
     pub const PAPER_WOULD_SKIP: u8 = 0x1f;
@@ -69,6 +73,7 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (code::NO_POSITION_SLOT, "no_position_slot"),
     (code::BAD_KEYS, "bad_keys"),
     (code::FREE_FEED_DEFERS, "free_feed_defers"),
+    (code::LATE_SLOT, "late_slot"),
 ];
 
 /// Label of a decision code.

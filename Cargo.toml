@@ -57,4 +57,4 @@ opt-level = 3
 lto = "thin"
 codegen-units = 4
 debug = false
-panic = "unwind"
+panic = "abort"                        # the hot binary's panic hook latches the kill first (docs/08 s10)

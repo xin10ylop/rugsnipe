@@ -472,6 +472,13 @@ pub struct SenderSet {
     /// minimum tips shape the signed variants) but never used: every send
     /// goes to the paper recorder and [`SenderSet::real`] is empty.
     pub dry: bool,
+    /// `senders.quarantine_min` in ms: a sender above the send-error ratio
+    /// is skipped this long by the sender thread.
+    pub quarantine_ms: u64,
+    /// `risk.send_error_window` / `risk.send_error_kill_ratio`: the
+    /// per-sender ratio that quarantines a sender.
+    pub send_error_window: usize,
+    pub send_error_ratio: f64,
     real: Vec<Box<dyn Sender>>,
 }
 
@@ -502,6 +509,9 @@ impl SenderSet {
                 mode,
                 paper,
                 dry: false,
+                quarantine_ms: cfg.senders.quarantine_ms(),
+                send_error_window: cfg.risk.send_error_window.max(1) as usize,
+                send_error_ratio: cfg.risk.send_error_kill_ratio,
                 real: vec![],
             });
         }
@@ -514,6 +524,9 @@ impl SenderSet {
             mode,
             paper,
             dry: false,
+            quarantine_ms: cfg.senders.quarantine_ms(),
+            send_error_window: cfg.risk.send_error_window.max(1) as usize,
+            send_error_ratio: cfg.risk.send_error_kill_ratio,
             real,
         })
     }

@@ -7,7 +7,7 @@
 //!
 //! | trigger | rule | input |
 //! |---|---|---|
-//! | `send_errors` | more than `risk.send_error_kill_ratio` (20%) of the last `risk.send_error_window` (50) real sends failed | every real send's result |
+//! | `send_errors` | **per sender**: a sender with more than `risk.send_error_kill_ratio` (20%) of its own last `risk.send_error_window` (50) real sends failed is degraded and quarantined for `senders.quarantine_min` (the sender thread skips it); the latch fires only when every sender that has sent is degraded (equivalently: the best sender's own ratio is above the limit) | every real send's result, by sender |
 //! | `unexplained_drop` | the wallet fell by more than our known spends of the last [`SPEND_WINDOW_MS`] (stakes, bids, fees, rent, sells, burns: upper bounds) plus `risk.unexplained_drop_lamports` between two reads | the real lane's `getBalance` |
 //! | `program_upgrade` | pump's programdata last-deployed slot or upgrade authority changed (vs `kv.pump_programdata`, so an upgrade while down counts too) | `getAccountInfo` 45-byte data slice, every 60 s |
 //! | `disk` | the state partition is more than `risk.max_disk_used_pct` (90%) used | `statvfs` on the state.db directory |
@@ -84,6 +84,133 @@ impl SendErrWindow {
                 100.0 * self.max_ratio
             )
         })
+    }
+}
+
+/// What one send did to the per-sender windows.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SendVerdict {
+    /// The sender just crossed the limit and is quarantined (detail).
+    pub quarantined: Option<String>,
+    /// Every sender is degraded: the `send_errors` latch (detail).
+    pub kill: Option<String>,
+}
+
+/// One sender's window and quarantine.
+#[derive(Debug, Clone)]
+struct PerSender {
+    label: String,
+    w: SendErrWindow,
+    /// Quarantined until this unix ms (0 = not quarantined).
+    until_ms: u64,
+}
+
+/// The send-error ratios **per sender** (one dead provider never kills the
+/// run): a sender whose own last `n` sends fail above `max_ratio` is
+/// degraded and quarantined for `quarantine_ms` (its window restarts when
+/// the quarantine ends); the kill fires only when every sender seen is
+/// degraded, i.e. when even the best sender's own ratio is above the limit.
+#[derive(Debug, Clone)]
+pub struct SenderErrWindows {
+    n: usize,
+    max_ratio: f64,
+    quarantine_ms: u64,
+    per: Vec<PerSender>,
+}
+
+impl SenderErrWindows {
+    pub fn new(n: usize, max_ratio: f64, quarantine_ms: u64) -> Self {
+        Self {
+            n,
+            max_ratio,
+            quarantine_ms,
+            per: vec![],
+        }
+    }
+
+    fn over(&self, w: &SendErrWindow) -> bool {
+        w.len() == w.n && w.errors() as f64 / w.n as f64 > self.max_ratio
+    }
+
+    fn degraded_at(&self, p: &PerSender, now_ms: u64) -> bool {
+        p.until_ms > now_ms || self.over(&p.w)
+    }
+
+    /// One real send's result from `label`.
+    pub fn on_send(&mut self, label: &str, ok: bool, now_ms: u64) -> SendVerdict {
+        let i = match self.per.iter().position(|p| p.label == label) {
+            Some(i) => i,
+            None => {
+                self.per.push(PerSender {
+                    label: label.to_string(),
+                    w: SendErrWindow::new(self.n, self.max_ratio),
+                    until_ms: 0,
+                });
+                self.per.len() - 1
+            }
+        };
+        let (n, max_ratio, q_ms) = (self.n, self.max_ratio, self.quarantine_ms);
+        let p = &mut self.per[i];
+        if p.until_ms != 0 && p.until_ms <= now_ms {
+            // released: a fresh window
+            p.until_ms = 0;
+            p.w = SendErrWindow::new(n, max_ratio);
+        }
+        let crossed = p.w.on_send(ok);
+        let mut v = SendVerdict::default();
+        if let Some(d) = crossed {
+            if p.until_ms == 0 && q_ms > 0 {
+                p.until_ms = now_ms.saturating_add(q_ms);
+                v.quarantined = Some(format!(
+                    "{label}: {d}; quarantined for {} min",
+                    q_ms.div_ceil(60_000)
+                ));
+            }
+        }
+        if !self.per.is_empty() && self.per.iter().all(|p| self.degraded_at(p, now_ms)) {
+            let parts: Vec<String> = self
+                .per
+                .iter()
+                .map(|p| format!("{} {}/{}", p.label, p.w.errors(), p.w.len()))
+                .collect();
+            v.kill = Some(format!(
+                "every sender degraded (> {:.0}% of its last {} sends failed): {}",
+                100.0 * self.max_ratio,
+                self.n,
+                parts.join(", ")
+            ));
+        }
+        v
+    }
+
+    /// `label` is quarantined at `now_ms` (the sender thread skips it).
+    pub fn is_quarantined(&self, label: &str, now_ms: u64) -> bool {
+        self.per
+            .iter()
+            .any(|p| p.label == label && p.until_ms > now_ms)
+    }
+
+    /// Labels of the degraded senders (quarantined, or over the limit).
+    pub fn degraded(&self, now_ms: u64) -> Vec<String> {
+        self.per
+            .iter()
+            .filter(|p| self.degraded_at(p, now_ms))
+            .map(|p| p.label.clone())
+            .collect()
+    }
+
+    /// Failures in every sender's window (status line).
+    pub fn errors(&self) -> usize {
+        self.per.iter().map(|p| p.w.errors()).sum()
+    }
+
+    /// Sends held in every sender's window.
+    pub fn len(&self) -> usize {
+        self.per.iter().map(|p| p.w.len()).sum()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
@@ -466,6 +593,51 @@ mod tests {
             assert!(s.on_send(false).is_none());
         }
         assert!(s.on_send(false).is_some());
+    }
+
+    #[test]
+    fn one_dead_sender_is_quarantined_and_does_not_kill_the_run() {
+        let min = 60_000;
+        let mut w = SenderErrWindows::new(50, 0.20, 10 * min);
+        let t0 = 1_000_000;
+        // helius is dead, jito is healthy: helius crosses after 50 failures
+        let mut quarantined = None;
+        for i in 0..50u64 {
+            assert!(w.on_send("jito", true, t0 + i).kill.is_none());
+            let v = w.on_send("helius", false, t0 + i);
+            assert!(v.kill.is_none(), "one dead sender never kills: {i}");
+            if v.quarantined.is_some() {
+                quarantined = v.quarantined;
+            }
+        }
+        let d = quarantined.expect("helius quarantined");
+        assert!(d.starts_with("helius: 50 of the last 50"), "{d}");
+        assert!(w.is_quarantined("helius", t0 + 60));
+        assert!(!w.is_quarantined("jito", t0 + 60));
+        assert_eq!(w.degraded(t0 + 60), vec!["helius".to_string()]);
+        // released after the quarantine with a fresh window
+        let later = t0 + 10 * min + 100;
+        assert!(w.on_send("helius", true, later).kill.is_none());
+        assert!(!w.is_quarantined("helius", later));
+        assert!(w.degraded(later).is_empty());
+        // every sender degraded: the latch
+        let mut w = SenderErrWindows::new(50, 0.20, 10 * min);
+        let mut kill = None;
+        for i in 0..50u64 {
+            let _ = w.on_send("helius", false, t0 + i);
+            let v = w.on_send("jito", i % 4 != 0, t0 + i); // 13/50 > 20%
+            kill = kill.or(v.kill);
+        }
+        assert!(kill
+            .expect("both degraded")
+            .contains("every sender degraded"));
+        // a single configured sender behaves like the old global window
+        let mut one = SenderErrWindows::new(50, 0.20, 0);
+        let mut k = None;
+        for i in 0..50u64 {
+            k = k.or(one.on_send("rpcsend", i % 5 == 0, t0).kill);
+        }
+        assert!(k.is_some());
     }
 
     #[test]

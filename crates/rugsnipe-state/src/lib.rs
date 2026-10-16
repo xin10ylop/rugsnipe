@@ -12,6 +12,7 @@
 //! | [`budget`] | `RpcBudget`: per-IP, per-method token bucket sized from `[rpc_budget]` |
 //! | [`chain`] | `ChainRead` trait; `RpcChain` (feature `rpc`) over public JSON-RPC |
 //! | [`killkv`] | the persisted kill latch and its trigger rows (`kv`), local unkill |
+//! | [`riskday`] | the risk gate's day recomputed at start; unclean-start counting |
 //!
 //! Nothing here runs on the hot thread: the hot loop pushes `Copy`
 //! messages into a ring and the cold thread turns them into [`store::Write`]s.
@@ -22,6 +23,7 @@ pub mod killkv;
 pub mod lease;
 pub mod ledger;
 pub mod recovery;
+pub mod riskday;
 pub mod rows;
 pub mod schema;
 pub mod store;

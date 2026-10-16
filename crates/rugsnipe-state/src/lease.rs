@@ -41,6 +41,22 @@ pub fn read(c: &Connection, name: &str) -> rusqlite::Result<Option<LeaseRow>> {
     .optional()
 }
 
+/// Name of the hot process's liveness row (not a lease: never taken over).
+/// The hot box writes it whenever its exit loop advances, whether or not it
+/// holds `exits`; a guard holding `exits` hands the lease back once this
+/// heartbeat is fresh again (the hot box came back).
+pub const HOT_HEARTBEAT: &str = "hot_alive";
+
+/// Write a liveness heartbeat row (`epoch` 0, owner = the writer).
+pub fn beat(c: &Connection, name: &str, owner: &str, now_ms: u64) -> rusqlite::Result<()> {
+    c.execute(
+        "INSERT INTO lease(name, owner, hb_unix_ms, epoch) VALUES(?1, ?2, ?3, 0)
+         ON CONFLICT(name) DO UPDATE SET owner = excluded.owner, hb_unix_ms = excluded.hb_unix_ms",
+        params![name, owner, now_ms as i64],
+    )?;
+    Ok(())
+}
+
 /// A lease held (or wanted) by `owner`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Lease {

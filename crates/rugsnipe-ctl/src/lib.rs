@@ -6,7 +6,7 @@
 //!                                     [--armset FILE [--sig FILE]] [--regime R] [--now UNIX] [--live]
 //! rugsnipe-ctl template dump --mint M --wallet W [--format legacy|v1] [--nonce ACCT [--nonce-authority A]]
 //!                            [--tip-account T] [--cu N | --cu-floor F] [--lads N] [--spend L] [--min-out N] [--prio L] [--tip L]
-//!                            (default CU = the hot path's per-mint 65,000 + 1,500*S over --cu-floor, default 88,000)
+//!                            (default CU = the hot path's per-mint 65,000 + 1,500*S over --cu-floor, default 65,000)
 //! rugsnipe-ctl sim [--n 3] [--rpc URL] [--wallet W] [--nonce N] [--max-age S] [--spend L] [--legacy]
 //!                  (feature `rpc`; read-only simulateTransaction, sigVerify false: measured vs formula CU per mint)
 //! rugsnipe-ctl nonce init  --authority A [--count N] [--pool buy|sell] [--blockhash B58] [--lamports L]

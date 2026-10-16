@@ -49,9 +49,23 @@ pub const SNIPE_CU_BASE: u32 = 63_500;
 pub const SNIPE_CU_MARGIN: u32 = 1_500;
 /// Solana's per-transaction maximum.
 pub const MAX_CU_LIMIT: u32 = 1_400_000;
-/// Recommended `tx.cu_limit` floor: a static 88,000 covers S <= 15
-/// (0.075% of mints fail a static 88,000; the per-mint limit covers them).
-pub const RECOMMENDED_CU_FLOOR: u32 = 88_000;
+/// Recommended `tx.cu_limit` floor: 65,000, the per-mint formula at S = 0,
+/// so the floor never binds and every buy carries its own
+/// `65,000 + 1,500·S` limit (an 88,000 floor, the earlier recommendation,
+/// wasted ~22% of priority per CU on priority-ordered leaders at the median
+/// S = 4; the formula already covers real creates, `tests/cu_gap5.rs`).
+pub const RECOMMENDED_CU_FLOOR: u32 = 65_000;
+/// Static compute-unit limit of the sell templates (they carry no per-mint
+/// limit): gap-5 section 8 puts the exit at `44,300 + 1,500·S3` plus 1,464
+/// for `CloseAccount` and 300 for tip and nonce, i.e. 67,064 at S3 = 14 (the
+/// largest seen) before the wallet term, so sells keep the 88,000 static
+/// limit whatever the buy floor ([`sell_cu_limit`]).
+pub const SELL_CU_FLOOR: u32 = 88_000;
+
+/// The sells' static limit: `tx.cu_limit`, at least [`SELL_CU_FLOOR`].
+pub fn sell_cu_limit(floor: u32) -> u32 {
+    floor.clamp(SELL_CU_FLOOR, MAX_CU_LIMIT)
+}
 
 /// The gap-5 `buy_v3` model: `62,310 + 1,500·S` with a nonce (`62,160`
 /// without), minus 409 on mayhem coins.
@@ -99,8 +113,15 @@ mod tests {
         assert_eq!(snipe_cu_limit(0, 0), 65_000);
         assert_eq!(snipe_cu_limit(4, 0), 71_000);
         assert_eq!(snipe_cu_limit(14, 0), 86_000);
-        assert_eq!(snipe_cu_limit(4, RECOMMENDED_CU_FLOOR), 88_000);
+        // the recommended floor never binds: every mint gets its own limit
+        assert_eq!(snipe_cu_limit(0, RECOMMENDED_CU_FLOOR), 65_000);
+        assert_eq!(snipe_cu_limit(4, RECOMMENDED_CU_FLOOR), 71_000);
         assert_eq!(snipe_cu_limit(16, RECOMMENDED_CU_FLOOR), 89_000);
+        assert_eq!(snipe_cu_limit(4, 88_000), 88_000);
+        // sells keep a static 88,000 whatever the buy floor
+        assert_eq!(sell_cu_limit(RECOMMENDED_CU_FLOOR), 88_000);
+        assert_eq!(sell_cu_limit(0), 88_000);
+        assert_eq!(sell_cu_limit(100_000), 100_000);
         assert_eq!(snipe_cu_limit(1_020, 0), MAX_CU_LIMIT);
         assert_eq!(snipe_cu_limit(u32::MAX, 0), MAX_CU_LIMIT);
         assert_eq!(snipe_cu_limit(0, 2_000_000), MAX_CU_LIMIT);

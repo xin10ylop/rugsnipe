@@ -125,7 +125,7 @@ fn template_dump_v1_and_legacy() {
     assert_eq!(out.code, 0, "{}", out.text);
     assert!(out.text.contains("V1, 805 bytes"), "{}", out.text);
     assert!(out.text.contains("mask 0xf"));
-    // default CU: the hot path's per-mint limit over the 88,000 floor
+    // default CU: the hot path's per-mint limit over the recommended floor
     let bumps = pump_codec::pda::SnipeBumps::derive(
         &mint.parse().unwrap(),
         &wallet.parse().unwrap(),
@@ -134,7 +134,7 @@ fn template_dump_v1_and_legacy() {
     // the mint's S plus the wallet's UVA term W, as the hot path adds it
     let s_missing =
         bumps.missing() + rugsnipe_tx::cu::wallet_missing_bumps(&wallet.parse().unwrap());
-    let want = (65_000 + 1_500 * s_missing).max(88_000);
+    let want = (65_000 + 1_500 * s_missing).max(rugsnipe_tx::cu::RECOMMENDED_CU_FLOOR);
     assert!(
         out.text
             .contains(&format!("cu_limit {want} (per-mint; S + W = {s_missing}")),

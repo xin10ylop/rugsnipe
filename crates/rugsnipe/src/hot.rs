@@ -8,10 +8,11 @@
 //! 5  watchlist: signer / fee payer = live; creator_arg only = shadow
 //! 6  age <= max_age_slots
 //! 7  RiskGate.decide (paper: would_skip)
-//! 8  V0 (curve after every in-tx buy) < op.v_max
+//! 8  V0 (curve after every in-tx buy) < op.v_max; a real decision after the
+//!    create slot (slot_now > create slot) is refused (`late_slot`)
 //! 9  A/B skip (probe/live only)
 //! 10 nonce claim xxh3(mint) % N, value older than the create slot (paper: simulated pool)
-//! 11 size, min_tokens_out at v_max
+//! 11 size, min_tokens_out at V_cap = min(v_max, (V0 + entry.bundle_lamports) * sqrt(1 + entry.max_premium))
 //! 12 patch the template of that nonce
 //! 13 sign; primary variant to the paper sender (paper) / sender thread (real); secondary variant to the sender thread
 //! 14 record Decision + Sent (rslog), Intent + Sent (ledger via the cold ring)
@@ -23,7 +24,8 @@
 //! * **E1** (default; docs/04 sections 2 and 7): the cold lane
 //!   ([`crate::e1`]) reconstructs the creation slot and returns a verdict.
 //!   A fill opens at the post-bundle state with the premium (unless the
-//!   operator's `v_max` bound fails it: `slippage`), then the lane's tape of
+//!   real buy's on-chain bound, `min_tokens_out` at `V_cap`, fails it:
+//!   `slippage`; paper and live share one bound), then the lane's tape of
 //!   the next slots is replayed through the exit engine on a slot clock
 //!   (`ms = (slot - landing) * slot_ms`, a tick per slot), on the
 //!   counterfactual curve that keeps our tokens outstanding (others' trades
@@ -181,6 +183,12 @@ pub struct HotCfg {
     /// A real mode with the post-execution feed running: free-feed creates
     /// are recorded only (`free_feed_defers`), the live-class copy decides.
     pub post_exec_feed: bool,
+    /// `entry.max_premium` in basis points: the fill cap over the expected
+    /// post-bundle price that the on-chain bound enforces.
+    pub max_premium_bps: u32,
+    /// `entry.bundle_lamports`: expected bundle SOL outside the create
+    /// transaction (`V_pb = V0 + this`).
+    pub bundle_lamports: u64,
 }
 
 impl HotCfg {
@@ -217,7 +225,20 @@ impl HotCfg {
             filter_mode: cfg.entry.filter_mode,
             probe_stage: cfg.probe.stage,
             post_exec_feed: false,
+            max_premium_bps: (cfg.entry.max_premium * 10_000.0).round().clamp(0.0, 1e6) as u32,
+            bundle_lamports: cfg.entry.bundle_lamports,
         }
+    }
+
+    /// The virtual SOL reserve the real buy's `min_tokens_out` is computed
+    /// at: `V_cap = min(v_max, V_pb * sqrt(1 + max_premium))` with
+    /// `V_pb = v0 + entry.bundle_lamports` ([`entry_v_cap`]).
+    pub fn v_cap(&self, v0: u64, v_max: u64) -> u64 {
+        entry_v_cap(
+            v0.saturating_add(self.bundle_lamports),
+            self.max_premium_bps,
+        )
+        .min(v_max)
     }
 
     /// The variant of a sell: the exit engine's sell bid split by the
@@ -294,6 +315,18 @@ impl HotCfg {
     }
 }
 
+/// `V_pb * sqrt(1 + bps / 10,000)` in integers (floor): the virtual SOL
+/// reserve at which the price (`V^2 / k` on the constant-product curve) is
+/// `bps` above the price at `V_pb`. The real buy's `min_tokens_out` is the
+/// quote at this reserve, so a fill that pays more than the premium over
+/// the expected post-bundle price fails on chain.
+pub fn entry_v_cap(v_pb: u64, bps: u32) -> u64 {
+    let Some(sq) = (v_pb as u128 * v_pb as u128).checked_mul(10_000 + bps as u128) else {
+        return u64::MAX;
+    };
+    u64::try_from((sq / 10_000).isqrt()).unwrap_or(u64::MAX)
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Attempt {
     slot: u64,
@@ -312,7 +345,12 @@ struct Slot {
     spend: u64,
     v0: u64,
     t0: u64,
+    /// The real buy's on-chain bound (`min_tokens_out` at `V_cap`): sent in
+    /// probe/live, applied to E1 paper fills.
     min_out: u64,
+    /// The operator's wide bound (`min_tokens_out` at `v_max`): the E2
+    /// paper model (end of slot+1, not a creation-slot entry) keeps it.
+    min_out_e2: u64,
     nonce_idx: u16,
     keys: MintKeys,
     sig0: [u8; 64],
@@ -794,6 +832,15 @@ impl HotLoop {
             }
             return self.decision(intent, hit, code::TOO_HIGH, would, op.size, op.v_max, 0, 0);
         }
+        // 8b: fire only in the create slot (docs/04 section 2). A real
+        // decision that runs after the lane has seen a later slot cannot
+        // land behind the bundle any more: refused, never sent. (Paper keeps
+        // scoring: a free feed is slot+1 by construction and E1 models the
+        // creation slot from history.)
+        if real && self.slot_now > slot {
+            self.risk.release_unfilled();
+            return self.decision(intent, hit, code::LATE_SLOT, 0, op.size, op.v_max, 0, 0);
+        }
         // 9: randomized skip (probe/live only; A/B is off in paper)
         if real && self.cfg.ab_enabled && op.ab_skip_p > 0.0 {
             let mut b = [0u8; 40];
@@ -859,9 +906,14 @@ impl HotLoop {
                 return self.decision(intent, hit, code::NO_NONCE, would, op.size, op.v_max, 0, 0);
             }
         };
-        // 11: size and the on-chain bound at v_max
+        // 11: size and the on-chain bound at V_cap = min(v_max, V_pb *
+        // sqrt(1 + max_premium)), V_pb = V0 + the expected bundle outside the
+        // create tx: a fill above the post-bundle price + max_premium fails
+        // on chain (cheaply), the same bound paper E1 applies
         let spend = op.size;
-        let min_out = min_tokens_out(spend, op.v_max, hit.creator_arg, self.cfg.fees);
+        let v_cap = self.cfg.v_cap(v0, op.v_max);
+        let min_out = min_tokens_out(spend, v_cap, hit.creator_arg, self.cfg.fees);
+        let min_out_e2 = min_tokens_out(spend, op.v_max, hit.creator_arg, self.cfg.fees);
         // 12: patch (keys and the per-mint CU limit were resolved before the claim)
         // per-class bid: the tip (after the buy, reverts on failure) carries
         // the bid where the leader orders by it; the priority fee stays at the
@@ -1077,6 +1129,7 @@ impl HotLoop {
             v0,
             t0: t0_tok,
             min_out,
+            min_out_e2,
             nonce_idx: claim.idx as u16,
             keys,
             sig0: v.sig,
@@ -1418,6 +1471,7 @@ impl HotLoop {
             v0: 0,
             t0: 0,
             min_out: 0,
+            min_out_e2: 0,
             nonce_idx: u16::MAX,
             keys,
             sig0: [0; 64],
@@ -1572,7 +1626,7 @@ impl HotLoop {
                 (q, tokens)
             });
             match q {
-                // the operator's on-chain bound (min_tokens_out at v_max)
+                // the real buy's on-chain bound (min_tokens_out at V_cap)
                 Some((q, tokens)) if tokens >= s.min_out && tokens > 0 => fill = Some((q, tokens)),
                 _ => outcome = ShadowOutcome::Slippage,
             }
@@ -1761,7 +1815,7 @@ impl HotLoop {
         };
         let q = state
             .quote_buy_exact_sol_in(s.spend, fees)
-            .filter(|q| q.tokens >= s.min_out);
+            .filter(|q| q.tokens >= s.min_out_e2);
         let (mint, intent, sig0) = (s.pos.mint, s.intent, s.sig0);
         let Some(q) = q else {
             // E2 above v_max: the on-chain bound would have failed the buy

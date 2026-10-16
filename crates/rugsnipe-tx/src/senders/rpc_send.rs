@@ -63,4 +63,13 @@ impl Sender for RpcSend {
             }
         }
     }
+    /// `sells_only`: no buy variant is planned for this path (it would only
+    /// come back `NotForThisSender` and count as a send error).
+    fn buy_variants(&self) -> u8 {
+        if self.sells_only {
+            0
+        } else {
+            2
+        }
+    }
 }

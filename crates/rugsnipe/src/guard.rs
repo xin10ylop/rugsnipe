@@ -13,6 +13,17 @@
 //! sender, re-targeted per sender like the hot loop's
 //! ([`crate::sender::plan_variants`]: the provider's tip account and
 //! minimum tip), signed with the probe key.
+//!
+//! **A real sell is done only when the chain says so**: the mint stays
+//! pending after a send and is re-sent every `retry_ms` on a fresh
+//! blockhash (size from the chain balance) until the wallet's token balance
+//! reads 0, then the position is closed in `state.db` (`positions.state =
+//! 'closed'`, an `exits` row); after `max_sell_spend` lamports of bids the
+//! guard stops retrying (`SellGaveUp`, a critical line). **The lease goes
+//! back to the hot box** when its liveness heartbeat
+//! ([`rugsnipe_state::lease::HOT_HEARTBEAT`]) is fresh again and no sell is
+//! in flight, so a restarted hot box resumes its exits instead of finding
+//! them "lost".
 
 use pump_codec::constants::{TOKEN_2022_PROGRAM_ID, WSOL_MINT};
 use pump_codec::curve::FeeBps;
@@ -21,11 +32,12 @@ use rugsnipe_exit::bounds::{dump_min_out, Market};
 use rugsnipe_exit::{ExitPolicy, Venue};
 use rugsnipe_state::lease::{Acquire, Lease};
 use rugsnipe_state::recovery::load_open_positions;
+use rugsnipe_state::rows::{ExitRow, PosState, PositionRow};
 use rugsnipe_tx::senders::paper::Paper;
 use rugsnipe_tx::senders::{Sender as _, Variant, VariantKind};
 use rugsnipe_tx::signer::HotSigner;
 use rugsnipe_tx::template::{MintKeys, Patch, Template};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Guard settings (`[guard]` plus the process identity).
@@ -36,6 +48,11 @@ pub struct GuardCfg {
     pub drop_from_peak_bps: u64,
     pub grace_s: u64,
     pub dry_run: bool,
+    /// Real sells: re-send a sell not yet confirmed (balance > 0) after this long.
+    pub retry_ms: u64,
+    /// Real sells: stop retrying a position once its bids add up to this
+    /// (`[risk] max_sell_spend_lamports`; 0 = no cap).
+    pub max_sell_spend: u64,
 }
 
 /// What one guard step did.
@@ -63,13 +80,32 @@ pub enum GuardAction {
         reason: &'static str,
         sig: [u8; 64],
     },
-    /// Real sell variants handed to the senders (`accepted` of `sent`).
+    /// Real sell variants handed to the senders (`accepted` of `sent`);
+    /// `try_no` counts from 1 (a retry re-sends on a fresh blockhash).
     SentReal {
         mint: Pubkey,
         tokens: u64,
         reason: &'static str,
         sent: usize,
         accepted: usize,
+        try_no: u32,
+    },
+    /// The wallet holds none of the mint any more: the position is closed
+    /// in `state.db`.
+    Closed {
+        mint: Pubkey,
+        tries: u32,
+    },
+    /// The sell's bids reached `max_sell_spend` without the balance going
+    /// to 0: no more retries (critical: sell by hand).
+    SellGaveUp {
+        mint: Pubkey,
+        tries: u32,
+        spent: u64,
+    },
+    /// The hot box's heartbeat is back: the exits lease is handed back.
+    ReleasedToHot {
+        owner: String,
     },
     /// A real sell could not be built (no recent blockhash): retried next step.
     SellDeferred {
@@ -97,7 +133,14 @@ pub struct PaperSell {
 pub struct GuardReal {
     pub senders: Arc<rugsnipe_tx::senders::SenderSet>,
     pub blockhash: Arc<dyn Fn() -> Option<[u8; 32]> + Send + Sync>,
+    /// The wallet's token balance of a mint (`Some(0)` = none left, `None` =
+    /// unknown). Without it a sell can never be confirmed: it is retried
+    /// until `max_sell_spend`.
+    pub token_balance: Option<TokenBalanceFn>,
 }
+
+/// The wallet's token balance of a mint ([`GuardReal::token_balance`]).
+pub type TokenBalanceFn = Arc<dyn Fn(&Pubkey) -> Option<u64> + Send + Sync>;
 
 impl core::fmt::Debug for GuardReal {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -115,6 +158,17 @@ impl core::fmt::Debug for PaperSell {
     }
 }
 
+/// A real sell sent but not yet confirmed by a zero balance.
+#[derive(Debug, Clone)]
+struct Pending {
+    reason: &'static str,
+    tries: u32,
+    last_ms: u64,
+    spent: u64,
+    last_sig: [u8; 64],
+    gave_up: bool,
+}
+
 /// The guard state machine.
 #[derive(Debug)]
 pub struct Guard {
@@ -123,6 +177,7 @@ pub struct Guard {
     held_since_ms: Option<u64>,
     sell: Option<PaperSell>,
     sold: HashSet<Pubkey>,
+    pending: HashMap<Pubkey, Pending>,
     policy: ExitPolicy,
 }
 
@@ -135,12 +190,72 @@ impl Guard {
             held_since_ms: None,
             sell,
             sold: HashSet::new(),
+            pending: HashMap::new(),
             policy: ExitPolicy::default(),
         }
     }
 
     pub fn holds_lease(&self) -> bool {
         self.lease.is_held()
+    }
+
+    /// Real sells sent and not yet confirmed (balance > 0), given-up ones included.
+    pub fn pending_sells(&self) -> usize {
+        self.pending.len()
+    }
+
+    /// The hot box's liveness heartbeat is fresh and newer than our takeover.
+    fn hot_back(&self, c: &rusqlite::Connection, now_ms: u64) -> Result<Option<String>, String> {
+        let row = rugsnipe_state::lease::read(c, rugsnipe_state::lease::HOT_HEARTBEAT)
+            .map_err(|e| e.to_string())?;
+        Ok(row
+            .filter(|r| {
+                r.owner != self.cfg.owner
+                    && r.age_ms(now_ms) <= self.cfg.takeover_after_ms
+                    && r.hb_unix_ms > self.held_since_ms.unwrap_or(u64::MAX)
+            })
+            .map(|r| r.owner))
+    }
+
+    /// The chain shows no tokens left: close the position in `state.db`.
+    fn close(
+        &mut self,
+        c: &rusqlite::Connection,
+        p: &PositionRow,
+        owner: Pubkey,
+    ) -> Result<GuardAction, String> {
+        let pd = self.pending.remove(&p.mint);
+        let (tries, spent, sig, reason) = match &pd {
+            Some(d) => (d.tries, d.spent, d.last_sig, d.reason),
+            None => (0, 0, [0; 64], "zero_balance"),
+        };
+        let row = PositionRow {
+            tokens: 0,
+            state: PosState::Closed,
+            sell_spend: p.sell_spend.saturating_add(spent),
+            ..p.clone()
+        };
+        let w = rugsnipe_state::store::Write::Position(row);
+        rugsnipe_state::store::apply(c, &w).map_err(|e| e.to_string())?;
+        if pd.is_some() {
+            let e = rugsnipe_state::store::Write::Exit(ExitRow {
+                sig,
+                mint: p.mint,
+                reason: format!("guard_{reason}"),
+                venue: "curve".into(),
+                tokens: p.tokens,
+                sol_delta: 0,
+                slot: 0,
+                owner,
+                try_no: tries,
+            });
+            rugsnipe_state::store::apply(c, &e).map_err(|e| e.to_string())?;
+        }
+        self.sold.insert(p.mint);
+        Ok(GuardAction::Closed {
+            mint: p.mint,
+            tries,
+        })
     }
 
     /// One iteration. `price(mint)` = current virtual SOL of the curve, if known.
@@ -190,11 +305,51 @@ impl Guard {
                 }
             }
         }
+        // the hot box is back: hand the exits over unless a sell is in flight
+        if self.pending.values().all(|p| p.gave_up) {
+            if let Some(owner) = self.hot_back(c, now_ms)? {
+                self.lease.release(c).map_err(|e| e.to_string())?;
+                self.held_since_ms = None;
+                out.push(GuardAction::ReleasedToHot { owner });
+                return Ok(out);
+            }
+        }
         let held_ms = now_ms.saturating_sub(self.held_since_ms.unwrap_or(now_ms));
+        let real = !self.cfg.dry_run && self.sell.as_ref().is_some_and(|s| s.real.is_some());
         for p in positions {
             if self.sold.contains(&p.mint) || p.tokens == 0 {
                 continue;
             }
+            // real: the chain balance decides (size, and whether it is sold)
+            let (bal, wallet) = match self.sell.as_ref() {
+                Some(s) if real => (
+                    s.real
+                        .as_ref()
+                        .and_then(|r| r.token_balance.as_ref())
+                        .and_then(|f| f(&p.mint)),
+                    s.signer.pubkey(),
+                ),
+                _ => (None, Pubkey::default()),
+            };
+            if real && bal == Some(0) {
+                out.push(self.close(c, &p, wallet)?);
+                continue;
+            }
+            let retry = match self.pending.get_mut(&p.mint) {
+                Some(d) if d.gave_up => continue,
+                Some(d) if now_ms.saturating_sub(d.last_ms) < self.cfg.retry_ms => continue,
+                Some(d) if self.cfg.max_sell_spend > 0 && d.spent >= self.cfg.max_sell_spend => {
+                    d.gave_up = true;
+                    out.push(GuardAction::SellGaveUp {
+                        mint: p.mint,
+                        tries: d.tries,
+                        spent: d.spent,
+                    });
+                    continue;
+                }
+                Some(d) => Some(d.reason),
+                None => None,
+            };
             let v = price(&p.mint);
             let dropped = match v {
                 Some(v) if p.peak_v > 0 => {
@@ -204,13 +359,16 @@ impl Guard {
                 }
                 _ => false,
             };
-            let reason = if dropped {
+            let reason = if let Some(r) = retry {
+                r
+            } else if dropped {
                 "drop_from_peak"
             } else if held_ms >= self.cfg.grace_s * 1_000 {
                 "grace"
             } else {
                 continue;
             };
+            let tokens = bal.unwrap_or(p.tokens);
             if self.cfg.dry_run || self.sell.is_none() {
                 self.sold.insert(p.mint);
                 out.push(GuardAction::WouldSell {
@@ -234,7 +392,10 @@ impl Guard {
                 },
                 None => [0x22; 32],
             };
-            self.sold.insert(p.mint);
+            if s.real.is_none() {
+                // paper: nothing to confirm
+                self.sold.insert(p.mint);
+            }
             let owner = s.signer.pubkey();
             let bc = pda::bonding_curve(&p.mint);
             let keys = MintKeys::curve(
@@ -251,7 +412,7 @@ impl Guard {
                 creator: Pubkey::default(),
                 fees: FeeBps::DEFAULT,
             };
-            let min_out = dump_min_out(&self.policy, &market, p.tokens);
+            let min_out = dump_min_out(&self.policy, &market, tokens);
             // the bid once, through the bid policy (never as both fee and tip)
             let plan = s.bid.plan_sell(
                 None,
@@ -261,7 +422,7 @@ impl Guard {
             s.template.patch(&Patch {
                 keys: &keys,
                 lifetime: &lifetime,
-                amount: p.tokens,
+                amount: tokens,
                 limit: min_out,
                 priority_lamports: plan.priority_lamports,
                 tip_lamports: plan.tip_lamports,
@@ -298,18 +459,34 @@ impl Guard {
                     .iter()
                     .filter(|(k, v)| targets[*k].send(v).is_ok())
                     .count();
+                let d = self.pending.entry(p.mint).or_insert(Pending {
+                    reason,
+                    tries: 0,
+                    last_ms: now_ms,
+                    spent: 0,
+                    last_sig: var.sig,
+                    gave_up: false,
+                });
+                d.tries += 1;
+                d.last_ms = now_ms;
+                d.last_sig = vs.first().map(|(_, v)| v.sig).unwrap_or(var.sig);
+                // the most a landed try can cost (a dropped one costs nothing)
+                d.spent = d
+                    .spent
+                    .saturating_add(plan.priority_lamports + plan.tip_lamports);
                 out.push(GuardAction::SentReal {
                     mint: p.mint,
-                    tokens: p.tokens,
+                    tokens,
                     reason,
                     sent,
                     accepted,
+                    try_no: d.tries,
                 });
                 continue;
             }
             out.push(GuardAction::Sold {
                 mint: p.mint,
-                tokens: p.tokens,
+                tokens,
                 reason,
                 sig: var.sig,
             });

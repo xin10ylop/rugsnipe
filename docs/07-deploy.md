@@ -198,7 +198,11 @@ Not implemented: reconcile drift > 60 s.
 
 ### Stop everything
 
-`sudo systemctl stop rugsnipe-hot` stops entries and the hot exit loop. **Guard takes over the exits after 5 s.**
+`sudo systemctl stop rugsnipe-hot` stops entries and the hot exit loop. **Guard takes over the exits after 5 s**
+(probe: only with `rugsnipe-guard.service.d/30-probe.conf`, written by `install.sh --probe-armset`, which adds
+`--real-sell --armset ... --rpc-url cred:RPC_URL`; without it the guard only reports what it would sell). The guard
+retries each sell on a fresh blockhash until the wallet's balance is 0, closes the position in `state.db`, and
+hands the lease back once hot's heartbeat returns (docs/08 section 9).
 
 `sudo systemctl stop rugsnipe.target` also stops guard. Any open position is then **stranded**: it is bounded by
 `max_open_positions × max_snipe` (4 × 0.25 SOL) but unmanaged. Do this only when flat. Check first with
@@ -226,7 +230,7 @@ Observe:
 
 | Failure | Response |
 |---|---|
-| hot crash | systemd restarts it and runs recovery; guard takes over after 5 s |
+| hot crash | systemd restarts it and runs recovery; guard takes over after 5 s and hands back when hot beats again. A panic latches the kill first; the 3rd unclean start within an hour latches `crash_loop`; `10-start-limit.conf` stops the unit after 5 starts per hour |
 | Ohio down | fra1 keeps the last ArmSet until `armset_max_age_s`, then runs exits only |
 | fra1 dead | positions stranded, bounded by `max_open_positions × max_snipe`; the dead-man alert fires |
 | paid feeds down | entries go to paper; exits poll within the RPC budget |

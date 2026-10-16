@@ -26,7 +26,7 @@ User=rugsnipe
 Group=rugsnipe
 WorkingDirectory=/var/lib/rugsnipe
 Environment=RUGSNIPE_CONFIG=/etc/rugsnipe/rugsnipe.toml RUST_BACKTRACE=1
-ExecStart=/opt/rugsnipe/bin/rugsnipe-hot --config /etc/rugsnipe/rugsnipe.toml
+ExecStart=/opt/rugsnipe/bin/rugsnipe-hot --config /etc/rugsnipe/rugsnipe.toml --busy-poll
 WatchdogSec=3
 TimeoutStartSec=180
 TimeoutStopSec=15

@@ -19,7 +19,11 @@ User=rugsnipe
 Group=rugsnipe
 WorkingDirectory=/var/lib/rugsnipe
 Environment=RUGSNIPE_CONFIG=/etc/rugsnipe/rugsnipe.toml RUST_BACKTRACE=1
-ExecStart=/opt/rugsnipe/bin/rugsnipe-guard --config /etc/rugsnipe/rugsnipe.toml
+# Paper/shadow: dry run (reports what it would sell). Probe: install.sh --probe-armset writes
+# rugsnipe-guard.service.d/30-probe.conf, which adds --real-sell, the ArmSet and
+# --rpc-url cred:RPC_URL (the URL is a line of the api-keys credential, never on the command line).
+# READY=1 once state.db is open, WATCHDOG=1 every loop (500 ms).
+ExecStart=/opt/rugsnipe/bin/rugsnipe-guard --config /etc/rugsnipe/rugsnipe.toml --state /var/lib/rugsnipe/state.db
 WatchdogSec=5
 TimeoutStartSec=120
 TimeoutStopSec=15

@@ -100,6 +100,26 @@ pub struct DecideInput {
     pub now_unix: u64,
 }
 
+/// One operator's persisted counters ([`RiskGate::day_snapshot`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpSnapshot {
+    pub slot: usize,
+    pub buys_today: u64,
+    pub consec_losses: u32,
+    /// UTC day number (unix / 86400) until which the operator is latched.
+    pub latched_until_day: u32,
+}
+
+/// Today's risk counters ([`RiskGate::day_snapshot`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DaySnapshot {
+    /// UTC day number (unix / 86400).
+    pub day: u32,
+    pub realized: i64,
+    pub probes: u64,
+    pub ops: Vec<OpSnapshot>,
+}
+
 #[derive(Debug, Default)]
 struct OpRisk {
     consec_losses: AtomicU32,
@@ -146,10 +166,14 @@ pub enum KillReason {
     FeedStale,
     /// A latch persisted in `state.db` by an earlier run (restored at start).
     Persisted,
+    /// The process panicked (the panic hook latched before aborting).
+    Panic,
+    /// Too many starts without a clean shutdown within an hour.
+    CrashLoop,
 }
 
 impl KillReason {
-    pub const ALL: [KillReason; 16] = [
+    pub const ALL: [KillReason; 18] = [
         KillReason::None,
         KillReason::KillFile,
         KillReason::Signal,
@@ -166,6 +190,8 @@ impl KillReason {
         KillReason::Manual,
         KillReason::FeedStale,
         KillReason::Persisted,
+        KillReason::Panic,
+        KillReason::CrashLoop,
     ];
 
     pub fn from_u8(v: u8) -> Self {
@@ -194,6 +220,8 @@ impl KillReason {
             KillReason::Manual => "manual",
             KillReason::FeedStale => "feed_stale",
             KillReason::Persisted => "persisted",
+            KillReason::Panic => "panic",
+            KillReason::CrashLoop => "crash_loop",
         }
     }
 
@@ -370,6 +398,66 @@ impl RiskGate {
             && pnl_today <= -(self.caps.max_daily_loss_lamports as i64)
         {
             self.kill(KillReason::DailyLoss);
+        }
+    }
+
+    // ------------------------------------------------- persistence (day)
+    /// Seed today's counters at start (docs/08 section 9: the daily caps
+    /// survive a restart). `realized` = today's chain-derived P&L so far
+    /// (closed positions + failed attempts' cost, negative = loss), `probes`
+    /// = today's real attempts, `buys_hour` = this hour's real buys, `ops` =
+    /// `(op_slot, buys_today, consec_losses, latched_until_day)`. Latches the
+    /// kill (`daily_loss`) when `realized` is already at the cap.
+    pub fn seed_day(
+        &self,
+        now_unix: u64,
+        realized: i64,
+        probes: u64,
+        buys_hour: u64,
+        ops: &[(usize, u64, u32, u32)],
+    ) {
+        let (day, hour) = (day_of(now_unix), hour_of(now_unix));
+        self.loss_day.store(day, Release);
+        self.realized_today.store(realized, Release);
+        self.probes_day
+            .store(((day as u64) << 32) | probes.min(0xffff_ffff), Release);
+        self.buys_hour
+            .store(((hour as u64) << 32) | buys_hour.min(0xffff_ffff), Release);
+        for &(slot, buys, consec, latched) in ops {
+            if let Some(op) = self.ops.get(slot) {
+                op.buys_day
+                    .store(((day as u64) << 32) | buys.min(0xffff_ffff), Release);
+                op.consec_losses.store(consec, Release);
+                op.latched_until_day.store(latched, Release);
+            }
+        }
+        self.check_daily_mark(realized);
+    }
+
+    /// Today's counters, for `state.db` (`risk` and `op_risk` rows).
+    pub fn day_snapshot(&self, now_unix: u64) -> DaySnapshot {
+        let day = day_of(now_unix);
+        let ops = self
+            .ops
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, o)| {
+                let buys = packed_count(o.buys_day.load(Acquire), day);
+                let consec = o.consec_losses.load(Acquire);
+                let latched = o.latched_until_day.load(Acquire);
+                (buys > 0 || consec > 0 || latched > day).then_some(OpSnapshot {
+                    slot,
+                    buys_today: buys,
+                    consec_losses: consec,
+                    latched_until_day: latched,
+                })
+            })
+            .collect();
+        DaySnapshot {
+            day,
+            realized: self.realized_today(now_unix),
+            probes: packed_count(self.probes_day.load(Acquire), day),
+            ops,
         }
     }
 
@@ -742,6 +830,33 @@ mod tests {
             Decision::Skip(SkipReason::DailyLoss)
         );
         assert!(g.is_killed());
+    }
+
+    #[test]
+    fn seeded_day_counters_hold_across_a_restart() {
+        let mut i = inp(Mode::Probe);
+        i.spend = 10_000_000;
+        i.op_slot = 2;
+        let now = i.now_unix;
+        let g = gate();
+        g.seed_day(now, -400_000_000, 3, 0, &[(1, 2, 2, day_of(now) + 1)]);
+        assert!(!g.is_killed());
+        assert_eq!(g.realized_today(now), -400_000_000);
+        // probes per day (3) already used: the next probe is refused
+        assert_eq!(g.decide(&i), Decision::Skip(SkipReason::MaxProbesPerDay));
+        // operator 1 stays latched
+        i.op_slot = 1;
+        assert_eq!(g.decide(&i), Decision::Skip(SkipReason::OpLatched));
+        let snap = g.day_snapshot(now);
+        assert_eq!(snap.probes, 3);
+        assert_eq!(snap.ops.len(), 1);
+        assert_eq!(snap.ops[0].buys_today, 2);
+        // a new day starts from zero
+        assert_eq!(g.realized_today(now + 86_400), 0);
+        // at the cap: the seed itself latches the kill
+        let g = gate();
+        g.seed_day(now, -1_000_000_000, 0, 0, &[]);
+        assert_eq!(g.kill_reason(), Some(KillReason::DailyLoss));
     }
 
     #[test]

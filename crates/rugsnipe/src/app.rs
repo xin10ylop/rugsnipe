@@ -260,6 +260,58 @@ pub fn real_mode_gate(cfg: &Config, env: &ValidateEnv) -> Result<(), String> {
     Err(lines.join("\n"))
 }
 
+/// Unclean starts within an hour that latch the kill (`crash_loop`).
+pub const UNCLEAN_STARTS_KILL: usize = 3;
+
+/// Seed the risk gate with what today already spent, from `state.db`
+/// ([`rugsnipe_state::riskday::day_seed`]): today's realized P&L (failed
+/// attempts' `fail_cost`, closed positions, the persisted `risk` row), the
+/// real buys of the day and the hour (probes per day), and each armed
+/// operator's buys today and consecutive-loss latch. Latches `daily_loss`
+/// at once when today is already at the cap.
+pub fn seed_risk_day(
+    c: &rusqlite::Connection,
+    risk: &RiskGate,
+    ops: &std::collections::HashMap<u32, setup::OpInfo>,
+    now_unix: u64,
+) -> Result<rugsnipe_state::riskday::DaySeed, String> {
+    let day_start_ms = now_unix / 86_400 * 86_400_000;
+    let hour_start_ms = now_unix / 3_600 * 3_600_000;
+    let seed = rugsnipe_state::riskday::day_seed(
+        c,
+        day_start_ms,
+        hour_start_ms,
+        &rugsnipe_state::rows::utc_day(now_unix),
+    )
+    .map_err(|e| format!("state.db risk day: {e}"))?;
+    let per_op: Vec<(usize, u64, u32, u32)> = ops
+        .values()
+        .filter_map(|o| {
+            let buys = seed
+                .op_buys
+                .iter()
+                .find(|(id, _)| *id == o.op_id)
+                .map(|x| x.1)
+                .unwrap_or(0);
+            let (consec, until) = seed
+                .op_risk
+                .iter()
+                .find(|(id, ..)| *id == o.op_id)
+                .map(|x| (x.1, (x.2 / 86_400) as u32))
+                .unwrap_or((0, 0));
+            (buys > 0 || consec > 0 || until > 0).then_some((o.slot, buys, consec, until))
+        })
+        .collect();
+    risk.seed_day(
+        now_unix,
+        seed.realized(),
+        seed.real_buys,
+        seed.real_buys_hour,
+        &per_op,
+    );
+    Ok(seed)
+}
+
 /// Assemble the process. Real modes are refused unless every gate passes.
 pub fn build(o: AppOpts) -> Result<App, String> {
     let cfg = o.cfg;
@@ -474,6 +526,51 @@ pub fn build(o: AppOpts) -> Result<App, String> {
                     rugsnipe_core::risk::KillReason::from_name(&l.reason)
                         .unwrap_or(rugsnipe_core::risk::KillReason::Persisted),
                 );
+            }
+            if mode.is_real() {
+                // the daily caps survive a restart (docs/08 section 9)
+                let seed = seed_risk_day(&c, &risk, &arm.load().ops, now)?;
+                eprintln!(
+                    "risk day restored: realized {} lamports (failed attempts {}, closed {}), real buys today {} (this hour {})",
+                    seed.realized(),
+                    seed.failed_cost,
+                    seed.closed_pnl,
+                    seed.real_buys,
+                    seed.real_buys_hour
+                );
+                // a crash loop latches the kill (docs/08 section 10)
+                let unclean = rugsnipe_state::riskday::note_start(&c, now, 3_600)
+                    .map_err(|e| format!("state.db run marker: {e}"))?;
+                if unclean > 0 {
+                    eprintln!(
+                        "previous run did not shut down cleanly: {unclean} unclean start(s) in the last hour (the kill latches at {UNCLEAN_STARTS_KILL})"
+                    );
+                }
+                if unclean >= UNCLEAN_STARTS_KILL {
+                    risk.kill(rugsnipe_core::risk::KillReason::CrashLoop);
+                    let row = rugsnipe_state::killkv::Latch {
+                        reason: rugsnipe_core::risk::KillReason::CrashLoop.name().into(),
+                        unix: now,
+                        detail: format!("{unclean} starts without a clean shutdown within an hour"),
+                    };
+                    l.kv(
+                        &format!("{}crash_loop", rugsnipe_state::killkv::TRIGGER_PREFIX),
+                        row.to_json(),
+                    );
+                }
+            }
+            if restored_latch.is_none() {
+                if let Some(k) = risk.kill_reason() {
+                    // latched at start (daily loss, crash loop): persisted now,
+                    // not on the cold thread's first tick
+                    let row = rugsnipe_state::killkv::Latch {
+                        reason: k.name().into(),
+                        unix: now,
+                        detail: format!("{} at start", k.name()),
+                    };
+                    l.kv(rugsnipe_state::killkv::LATCH_KEY, row.to_json());
+                    l.flush();
+                }
             }
             programdata_baseline = rugsnipe_state::store::kv_get(&c, "pump_programdata")
                 .ok()
@@ -891,6 +988,8 @@ impl App {
             state_errors = s.stats().errors.load(Relaxed);
             if let Some(p) = &state_path {
                 if let Ok(c) = rugsnipe_state::store::open_conn(p) {
+                    // a clean shutdown: the next start is not counted as unclean
+                    let _ = rugsnipe_state::riskday::note_clean_shutdown(&c);
                     if let Ok(rows) = rugsnipe_state::schema::row_counts(&c) {
                         state_rows = rows.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
                     }

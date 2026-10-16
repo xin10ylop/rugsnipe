@@ -17,11 +17,10 @@ use std::io::Read;
 use std::path::Path;
 use zeroize::Zeroizing;
 
-/// CU floor when `tx.cu_limit = 0` in paper: docs/03 section 6 (gap-5)
-/// puts the static floor at 88,000 (a static 72,150 fails ~16% of mints:
-/// CU is `62,310 + 1,500*S` with a nonce, S up to 14). The hot path patches
-/// the per-mint limit `65,000 + 1,500*S` over this floor
-/// ([`rugsnipe_tx::cu::snipe_cu_limit`]).
+/// CU floor when `tx.cu_limit = 0` in paper: the recommended 65,000 (the
+/// per-mint formula at S = 0). The hot path patches the per-mint limit
+/// `65,000 + 1,500*S` over this floor ([`rugsnipe_tx::cu::snipe_cu_limit`]);
+/// sells keep a static 88,000 ([`rugsnipe_tx::cu::sell_cu_limit`]).
 pub const PAPER_CU_LIMIT: u32 = rugsnipe_tx::cu::RECOMMENDED_CU_FLOOR;
 /// 370 pages.
 pub const PAPER_LADS_BYTES: u32 = 12_124_160;
@@ -214,7 +213,7 @@ pub struct Templates {
     pub sell_partial: Template,
     pub tip_account: Pubkey,
     /// `tx.cu_limit` (or [`PAPER_CU_LIMIT`]): the floor of the per-mint CU
-    /// limit, and the static limit of the sells.
+    /// limit (the sells' static limit is at least 88,000).
     pub cu_floor: u32,
     /// The owner's wallet term W of the per-mint CU limit
     /// ([`rugsnipe_tx::cu::wallet_missing_bumps`]: `255 -` its UVA bump),
@@ -260,8 +259,10 @@ pub fn templates(cfg: &Config, owner: Pubkey, pool: &NoncePool) -> Result<Templa
         };
         buys.push(Template::buy(&p).map_err(|e| format!("buy template: {e}"))?);
     }
+    // sells carry no per-mint limit: a static one that fits every exit
     let sell = CurveParams {
         partial_fill: None,
+        cu_limit: rugsnipe_tx::cu::sell_cu_limit(cu),
         ..base
     };
     Ok(Templates {

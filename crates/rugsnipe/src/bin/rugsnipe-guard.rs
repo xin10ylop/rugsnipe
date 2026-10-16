@@ -8,7 +8,14 @@
 //! `$CREDENTIALS_DIRECTORY`, verifies `--armset`, and sends each dump sell
 //! on a recent blockhash (`--rpc-url`) to every configured sender. Live is
 //! refused. Prices come from the curve account (`--rpc-url`, feature `rpc`),
-//! else only the grace rule applies.
+//! else only the grace rule applies. `--rpc-url cred:RPC_URL` reads the URL
+//! from the `api-keys` credential (probe refuses a query string on the
+//! command line and the public endpoint). A real sell is retried every
+//! `--retry-ms` (default 3000) on a fresh blockhash until the wallet's token
+//! balance is 0 (then the position is closed in `state.db`) or the bids
+//! reach `[risk] max_sell_spend_lamports`. The exits lease goes back to the
+//! hot box when its heartbeat returns. systemd: `READY=1` once `state.db` is
+//! open, `WATCHDOG=1` every loop.
 //!
 //! ```text
 //! rugsnipe-guard --config config/paper.example.toml --state data/raw/paper/state.db [--once]
@@ -26,7 +33,8 @@ type PriceFn = Box<dyn Fn(&pump_codec::Pubkey) -> Option<u64>>;
 
 const USAGE: &str =
     "usage: rugsnipe-guard --config <toml> --state <state.db> [--dry-run | --paper-sell | --real-sell]
-    [--armset <armset-V-SHA.json>] [--once] [--interval-ms N] [--duration-s N] [--rpc-url <url>]";
+    [--armset <armset-V-SHA.json>] [--once] [--interval-ms N] [--duration-s N]
+    [--rpc-url <url>|cred:NAME] [--retry-ms N]";
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -35,15 +43,15 @@ fn main() {
         return;
     }
     if let Err(e) = run(&args) {
-        eprintln!("rugsnipe-guard: {e}");
+        eprintln!("rugsnipe-guard: {}", rugsnipe::keys::redact_text(&e));
         std::process::exit(2);
     }
 }
 
 #[cfg(feature = "rpc")]
-fn price_source(args: &[String], cfg: &rugsnipe_core::Config) -> PriceFn {
+fn price_source(url: Option<&str>, cfg: &rugsnipe_core::Config) -> PriceFn {
     use rugsnipe_state::ChainRead;
-    let Some(url) = opt(args, "--rpc-url") else {
+    let Some(url) = url else {
         return Box::new(|_| None);
     };
     let budget = Arc::new(
@@ -61,8 +69,8 @@ fn price_source(args: &[String], cfg: &rugsnipe_core::Config) -> PriceFn {
 }
 
 #[cfg(not(feature = "rpc"))]
-fn price_source(args: &[String], _cfg: &rugsnipe_core::Config) -> PriceFn {
-    if opt(args, "--rpc-url").is_some() {
+fn price_source(url: Option<&str>, _cfg: &rugsnipe_core::Config) -> PriceFn {
+    if url.is_some() {
         eprintln!("--rpc-url needs the `rpc` feature; prices unknown (grace rule only)");
     }
     Box::new(|_| None)
@@ -71,7 +79,11 @@ fn price_source(args: &[String], _cfg: &rugsnipe_core::Config) -> PriceFn {
 /// `--real-sell` (probe): keys from systemd credentials, the ArmSet and the
 /// sender gate verified, sells on a recent blockhash.
 #[cfg(feature = "real-senders")]
-fn real_sell_path(args: &[String], cfg: &rugsnipe_core::Config) -> Result<PaperSell, String> {
+fn real_sell_path(
+    args: &[String],
+    cfg: &rugsnipe_core::Config,
+    url: Option<&str>,
+) -> Result<PaperSell, String> {
     let dir = rugsnipe::keys::credentials_dir().map_err(|r| r.to_string())?;
     let keys = rugsnipe::keys::load_real_keys(cfg, &dir).map_err(|rs| {
         rs.iter()
@@ -91,7 +103,7 @@ fn real_sell_path(args: &[String], cfg: &rugsnipe_core::Config) -> Result<PaperS
         }
         None => return Err("--real-sell needs --armset (the signed probe ArmSet)".into()),
     };
-    let url = opt(args, "--rpc-url").ok_or("--real-sell needs --rpc-url (recent blockhashes)")?;
+    let url = url.ok_or("--real-sell needs --rpc-url (recent blockhashes, balances)")?;
     let opts = rugsnipe::app::RealOpts {
         creds_dir: dir,
         clock_offset_ms: rugsnipe::app::chrony_offset_ms(),
@@ -114,6 +126,24 @@ fn real_sell_path(args: &[String], cfg: &rugsnipe_core::Config) -> Result<PaperS
     );
     let t = rugsnipe::setup::templates(cfg, owner, &pool)?;
     let client = rugsnipe_tx::rpc::RpcClient::new(url);
+    // the wallet's balance of a mint: a sell is done when it reads 0
+    let chain = rugsnipe_state::chain::RpcChain::new(
+        url,
+        Arc::new(
+            rugsnipe_state::RpcBudget::for_role(&cfg.rpc_budget, "guard")
+                .unwrap_or(rugsnipe_state::RpcBudget::new(4.0)),
+        ),
+    );
+    let token_balance: rugsnipe::guard::TokenBalanceFn = Arc::new(move |mint| {
+        use rugsnipe_state::ChainRead;
+        let all = chain.token_balances(&owner).ok()?;
+        Some(
+            all.iter()
+                .filter(|b| b.mint == *mint)
+                .map(|b| b.amount)
+                .sum(),
+        )
+    });
     let blockhash = Arc::new(move || {
         let v = client
             .call(
@@ -136,12 +166,20 @@ fn real_sell_path(args: &[String], cfg: &rugsnipe_core::Config) -> Result<PaperS
         paper: Arc::new(rugsnipe_tx::senders::paper::Paper::new(1_024)),
         tip_account: t.tip_account,
         bid: rugsnipe_core::bid::BidPolicy::from_cfg(&cfg.bid),
-        real: Some(rugsnipe::guard::GuardReal { senders, blockhash }),
+        real: Some(rugsnipe::guard::GuardReal {
+            senders,
+            blockhash,
+            token_balance: Some(token_balance),
+        }),
     })
 }
 
 #[cfg(not(feature = "real-senders"))]
-fn real_sell_path(_args: &[String], _cfg: &rugsnipe_core::Config) -> Result<PaperSell, String> {
+fn real_sell_path(
+    _args: &[String],
+    _cfg: &rugsnipe_core::Config,
+    _url: Option<&str>,
+) -> Result<PaperSell, String> {
     Err("--real-sell needs a build with --features real-senders".into())
 }
 
@@ -164,10 +202,31 @@ fn run(args: &[String]) -> Result<(), String> {
         _ => {}
     }
     let state = PathBuf::from(opt(args, "--state").ok_or("--state required")?);
+    // the RPC endpoint: `cred:NAME` from the credentials; probe refuses a
+    // query string on the command line and the public endpoint
+    let rpc_arg = opt(args, "--rpc-url");
+    if real_sell {
+        if let Some(why) =
+            rpc_arg.and_then(|u| rugsnipe::keys::real_mode_url_refusal("--rpc-url", u))
+        {
+            return Err(why);
+        }
+    }
+    let rpc_url = match rpc_arg {
+        Some(u) => Some(rugsnipe::keys::resolve_url(&cfg, "--rpc-url", u)?.to_string()),
+        None => None,
+    };
+    if real_sell
+        && rpc_url
+            .as_deref()
+            .is_some_and(rugsnipe::keys::is_public_mainnet)
+    {
+        return Err("--rpc-url is the public api.mainnet-beta.solana.com (rate-limited): use a paid endpoint".into());
+    }
     let conn = rugsnipe_state::store::open_conn(&state).map_err(|e| e.to_string())?;
     let paper_sell = flag(args, "--paper-sell") || real_sell;
     let sell = if real_sell {
-        Some(real_sell_path(args, &cfg)?)
+        Some(real_sell_path(args, &cfg, rpc_url.as_deref())?)
     } else if paper_sell {
         let signer = Arc::new(rugsnipe::setup::throwaway_signer().map_err(|e| e.to_string())?);
         let pool = rugsnipe::setup::paper_nonce_pool(signer.pubkey(), 1);
@@ -190,10 +249,34 @@ fn run(args: &[String]) -> Result<(), String> {
             drop_from_peak_bps: cfg.guard.drop_from_peak_bps,
             grace_s: cfg.guard.grace_s,
             dry_run: !paper_sell,
+            retry_ms: num(args, "--retry-ms", 3_000u64)?,
+            max_sell_spend: match cfg.effective_risk().max_sell_spend_lamports {
+                0 => rugsnipe::setup::DEFAULT_MAX_SELL_SPEND,
+                v => v,
+            },
         },
         sell,
     );
-    let price = price_source(args, &cfg);
+    let price = price_source(rpc_url.as_deref(), &cfg);
+    eprintln!(
+        "rugsnipe-guard {} mode={} state={} rpc={} {}",
+        rugsnipe::VERSION,
+        cfg.mode.mode,
+        state.display(),
+        rpc_url
+            .as_deref()
+            .map(rugsnipe::keys::redact_url)
+            .unwrap_or_else(|| "none (grace rule only)".into()),
+        if real_sell {
+            "REAL sells"
+        } else if paper_sell {
+            "paper sells"
+        } else {
+            "dry run"
+        }
+    );
+    // systemd (Type=notify): ready once state.db is open
+    let _ = sd_notify::notify(&[sd_notify::NotifyState::Ready]);
     let term = Arc::new(AtomicBool::new(false));
     for s in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
         signal_hook::flag::register(s, term.clone()).map_err(|e| e.to_string())?;
@@ -205,6 +288,7 @@ fn run(args: &[String]) -> Result<(), String> {
     let mut last = String::new();
     loop {
         let actions = guard.step(&conn, rugsnipe::now_ms(), price.as_ref())?;
+        let _ = sd_notify::notify(&[sd_notify::NotifyState::Watchdog]);
         let line = actions
             .iter()
             .map(|a| match a {
@@ -235,9 +319,19 @@ fn run(args: &[String]) -> Result<(), String> {
                     reason,
                     sent,
                     accepted,
+                    try_no,
                 } => format!(
-                    "REAL sell {tokens} of {mint} ({reason}): {accepted}/{sent} variants accepted"
+                    "REAL sell {tokens} of {mint} ({reason}) try {try_no}: {accepted}/{sent} variants accepted"
                 ),
+                GuardAction::Closed { mint, tries } => {
+                    format!("position {mint} closed: the wallet holds none ({tries} sell tries)")
+                }
+                GuardAction::SellGaveUp { mint, tries, spent } => format!(
+                    "CRITICAL: sell of {mint} not confirmed after {tries} tries and {spent} lamports of bids (max_sell_spend): sell it by hand"
+                ),
+                GuardAction::ReleasedToHot { owner } => {
+                    format!("hot box is back ({owner}): exits lease handed back")
+                }
                 GuardAction::SellDeferred { mint, why } => {
                     format!("real sell of {mint} deferred: {why}")
                 }

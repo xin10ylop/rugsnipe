@@ -377,8 +377,21 @@ pub struct SendersCfg {
     /// BlockRazor `sendTransaction`, mode `fast` (0.0001 SOL minimum tip, 3 TPS).
     pub blockrazor: HttpSenderCfg,
     pub tpu: TpuCfg,
+    /// Minutes a sender whose own send-error ratio is above
+    /// `risk.send_error_kill_ratio` stays disabled (0 = the default, 10).
+    pub quarantine_min: u64,
 }
 impl SendersCfg {
+    /// The per-sender quarantine in ms (`quarantine_min`, default 10 min).
+    pub fn quarantine_ms(&self) -> u64 {
+        let m = if self.quarantine_min == 0 {
+            10
+        } else {
+            self.quarantine_min
+        };
+        m.saturating_mul(60_000)
+    }
+
     /// Names of enabled senders that can move money (everything but paper).
     pub fn real_enabled(&self) -> Vec<&'static str> {
         let mut v = vec![];
@@ -508,8 +521,8 @@ pub struct TxCfg {
     /// **Floor** of the per-mint compute-unit limit: the hot path patches
     /// `65,000 + 1,500*S` per mint (S = Σ (255 - bump) over the four snipe
     /// PDAs, docs/research/gap-5.md), clamped to `[cu_limit, 1,400,000]`;
-    /// sells use it as their static limit. 88,000 recommended (a static
-    /// 88,000 fails 0.075% of mints; the per-mint value covers those). 0 =
+    /// sells use `max(cu_limit, 88,000)` as their static limit. 65,000
+    /// recommended (the formula at S = 0, so the floor never binds). 0 =
     /// probe/live refused until `rugsnipe-ctl sim` confirms the fit.
     pub cu_limit: u32,
     /// Loaded-accounts data size limit (12,124,160 = 370 pages).
@@ -581,6 +594,22 @@ pub struct BidCfg {
     /// that lands; tips revert). The hot path clamps the priority fee to
     /// `cap - base fee`. Validated: at least `2 x 5,000 + min_priority_lamports`.
     pub failed_attempt_lamports_max: u64,
+    /// Per-leader-class override of `failed_attempt_lamports_max` (0 = the
+    /// global cap, the default). The probe-A arm design (docs/06 section 6)
+    /// can raise the cap of a priority-ordered class (rivals' median ~25.8M
+    /// µL/CU against our ~990k-lamport clamp) without touching sizing.
+    pub failed_attempt_max_by_class: ClassCaps,
+}
+
+/// `bid.failed_attempt_max_by_class`: lamports per leader class, 0 = the
+/// global `bid.failed_attempt_lamports_max`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ClassCaps {
+    pub jito_agave: u64,
+    pub bam: u64,
+    pub harmonic: u64,
+    pub other: u64,
 }
 impl Default for BidCfg {
     fn default() -> Self {
@@ -589,6 +618,7 @@ impl Default for BidCfg {
             split: BidSplit::default(),
             min_priority_lamports: 10_000,
             failed_attempt_lamports_max: 1_000_000,
+            failed_attempt_max_by_class: ClassCaps::default(),
         }
     }
 }
@@ -745,6 +775,14 @@ pub struct EntryCfg {
     /// Fill cap over the post-bundle price (`max_sol_cost` bound): a fill
     /// that would pay more fails (cheaply) instead.
     pub max_premium: f64,
+    /// Expected SOL of the bundle's buys that are **not** in the create
+    /// transaction (separate transactions of the same Jito bundle, not yet
+    /// visible when the hot path fires). The on-chain bound is computed at
+    /// `V_cap = min(v_max, V_pb * sqrt(1 + max_premium))` with
+    /// `V_pb = V0 + bundle_lamports` (V0: the curve after the create's
+    /// in-tx buys); a bigger bundle fails the buy on `min_tokens_out` (the
+    /// cheap failure), and paper E1 applies the same bound (docs/06 7.1).
+    pub bundle_lamports: u64,
     pub filter: EntryFilter,
     /// The frozen P(take-profit) model of the entry filter
     /// (`data/reports/strategy/entry_filter_v1.json`, docs/04 section 2);
@@ -759,6 +797,7 @@ impl Default for EntryCfg {
     fn default() -> Self {
         Self {
             max_premium: 0.02,
+            bundle_lamports: 4_000_000_000,
             filter: EntryFilter::Any,
             filter_model: String::new(),
             filter_mode: FilterMode::Log,
@@ -1066,7 +1105,7 @@ impl core::fmt::Display for Refusal {
             Self::CapMissing(n) => write!(f, "risk.{n} is 0 or missing"),
             Self::CuLimitZero => write!(
                 f,
-                "tx.cu_limit = 0 (the per-mint CU floor; run `rugsnipe-ctl sim`, then set 88,000)"
+                "tx.cu_limit = 0 (the per-mint CU floor; run `rugsnipe-ctl sim`, then set 65,000)"
             ),
             Self::LadsZero => write!(f, "tx.lads_bytes = 0"),
             Self::CredentialMissing(n) => write!(f, "credential {n:?} missing"),
@@ -1109,6 +1148,16 @@ impl Validation {
     pub fn ok(&self) -> bool {
         self.refusals.is_empty()
     }
+}
+
+/// A real mode's `risk.kill_file` must be under `/run/rugsnipe/` (the
+/// units' tmpfiles directory). `RUGSNIPE_KILL_DIR` (an absolute path) adds
+/// one more directory for the test suite only; no unit sets it.
+pub fn kill_dir_override() -> Option<String> {
+    std::env::var("RUGSNIPE_KILL_DIR")
+        .ok()
+        .filter(|d| d.starts_with('/') && d.len() > 1)
+        .map(|d| if d.ends_with('/') { d } else { format!("{d}/") })
 }
 
 impl Config {
@@ -1193,6 +1242,17 @@ impl Config {
         // the failed-attempt cap (docs/03 section 6 "Pay on success")
         let b = &self.bid;
         let floor = 2 * crate::bid::BASE_FEE_PER_SIGNATURE + b.min_priority_lamports;
+        let cc = &b.failed_attempt_max_by_class;
+        for (n, v) in [
+            ("bid.failed_attempt_max_by_class.jito_agave", cc.jito_agave),
+            ("bid.failed_attempt_max_by_class.bam", cc.bam),
+            ("bid.failed_attempt_max_by_class.harmonic", cc.harmonic),
+            ("bid.failed_attempt_max_by_class.other", cc.other),
+        ] {
+            if v > 0 && v < floor {
+                inv(&mut r, n, &format!("must be 0 (global cap) or >= {floor}"));
+            }
+        }
         if b.failed_attempt_lamports_max < floor {
             inv(
                 &mut r,
@@ -1269,7 +1329,11 @@ impl Config {
         if self.paper.min_replay_slots > self.paper.replay_slots {
             inv(&mut r, "paper.min_replay_slots", "must be <= replay_slots");
         }
-        if self.feeds.logsws.enabled && !self.feeds.logsws.url.starts_with("wss://") {
+        // `cred:NAME`: the URL is read from the credentials (docs/08 section 9)
+        if self.feeds.logsws.enabled
+            && !self.feeds.logsws.url.starts_with("wss://")
+            && !self.feeds.logsws.url.starts_with("cred:")
+        {
             inv(&mut r, "feeds.logsws.url", "must be wss://");
         }
         if self.feeds.probe_live_require != "post_exec" {
@@ -1281,7 +1345,9 @@ impl Config {
         }
         let g = &self.feeds.grpc;
         if g.enabled {
-            if !(g.url.starts_with("https://") || g.url.starts_with("http://")) {
+            if g.url.starts_with("cred:") {
+                // resolved from the credentials at start
+            } else if !(g.url.starts_with("https://") || g.url.starts_with("http://")) {
                 inv(
                     &mut r,
                     "feeds.grpc.url",
@@ -1456,6 +1522,41 @@ impl Config {
         for (name, v) in self.risk.caps() {
             if v == 0 {
                 r.push(Refusal::CapMissing(name));
+            }
+        }
+        // the kill file the units' tmpfiles directory holds: a relative path
+        // resolves against whatever the working directory is
+        let kf = self.risk.kill_file.trim();
+        let under = |d: &str| kf.starts_with(d) && kf.len() > d.len();
+        if !(under("/run/rugsnipe/") || kill_dir_override().is_some_and(|d| under(&d)))
+            || kf.contains("/../")
+            || kf.ends_with('/')
+        {
+            inv(
+                &mut r,
+                "risk.kill_file",
+                &format!("{kf:?}: a real mode needs an absolute path under /run/rugsnipe/ (e.g. /run/rugsnipe/KILL)"),
+            );
+        }
+        // a feed URL with a query string (an API key) comes from a credential
+        for (field, on, u) in [
+            (
+                "feeds.logsws.url",
+                self.feeds.logsws.enabled,
+                &self.feeds.logsws.url,
+            ),
+            (
+                "feeds.grpc.url",
+                self.feeds.grpc.enabled,
+                &self.feeds.grpc.url,
+            ),
+        ] {
+            if on && !u.starts_with("cred:") && u.contains('?') {
+                inv(
+                    &mut r,
+                    field,
+                    "carries a query string (an API key?) in plain text: put the URL in the api-keys credential and write cred:NAME",
+                );
             }
         }
         if mode == Mode::Probe {

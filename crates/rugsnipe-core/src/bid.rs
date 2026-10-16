@@ -130,6 +130,9 @@ pub struct BidPolicy {
     pub split: [[f64; 2]; 4],
     pub min_priority_lamports: u64,
     pub failed_attempt_lamports_max: u64,
+    /// Per-class override of the cap in [`LeaderClass::ALL`] order (0 = the
+    /// global cap; `bid.failed_attempt_max_by_class`).
+    pub class_cap: [u64; 4],
 }
 
 impl BidPolicy {
@@ -143,6 +146,20 @@ impl BidPolicy {
             ],
             min_priority_lamports: b.min_priority_lamports,
             failed_attempt_lamports_max: b.failed_attempt_lamports_max,
+            class_cap: [
+                b.failed_attempt_max_by_class.jito_agave,
+                b.failed_attempt_max_by_class.bam,
+                b.failed_attempt_max_by_class.harmonic,
+                b.failed_attempt_max_by_class.other,
+            ],
+        }
+    }
+
+    /// The failed-attempt cap of class `c`: its override, else the global cap.
+    pub fn cap_of(&self, c: LeaderClass) -> u64 {
+        match self.class_cap[LeaderClass::ALL.iter().position(|x| *x == c).unwrap_or(3)] {
+            0 => self.failed_attempt_lamports_max,
+            v => v,
         }
     }
 
@@ -157,9 +174,7 @@ impl BidPolicy {
     pub fn plan(&self, c: LeaderClass, bid: u64, n_sigs: u8) -> BidPlan {
         let [p, t] = self.split_of(c);
         let want = ((bid as f64 * p) as u64).max(self.min_priority_lamports);
-        let room = self
-            .failed_attempt_lamports_max
-            .saturating_sub(base_fee(n_sigs));
+        let room = self.cap_of(c).saturating_sub(base_fee(n_sigs));
         BidPlan {
             class: c,
             priority_lamports: want.min(room),
@@ -212,6 +227,33 @@ impl BidPolicy {
 mod tests {
     use super::*;
     use crate::config::{BidCfg, LeaderMix};
+
+    #[test]
+    fn the_cap_can_be_raised_per_class_without_changing_the_default() {
+        let mut b = BidCfg::default();
+        let pol = BidPolicy::from_cfg(&b);
+        let bid = 3_400_000;
+        // default: every class at the global cap (990,000 of priority)
+        for c in LeaderClass::ALL {
+            assert_eq!(pol.cap_of(c), b.failed_attempt_lamports_max);
+        }
+        assert_eq!(
+            pol.plan(LeaderClass::Harmonic, bid, 1).priority_lamports,
+            995_000
+        );
+        // probe-A arm: Harmonic and BAM may risk the whole bid
+        b.failed_attempt_max_by_class.harmonic = 5_000_000;
+        b.failed_attempt_max_by_class.bam = 2_000_000;
+        let pol = BidPolicy::from_cfg(&b);
+        let h = pol.plan(LeaderClass::Harmonic, bid, 2);
+        assert_eq!((h.priority_lamports, h.clamped), (bid, false));
+        let m = pol.plan(LeaderClass::Bam, bid, 2);
+        assert_eq!((m.priority_lamports, m.clamped), (2_000_000 - 10_000, true));
+        // the others keep the global cap; sizing (the bid) is untouched
+        let o = pol.plan(LeaderClass::Other, bid, 2);
+        assert_eq!(o.priority_lamports, b.failed_attempt_lamports_max - 10_000);
+        assert_eq!(pol.plan(LeaderClass::JitoAgave, bid, 2).tip_lamports, bid);
+    }
 
     #[test]
     fn tip_classes_pay_on_success_and_priority_classes_are_capped() {
