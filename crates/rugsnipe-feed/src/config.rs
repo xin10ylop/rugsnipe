@@ -84,7 +84,8 @@ impl Default for RecordSection {
 }
 
 /// The feed part of the config. Unknown keys (grpc, shreds, probe_live_require)
-/// belong to other crates and are ignored here.
+/// are ignored here: `rugsnipe-hot` builds the gRPC feed itself from
+/// `rugsnipe-core`'s `[feeds] grpc` (it needs the x-token credential).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct FeedConfig {

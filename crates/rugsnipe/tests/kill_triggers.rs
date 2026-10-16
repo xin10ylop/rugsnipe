@@ -66,6 +66,14 @@ fn tune(t: &mut rugsnipe::cold::TriggerCfg) {
 }
 
 fn probe_app(dir: &std::path::Path, rpc_url: String) -> (app::App, Pubkey) {
+    probe_app_with(dir, rpc_url, None)
+}
+
+fn probe_app_with(
+    dir: &std::path::Path,
+    rpc_url: String,
+    post_exec: Option<rugsnipe::cold::PostExecFeed>,
+) -> (app::App, Pubkey) {
     let creds = dir.join("creds");
     std::fs::create_dir_all(&creds).unwrap();
     write_mode(&creds, "probe-keypair", &keypair_json(41), 0o400);
@@ -79,6 +87,7 @@ fn probe_app(dir: &std::path::Path, rpc_url: String) -> (app::App, Pubkey) {
     cfg.tx.lads_bytes = 12_124_160;
     cfg.feeds.grpc.enabled = true;
     cfg.feeds.grpc.url = "https://grpc.invalid".into();
+    cfg.feeds.grpc.stale_ms = 300;
     cfg.tx.nonce_pool = 4;
     cfg.secrets.probe_keypair = "probe-keypair".into();
     cfg.secrets.api_keys = "api-keys".into();
@@ -117,7 +126,7 @@ fn probe_app(dir: &std::path::Path, rpc_url: String) -> (app::App, Pubkey) {
             rpc_url,
             chain: Some(Box::new(MockChain { owner })),
         }),
-        post_exec: None,
+        post_exec,
         leader_rpc: None,
         alerts: None,
         trigger_tuning: Some(tune),
@@ -231,5 +240,125 @@ fn chain_triggers_latch_persist_and_survive_a_restart() {
     let (app, _) = probe_app(&dir, rpc_url);
     assert!(!app.risk.is_killed());
     app.shutdown(vec![]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The post-execution feed in a probe process: while it delivers, a free
+/// feed's copy of a create is recorded only (`free_feed_defers`) and the
+/// gRPC copy decides; when its slot trails `getSlot` by more than 8 slots
+/// (`drift`) and when it stops delivering for `stale_ms` (`feed_stale`), the
+/// kill latches and both trigger rows are written.
+#[test]
+fn a_stale_or_drifting_post_exec_feed_latches_the_kill() {
+    use rugsnipe_feed::FeedHealth;
+    let dir = tmpdir("kill-feed-stale");
+    let (rpc_url, _log) = serve_rpc(move |method, params| {
+        Ok(match method {
+            "getSignatureStatuses" | "getMultipleAccounts" => {
+                json!({"value": params[0].as_array().unwrap().iter().map(|_| Value::Null).collect::<Vec<_>>()})
+            }
+            "getBalance" => json!({"value": 2_000_000_000u64}),
+            "getLatestBlockhash" => {
+                json!({"context": {"slot": 1}, "value": {"blockhash": bs58::encode([1u8; 32]).into_string()}})
+            }
+            "getSlot" => json!(1_000),
+            "getAccountInfo" => {
+                json!({"value": {"data": [programdata_b64(456_494_698), "base64"]}})
+            }
+            _ => Value::Null,
+        })
+    });
+    let health = Arc::new(FeedHealth::new(FeedSrc::Grpc, 300));
+    health.connected.store(true, Relaxed);
+    health.frame();
+    let feeding = Arc::new(AtomicBool::new(true));
+    let pump = {
+        let (h, f) = (health.clone(), feeding.clone());
+        std::thread::spawn(move || {
+            while f.load(Acquire) {
+                h.frame();
+                std::thread::sleep(Duration::from_millis(30));
+            }
+        })
+    };
+    let feed = rugsnipe::cold::PostExecFeed {
+        health: health.clone(),
+        watch: Box::new(|_, _| {}),
+        stats: Box::new(|| json!({})),
+        bundles: None,
+    };
+    let (mut app, dev) = probe_app_with(&dir, rpc_url, Some(feed));
+    let mut buf = FeedBuf::with_capacity(64, 1 << 16);
+    // the logs path sees one create first, the gRPC feed another
+    let (free, _) = create(Pubkey::new_unique(), dev, 1_001, 1, 1_000_000_000);
+    let (live, _) = create(Pubkey::new_unique(), dev, 1_001, 2, 1_000_000_000);
+    let mut f = VecFeed::new(vec![
+        rugsnipe_feed::FeedEvent {
+            src: FeedSrc::LogsWs,
+            ..common::ev(1_001, Payload::Hit(free))
+        },
+        rugsnipe_feed::FeedEvent {
+            src: FeedSrc::Grpc,
+            ..common::ev(1_001, Payload::Hit(live))
+        },
+    ]);
+    f.end_when_empty = false;
+    for _ in 0..100 {
+        app.hot.step(&mut f, &mut buf);
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(
+        !app.risk.is_killed(),
+        "{:?}",
+        app.report.lock().unwrap().kill_triggers
+    );
+    assert_eq!(app.hot.counters.intents, 1, "only the gRPC copy decides");
+    let d = app.stats.decision_counts();
+    assert_eq!(
+        d.iter()
+            .find(|(k, _)| *k == "free_feed_defers")
+            .map(|x| x.1),
+        Some(1),
+        "{d:?}"
+    );
+    // the feed falls behind, then stops
+    health.last_slot.store(900, Relaxed);
+    feeding.store(false, Release);
+    let _ = pump.join();
+    let t0 = Instant::now();
+    loop {
+        app.hot.step(&mut f, &mut buf);
+        let r = app.report.lock().unwrap().clone();
+        if r.kill_triggers.contains_key("feed_stale") && r.kill_triggers.contains_key("drift") {
+            break;
+        }
+        assert!(
+            t0.elapsed() < Duration::from_secs(20),
+            "{:?} {:?}",
+            r.kill_triggers,
+            r.checks
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(app.risk.is_killed());
+    let s = app.shutdown(vec![]);
+    assert!(
+        s.cold.kill_triggers["drift"]
+            .detail
+            .contains("trails getSlot 1000 by 100"),
+        "{:?}",
+        s.cold.kill_triggers
+    );
+    let c = rugsnipe_state::store::open_conn(&dir.join("state.db")).unwrap();
+    assert!(rugsnipe_state::killkv::latched(&c).unwrap().is_some());
+    let names: Vec<String> = rugsnipe_state::killkv::triggers(&c)
+        .unwrap()
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    assert!(
+        names.contains(&"feed_stale".to_string()) && names.contains(&"drift".to_string()),
+        "{names:?}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

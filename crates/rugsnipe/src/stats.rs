@@ -28,6 +28,10 @@ pub mod code {
     /// A per-mint key is not the canonical PDA of its seeds (no bump
     /// matches), so the buy would fail on chain and no CU limit exists.
     pub const BAD_KEYS: u8 = 0x4b;
+    /// A real mode with the post-execution feed running: a free feed's copy
+    /// of a create is recorded only (the gRPC copy decides, so a late-feed
+    /// paper intent can never hold the mint's slot).
+    pub const FREE_FEED_DEFERS: u8 = 0x4c;
     /// Metrics only: a paper decision that a real mode would have skipped
     /// (rslog keeps the RiskGate code and the `would_skip` reason).
     pub const PAPER_WOULD_SKIP: u8 = 0x1f;
@@ -64,6 +68,7 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (code::BAD_OP, "bad_op"),
     (code::NO_POSITION_SLOT, "no_position_slot"),
     (code::BAD_KEYS, "bad_keys"),
+    (code::FREE_FEED_DEFERS, "free_feed_defers"),
 ];
 
 /// Label of a decision code.

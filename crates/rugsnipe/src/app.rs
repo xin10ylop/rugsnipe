@@ -558,6 +558,7 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     };
     let fill_lane = e1_lane.is_some() || e2_lane.is_some();
     let leaders = crate::leader::empty_snapshot();
+    let has_post_exec = o.post_exec.is_some();
     // one budget for the keeper's reads: real fill lane, chain checks, leaders
     let keeper_budget = Arc::new(RpcBudget::new(cfg.rpc_budget.keeper.max(1) as f64));
     let eff = cfg.effective_risk();
@@ -690,6 +691,7 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     hot_cfg.fill_timeout_slots = o.fill_timeout_slots;
     hot_cfg.fill_lane = fill_lane;
     hot_cfg.filter = filter;
+    hot_cfg.post_exec_feed = has_post_exec && mode.is_real();
     let mut hot = HotLoop::new(HotParts {
         cfg: hot_cfg,
         watch: watch.clone(),

@@ -87,7 +87,7 @@ The system stays **paper-only unless the go/no-go gate passes** (docs/06 section
 | **probe-B** | same box and feed, `[probe] stage = "b"`: 0.25 SOL buys, ≤ 300 attempts/day, 2 open positions, 1 SOL daily loss cap, about 200 landed trades | EV per attempt with failures at our real rank, premium and cost; the inputs of gate (b) | probe-A's landing rate above the break-even for its measured failed-attempt cost (`pnl_model`) and median premium ≤ +2% (`shadow_gate.py --probe`: `ENTER PROBE-B`); a signed ArmSet with `probe_stage = "b"` | ≤ 1 SOL/day at risk under the kill rule (docs/04 §7) |
 | **live** | fra1; after the gate add DZ Edge + Helius shreds | money | **gate (below)** + `mode = "live"` in TOML + CLI flag + local `rugsnipe-ctl arm-live` token for that gate run (valid 7 days) | + DZ $1,500 + Helius shreds $800-1,000 + tips |
 
-**Settled (2026-10-14):** the probe runs in two stages, A (measurement at 0.02 SOL) then B (0.25 SOL), as above; docs/04 §7, docs/06 §9.5/§10, docs/08 §9 and the `[probe]` section of the example configs say the same. Shadow currently runs on `logsSubscribe` (the hot binary has no gRPC feed yet).
+**Settled (2026-10-14):** the probe runs in two stages, A (measurement at 0.02 SOL) then B (0.25 SOL), as above; docs/04 §7, docs/06 §9.5/§10, docs/08 §9 and the `[probe]` section of the example configs say the same. Shadow runs on `logsSubscribe`; the hot binary has the Yellowstone gRPC feed (docs/08 §9 step 0), which probe requires and shadow may run for the first-seen comparison.
 
 **Probe kill rule** (docs/04 §7, `[probe] kill`, `shadow_gate.py --probe`): kill when the EV per attempt including failed attempts has a 90% upper bound below 0 after 100 landed trades or 400 attempts, whichever comes first (probe-B); or the median realised premium exceeds +3%; or the landing rate stays below the break-even for the measured failed-attempt cost over 200 attempts; or the stage's daily loss cap is hit.
 
@@ -175,21 +175,26 @@ sudo systemctl kill -s USR1 rugsnipe-hot        # signal latch
 # Telegram: /kill to the alert bot
 ```
 
-Per docs/06 section 5.1 the latch is also to be recorded in `state.db` (`risk.killed`), so that it survives a restart and a reboot (which clears `/run`). This is not implemented yet (M3+): until then a reboot clears the file latch. **Unkill is local only.** Log in to fra1, remove the file and clear the
-latch with `rugsnipe-ctl` (M3+). A Telegram message can kill but never unkill.
+The latch is recorded in `state.db` (`kv.kill_latch`, plus `risk.killed` for the day), so it survives a
+crash, a restart and a reboot (which clears `/run`). **Unkill is local only.** Log in to fra1, remove the
+file, stop the service, `sudo -u rugsnipe rugsnipe-ctl unkill --state /var/lib/rugsnipe/state.db`, start it
+(docs/08 section 10). A Telegram message can kill but never unkill.
 
 ### Automatic kill triggers (docs/06 section 13)
 
-Planned: the latch fires automatically on any of these. **In this build only the decode-miss trigger and a daily-loss cap computed from the bot's own ledger (not from the chain) exist**, besides the kill file and SIGUSR1; the others are task #12, which blocks the probe (docs/08 section 0):
-- the daily-loss cap (chain-derived, marked to the sell quote);
-- an unexplained balance drop > 0.05 SOL;
-- send errors > 20% over 5 min;
+Implemented (task #12, 2026-10-16; probe/live latch, paper reports them as `would_kill`; each writes a
+`kv.kill_trigger:<name>` row; docs/08 section 10 has the exact rules):
+- the daily loss marked to market (closed P&L + failed attempts' `meta.fee` + open positions at their sell quote);
+- an unexplained wallet drop beyond our known spends + 0.05 SOL;
+- send errors > 20% of the last 50 real sends;
 - decode-miss > 1%;
-- a program upgrade or FeeConfig change (buys go to paper until `rugsnipe-sim` passes);
-- a stale ArmSet;
-- disk > 90%;
+- a pump program upgrade (programdata deployed slot or authority; FeeConfig is not watched yet): run `rugsnipe-ctl sim`, then unkill;
+- a stale ArmSet (exits only);
+- disk > 90% on the state partition;
 - clock offset > 50 ms;
-- reconcile drift > 60 s.
+- the gRPC feed stale (no message for `stale_ms`) or more than 8 slots behind `getSlot`.
+
+Not implemented: reconcile drift > 60 s.
 
 ### Stop everything
 

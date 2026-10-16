@@ -106,7 +106,7 @@ fra1# sudo bash ~/rugsnipe/deploy/install.sh --role hot     # re-checks: refuses
 1. **Free (now):** `logsSubscribe` on mainnet-beta (`[feeds] logsws`). Paper only, slot +1 at best.
 2. **Shadow: SVS Yellowstone gRPC, $150/mo.**
    - Buy at solanavibestation.com (pricing page / Discord). Locations are AMS/ATL, so take **AMS** (~7 ms from FRA).
-   - Put the endpoint in `[feeds] grpc.endpoint`.
+   - Put the endpoint in `[feeds] grpc.url` (and `x_token = "GRPC_TOKEN"`); docs/08 section 9 step 0.
    - Put the token in `/etc/rugsnipe/keys/api-keys.toml` as `GRPC_TOKEN = "..."`.
    - Set `grpc.enabled = true` and keep `mode = "paper"`. This is the "shadow" phase: it measures detection lead against rivals' landing slots.
    - Paid alternative for probe (which needs `probe_live_require = "post_exec"`): **Helius LaserStream fra, $499-999/mo**, which is in-building.

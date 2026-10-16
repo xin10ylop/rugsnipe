@@ -12,15 +12,16 @@ Background: `docs/04-strategy.md` (what we trade and the go/no-go rule, §7), `d
 
 | Can | Cannot yet (blocks the step named) |
 |---|---|
-| Shadow mode (paper, no money): every multi-wallet bundled launch gets a would-be entry right behind the bundle, a measured premium, the LEAD exits replayed on the real tape, and failed attempts charged at their modelled cost | **Probe (partly) and live.** Built (task #12, first half, 2026-10-16): probe key loading from systemd credentials, the real senders in the hot binary (Helius incl. the `swqos_only` leg, Jito Frankfurt + Amsterdam `bundleOnly`, Nozomi, Astralane, BlockRazor, NextBlock), the real fill lane (our own TradeEvent, `meta.fee` of our failed buys, rank and premium, drops after the nonce burn, real sells and balances), nonce seeding from chain, recovery adoption, `--probe-dry`. Still missing (second half): the **gRPC (post-execution) feed**, so real buys cannot fire yet (free feeds stay paper and probe start is refused with "no healthy post-execution feed"; `--probe-dry` works), kill-latch persistence, the chain-derived daily loss, kill triggers beyond the file/signal/daily cap, the leader schedule, Telegram alerts, the TPU sender. **Live is refused in this build.** Step 9 runs up to the dry run |
+| Shadow mode (paper, no money): every multi-wallet bundled launch gets a would-be entry right behind the bundle, a measured premium, the LEAD exits replayed on the real tape, and failed attempts charged at their modelled cost | **Live** (refused in this build), and four probe refinements that are not needed for probe-A: the direct TPU sender, the sell nonce pool (partial sells use a recent blockhash), PumpSwap real sells (a real position whose curve completed is not sold by the hot box: sell it by hand), keep-alive pings that hold the senders' connections warm between buys. Shred feeds (DoubleZero Edge, Helius raw shreds) are not in the hot binary: do not buy them yet |
+| **Probe** (task #12, both halves, 2026-10-16): probe key loading from systemd credentials, the real senders (Helius incl. the `swqos_only` leg, Jito Frankfurt + Amsterdam `bundleOnly`, Nozomi, Astralane, BlockRazor, NextBlock), the real fill lane (our own TradeEvent, `meta.fee` of our failed buys, rank and premium, drops after the nonce burn, real sells and balances), nonce seeding from chain, recovery adoption, `--probe-dry`; the **Yellowstone gRPC post-execution feed** (creates as wire bytes decoded on the hot thread, our own trades, held mints, the creation slot's bundle run), probe start gated on a healthy gRPC feed, a stale feed latching the kill; the **kill latch persisted** in `state.db` with eight triggers (§10); the **leader schedule** (bid variant per leader class of the create slot and the next, the class recorded on every send and fill); optional Telegram alerts | |
 | Read rule (a) of the go/no-go gate: EV per attempt with a 90% lower bound (`analysis/scripts/shadow_gate.py`) | **Rule (b)** (are we ahead of the first follower?). The shadow lane *assumes* rank 1; our real rank needs real sends or a shred feed. It is decided in the probe |
-| Feeds: `logsSubscribe` over any websocket URL, PumpPortal, the collector relay | Yellowstone gRPC, DoubleZero Edge or Helius shreds: not in the hot binary. Do not buy them yet |
-| Bid policy: tip after the buy (pay on success) where the leader orders by tip (Jito-Agave), priority fee clamped by `bid.failed_attempt_lamports_max` elsewhere (BAM, Harmonic, other); sells take the same split, the bid paid once (docs/03 §6.1) | The leader's class per slot (no leader schedule in the hot path): paper uses the stake-weighted mix |
-| The P(TP) entry filter (`[entry] filter_model`, `filter_mode = "log"` or `"skip"`, docs/04 §3a) scores every paper intent from the E1 lane's reconstruction and records the score and tertile in `state.db` `filter` | Scoring live from shreds (the bundle run behind the create must be assembled from the slot's entries first) |
+| Feeds: `logsSubscribe` over any websocket URL, PumpPortal, the collector relay, **Yellowstone gRPC** (Triton, Alchemy or any standard endpoint; paper runs it only when `[feeds] grpc.enabled = true`, which also gives the first-seen comparison of §9) | DoubleZero Edge or Helius shreds: not in the hot binary |
+| Bid policy: tip after the buy (pay on success) where the leader orders by tip (Jito-Agave), priority fee clamped by `bid.failed_attempt_lamports_max` elsewhere (BAM, Harmonic, other); sells take the same split, the bid paid once (docs/03 §6.1). Probe reads the leader schedule (`getLeaderSchedule` per epoch, `getClusterNodes` every 3 min) and bids for the class of the create slot's leader and the next slot's | Paper uses the stake-weighted mix unless started with `--leader-schedule` |
+| The P(TP) entry filter (`[entry] filter_model`, `filter_mode = "log"` or `"skip"`, docs/04 §3a) scores every paper intent from the E1 lane's reconstruction and records the score and tertile in `state.db` `filter`. With the gRPC feed the creation slot's bundle run is assembled from the stream and its 17 bundle features land in `state.db` `feed_bundle` (probe: for every real attempt) | Scoring a probe buy *before* it fires (the bundle run streams in after the create; a real buy cannot wait for it); `filter_mode = "skip"` stays a paper-only rule |
 
 Practical consequence: rule (a) does not depend on where the box is (the lane rebuilds each launch from
-confirmed history). You may run steps 5-8 on ohio1 or any Linux box first and rent Frankfurt only when the
-probe build exists. Renting now buys you the acceptance test and a warm box; it does not change rule (a).
+confirmed history). You may run steps 5-8 on ohio1 or any Linux box first. The probe build exists now
+(step 9): rent Frankfurt and the gRPC feed when step 8 says `GO on (a)`.
 
 ## 1. Rent the Frankfurt box (docs/03 §4)
 
@@ -107,7 +108,8 @@ sudo bash ~/rugsnipe/deploy/install.sh --role hot              # refuses group/w
 
 `api-keys.toml` is one `NAME = "value"` per line (comments with `#`); the names are the `key` values of
 the `[senders]` tables: `HELIUS_KEY`, `NOZOMI_KEY`, `ASTRALANE_KEY`, `BLOCKRAZOR_KEY`, and optionally
-`NEXTBLOCK_KEY`. `rugsnipe-hot` reads the keys **only** from `$CREDENTIALS_DIRECTORY` (systemd
+`NEXTBLOCK_KEY`; plus `GRPC_TOKEN` (the gRPC feed's `x-token`, `[feeds] grpc.x_token`) and, for the
+optional Telegram alerts, `TG_TOKEN` and `TG_CHAT`. `rugsnipe-hot` reads the keys **only** from `$CREDENTIALS_DIRECTORY` (systemd
 `LoadCredential=`, already in the units), refuses a missing, malformed or group/world-readable
 credential, refuses a sender whose key name is not in the file, and never prints a key.
 
@@ -126,7 +128,7 @@ Change exactly these lines:
 | `[secrets] armset_pubkey` | the pubkey printed in step 4 | the example carries a dev key you do not have |
 | `[risk] kill_file` | `"/run/rugsnipe/KILL"` | the kill switch of §10 |
 | `[obs] rslog_dir` | `"/var/lib/rugsnipe/shadow/rslog"` | the service user can write only under `/var/lib/rugsnipe` |
-| `[feeds] logsws.url` | keep `wss://api.mainnet-beta.solana.com`, or your RPC provider's websocket URL | the only create feed this build has |
+| `[feeds] logsws.url` | keep `wss://api.mainnet-beta.solana.com`, or your RPC provider's websocket URL | the free create feed; the gRPC feed is optional in shadow (§9 step 0: the first-seen comparison) |
 | `[entry] filter_model` | `"/etc/rugsnipe/entry_filter_v1.json"` | the frozen P(TP) model; copy it first (below) |
 | `[entry] filter_mode` | `"log"` | score and record every launch, drop none (shadow measures selected and unselected launches alike) |
 
@@ -273,11 +275,11 @@ SELECT f.tertile, s.outcome, COUNT(*) FROM filter f JOIN shadow s ON s.intent_id
 by assumption). It is decided in the probe: probe-A measures our real landing rank, and the gate's (b)
 is read on probe-B (docs/06 §9.5).
 
-## 9. Moving to probe (dry run works; real buys wait for the gRPC feed)
+## 9. Moving to probe
 
-**When:** only if step 8 says `GO on (a)`, **and** the build has the post-execution feed (§0; the second
-half of task #12). Until then you can do every step below up to and including the dry run (step 5 of
-**How**), then keep shadow running.
+**When:** only if step 8 says `GO on (a)`. The build has everything probe-A needs (§0, task #12 both
+halves): the real senders, the real fill lane, the gRPC post-execution feed, the kill triggers and the
+leader schedule.
 
 **What** (docs/04 §7 step 2, `[probe]` in the config): two stages, both with `max_sol_cost` +2% and the
 LEAD exits. `[probe] stage` selects the caps; each narrows the `[risk]` cap of the same name, and a
@@ -296,7 +298,45 @@ the break-even for the measured failed-attempt cost over 200 attempts; or the st
 hit (the risk gate latches the kill itself). **Enter B** only if probe-A ends with a landing rate above
 that break-even and a median premium at or below +2% (`PROBE-A COMPLETE: ENTER PROBE-B`).
 
-**How** (steps 1-5 work in this build; step 6 needs the gRPC feed):
+**How:**
+
+0. **The gRPC feed** (docs/research/infra-shopping-2026.md §1; both are standard Yellowstone
+   "Dragon's Mouth", no code difference):
+   - **Triton One pay-as-you-go** ($125 prepaid for 12 months, $0.08/GB): create a Dragon's Mouth
+     endpoint in the portal; the URL is `https://<your-name>.rpcpool.com` (the shared Frankfurt front
+     `api.rpcpool.com` resolves to TeraSwitch FRA, very probably our building), the token goes only in
+     the `x-token` header.
+   - **Alchemy gRPC pay-as-you-go** ($75/TB, not on the Free plan): `https://solana-mainnet.streaming.alchemy.com`
+     (TeraSwitch FRA); the token is the app's API key [U: check the dashboard's gRPC page for the
+     header it expects; the binary sends `x-token`].
+   - The token is a line of `api-keys.toml` (§4): `GRPC_TOKEN = "..."` (or a credential file named
+     `GRPC_TOKEN`); the config names it, never holds it:
+     ```toml
+     [feeds]
+     grpc = { enabled = true, url = "https://<your-name>.rpcpool.com", x_token = "GRPC_TOKEN", stale_ms = 2_000, bundle_run = true }
+     ```
+     `bundle_run = true` also streams every pump transaction to assemble the creation slot's bundle run
+     (about 100 pump transactions/s at a few KB each: an estimate of ~2 GB/hour, i.e. about $4/day on
+     Triton; set it to `false` to stream only creates, our wallet and held mints).
+   - The subscription is one stream at `processed`: creates (`TSLvdd…` mentioned, successful only),
+     our wallet (failed transactions too), held mints (watched and unwatched as positions open and
+     close), pump (with `bundle_run`), slot updates. Compression is off (latency); the server's pings
+     are answered; no data message for `stale_ms` forces a reconnect (jittered backoff, the filters
+     re-sent with the current watches).
+   - **First-seen comparison** (do this in shadow first, any box): add the `grpc` line above to
+     `shadow.toml` with `enabled = true` and keep `logsws` on; start shadow with the credential
+     (`-p LoadCredential=api-keys:/etc/rugsnipe/keys/api-keys.toml` on the `systemd-run` line of §7; paper
+     loads no wallet, only the token). The status line prints `first-seen logsws_behind_grpc p50 … ms
+     (n …)`; at the end:
+     ```bash
+     python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["cold"]; print(json.dumps(s["first_seen"], indent=1)); print("grpc", json.dumps(s["grpc"]))' \
+       /var/lib/rugsnipe/shadow/summary.json
+     ```
+     `seen_by` / `first_by` count the creates each feed delivered and won, `lag` holds the late feed's lag
+     behind the first (p50/p90/p99/max, ms; one monotonic clock in one process, so no skew). Expect
+     the logs path about a second behind; a gRPC feed that is not ahead on nearly every create is the
+     wrong endpoint or region. Every create also gets an rslog `FeedSeen` record per source.
+
 
 1. The probe ArmSet (on ohio1), stage A first:
    ```bash
@@ -350,6 +390,8 @@ that break-even and a median premium at or below +2% (`PROBE-A COMPLETE: ENTER P
    /opt/rugsnipe/bin/rugsnipe-ctl config validate /etc/rugsnipe/rugsnipe.toml --creds /etc/rugsnipe/keys \
      --clock-offset-ms <from chronyc tracking> --post-exec-healthy --armset /var/lib/rugsnipe/armsets/armset-2-<sha>.json
    ```
+   (`--post-exec-healthy` asserts the feed's health, which only the running binary can measure;
+   validation still refuses a probe config without `[feeds] grpc.enabled`.)
    `config validate` prints the ArmSet's `probe_stage` and refuses a mismatch with `[probe] stage` (and
    `stage = "b"` with an ArmSet that names no stage).
 5. **Dry run on the box** (works now, before or after funding; sends nothing). The binary loads the real
@@ -373,12 +415,19 @@ that break-even and a median premium at or below +2% (`PROBE-A COMPLETE: ENTER P
    the buy must fail at its ATA or pump instruction (index 3 or later: the placeholder mint), never at
    instruction 0 (the nonce). Any refusal (key permissions, ArmSet, stage, clock, caps) is printed with
    every reason and nothing starts. Use a separate `--state` for dry runs.
-6. **Start** (needs the gRPC feed, task #12 second half; until then the service refuses probe with
-   "no healthy post-execution feed"): add the ArmSet and the RPC to the unit with a drop-in, then start:
+6. **Start**: add the ArmSet and the RPC to the unit with a drop-in, then start:
    ```bash
    sudo systemctl edit rugsnipe-hot     # [Service] / ExecStart= / ExecStart=/opt/rugsnipe/bin/rugsnipe-hot --config /etc/rugsnipe/rugsnipe.toml --armset /var/lib/rugsnipe/armsets/armset-2-<sha>.json --rpc-url <your RPC>
    sudo systemctl enable --now rugsnipe.target
    ```
+   Every other gate is checked first (nothing opens a socket before); then the gRPC feed starts and
+   must be connected with a slot update within `--feed-wait-s` (default 20 s): the journal shows
+   `grpc feed <url>: connected true slot … (… ms)`. Otherwise probe is refused with
+   `no healthy post-execution feed (gRPC <url>: connected …, last slot …, reconnects …)`: check the URL,
+   the `GRPC_TOKEN` line, and `curl -sv <url>` from the box. While running, a feed with no data
+   message for more than `stale_ms`, or trailing `getSlot` by more than 8 slots, latches the kill (§10).
+   The leader schedule loads in the first seconds (`leaders epoch …` in the status line); until it
+   does, a buy carries both the pay-on-success and the priority variant.
    A position opens only on our own TradeEvent (the feed's or the landed transaction's) or a token
    balance, never on a send; a buy that lands and fails costs its `meta.fee` (counted toward the daily
    loss); nothing landed means the keeper burns the nonce after `tx.burn_after_slots` and the attempt
@@ -404,8 +453,11 @@ that break-even and a median premium at or below +2% (`PROBE-A COMPLETE: ENTER P
    `median_premium_bps_fills`, `ev_per_attempt`, `ev_per_attempt_se`, `ev_per_attempt_90ci`). Raw rows are
    in `state.db` (`fills`, `positions`, `exits`, `sends`; failed attempts carry `fills.fail_cost` = the
    `meta.fee` of the failed transaction, 0 for a dropped send; `fills.variant` / `fills.sender` / `fills.fee`
-   / `fills.tip` name the landed variant). Per leader class needs the leader schedule (task #12, second
-   half); until then the split is per variant and per sender.
+   / `fills.tip` name the landed variant). The verdict also prints attempts, landings and failed cost
+   **per leader class** (`fills.leader_class` = the class of the slot the transaction landed in,
+   else `intents.leader_class` = the create slot's; `sends.leader_class` = the class each variant bid
+   for), and the summary's `cold.probe.by_leader_class` has the same split. That split decides whether
+   BAM keeps bidding with the priority fee (docs/03 §6.1).
 
 **Live** needs the docs/06 §9.5 gate for the class-arm LEAD (`gate_passed` in a signed ArmSet): (a) shadow
 over ≥ 1,000 launches and a full day with the hour-cluster 90% lower bound of the EV per attempt above 0;
@@ -422,10 +474,55 @@ sudo systemctl kill -s USR1 rugsnipe-shadow            # same, by signal (rugsni
 sudo systemctl stop rugsnipe-shadow                    # stops the process; the summary is still written
 ```
 
-**Unkill:** `sudo rm /run/rugsnipe/KILL`, then restart the process. In this build the latch lives in
-the process only (not yet in `state.db`), so a restart clears it once the file is gone, and a reboot
-clears `/run`. Once real money is involved, stop everything only when flat:
+**The latch is persisted.** Whatever latched it (the file, the signal, Telegram `/kill`, or a
+trigger below), the cold thread writes `kv.kill_latch` (reason, time, the first trigger's detail) to
+`state.db` within ~100 ms, so a crash, a SIGKILL, a restart or a reboot (which clears `/run`) comes
+back killed: the start prints `KILL latch restored from state.db: …`, and the summary carries
+`cold.kill_restored`. Buys stay off, exits continue.
+
+**Triggers** (probe/live latch; paper only reports them as `cold.would_kill`; each writes a
+`kv.kill_trigger:<name>` row with the time and the detail, listed in the summary's
+`cold.kill_triggers` and in the status line):
+
+| Trigger | Fires when | Knob (`[risk]`) |
+|---|---|---|
+| `send_errors` | more than 20% of the last 50 real sends failed | `send_error_kill_ratio`, `send_error_window` |
+| `unexplained_drop` | the wallet fell (between two 2-s reads) by more than our known spends of the last 120 s (stakes, bids, the failed-attempt cap, ATA rent, fees, sells, burns: upper bounds) plus a tolerance. A manual sweep or withdrawal trips it: stop the service first | `unexplained_drop_lamports` (0.05 SOL) |
+| `program_upgrade` | pump's programdata (deployed slot or upgrade authority, a 45-byte read every 60 s) differs from `kv.pump_programdata` (stored at the first read; an upgrade while the box was down counts too) | |
+| `disk` | the state partition is more than 90% used | `max_disk_used_pct` |
+| `clock` | `chronyc -c tracking` offset above 50 ms (start is refused above 5 ms or when chrony is unreadable as the service user) | `kill_clock_offset_ms` |
+| `drift` | the gRPC feed's slot trails `getSlot` (processed) by more than 8 slots (every 10 s) | `max_slot_drift` |
+| `feed_stale` | no data message from the gRPC feed for more than its `stale_ms` | `[feeds] grpc.stale_ms` |
+| `daily_loss` | closed P&L + failed attempts' `meta.fee` + open positions at their current sell quote below minus the daily cap (the stage's cap in probe) | `max_daily_loss_lamports` |
+
+The decode-miss ratio (above 1% over 500 creates) and a stale ArmSet keep their earlier behaviour.
+
+```bash
+sudo -u rugsnipe /opt/rugsnipe/bin/rugsnipe-ctl kill status --state /var/lib/rugsnipe/state.db
+#   KILLED: send_errors at 1792... (send_errors: 11 of the last 50 sends failed (22% > 20%))
+#   trigger send_errors: ...
+```
+
+**Unkill** (local only, deliberately): remove the kill file if there is one, clear the persisted
+latch, restart:
+
+```bash
+sudo rm -f /run/rugsnipe/KILL
+sudo systemctl stop rugsnipe-hot
+sudo -u rugsnipe /opt/rugsnipe/bin/rugsnipe-ctl unkill --state /var/lib/rugsnipe/state.db
+sudo systemctl start rugsnipe-hot
+```
+
+`unkill` keeps the trigger rows as history. After a `program_upgrade`, run `rugsnipe-ctl sim` against
+the new program first; `unkill` then drops the stored programdata, and the next start takes the
+deployed program as the new baseline. Once real money is involved, stop everything only when flat:
 `sudo sqlite3 -readonly /var/lib/rugsnipe/state.db "select mint,state from positions where state!='closed'"`.
+
+**Telegram** (optional): add `TG_TOKEN = "<bot token>"` and `TG_CHAT = "<chat id>"` to `api-keys.toml`;
+`[obs] alert = { telegram = "TG_TOKEN", chat = "TG_CHAT", hourly = true, commands = false }`. The box
+sends a start message, every kill with its trigger, and an hourly summary (never from the hot thread;
+a failed send is only counted, `cold.alerts`). `commands = true` also polls the bot every 5 s:
+`/kill` from that chat latches the kill (there is no remote unkill).
 
 ## 11. After Alpenglow (epoch 1064, Oct 21 2026 ~15:00 UTC)
 
@@ -522,8 +619,9 @@ EV of the frozen LEAD. Two consecutive weeks with the 90% lower bound below zero
 | TeraSwitch FRA2 bare metal (or Cherry €989, Latitude ~$400) | ~425 | probe and later; optional for shadow | yes (any box runs shadow) |
 | AWS Ohio analytics box (ohio1) | existing bill | ArmSet signing, holdouts, reports | yes |
 | RPC with websocket near Frankfurt (logsSubscribe + the E1 lane) | vendor price | shadow, if the public RPC lane falls behind | yes (`feeds.logsws.url`, `--rpc-url`) |
-| SVS Yellowstone gRPC | 150 | docs/07 shadow plan | **no** (no gRPC feed in the hot binary) |
-| Helius LaserStream fra (post-exec gRPC) | 499-999 | probe | **no** (same) |
+| Triton Dragon's Mouth pay-as-you-go (or Alchemy gRPC PAYG, $75/TB) | ~$125 prepaid + $0.08/GB | probe (the post-execution feed) | **yes** (`[feeds] grpc`, feature `grpc`, on by default) |
+| SVS Yellowstone gRPC | 150 | docs/07 shadow plan (AMS/ATL only) | yes, any standard Yellowstone endpoint |
+| Helius LaserStream fra (post-exec gRPC) | 499-999 | after the probe, if Triton/Alchemy lag | yes (same adapter) |
 | DoubleZero Edge FRA seat (leader shreds) | 1,500 | live, after the gate | **no** (no shred feed yet) |
 | Helius shred delivery per IP | 800-1,000 | live, after the gate | **no** |
 | NextBlock sender | 249+ | live, if an A/B shows value | yes, optional (`[senders] nextblock`, feature `real-senders`) |
@@ -543,13 +641,14 @@ config uses.
 | `probe-keypair` (`probe-keypair.json`) | probe wallet (fra1 only) | no | `[secrets] probe_keypair` |
 | `armset-signing-key` (`armset-signing.key`) | ArmSet signing key (ohio1 only, never fra1) | no | pubkey in `[secrets] armset_pubkey` |
 | `api-keys` (`api-keys.toml`) | the table below | | `[secrets] api_keys` |
-| `GRPC_TOKEN` | SVS gRPC or Helius LaserStream token | $150 / $499-999 | `[feeds] grpc.token` (feed not built yet) |
+| `GRPC_TOKEN` | the Yellowstone gRPC `x-token` (Triton, Alchemy, SVS, LaserStream) | per GB / plan | `[feeds] grpc.x_token` (a line of `api-keys.toml`, or a credential file of that name) |
 | `HELIUS_KEY` | Helius Sender `fra-sender` (free key: 50 req/s per region) | per-tx tip, 0.001 SOL; 5,000 lamports on the `swqos_only` leg | `[senders] helius.key` (`helius_swqos` uses it too) |
 | `NOZOMI_KEY` | Nozomi (Temporal) sender | per-tx tip, min 0.001 SOL | `[senders] nozomi.key` |
 | `ASTRALANE_KEY` | Astralane sender | per-tx tip, 0.001 SOL (0.00001 at VIP3) | `[senders] astralane.key` |
 | `BLOCKRAZOR_KEY` | BlockRazor sender (auth token, header `apikey`), mode `fast` | free, per-tx tip min 0.0001 SOL, 3 TPS | `[senders] blockrazor.key` |
 | `NEXTBLOCK_KEY` | NextBlock sender (optional) | $249+/mo (trial 1 tx/10 s) | `[senders] nextblock.key` |
-| `TG_TOKEN` | Telegram alert bot | free | `[obs] alert.telegram` (alerts not built yet) |
+| `TG_TOKEN` | Telegram alert bot token | free | `[obs] alert.telegram` (optional) |
+| `TG_CHAT` | the chat id the alerts go to (and `/kill` is accepted from) | free | `[obs] alert.chat` (optional) |
 | `HC_URL` | healthchecks.io dead-man URL | free tier | `[obs] alert.deadman` |
 | (none) | Helius Sender without a key | as above | `[senders] helius` with no `key` (1 req/s per IP) |
 | (none) | Jito block engine Frankfurt + Amsterdam, `bundleOnly` | per-tx tip, min 1,000 lamports; a failed bundle-only transaction costs nothing | `[senders] jito.regions` (1 req/s per IP per region, one token bucket each) |

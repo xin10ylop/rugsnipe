@@ -178,6 +178,9 @@ pub struct HotCfg {
     pub filter_mode: FilterMode,
     /// `probe.stage`: a probe buy needs the ArmSet to name no stage or this one.
     pub probe_stage: ProbeStage,
+    /// A real mode with the post-execution feed running: free-feed creates
+    /// are recorded only (`free_feed_defers`), the live-class copy decides.
+    pub post_exec_feed: bool,
 }
 
 impl HotCfg {
@@ -213,6 +216,7 @@ impl HotCfg {
             filter: None,
             filter_mode: cfg.entry.filter_mode,
             probe_stage: cfg.probe.stage,
+            post_exec_feed: false,
         }
     }
 
@@ -678,6 +682,9 @@ impl HotLoop {
         // 2: first-wins per mint and feed class
         if let Fired::Already { .. } = self.fired.first(&hit.mint, src_class(src), src) {
             return self.decision(intent, hit, code::ALREADY_FIRED, 0, 0, 0, 0, 0);
+        }
+        if self.cfg.post_exec_feed && self.cfg.mode.is_real() && src_class(src) == FREE_CLASS {
+            return self.decision(intent, hit, code::FREE_FEED_DEFERS, 0, 0, 0, 0, 0);
         }
         // across classes: a mint already held or pending from the other
         // class's feed (the gRPC copy of a create the logs path saw first, or

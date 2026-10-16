@@ -18,6 +18,10 @@
 //! | [`ws::PumpPortal`] | `subscribeNewToken` | optional, **default off** (one connection per IP) |
 //! | [`relay::CollectorRelay`] | collector frames on a Unix socket | optional |
 //! | [`replay::Replay`] | recorded JSONL frames | tests and benchmarks; no network |
+//! | `grpc::Grpc` (feature `grpc`) | Yellowstone gRPC `Subscribe` at `processed` | post-execution: creates as wire bytes + [`wiremeta`] trailer (decoded on the hot thread), our wallet's and held mints' trades, the creation slot's [`bundle::BundleRun`], slots; x-token, reconnect, stale detection; `grpc::mock` (feature `grpc-mock`) is a local test server |
+//!
+//! Wire bytes cross threads through [`wirering`] (a byte ring of whole
+//! records copied straight into the [`FeedBuf`] arena).
 //!
 //! Around them: [`FeedMux`] (cross-feed dedup by signature over a 65,536-entry
 //! xxh3 ring, duplicates turned into [`Payload::Dup`]), [`FiredSet`]
