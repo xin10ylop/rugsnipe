@@ -182,3 +182,21 @@ def break_even_landing(pol: Policy, c_fail: float, prem: float = 0.011, c_rt: fl
     failed attempt, drops included at their cost)."""
     return break_even_L1(pol, Execution(L1=0.2, prem=prem, prem_range=(prem, prem), c_rt=c_rt,
                                         c_fail=c_fail, c_fail_range=(c_fail, c_fail), f_pay=f_pay))
+
+
+def rescale_ev(ev: float, from_size: float, to_size: float, c_rt: float = 0.004) -> float:
+    """EV per landed trade measured at `from_size` SOL (fixed cost `c_rt` SOL per round trip included) moved to
+    `to_size` SOL: only the fixed cost per SOL changes (the premium and the exit are taken as size-free, which
+    flatters sizes above the measured one: docs/04 section 4)."""
+    return ev + c_rt / from_size - c_rt / to_size
+
+
+def break_even_at_stake(ev_landed: float, from_size: float, stake: float, c_fail: float, c_rt: float = 0.004,
+                        se: float = 0.0, f_pay: float = 1.0) -> float:
+    """Landing rate at which SOL per attempt is zero at `stake` SOL, from a measured EV per landed trade at
+    `from_size` (e.g. the shadow run's per-landed-trade EV at 0.5 SOL), every failed attempt paying `c_fail` SOL
+    (share `f_pay`). NaN when a landed trade loses at that stake (no landing rate breaks even)."""
+    ev = rescale_ev(ev_landed, from_size, stake, c_rt)
+    pol = Policy(f"measured EV at {stake} SOL", stake, [ActivityClass("all", 1.0, ev, se)])
+    return break_even_L1(pol, Execution(L1=0.2, prem=0.011, prem_range=(0.011, 0.011), c_rt=c_rt, c_fail=c_fail,
+                                        c_fail_range=(c_fail, c_fail), f_pay=f_pay))

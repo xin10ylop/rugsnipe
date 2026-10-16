@@ -7,6 +7,7 @@ from . import curve, events, firstslot, pumpapi
 from .selftest_funding import *  # noqa: F401,F403  (Task B: labels/funding tests)
 from .selftest_m0 import *  # noqa: F401,F403  (M0: store, rpcbudget, collector, backfill)
 from .selftest_probe import *  # noqa: F401,F403  (shadow_gate.py: rule (a), probe kill rule)
+from .selftest_gate_v2 import *  # noqa: F401,F403  (shadow_gate.py review fixes, prewarm_outcomes.py)
 from .selftest_taskc import *  # noqa: F401,F403  (Task C: discovery/backtest tests)
 
 # Real mainnet events (tx 52R8EpW9...pR2R7, slot 456764189, 2026-10-14): a mayhem-mode

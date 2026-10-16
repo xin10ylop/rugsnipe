@@ -104,13 +104,23 @@ def all_rows() -> list[dict]:
     return rows
 
 
-def feature_vector(r: dict) -> list[float]:
+# Create-only variant (entry_filter_v1_create_only): the live hot loop fires before the bundle run behind the create
+# has streamed in (feed_bundle arrives after the decision), so only the create transaction, the signer's funding,
+# operator history as of the launch and the time / create-rate features are known. ``intx_n_buys`` (buy
+# instructions inside the create transaction) is the one create-tx shape field added; the in-tx buy SOL is not in
+# the training table (needs a table rebuild from the tapes: the trades whose signature is the create's).
+CREATE_ONLY_EXTRA: list[tuple[str, str]] = [("intx_n_buys", "create_tx")]
+CREATE_ONLY_FEATURES: list[tuple[str, str]] = [(f, g) for f, g in LIVE_FEATURES if g != "bundle"] + CREATE_ONLY_EXTRA
+
+
+def feature_vector(r: dict, features: list[str] | None = None) -> list[float]:
     f = M.feature_row(r, HIST)
-    return [float(f[k]) for k in FEATURES]
+    f["intx_n_buys"] = float(r.get("intx_n_buys") or 0)
+    return [float(f[k]) for k in (FEATURES if features is None else features)]
 
 
-def design(rows: list[dict]) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    X = np.array([feature_vector(r) for r in rows], dtype=np.float64)
+def design(rows: list[dict], features: list[str] | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    X = np.array([feature_vector(r, features) for r in rows], dtype=np.float64)
     y = np.array([r["tp_hit"] for r in rows], dtype=np.float64)
     w = np.array([r["w"] for r in rows], dtype=np.float64)
     pool = np.array([bool(r.get("pool")) for r in rows])

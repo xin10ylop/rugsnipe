@@ -146,6 +146,16 @@ point-in-time operator history, time, create rate). Findings:
   every intent, and with `entry.filter_mode = "skip"` drops the bottom tertile. The outcome store
   (our LEAD outcome per signer and bundle wallet, 10 s after each launch) lives in state.db. Live,
   only the bundle run behind the create is not yet visible from the shreds.
+- **Create-only variant (2026-10-16, `strategy-entry-filter.md` §5).** The live hot loop decides before the
+  bundle run streams in, so `entry_filter_v1`'s 17 bundle features are unknown at decision time. Refit with the same
+  code path on the 44 create-time features (create transaction incl. the in-transaction buy count, uri, funding,
+  operator history as of the launch, time) and scored on the same 480 holdout launches: skip-bottom-tertile lift
+  **+1.57 points [+0.82, +2.37]** (68% kept, AUC 0.70) against +1.52 [+0.49, +2.54] for the full feature set
+  (difference +0.05 [−0.73, +0.92], signer-clustered). The bundle shape adds nothing measurable to this rule;
+  operator history carries it. Frozen as `data/reports/strategy/entry_filter_v1_create_only.json` (t1 = 0.1575,
+  t2 = 0.2313); it is the model to deploy for skip mode once the Rust extractor emits `intx_n_buys`. Scoring v1 with
+  the bundle block missing is not an option (keeps 21%, lift not significant). Look-ahead check of the operator,
+  funding and create-rate features: point in time (§5 of that doc).
 
 **Direction of bias in the fresh holdout.** It is the uniform light sample minus the deep sample.
 The deep sample took the random arm and every launch with an all-time-high market cap above the
@@ -297,7 +307,17 @@ shadow mode (`"skip"` for the probe: skip if score < t1), `risk.max_snipe_lampor
    where it orders by fee (Harmonic, other, and BAM, whose rounds we measured in CU-price order,
    docs/03 §6) until the probe measures which variant lands per leader class; sells go through the
    same split, so the bid is never paid twice; log the realised cost of every failed attempt.
-2. **Probe, in two stages** (`[probe]` in the config; `stage` selects the caps, a signed ArmSet that
+2. **Probe, in two stages. Superseded in its schedule and sizing by `docs/research/probe-design-v2.md`
+   (2026-10-16):** stage A thinned to at most 4 attempts per UTC hour and 50 a day over 7-10 days (not 3), in
+   skip-bottom-tertile mode from day one with the outcome store pre-warmed from the shadow state.db
+   (`analysis/scripts/prewarm_outcomes.py`); 0.001-0.005 SOL index probes per sender path for landing calibration;
+   stage B read as a paired shadow-vs-real comparison per launch with a sequential CI stopping rule; break-even
+   landing at 0.25 SOL 7.9% from the skip-mode shadow EV (+4.2%) but 36% from the unfiltered +1.32%; start no
+   earlier than Oct 23, after a post-Alpenglow shadow day (epoch 1064, about Oct 21 15:00 UTC). The kill rule below
+   is unchanged; `shadow_gate.py --probe` now prices the break-even at the mean measured premium (thresholds on the
+   median as before), flags hours over the cap (`--hour-cap`) and prints the break-even at the stake from the shadow
+   EV (`--shadow-ev`). The v1 text follows for the caps and the kill rule.
+   (`[probe]` in the config; `stage` selects the caps, a signed ArmSet that
    names `probe_stage` must name the same one, and stage B needs one that names `"b"`; `max_sol_cost` +2%,
    exits as in §2).
    - **Probe-A (measurement):** 0.02 SOL per buy, at most 50 attempts a day, 1 open position,

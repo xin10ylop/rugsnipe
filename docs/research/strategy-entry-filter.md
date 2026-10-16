@@ -139,3 +139,54 @@ one attempt in six at first, rising towards one in three as the outcome store fi
   (AUC 0.77 with history vs 0.67 first-seen on the critic's holdout) builds up over days of running.
 * Re-freeze when the collector's full-feed tapes give a week of new launches, with the same freeze-then-holdout
   protocol; the hourly-refitted GBT-3 and ridge cuts of the critic remain to be logged.
+
+## 5. Create-only variant (`entry_filter_v1_create_only`, 2026-10-16)
+
+**Why.** The live hot loop fires before the bundle run behind the create has streamed in (`feed_bundle` is assembled
+after the decision), so the 17 bundle-shape features of `entry_filter_v1` (`nB` .. `tok_pct_insiders`) are not
+known when it must decide. Only operator history (the outcome store) and the create transaction are.
+
+**What.** The same model (GBT depth 3, P(take-profit), operator pools as training rows and history, identical
+hyper-parameters and tertile protocol) on the 44 create-time features: the 43 non-bundle live features (create
+transaction, uri host, signer funding, operator history as of the launch, time, create rate) plus `intx_n_buys`
+(buy instructions inside the create transaction). The in-transaction buy **size** is not in the training table; it
+needs a table rebuild from the tapes (the trades whose signature is the create's) and is the obvious next feature.
+Code: `analysis/scripts/strategy/entry_filter_create_only.py` (same `entry_filter.design` / `fit` / `wquant` code
+path, `entry_filter.CREATE_ONLY_FEATURES`). Output: `data/reports/strategy/entry_filter_v1_create_only.json`, same
+format as v1 (refit on all 3,591 rows, frozen t1 = 0.1575, t2 = 0.2313, in-sample AUC 0.81), and its `.pkl`.
+
+**Holdout (fit on the predictor table only, scored once on the same 480 random HA / HB / HC launches, plain policy
++3.21%; CIs resample signers, 343 clusters):**
+
+| Model | AUC (TP) | Kept | EV kept | Skip-bottom lift [90% CI] | HA / HB / HC lift | Bottom-tertile EV |
+|---|---|---|---|---|---|---|
+| full v1 features (60) | 0.724 | 62% | +4.73% | **+1.52** [+0.49, +2.54] | +3.06 / +1.30 / +0.09 | +0.77% |
+| **create-only (44)** | 0.704 | 68% | +4.78% | **+1.57** [+0.82, +2.37] | +1.54 / +1.88 / −0.35 | −0.14% |
+| full model, bundle features blanked at scoring | 0.655 | 21% | +5.43% | +2.22 [−0.39, +4.79] | +0.55 / +4.50 / −3.41 | |
+
+Create-only minus full: **+0.05 points [−0.73, +0.92]** (paired, same launches). The two models keep 271 launches in
+common; create-only keeps 56 the full model drops and drops 25 it keeps. Reading: on this holdout the bundle block
+adds nothing measurable to the skip-bottom-tertile rule; the skill is in operator history and the create
+transaction. The create-only rule is slightly negative on the 59-launch HC set (−0.35), so treat the lift as about
++1.5 points with a CI that reaches +0.8. **Do not score v1 with the bundle block missing**: with zeros in place of the
+bundle features it keeps only 21% of launches and its lift is not significant. These holdouts were already used by
+the critic (consistency check, as for v1); the first clean test is the shadow run's tertile split, which
+`shadow_gate.py` now prints with CIs.
+
+**Look-ahead check of the feature code (done for this variant, applies to v1 too).**
+* Operator history (`predictor_build.py`, `angles_eval.py`): `prev` = the signer's launches with `bt < bt(launch)`;
+  outcome-based fields (`lead_n`, `lead_hit`, `lead_ev`, `s0t`) use only launches with `bt <= bt(launch) − 10 s`
+  (the live store's write delay); `busy` needs `bt <= bt − 900 s`. Point in time, no look-ahead.
+* Funding (`predictor.Funding`): gap-1 records are per create signature; window records are used only when the
+  signer's first window create is at or before the launch (the 61-row leak fixed in strategy-angles-critic §2.2 is
+  re-derived in `entry_filter.table_rows`); `funding_extra.jsonl` records are "one signature page before" the
+  signer's first table create and are admitted regardless of time: 1 of 3,591 rows uses one, and its as-of create
+  is not later than the launch. Clean in practice.
+* Create rate (`CreateIndex.rate`): trailing window `[bt − w, bt)`. Hour, weekday, regime: from the block time.
+* Residual, not a feature leak: the operator **pools** (1,491 training/history rows) were listing-sampled after the
+  fact (strategy-critic: they overstate armed operators by 4.7 points). They enter `op_all` history only as earlier
+  launches of the same signer, so they cannot leak a launch's own outcome, but the pool signers' presence in history
+  reflects later knowledge. The holdout rows are random, so the holdout lift is not inflated by this; the live
+  store has no pools (it holds only our own outcomes), which is the gap the probe's pre-warm closes
+  (`analysis/scripts/prewarm_outcomes.py`).
+* Rust side: the hot loop must add `intx_n_buys` to the create-tx feature extraction before it can load this model.
