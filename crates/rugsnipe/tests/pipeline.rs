@@ -389,3 +389,45 @@ fn paper_mode_never_builds_a_real_sender_even_when_configured() {
     app.shutdown(vec![]);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// An `--armset` file that does not verify (here: no `.sig` next to it) is an
+/// operator error. The build is refused instead of starting an exits-only run
+/// that makes no decisions (ohio1 run 3, 2026-10-17: eight hours of nothing).
+#[test]
+fn an_armset_that_does_not_verify_refuses_to_start() {
+    let dir = tmpdir("unverified-armset");
+    let key = rugsnipe_tx::signer::HotSigner::from_seed(&zeroize::Zeroizing::new([7u8; 32]));
+    let set = armset(&[], &[]);
+    let path = signed_armset(&dir, &set, &key);
+    std::fs::remove_file(format!("{}.sig", path.display())).unwrap();
+    let mut cfg = paper_cfg(&dir);
+    cfg.secrets.armset_pubkey = key.pubkey().to_string();
+    let built = rugsnipe::app::build(rugsnipe::app::AppOpts {
+        cfg,
+        armset: rugsnipe::app::ArmChoice::File(path.clone()),
+        regime: None,
+        paper_unsigned: false,
+        state_path: None,
+        rslog_dir: dir.join("rslog"),
+        logsws: None,
+        healths: vec![],
+        e2: None,
+        metrics: false,
+        fill_timeout_slots: 3,
+        lease: false,
+        sigusr1: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        paper_balance: 1,
+        live_flag: false,
+        real: None,
+        post_exec: None,
+        leader_rpc: None,
+        alerts: None,
+        trigger_tuning: None,
+    });
+    let Err(err) = built else {
+        panic!("an unverified --armset must refuse the build");
+    };
+    assert!(err.contains("refusing to start"), "{err}");
+    assert!(err.contains(&path.display().to_string()), "{err}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

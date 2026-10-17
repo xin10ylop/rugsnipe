@@ -175,6 +175,9 @@ On fra1:
 
 ```bash
 sudo install -m 0640 -o rugsnipe -g rugsnipe /tmp/armset-1-* /var/lib/rugsnipe/armsets/
+# both files: the .json and its .sig. Since 2026-10-17 the hot binary refuses to start when the
+# --armset it is given does not verify (missing .sig, older than 6 h, wrong key) instead of
+# running exits-only with no decisions; omit --armset if exits-only is what you want.
 /opt/rugsnipe/bin/rugsnipe-ctl armset verify /var/lib/rugsnipe/armsets/armset-1-<sha>.json --pubkey <PUBKEY> --regime paper
 ```
 

@@ -328,7 +328,19 @@ pub fn build(o: AppOpts) -> Result<App, String> {
                     let a: ArmSet = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
                     (Some(a), r.gate, String::new(), r.error)
                 }
-                (None, _) => (None, r.gate, String::new(), r.error),
+                // An --armset that does not verify is an operator error, not a
+                // request for an exits-only run: starting silently cost a night
+                // of shadow data on ohio1 (the .sig was not installed). Omit
+                // --armset for exits only.
+                (None, _) => {
+                    return Err(format!(
+                        "ArmSet {} failed verification ({}); refusing to start. Install the \
+                         .json and its .sig together, re-sign if older than risk.armset_max_age_s, \
+                         or omit --armset for an exits-only run",
+                        p.display(),
+                        r.error.unwrap_or_else(|| "unknown".into())
+                    ));
+                }
             }
         }
         ArmChoice::Memory(a) => (
