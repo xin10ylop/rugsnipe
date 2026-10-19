@@ -359,13 +359,34 @@ async fn run(
     let mut dec = FrameDecoder::new();
     let mut backoff = cfg.min_backoff_ms;
     let mut next_id: u64 = 1;
+    // Failed reconnects are reported, with the reason, at most once a minute
+    // (the first one at once): a feed that silently fails to reconnect for ten
+    // hours cost a night of shadow data on ohio1 (Helius 429, 2026-10-19).
+    let host = url_host(&cfg.url);
+    let mut last_report_ns: u64 = 0;
+    let mut failed_since_report: u32 = 0;
     while !stop.load(Ordering::Acquire) {
         let t_conn = mono_ns();
         let mut ws = match ws_connect(&cfg.url, Duration::from_millis(cfg.connect_timeout_ms)).await
         {
-            Ok(ws) => ws,
-            Err(_) => {
+            Ok(ws) => {
+                if failed_since_report > 0 {
+                    eprintln!("logsws: reconnected to {host} after {failed_since_report} failed attempt(s)");
+                    failed_since_report = 0;
+                }
+                ws
+            }
+            Err(e) => {
                 FeedHealth::inc(&health.reconnects);
+                failed_since_report += 1;
+                let now = mono_ns();
+                if last_report_ns == 0 || now.saturating_sub(last_report_ns) >= 60_000_000_000 {
+                    eprintln!(
+                        "logsws: CONNECT FAILED to {host} ({failed_since_report} attempt(s) since last report): {e}"
+                    );
+                    last_report_ns = now;
+                    failed_since_report = 0;
+                }
                 sleep_or_stop(&stop, jitter(backoff)).await;
                 backoff = (backoff * 2).min(cfg.max_backoff_ms);
                 continue;
@@ -605,5 +626,36 @@ mod tests {
             Apply::Unsubscribe(77)
         ));
         assert!(f.is_empty() && subs.is_empty());
+    }
+}
+
+/// `scheme://host[:port]` of a feed URL: never the path or query string, which
+/// carries the provider key.
+fn url_host(url: &str) -> String {
+    let (scheme, rest) = match url.split_once("://") {
+        Some((s, r)) => (s, r),
+        None => ("", url),
+    };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if scheme.is_empty() {
+        host.to_string()
+    } else {
+        format!("{scheme}://{host}")
+    }
+}
+
+#[cfg(test)]
+mod host_tests {
+    #[test]
+    fn url_host_drops_the_query_string_and_path() {
+        assert_eq!(
+            super::url_host("wss://mainnet.helius-rpc.com/?api-key=SECRET"),
+            "wss://mainnet.helius-rpc.com"
+        );
+        assert_eq!(
+            super::url_host("ws://127.0.0.1:8900/path?x=1"),
+            "ws://127.0.0.1:8900"
+        );
+        assert_eq!(super::url_host("nonsense"), "nonsense");
     }
 }

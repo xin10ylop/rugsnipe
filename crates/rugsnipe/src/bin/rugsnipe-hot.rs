@@ -692,8 +692,14 @@ fn run(args: &[String]) -> Result<(), String> {
                 .iter()
                 .map(|h| {
                     let s = h.snapshot();
+                    // loud when no frame for 5 min: paper only logs, never kills
+                    let stale = if s.since_frame_ms > 300_000 {
+                        " FEED STALE (no data for over 5 min; check the provider key/limits)"
+                    } else {
+                        ""
+                    };
                     format!(
-                        "{}: creates {} miss {} reconnects {} since_frame {} ms",
+                        "{}: creates {} miss {} reconnects {} since_frame {} ms{stale}",
                         s.src.name(),
                         s.creates,
                         s.decode_miss,
