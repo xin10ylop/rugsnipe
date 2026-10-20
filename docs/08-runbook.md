@@ -8,16 +8,34 @@ Background: `docs/04-strategy.md` (what we trade and the go/no-go rule, §7), `d
 (where and how to send, §4 and §6.1), `docs/06-architecture.md` (config, §6), `docs/07-deploy.md` and
 `deploy/frankfurt-checklist.md` (install details).
 
+**Placeholders.** In the command blocks, UPPERCASE words such as `FRA1_IP`, `SHA`, `ARMSET_PUBKEY` or
+`YOUR-ENDPOINT` stand for a value you type in by hand; the text next to the block says where it comes from. Never
+paste a line that still contains one. `sudo nano FILE` opens a file in the editor (Ctrl+O and Enter save, Ctrl+X
+quits). Files under `/etc/rugsnipe/keys` and `/var/lib/rugsnipe` belong to root or to
+the `rugsnipe` user: every command that reads them starts with `sudo` (or `sudo -u rugsnipe`).
+
 ## 0. What this build can and cannot do today
 
 | Can | Cannot yet (blocks the step named) |
 |---|---|
 | Shadow mode (paper, no money): every multi-wallet bundled launch gets a would-be entry right behind the bundle, a measured premium, the LEAD exits replayed on the real tape, and failed attempts charged at their modelled cost | **Live** (refused in this build), and four probe refinements that are not needed for probe-A: the direct TPU sender, the sell nonce pool (partial sells use a recent blockhash), PumpSwap real sells (a real position whose curve completed is not sold by the hot box: sell it by hand), keep-alive pings that hold the senders' connections warm between buys. Shred feeds (DoubleZero Edge, Helius raw shreds) are not in the hot binary: do not buy them yet |
-| **Probe** (task #12, both halves, 2026-10-16): probe key loading from systemd credentials, the real senders (Helius incl. the `swqos_only` leg, Jito Frankfurt + Amsterdam `bundleOnly`, Nozomi, Astralane, BlockRazor, NextBlock), the real fill lane (our own TradeEvent, `meta.fee` of our failed buys, rank and premium, drops after the nonce burn, real sells and balances), nonce seeding from chain, recovery adoption, `--probe-dry`; the **Yellowstone gRPC post-execution feed** (creates as wire bytes decoded on the hot thread, our own trades, held mints, the creation slot's bundle run), probe start gated on a healthy gRPC feed, a stale feed latching the kill; the **kill latch persisted** in `state.db` with eight triggers (§10); the **leader schedule** (bid variant per leader class of the create slot and the next, the class recorded on every send and fill); optional Telegram alerts | |
+| **Probe** (task #12, both halves, 2026-10-16): probe key loading from systemd credentials, the real senders (Helius incl. the `swqos_only` leg, Jito Frankfurt + Amsterdam `bundleOnly`, Nozomi, Astralane, BlockRazor, NextBlock), the real fill lane (our own TradeEvent, `meta.fee` of our failed buys, rank and premium, drops after the nonce burn, real sells and balances), nonce seeding from chain, recovery adoption, `--probe-dry`; the **Yellowstone gRPC post-execution feed** (creates as wire bytes decoded on the hot thread, our own trades, held mints, the creation slot's bundle run), probe start gated on a healthy gRPC feed, a stale feed latching the kill; the **kill latch persisted** in `state.db` with eight triggers (§10); the **leader schedule** (bid variant per leader class of the create slot and the next, the class recorded on every send and fill); Telegram alerts (the only alert path: required for the probe) | |
 | Read rule (a) of the go/no-go gate: EV per attempt with a 90% lower bound (`analysis/scripts/shadow_gate.py`) | **Rule (b)** (are we ahead of the first follower?). The shadow lane *assumes* rank 1; our real rank needs real sends or a shred feed. It is decided in the probe |
 | Feeds: `logsSubscribe` over any websocket URL, PumpPortal, the collector relay, **Yellowstone gRPC** (Triton, Alchemy or any standard endpoint; paper runs it only when `[feeds] grpc.enabled = true`, which also gives the first-seen comparison of §9) | DoubleZero Edge or Helius shreds: not in the hot binary |
 | Bid policy: tip after the buy (pay on success) where the leader orders by tip (Jito-Agave), priority fee clamped by `bid.failed_attempt_lamports_max` elsewhere (BAM, Harmonic, other); sells take the same split, the bid paid once (docs/03 §6.1). Probe reads the leader schedule (`getLeaderSchedule` per epoch, `getClusterNodes` every 3 min) and bids for the class of the create slot's leader and the next slot's | Paper uses the stake-weighted mix unless started with `--leader-schedule` |
 | The P(TP) entry filter (`[entry] filter_model`, `filter_mode = "log"` or `"skip"`, docs/04 §3a) scores every paper intent from the E1 lane's reconstruction and records the score and tertile in `state.db` `filter`. With the gRPC feed the creation slot's bundle run is assembled from the stream and its 17 bundle features land in `state.db` `feed_bundle` (probe: for every real attempt) | Scoring a probe buy *before* it fires (the bundle run streams in after the create; a real buy cannot wait for it); `filter_mode = "skip"` stays a paper-only rule |
+
+**Probe A measures the unfiltered stream** (readiness audit M4, `docs/research/probe-design-v2.md` §2). This
+build cannot apply the skip filter or the multi-bundle gate before it sends (both act on paper intents only), so
+probe A buys 0.02 SOL on **every** class-eligible create. The gRPC feed runs with `bundle_run = true`, so every
+attempt gets a `feed_bundle` row with its `bundle_wallets`, and the stage-B entry is read on the **in-class subset**
+(`bundle_wallets >= 1`) only: unbundled launches face fewer rivals and fill easily, so the landing rate over all
+attempts is inflated. Only 10-20% of attempts are in class, so the 200 in-class attempts the B read needs take
+1,000-2,000 attempts (about 1.3-4.3 SOL of expected loss at 0.02 SOL). **Decided 2026-10-20 (probe-design-v2
+§2 item 4, option ii):** `config/probe-a.example.toml` ships 6 attempts per UTC hour, 150 a day, a 0.6 SOL daily
+loss cap (expected loss about 0.19-0.31 SOL a day), a hard stop at 14 days and a 15-day ArmSet, so the in-class
+subset reaches 200 in 7-14 days. A subset still short at the hard stop ends with `INCONCLUSIVE ... escalate to
+the owner`, not with a stop. A filter that acts before the send is a before-stage-B item.
 
 Practical consequence: rule (a) does not depend on where the box is (the lane rebuilds each launch from
 confirmed history). You may run steps 5-8 on ohio1 or any Linux box first. The probe build exists now
@@ -42,7 +60,7 @@ IP before you sign**.
 On the test box:
 
 ```bash
-git clone <your repo URL> ~/rugsnipe && cd ~/rugsnipe
+git clone YOUR-REPO-URL ~/rugsnipe && cd ~/rugsnipe                    # YOUR-REPO-URL: this repository's clone URL
 bash deploy/latency_probe.sh 30 | tee latency-fra-candidate.txt      # TCP connect to Jito/Helius/RPC hosts
 for ip in 64.130.50.88 64.130.50.91 198.13.140.105 198.13.140.227 198.13.140.16; do
   ping -c 100 -i 0.2 -q $ip | tail -2; done
@@ -57,11 +75,11 @@ it. Keep `latency-fra-candidate.txt`.
 ## 3. Install (hot role)
 
 ```bash
-ssh root@<FRA1_IP>
+ssh root@FRA1_IP                                               # FRA1_IP: the box's address
 adduser --disabled-password ops && usermod -aG sudo ops       # then key-only SSH, PasswordAuthentication no
 apt-get update && apt-get -y full-upgrade && apt-get -y install sqlite3 && reboot
 # as ops
-git clone <your repo URL> ~/rugsnipe && cd ~/rugsnipe
+git clone YOUR-REPO-URL ~/rugsnipe && cd ~/rugsnipe
 bash deploy/install.sh --role hot --dry-run                    # read what it will do
 sudo bash deploy/install.sh --role hot                         # builds /opt/rugsnipe/bin/*, venv, chrony -> ntp.frankfurt.jito.wtf
 sudo /opt/rugsnipe/bin/tune-hot.sh --check
@@ -98,24 +116,42 @@ sudo /opt/rugsnipe/bin/rugsnipe-ctl armset keygen --out /etc/rugsnipe/keys/armse
 sudo chmod 0400 /etc/rugsnipe/keys/armset-signing.key
 ```
 
-For the probe only (step 9), on fra1, never on a laptop:
+For the probe only (step 9), on fra1, never on a laptop. `rugsnipe-ctl armset keygen` writes a standard Solana
+keypair file (the format `solana-keygen` writes), so no Agave CLI is needed; its pubkey goes into the public file
+`/etc/rugsnipe/probe-pubkey.txt`, which later steps read as `$P`. Do not make a `hot-keypair.json`: the live wallet
+is not used in this build (the units load the literal `ABSENT` without it).
 
 ```bash
 sudo install -d -m 0700 -o root -g root /etc/rugsnipe/keys
-sudo solana-keygen new --no-bip39-passphrase -o /etc/rugsnipe/keys/probe-keypair.json
-sudo solana-keygen new --no-bip39-passphrase -o /etc/rugsnipe/keys/hot-keypair.json
-sudo chmod 0400 /etc/rugsnipe/keys/*
-sudo $EDITOR /etc/rugsnipe/keys/api-keys.toml && sudo chmod 0400 /etc/rugsnipe/keys/api-keys.toml   # names in §13
+if sudo test -e /etc/rugsnipe/keys/probe-keypair.json; then echo "probe key exists: kept (never replace it)"; else
+  o=$(sudo /opt/rugsnipe/bin/rugsnipe-ctl armset keygen --out /etc/rugsnipe/keys/probe-keypair.json) && printf '%s\n' "$o" | sudo tee /etc/rugsnipe/probe-pubkey.txt; fi
+sudo chmod 0400 /etc/rugsnipe/keys/probe-keypair.json
+sudo nano /etc/rugsnipe/keys/api-keys.toml && sudo chmod 0400 /etc/rugsnipe/keys/api-keys.toml   # contents: §9 step 2
 sudo bash ~/rugsnipe/deploy/install.sh --role hot              # refuses group/world-readable keys
 ```
 
-`api-keys.toml` is one `NAME = "value"` per line (comments with `#`); the names are the `key` values of
+What you should see: `wrote /etc/rugsnipe/keys/probe-keypair.json (0600)` and `pubkey ...` (the probe wallet's
+address, now also in `/etc/rugsnipe/probe-pubkey.txt`); on a second paste `probe key exists: kept (never replace
+it)` instead, and the pubkey file is left as it was. install.sh ends without a refusal. `keygen` never overwrites
+an existing file: never delete the key of a funded wallet.
+
+If `/etc/rugsnipe/probe-pubkey.txt` is ever empty or missing (`sudo cat /etc/rugsnipe/probe-pubkey.txt` prints no
+`pubkey ...` line, and `$P` in §9 comes out empty), rebuild it from the key itself; this reads the key and sends
+nothing:
+```bash
+o=$(sudo /opt/rugsnipe/bin/rugsnipe-ctl nonce create --keypair /etc/rugsnipe/keys/probe-keypair.json --count 1 --dry-run | awk '{for (i = 1; i < NF; i++) if ($i == "authority") {print "pubkey", $(i + 1); exit}}') && [ -n "$o" ] && printf '%s\n' "$o" | sudo tee /etc/rugsnipe/probe-pubkey.txt
+```
+What you should see: one line `pubkey ...` (the `authority` that `nonce create --dry-run` prints is the probe
+wallet's address).
+
+`api-keys.toml` is one `NAME = "value"` per line. A comment goes on its own line starting with `#`: a `# ...`
+after a value on the same line fails the parser (`value must be quoted`). The names are the `key` values of
 the `[senders]` tables: `HELIUS_KEY`, `NOZOMI_KEY`, `ASTRALANE_KEY`, `BLOCKRAZOR_KEY`, and optionally
 `NEXTBLOCK_KEY`; plus `GRPC_TOKEN` (the gRPC feed's `x-token`, `[feeds] grpc.x_token`), `RPC_URL`
-(the paid RPC endpoint with its key, e.g. `RPC_URL = "https://mainnet.helius-rpc.com/?api-key=..."`,
+(the **paid** RPC endpoint with its key, e.g. `RPC_URL = "https://mainnet.helius-rpc.com/?api-key=..."`,
 passed as `--rpc-url cred:RPC_URL`), optionally `LOGSWS_URL` / `GRPC_URL` for feed URLs that carry a key
-(`[feeds] logsws.url = "cred:LOGSWS_URL"`), and, for the optional Telegram alerts, `TG_TOKEN` and
-`TG_CHAT`. **A URL with a key never goes on a command line, into a unit file or into the config**: `ps`,
+(`[feeds] logsws.url = "cred:LOGSWS_URL"`), and `TG_TOKEN` and `TG_CHAT` for Telegram, the only alert path
+(required for the probe, §10). The full probe example is in §9 step 2. **A URL with a key never goes on a command line, into a unit file or into the config**: `ps`,
 the journal (`systemd-run` logs its command line) and `/etc/systemd/system/*.d/*.conf` are readable by
 every user. Probe and live refuse a `--rpc-url` or feed URL with a query string (`api-key=...`) unless it
 is `cred:NAME`, refuse a missing `--rpc-url` and the public `api.mainnet-beta.solana.com`; paper still
@@ -130,7 +166,7 @@ credential, refuses a sender whose key name is not in the file, and never prints
 ```bash
 sudo install -m 0640 -o root -g rugsnipe /opt/rugsnipe/src/config/paper-lead.example.toml /etc/rugsnipe/shadow.toml
 sudo install -d -m 0750 -o rugsnipe -g rugsnipe /var/lib/rugsnipe/shadow /var/lib/rugsnipe/armsets
-sudo $EDITOR /etc/rugsnipe/shadow.toml
+sudo nano /etc/rugsnipe/shadow.toml
 ```
 
 Change exactly these lines:
@@ -157,7 +193,7 @@ pays on success and BAM bids with the priority fee) and the `[bid]` block (per-c
 `failed_attempt_lamports_max = 1_000_000`). Check it:
 
 ```bash
-/opt/rugsnipe/bin/rugsnipe-ctl config validate /etc/rugsnipe/shadow.toml       # paper: must say OK, no refusals
+sudo /opt/rugsnipe/bin/rugsnipe-ctl config validate /etc/rugsnipe/shadow.toml       # paper: must say OK, no refusals
 ```
 
 ## 6. The shadow ArmSet (a class arm: every create)
@@ -168,7 +204,7 @@ On ohio1:
 cd /opt/rugsnipe/src
 /opt/rugsnipe/venv/bin/python -I analysis/scripts/make_paper_armset.py --kind class --ver 1 --out /tmp/class.json
 sudo /opt/rugsnipe/bin/rugsnipe-ctl armset sign --key /etc/rugsnipe/keys/armset-signing.key --in /tmp/class.json --out-dir /tmp/armset
-scp /tmp/armset/armset-1-*.json /tmp/armset/armset-1-*.json.sig ops@<FRA1_IP>:/tmp/
+scp /tmp/armset/armset-1-*.json /tmp/armset/armset-1-*.json.sig ops@FRA1_IP:/tmp/     # FRA1_IP: the box's address
 ```
 
 On fra1:
@@ -178,8 +214,11 @@ sudo install -m 0640 -o rugsnipe -g rugsnipe /tmp/armset-1-* /var/lib/rugsnipe/a
 # both files: the .json and its .sig. Since 2026-10-17 the hot binary refuses to start when the
 # --armset it is given does not verify (missing .sig, older than 6 h, wrong key) instead of
 # running exits-only with no decisions; omit --armset if exits-only is what you want.
-/opt/rugsnipe/bin/rugsnipe-ctl armset verify /var/lib/rugsnipe/armsets/armset-1-<sha>.json --pubkey <PUBKEY> --regime paper
+sudo ls /var/lib/rugsnipe/armsets/
+sudo /opt/rugsnipe/bin/rugsnipe-ctl armset verify /var/lib/rugsnipe/armsets/armset-1-SHA.json --pubkey ARMSET_PUBKEY --regime paper
 ```
+
+`SHA` is the 64-character hash in the file name that `ls` prints; `ARMSET_PUBKEY` is the pubkey of step 4.
 
 A running paper process keeps using its ArmSet after the 6-hour freshness window (staleness only blocks
 real modes), so one ArmSet covers a multi-day run. A process **started** with an ArmSet older than 6 hours
@@ -191,10 +230,10 @@ loads none and makes no decisions: before every new run, repeat this step with t
 sudo systemd-run --unit=rugsnipe-shadow --uid=rugsnipe --gid=rugsnipe \
   --property=WorkingDirectory=/var/lib/rugsnipe \
   /opt/rugsnipe/bin/rugsnipe-hot --config /etc/rugsnipe/shadow.toml \
-    --armset /var/lib/rugsnipe/armsets/armset-1-<sha>.json \
+    --armset /var/lib/rugsnipe/armsets/armset-1-SHA.json \
     --state /var/lib/rugsnipe/shadow/state.db --rslog-dir /var/lib/rugsnipe/shadow/rslog \
     --summary /var/lib/rugsnipe/shadow/summary.json --duration-s 93600
-journalctl -u rugsnipe-shadow -f          # one status line per minute
+sudo journalctl -u rugsnipe-shadow -f     # one status line per minute
 ```
 
 `--duration-s 93600` is 26 hours: the rule needs at least one full day. Stopping early is safe and still
@@ -204,7 +243,7 @@ keep accumulating (the tables append).
 
 **Read the status line.** `lane R/Q calls C` is the E1 lane: resolved / requested intents and RPC calls.
 If `R` falls further and further behind `Q`, the public RPC is the bottleneck: add
-`--rpc-url https://<your provider>` (a URL with a key: put it in `api-keys.toml` as `RPC_URL`, add
+`--rpc-url https://YOUR-PROVIDER` (a URL with a key: put it in `api-keys.toml` as `RPC_URL`, add
 `-p LoadCredential=api-keys:/etc/rugsnipe/keys/api-keys.toml` and pass `--rpc-url cred:RPC_URL`) and raise both `[rpc_budget] hot` in `shadow.toml` and `--lane-rps`
 (the lane uses the lower of the two; the paper run ignores the 32 req/s sum rule). `landing` and `net` are
 the running shadow numbers. The 20-minute container runs resolved 320 of 342 intents at 3.5 req/s.
@@ -227,10 +266,10 @@ tighter cut than the bottom tertile only if its landing rate is at least 0.73× 
 
 ```bash
 cd /opt/rugsnipe/src
-/opt/rugsnipe/venv/bin/python -I analysis/scripts/shadow_gate.py \
+sudo -u rugsnipe /opt/rugsnipe/venv/bin/python -I analysis/scripts/shadow_gate.py \
   --state /var/lib/rugsnipe/shadow/state.db --summary /var/lib/rugsnipe/shadow/summary.json
 # the same with every failed attempt priced at docs/04's all-priority 0.003 SOL:
-/opt/rugsnipe/venv/bin/python -I analysis/scripts/shadow_gate.py \
+sudo -u rugsnipe /opt/rugsnipe/venv/bin/python -I analysis/scripts/shadow_gate.py \
   --state /var/lib/rugsnipe/shadow/state.db --summary /var/lib/rugsnipe/shadow/summary.json --fail-cost-lamports 3000000
 ```
 
@@ -297,12 +336,26 @@ is read on probe-B (docs/06 §9.5).
 halves): the real senders, the real fill lane, the gRPC post-execution feed, the kill triggers and the
 leader schedule.
 
-**Schedule and sizing: follow `docs/research/probe-design-v2.md`** (2026-10-16): stage A is thinned to at
-most 4 attempts per UTC hour and 50 per day over 7-10 days, runs the entry filter in skip mode from day one
-with the outcome store pre-warmed from the shadow state (`analysis/scripts/prewarm_outcomes.py`), adds cheap
-index probes per sender path for landing calibration, and stage B is read as a paired shadow-vs-real test
-with a sequential stopping rule. Do not start stage A before Oct 23 (§11: no probe money across the
-Alpenglow cutover). The commands are in that document's §8. The kill rule of §10 is unchanged.
+**Schedule and sizing: `docs/research/probe-design-v2.md` §2 with its readiness-audit M4 block** (2026-10-20,
+`docs/research/readiness-2026-10-20.md`; item 4 of it is the owner's open choice):
+- probe A runs **unfiltered on every class-eligible create**. The build cannot apply the skip filter or a
+  multi-bundle gate before it sends (§0), so the design's skip mode, outcome-store pre-warm and index probes
+  have no effect on real buys and are not part of stage A;
+- `[feeds] grpc.bundle_run` stays on, so every attempt gets a `feed_bundle` row with `bundle_wallets`;
+- the stage-B entry is read on the **in-class subset** (`bundle_wallets >= 1`) only, never on all attempts;
+- the caps as shipped (decided 2026-10-20, probe-design-v2 §2 item 4, option ii): **150 attempts a day, 6 per UTC
+  hour, 0.6 SOL daily loss** (expected loss about 0.19-0.31 SOL a day). The in-class subset (10-20% of attempts)
+  reaches 200 in 7-14 days. The three values move together (`risk.max_buys_per_hour`, `[probe] a.max_probes_per_day`,
+  `a.max_daily_loss_lamports`): a higher rate under a small cap latches `daily_loss` on ordinary days (a false
+  kill); fund 3 SOL and top up per step 7b;
+- stage A ends at **≥ 350 attempts and ≥ 7 days**, with ≥ 200 in-class attempts for the B read; **hard stop
+  at 14 days** (`--hard-stop-days 14` in step 7). A subset still short of 200 at the
+  hard stop reads `INCONCLUSIVE`: escalate to the owner, do not stop the project;
+- a filter that acts before the send (the pre-send gate) is a before-stage-B item: without it stage B faces
+  the unfiltered break-even of about 36% at 0.25 SOL.
+
+Do not start stage A before Oct 23 (§11: no probe money across the Alpenglow cutover). The kill rule of §10 is
+unchanged.
 
 **What** (docs/04 §7 step 2, `[probe]` in the config): two stages, both with `max_sol_cost` +2% and the
 LEAD exits. `[probe] stage` selects the caps; each narrows the `[risk]` cap of the same name, and a
@@ -311,36 +364,46 @@ signed ArmSet that names `probe_stage` must name the same stage, and stage B nee
 
 | Stage | Per buy | Attempts/day | Open positions | Daily loss cap | Runs until | Purpose |
 |---|---|---|---|---|---|---|
-| **A** (`stage = "a"`) | 0.02 SOL | 50 | 1 | 0.2 SOL | 300 attempts or 3 days | measure landing rank, premium, failed-attempt cost per leader class, which variant lands. EV is negative at this size (fixed costs): **not** a kill reason |
+| **A** (`stage = "a"`) | 0.02 SOL | 150 (6 per UTC hour) | 1 | 0.6 SOL | ≥ 350 attempts **and** ≥ 7 days (with ≥ 200 in-class attempts); hard stop at 14 days | measure landing, premium, failed-attempt cost per leader class and per sender, which variant lands, on all attempts and on the in-class subset. EV is negative at this size (fixed costs): **not** a kill reason |
 | **B** (`stage = "b"`) | 0.25 SOL | 300 | 2 | 1 SOL | about 200 landed trades | the EV per attempt at our real rank and cost; gate (b) |
+
+**Landed** means a fill in the creation slot at a premium of +2% or less. Fills one to three slots after the
+create (or after the nonce burn started: `intents.state = 'late_fill'`) and slot-0 fills above +2% are reported
+apart and do not count as landed.
 
 **Kill** (either stage; `shadow_gate.py --probe` prints the verdict): the EV per **attempt**, failed
 attempts included, has a 90% upper bound below 0 after 100 landed trades or 400 attempts, whichever
 comes first (probe-B only); or the median realised premium exceeds +3%; or the landing rate stays below
-the break-even for the measured failed-attempt cost over 200 attempts; or the stage's daily loss cap is
-hit (the risk gate latches the kill itself). **Enter B** only if probe-A ends with a landing rate above
-that break-even and a median premium at or below +2% (`PROBE-A COMPLETE: ENTER PROBE-B`).
+the break-even for the measured failed-attempt cost over 200 attempts (all attempts, and the in-class subset
+once it has 200); or the stage's daily loss cap is hit (the risk gate latches the kill itself). Failures that
+are not lost races (`fills.fail_reason` such as `instruction_error`, e.g. a compute-budget overrun) are left out
+of the landing rate; when they are more than 10% of the attempts the verdict is `CHECK: ...` instead of a landing
+kill. **Enter B** only if probe-A ends with an **in-class** landing rate above the stage-B bar and an in-class
+median premium at or below +2% (`PROBE-A COMPLETE: ENTER PROBE-B`). The bar is the larger of the pooled LEAD
+break-even (about 9.9% at the measured failed cost and premium) and the unfiltered shadow's break-even at
+0.25 SOL (about 36%); the gate prints both inputs.
 
 **How:**
 
 0. **The gRPC feed** (docs/research/infra-shopping-2026.md §1; both are standard Yellowstone
    "Dragon's Mouth", no code difference):
    - **Triton One pay-as-you-go** ($125 prepaid for 12 months, $0.08/GB): create a Dragon's Mouth
-     endpoint in the portal; the URL is `https://<your-name>.rpcpool.com` (the shared Frankfurt front
-     `api.rpcpool.com` resolves to TeraSwitch FRA, very probably our building), the token goes only in
-     the `x-token` header.
+     endpoint in the portal; the URL is `https://YOUR-ENDPOINT.rpcpool.com` (YOUR-ENDPOINT is the name the
+     portal gives it; the shared Frankfurt front `api.rpcpool.com` resolves to TeraSwitch FRA, very probably
+     our building), the token goes only in the `x-token` header.
    - **Alchemy gRPC pay-as-you-go** ($75/TB, not on the Free plan): `https://solana-mainnet.streaming.alchemy.com`
      (TeraSwitch FRA); the token is the app's API key [U: check the dashboard's gRPC page for the
      header it expects; the binary sends `x-token`].
    - The token is a line of `api-keys.toml` (§4): `GRPC_TOKEN = "..."` (or a credential file named
-     `GRPC_TOKEN`); the config names it, never holds it:
+     `GRPC_TOKEN`); the config names it, never holds it. `config/probe-a.example.toml` already has the line:
      ```toml
      [feeds]
-     grpc = { enabled = true, url = "https://<your-name>.rpcpool.com", x_token = "GRPC_TOKEN", stale_ms = 2_000, bundle_run = true }
+     grpc = { enabled = true, url = "https://YOUR-ENDPOINT.rpcpool.com", x_token = "GRPC_TOKEN", stale_ms = 4_000, bundle_run = true }
      ```
      `bundle_run = true` also streams every pump transaction to assemble the creation slot's bundle run
      (about 100 pump transactions/s at a few KB each: an estimate of ~2 GB/hour, i.e. about $4/day on
-     Triton; set it to `false` to stream only creates, our wallet and held mints).
+     Triton). Keep it on for the probe: it writes the `feed_bundle` row that splits the in-class subset.
+     `stale_ms = 4_000`: one gap longer than `stale_ms` latches the kill, and 2,000 is too tight.
    - The subscription is one stream at `processed`: creates (`TSLvdd…` mentioned, successful only),
      our wallet (failed transactions too), held mints (watched and unwatched as positions open and
      close), pump (with `bundle_run`), slot updates. Compression is off (latency); the server's pings
@@ -352,7 +415,7 @@ that break-even and a median premium at or below +2% (`PROBE-A COMPLETE: ENTER P
      loads no wallet, only the token). The status line prints `first-seen logsws_behind_grpc p50 … ms
      (n …)`; at the end:
      ```bash
-     python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["cold"]; print(json.dumps(s["first_seen"], indent=1)); print("grpc", json.dumps(s["grpc"]))' \
+     sudo python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["cold"]; print(json.dumps(s["first_seen"], indent=1)); print("grpc", json.dumps(s["grpc"]))' \
        /var/lib/rugsnipe/shadow/summary.json
      ```
      `seen_by` / `first_by` count the creates each feed delivered and won, `lag` holds the late feed's lag
@@ -360,63 +423,180 @@ that break-even and a median premium at or below +2% (`PROBE-A COMPLETE: ENTER P
      the logs path about a second behind; a gRPC feed that is not ahead on nearly every create is the
      wrong endpoint or region. Every create also gets an rslog `FeedSeen` record per source.
 
+1. **The probe ArmSet: one per stage** (on ohio1; readiness audit M1). Sign stage A **once**, valid for 15 days
+   (`--valid-hours 360`). The probe config's `[risk] armset_max_age_s = 1_296_000` (15 days) accepts it for the
+   whole stage (14 days plus a day of slack). With the script's default 6 hours, a running probe silently drops to
+   paper after 6 hours (`armset: v101 is stale` in the journal) and every restart is refused. Sign it at most a day
+   before the start: the 15 days run from signing. (For a longer stage: sign with `--valid-hours` = 24 × (days + 1)
+   and set `armset_max_age_s` to 3,600 × that.)
 
-1. The probe ArmSet (on ohio1), stage A first:
+   The probe uses its own version numbers: **101** for stage A (102, 103, ... if you ever re-sign it) and **201**
+   for stage B. The shadow ArmSets of §6 count 1, 2, 3, ..., so the two never share a file name. The signing goes
+   into its own directory, emptied first, so it holds exactly this signing's two files:
    ```bash
-   /opt/rugsnipe/venv/bin/python -I analysis/scripts/make_paper_armset.py --kind class --ver 2 --probe-allowed --probe-stage a --out /tmp/probe-a.json
-   sudo /opt/rugsnipe/bin/rugsnipe-ctl armset sign --key /etc/rugsnipe/keys/armset-signing.key --in /tmp/probe-a.json --out-dir /tmp/armset
+   cd /opt/rugsnipe/src
+   sudo rm -rf /tmp/armset-probe-a
+   /opt/rugsnipe/venv/bin/python -I analysis/scripts/make_paper_armset.py --kind class --ver 101 --probe-allowed --probe-stage a --valid-hours 360 --out /tmp/probe-a.json
+   sudo /opt/rugsnipe/bin/rugsnipe-ctl armset sign --key /etc/rugsnipe/keys/armset-signing.key --in /tmp/probe-a.json --out-dir /tmp/armset-probe-a
+   ls /tmp/armset-probe-a/
    ```
-   It carries `probe_allowed = true`, `probe_stage = "a"`, the class operator in state `probe` at 0.02 SOL,
-   never `gate_passed`. For B: `--probe-stage b` (0.25 SOL) and a new `--ver`. Copy both files
-   (`armset-2-<sha>.json` and `.sig`) to `/var/lib/rugsnipe/armsets/` on fra1.
-2. Keys (§4): `probe-keypair.json` and `api-keys.toml` in `/etc/rugsnipe/keys/`, root 0400. Stages A and
-   B both trade from the probe wallet. Example `api-keys.toml` (values from the providers' dashboards,
-   docs/research/infra-shopping-2026.md §5):
+   What you should see: `/tmp/probe-a.json: 1 operator(s), ... valid 360 h (until ...)` with a date 15 days
+   ahead, then `ver 101 sha256 ... probe_allowed=true`, and `ls` lists exactly two files,
+   `armset-101-SHA.json` and `armset-101-SHA.json.sig` (`SHA` = 64 hex characters, different for every
+   signing). The ArmSet carries `probe_allowed = true`, `probe_stage = "a"`, the class operator in state `probe`
+   at 0.02 SOL, never `gate_passed`. For B: `--probe-stage b`, `--ver 201`, `--out /tmp/probe-b.json` and
+   `--out-dir /tmp/armset-probe-b`, and again one ArmSet for the whole stage.
+
+   **1b. Copy it to fra1.** On ohio1 (FRA1_IP: the box's address); the first line clears fra1's copy of an
+   earlier signing:
+   ```bash
+   ssh ops@FRA1_IP 'rm -rf /tmp/armset-probe-a'
+   scp -r /tmp/armset-probe-a ops@FRA1_IP:/tmp/
+   ```
+   Then on fra1:
+   ```bash
+   ls /tmp/armset-probe-a/
+   sudo install -m 0640 -o rugsnipe -g rugsnipe /tmp/armset-probe-a/armset-101-* /var/lib/rugsnipe/armsets/
+   sudo ls /var/lib/rugsnipe/armsets/
+   ```
+   What you should see: the first `ls` lists the same two files as on ohio1, and the armsets directory now holds
+   them too (it may also hold older files: ignore them). Write the SHA down from the first `ls`: the steps below
+   name the file as `/var/lib/rugsnipe/armsets/armset-101-SHA.json`, and you type the real SHA in its place.
+
+2. **Keys** (§4): `probe-keypair.json` and `api-keys.toml` in `/etc/rugsnipe/keys/`, root 0400. Stages A and
+   B both trade from the probe wallet. `api-keys.toml` (values from the providers' dashboards,
+   docs/research/infra-shopping-2026.md §5); every comment on its own line, every value in double quotes:
    ```toml
-   HELIUS_KEY = "..."       # Helius Sender at 50 req/s (keyless is 1 req/s per IP)
+   # Helius Sender key: 50 req/s (keyless is 1 req/s per IP)
+   HELIUS_KEY = "..."
    NOZOMI_KEY = "..."
    ASTRALANE_KEY = "..."
-   BLOCKRAZOR_KEY = "..."   # the BlockRazor auth token (header apikey)
-   # NEXTBLOCK_KEY = "..."  # only with a NextBlock plan
+   # the BlockRazor auth token (header apikey)
+   BLOCKRAZOR_KEY = "..."
+   # the gRPC feed's x-token (step 0)
+   GRPC_TOKEN = "..."
+   # the PAID RPC URL with its key (Solana Vibe Station Basic or Helius Developer; never Helius Free)
+   RPC_URL = "https://..."
+   # Telegram, the only alert path (required for the probe, see section 10)
+   TG_TOKEN = "..."
+   TG_CHAT = "..."
+   # only with a NextBlock plan:
+   # NEXTBLOCK_KEY = "..."
    ```
-3. `/etc/rugsnipe/rugsnipe.toml` (from `config/rugsnipe.example.toml`): `[mode] mode = "probe"`,
-   `[probe] stage = "a"` (the example's `a`/`b` profiles and `kill` table as shipped), and **every** cap
-   non-zero (validation refuses a zero). The `[risk]` values are ceilings for both stages:
+   **Use a paid RPC for `RPC_URL`** (Solana Vibe Station Basic or Helius Developer, docs/research/infra-shopping-2026.md
+   §3): the real fill lane alone makes close to 10 requests a second (statuses, landed transactions, nonce
+   accounts, balances, blockhashes), more than a free plan allows. **Telegram is the only alert path**: no
+   dead-man is built, so without `TG_TOKEN` and `TG_CHAT` nothing tells you that the box latched its kill or
+   died. Make the bot with @BotFather, send it one message, and put your chat id in `TG_CHAT`.
+   What you should see: nothing yet; the dry run of step 5 is the check (`credential ... value must be quoted`
+   means a comment or a quote is wrong on that line).
+
+3. **The probe config: `config/probe-a.example.toml`** (readiness audit M3). It is `config/rugsnipe.example.toml`
+   with the probe-A values set, each marked with a `probe-A:` comment that says why. Do not start from
+   `rugsnipe.example.toml`: its exits (2x / 3x, a 30-minute hold), its 40 attempts an hour and its 1 SOL
+   balance floor would measure a different policy. This replaces the copy install.sh made:
+   ```bash
+   sudo install -m 0640 -o root -g rugsnipe /opt/rugsnipe/src/config/probe-a.example.toml /etc/rugsnipe/rugsnipe.toml
+   sudo nano /etc/rugsnipe/rugsnipe.toml
+   sudo /opt/rugsnipe/bin/rugsnipe-ctl config validate /etc/rugsnipe/rugsnipe.toml
+   ```
+   In the editor change exactly three values: `[secrets] armset_pubkey` (the pubkey printed on ohio1 in §4),
+   `[secrets] cold_wallet` (the address of a wallet you control, not on this box) and, in the `[feeds] grpc`
+   line, `YOUR-ENDPOINT` (step 0). What you should see: `mode = probe`, then `REFUSED:` lines only for what
+   this quick check cannot see (credentials, clock offset, post-execution feed, ArmSet: step 4 checks them),
+   and **no** `secrets.armset_pubkey is not a base58 pubkey` or `secrets.cold_wallet is not a base58 pubkey`
+   (those mean a placeholder is still in the file). Any other refusal: stop and escalate.
+
+   What the file sets (the `[risk]` values are ceilings for both stages; `[probe] a` narrows the four stage caps):
 
    | Key | Value | Note |
    |---|---|---|
-   | `risk.max_probe_lamports` | `250_000_000` | ceiling; stage A narrows it to 0.02 SOL, B keeps 0.25 SOL |
-   | `risk.max_probes_per_day` | `300` | attempts, not fills; A narrows to 50 |
-   | `risk.max_open_positions` | `2` (or the example's 4) | A narrows to 1, B to 2; a LEAD position lives about 2 s |
-   | `risk.max_daily_loss_lamports` | `1_000_000_000` | A narrows to 0.2 SOL, B keeps 1 SOL; every failed attempt's `meta.fee` counts |
+   | `[probe] a` | 0.02 SOL per buy, 150 attempts/day, 1 open position, 0.6 SOL daily loss | the stage-A caps decided 2026-10-20 (probe-design-v2 §2 item 4, option ii); the three lines move together (`max_buys_per_hour`, `a.max_probes_per_day`, `a.max_daily_loss_lamports`). B keeps 0.25 SOL, 300, 2, 1 SOL |
+   | `risk.max_buys_per_hour` | `6` | the cap is first-come per UTC hour: 6 × 24 = 144 ≤ 150 a day, so every hour of the day is sampled (40 would use up the day by early morning) |
+   | `risk.max_entry_vsol_lamports` | `115_000_000_000` | the LEAD universe the shadow scored (40 SOL would skip large launches) |
+   | `[exit.default]` | the LEAD exits of `paper-lead.example.toml` | +15% take-profit, sell when a bundle wallet sells, 1 s without a trade, −15% stop after 1 s, hard exit at slot+5 |
    | `risk.min_hot_balance_lamports` | `100_000_000` | a buy needs this + the stake + the bid in the wallet (the lane reads the balance every 2 s): keep it below what you fund |
    | `risk.max_consec_losses_per_op` | `20` | the class arm is one operator and the median LEAD trade is a small loss; 5 would suspend it constantly (lost races do not count) |
-   | `risk.max_buys_per_op_per_day`, `max_buys_per_hour` | `300`, `40` | |
-   | `risk.max_bid_lamports` | `25_000_000` | the bid itself; the failed-attempt part is capped below |
-   | `bid.failed_attempt_lamports_max` | `1_000_000` | most a lost race may cost (docs/03 §6.1) |
-   | `bid.split` | as shipped | Jito-Agave pays on success (tip); BAM, Harmonic, other bid with the capped priority fee. Change BAM only when probe-A shows its variant landing better with the tip |
-   | `tx.cu_limit`, `tx.lads_bytes` | `88_000`, `12_124_160` | after `cargo run --release -p rugsnipe-ctl --features rpc -- sim --n 3` confirms the fit |
-   | `tx.nonce_pool` | `32` | create them with `rugsnipe-ctl nonce init --authority <PROBE_PUBKEY> --count 32` (prints unsigned transactions for review); at start the hot binary reads every pool account from chain and quarantines a missing, uninitialized or foreign-authority one |
-   | `rpc_budget.keeper` | `8` | the real fill lane's share (statuses, landed transactions, nonce accounts, balances, blockhash) |
+   | `risk.armset_max_age_s` | `1_296_000` | 15 days: one ArmSet per stage (step 1) |
+   | `risk.kill_file` | `"/run/rugsnipe/KILL"` | the kill switch of §10 |
+   | `tx.cu_limit`, `tx.lads_bytes` | `88_000`, `12_124_160` | **not** 65,000: the fresh probe wallet creates its pump volume accumulator on its first buy (+1.3 to +2.8k CU), so at 65,000 every landed buy can fail and the failure undoes the creation each time. Move to 65,000 for B only after `rugsnipe-ctl sim --wallet PROBE_PUBKEY --legacy` passes |
+   | `tx.nonce_pool` | `32` | the accounts of step 3c |
+   | `[feeds]` | gRPC on (`stale_ms = 4_000`, `bundle_run = true`), logsws off | a real mode fires only from the gRPC feed |
+   | `[senders]` | `helius`, `nozomi`, `astralane`, `blockrazor`, `jito` on; `rpcsend`, `helius_swqos` off | the five senders of the dry run (step 5) |
+   | `bid.*`, `rpc_budget.keeper` | as shipped (`failed_attempt_lamports_max = 1_000_000`, `keeper = 8`) | Jito-Agave pays on success (tip); BAM, Harmonic, other bid with the capped priority fee |
+   | `[obs] alert` | `TG_TOKEN`, `TG_CHAT` | Telegram, the only alert path (step 2) |
 
-   `[senders]`: enable the paths you have keys for, exactly as the example names them: `helius`
-   (`key = "HELIUS_KEY"`, 0.001 SOL minimum), `helius_swqos` (`&swqos_only=true`, 5,000 lamports, uses
-   `helius.key`), `nozomi` (`NOZOMI_KEY`, never below 0.001 SOL: Nozomi silently drops lower tips),
-   `astralane` (`ASTRALANE_KEY`), `blockrazor` (`BLOCKRAZOR_KEY`, mode `fast`, 0.0001 SOL, 3 TPS),
-   `jito` (`regions = ["frankfurt", "amsterdam"]`, `max_rps = 1`: one 1 req/s token bucket per region, the
-   pay-on-success primary only). Each sender gets its own variant of every attempt (its tip accounts,
-   `tip = max(bid, its minimum)`), all on the intent's one durable nonce, so at most one lands and at most
-   one tip is paid; a tip only moves when the buy succeeds.
-4. Fund the probe wallet with what the caps allow you to lose plus working capital (1 SOL for A,
-   2-3 SOL for B) and check the config as root:
+   The senders: `helius` (`key = "HELIUS_KEY"`, 0.001 SOL minimum), `nozomi` (`NOZOMI_KEY`, never below
+   0.001 SOL: Nozomi silently drops lower tips), `astralane` (`ASTRALANE_KEY`), `blockrazor` (`BLOCKRAZOR_KEY`,
+   mode `fast`, 0.0001 SOL, 3 TPS), `jito` (keyless, `regions = ["frankfurt", "amsterdam"]`, `max_rps = 1`: one
+   1 req/s token bucket per region, the pay-on-success primary only). Each sender gets its own variant of every
+   attempt (its tip accounts, `tip = max(bid, its minimum)`), all on the intent's one durable nonce, so at most
+   one lands and at most one tip is paid; a tip only moves when the buy succeeds.
+
+   **3b. Fund the probe wallet:** 3 SOL for stage A at the shipped caps (2-3 SOL for B) plus about 0.04 SOL for
+   the nonce rent of step 3c, sent from your exchange or wallet to the address in `/etc/rugsnipe/probe-pubkey.txt`.
+   At the shipped caps stage A is expected to lose about 0.19-0.31 SOL a day (at most 0.6 SOL, the daily cap), so
+   3 SOL lasts roughly 10-14 days: check it daily and top up as in step 7b. Then check the balance:
    ```bash
-   /opt/rugsnipe/bin/rugsnipe-ctl config validate /etc/rugsnipe/rugsnipe.toml --creds /etc/rugsnipe/keys \
-     --clock-offset-ms <from chronyc tracking> --post-exec-healthy --armset /var/lib/rugsnipe/armsets/armset-2-<sha>.json
+   P=$(sudo awk '$1 == "pubkey" {print $2}' /etc/rugsnipe/probe-pubkey.txt); echo "probe wallet $P"
+   curl -s https://api.mainnet-beta.solana.com -X POST -H 'Content-Type: application/json' \
+     -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getBalance\",\"params\":[\"$P\"]}" \
+     | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["value"] / 1e9, "SOL")'
    ```
-   (`--post-exec-healthy` asserts the feed's health, which only the running binary can measure;
-   validation still refuses a probe config without `[feeds] grpc.enabled`.)
-   `config validate` prints the ArmSet's `probe_stage` and refuses a mismatch with `[probe] stage` (and
-   `stage = "b"` with an ArmSet that names no stage).
+   What you should see: `probe wallet` and the address, then the balance in SOL (about 1.04 once your transfer
+   has arrived). If it prints `probe wallet` with no address, or a Python `KeyError`, the pubkey file is empty:
+   rebuild it (§4, the recovery line) and run this again. Never move SOL in or out while the hot unit runs: the
+   `unexplained_drop` trigger latches on a manual withdrawal (§10); step 7b is the safe way to top up.
+
+   **3c. The 32 buy nonce accounts, dry run** (once per wallet, before the first real start; readiness audit
+   M2). Every real buy uses one of them; without them every decision is `NO_NONCE`. `rugsnipe-ctl nonce create`
+   signs with the probe key and sends one transaction per missing account through your paid RPC. It is
+   idempotent: an account that already exists is skipped, so running it again is always safe. Run it as root.
+   The rent is 1,056,640 lamports per account, about 0.034 SOL for the 32 (it stays in the accounts). First the
+   dry run, which only reads the chain:
+   ```bash
+   sudo /opt/rugsnipe/bin/rugsnipe-ctl nonce create --keypair /etc/rugsnipe/keys/probe-keypair.json --rpc-url cred:RPC_URL --count 32 --dry-run
+   ```
+   What you should see: `DRY RUN (nothing is signed or sent): nonce create: authority ...` with your `$P`, 32
+   rows `would create` (`exists` for any account made before), the wallet balance against what the creates
+   need, and `DRY RUN: nothing was signed or sent. Run the same command without --dry-run to create them.` If
+   it says `NOT ENOUGH`, fund the wallet (3b) first. A `BAD` row: stop and escalate to an engineer.
+
+   **3d. The 32 buy nonce accounts, for real:**
+   ```bash
+   sudo /opt/rugsnipe/bin/rugsnipe-ctl nonce create --keypair /etc/rugsnipe/keys/probe-keypair.json --rpc-url cred:RPC_URL --count 32
+   ```
+   What you should see: one row per account as it lands (`created` and its signature; `exists` for one made
+   before), then `done: created 32, existed 0, failed 0` (on a re-run: `existed 32`). If it stops with
+   `STOPPED at #N`, read the reason, fix it (too little SOL: fund and re-run) and run the same command again.
+
+   **Order matters. Never start the real unit (step 6), or any real `rugsnipe-hot`, on
+   `/var/lib/rugsnipe/state.db` before 3d says `done`.** At start the hot binary reads every pool account from
+   chain and quarantines a missing one for good: the pool slot is chosen from the mint, with no fallback, so
+   every launch that maps to a quarantined slot is skipped from then on, and no restart resets it. Dry runs
+   (step 5) are safe: they use their own `--state`. If it happened anyway, recover with the hot unit stopped,
+   then start it again:
+   ```bash
+   sudo systemctl stop rugsnipe-hot
+   sudo -u rugsnipe sqlite3 /var/lib/rugsnipe/state.db "DELETE FROM nonces"
+   ```
+   What you should see: no output (the pool is re-read from chain at the next start).
+
+4. **Check the config as root, with everything:**
+   ```bash
+   sudo /opt/rugsnipe/bin/rugsnipe-ctl config validate /etc/rugsnipe/rugsnipe.toml --creds /etc/rugsnipe/keys \
+     --clock-offset-ms 0.05 --post-exec-healthy --armset /var/lib/rugsnipe/armsets/armset-101-SHA.json
+   ```
+   Before you paste it: replace `SHA` (step 1b), and replace `0.05` with the offset `chronyc tracking` prints
+   on its `System time` line, in milliseconds (`0.000050000 seconds` is `0.05`). `--post-exec-healthy`
+   asserts the feed's health, which only the running binary can measure; validation still refuses a probe
+   config without `[feeds] grpc.enabled`. What you should see: `armset: ArmSet ver 101 ... probe_allowed=true
+   probe_stage=a`, then `OK`, or `NOT OK` with only these two refusals, a known false alarm of this check:
+   `credential "probe-keypair" missing` and `credential "api-keys" missing` (it looks for the file names
+   without `.json` / `.toml`; the dry run of step 5 is the real credential check). Any other `REFUSED` line
+   (a stage mismatch, `Stale`, a pubkey): stop. `config validate` refuses an ArmSet whose `probe_stage` differs
+   from `[probe] stage` (and `stage = "b"` with an ArmSet that names no stage).
+
 5. **Dry run on the box** (works now, before or after funding; sends nothing). The binary loads the real
    probe key from systemd credentials, seeds the nonce pool from chain, signs every variant with the real
    key, records them instead of sending, and prints a self-test: one signed buy per configured sender
@@ -427,50 +607,100 @@ that break-even and a median premium at or below +2% (`PROBE-A COMPLETE: ENTER P
      -p LoadCredential=probe-keypair:/etc/rugsnipe/keys/probe-keypair.json \
      -p LoadCredential=api-keys:/etc/rugsnipe/keys/api-keys.toml \
      /opt/rugsnipe/bin/rugsnipe-hot --config /etc/rugsnipe/rugsnipe.toml --probe-dry \
-       --armset /var/lib/rugsnipe/armsets/armset-2-<sha>.json --state /var/lib/rugsnipe/probe-dry.db \
+       --armset /var/lib/rugsnipe/armsets/armset-101-SHA.json --state /var/lib/rugsnipe/probe-dry.db \
        --rpc-url cred:RPC_URL --duration-s 60 --no-metrics --pin-core none
    ```
-   Read it: `dry self-test: <sender> variant 0 sig ... tip ... prio ...` for every sender (a missing one
-   is not enabled or its key is missing), then `dry first signed buy ...: <base64>` and
-   `dry nonce burn ...: <base64>` with `simulateTransaction err=...`. Before funding the fee payer does
+   Read it: `dry self-test: SENDER variant 0 sig ... tip ... prio ...` for each of the five senders (a
+   missing one is not enabled or its key is missing), then `dry first signed buy ...:` and
+   `dry nonce burn ...:` (each with base64 and `simulateTransaction err=...`). Before funding the fee payer does
    not exist and both say `AccountNotFound`: that already proves the signature verifies. After funding
-   the burn must simulate with `err=null` (the key, the nonce account and its authority are right) and
-   the buy must fail at its ATA or pump instruction (index 3 or later: the placeholder mint), never at
-   instruction 0 (the nonce). Any refusal (key permissions, ArmSet, stage, clock, caps) is printed with
-   every reason and nothing starts. Use a separate `--state` for dry runs.
-6. **Start**: add the ArmSet and the RPC credential to the hot unit with a drop-in, write the guard's
-   probe drop-in, enable the units explicitly (the target starts nothing that is not enabled), check
-   and start:
+   and step 3d the burn must simulate with `err=null` (the key, the nonce account and its authority are
+   right; `dry self-test: no usable nonce account` means step 3d is missing) and the buy must fail at its ATA
+   or pump instruction (index 3 or later: the placeholder mint), never at instruction 0 (the nonce). Any refusal
+   (key permissions, ArmSet, stage, clock, caps) is printed with every reason and nothing starts. Use a
+   separate `--state` for dry runs. The dry run does not refuse an unhealthy feed: read the
+   `grpc feed https://...: connected true slot ...` line yourself.
+
+6. **Start.**
+
+   **6a. Before every start (the first and every restart, unkill or reboot): the wallet must hold no stray
+   tokens** (readiness audit M6). At start, recovery adopts every non-zero token balance in the probe wallet as
+   an open position; stage A has one position slot, so a single spam airdrop silently stops every attempt, and
+   such a position never closes:
    ```bash
-   sudo systemctl edit rugsnipe-hot     # [Service] / ExecStart= / ExecStart=/opt/rugsnipe/bin/rugsnipe-hot --config /etc/rugsnipe/rugsnipe.toml --armset /var/lib/rugsnipe/armsets/armset-2-<sha>.json --rpc-url cred:RPC_URL
-   sudo bash ~/rugsnipe/deploy/install.sh --role hot --probe-armset /var/lib/rugsnipe/armsets/armset-2-<sha>.json
-   #   -> /etc/systemd/system/rugsnipe-guard.service.d/30-probe.conf: --real-sell --armset ... --rpc-url cred:RPC_URL
-   sudo systemctl enable rugsnipe-keeper.service rugsnipe-guard.service rugsnipe-hot.service rugsnipe.target
-   systemctl list-dependencies rugsnipe.target      # must list keeper, guard and hot
-   sudo systemctl start rugsnipe.target
-   systemctl status rugsnipe-guard                  # active (running): "REAL sells", then "exits lease held by hot:..."
+   P=$(sudo awk '$1 == "pubkey" {print $2}' /etc/rugsnipe/probe-pubkey.txt); echo "probe wallet $P"
+   for prog in TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb; do
+     curl -s https://api.mainnet-beta.solana.com -X POST -H 'Content-Type: application/json' \
+       -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getTokenAccountsByOwner\",\"params\":[\"$P\",{\"programId\":\"$prog\"},{\"encoding\":\"jsonParsed\"}]}" \
+     | python3 -c 'import json,sys; v=json.load(sys.stdin)["result"]["value"]; print(sys.argv[1][:8], len(v), "token account(s)"); [print("  mint", a["account"]["data"]["parsed"]["info"]["mint"], "amount", a["account"]["data"]["parsed"]["info"]["tokenAmount"]["amount"]) for a in v]' "$prog"
+   done
+   sudo -u rugsnipe sqlite3 -readonly /var/lib/rugsnipe/state.db "select mint,state from positions where state!='closed'"
    ```
+   What you should see: `probe wallet` and the address, `Tokenkeg 0 token account(s)` and `TokenzQd 0 token
+   account(s)` (or only lines with `amount 0`, which are harmless), and an empty list of open positions (on the
+   very first start the last line says `unable to open database`: that is fine). **Do not start** if any line
+   shows a non-zero `amount` whose mint is not one of the open positions: escalate to an engineer (the tokens
+   must be burned and the account closed with the probe key first).
+
+   **6b. The hot unit's drop-in** (once per ArmSet). It adds the ArmSet and the RPC credential to the hot
+   unit's command line. Replace `SHA` (step 1b) before you paste it:
+   ```bash
+   sudo mkdir -p /etc/systemd/system/rugsnipe-hot.service.d
+   printf '%s\n' '[Service]' 'ExecStart=' 'ExecStart=/opt/rugsnipe/bin/rugsnipe-hot --config /etc/rugsnipe/rugsnipe.toml --busy-poll --armset /var/lib/rugsnipe/armsets/armset-101-SHA.json --rpc-url cred:RPC_URL' | sudo tee /etc/systemd/system/rugsnipe-hot.service.d/30-probe.conf
+   sudo systemctl daemon-reload
+   systemctl cat rugsnipe-hot --no-pager | grep ExecStart
+   ```
+   What you should see: the three lines echoed back, then the base unit's `ExecStart=` line followed by an empty
+   `ExecStart=` (it clears the base line) and your line with `--busy-poll`, the ArmSet and `--rpc-url
+   cred:RPC_URL`. Keep `--busy-poll`: the drop-in replaces the whole base line, and without it the hot thread
+   sleeps 200 µs when idle.
+
+   **6c. The guard's drop-in and the units.** install.sh writes the guard's probe drop-in; then enable the units
+   explicitly (the target starts nothing that is not enabled). Replace `SHA` again:
+   ```bash
+   sudo bash ~/rugsnipe/deploy/install.sh --role hot --probe-armset /var/lib/rugsnipe/armsets/armset-101-SHA.json
+   sudo systemctl enable rugsnipe-guard.service rugsnipe-hot.service rugsnipe.target
+   systemctl list-dependencies rugsnipe.target --no-pager
+   ```
+   What you should see: install.sh mentions `/etc/systemd/system/rugsnipe-guard.service.d/30-probe.conf`
+   (`--real-sell --armset ... --rpc-url cred:RPC_URL`), and `list-dependencies` lists `rugsnipe-guard.service`
+   and `rugsnipe-hot.service`. **Never enable `rugsnipe-keeper`**: it has no binary yet. The hot unit asks for
+   it, so a failed `rugsnipe-keeper` (`203/EXEC`) under `list-dependencies` or in `systemctl status` is expected
+   and harmless.
+
+   **6d. Start** (only after 6a passed and step 3d said `done`):
+   ```bash
+   sudo systemctl start rugsnipe.target
+   systemctl status rugsnipe-guard rugsnipe-hot --no-pager
+   sudo journalctl -u rugsnipe-hot -n 50 --no-pager
+   ```
+   What you should see: both units `active (running)`; the guard says `REAL sells`, then `exits lease held by
+   hot:...`; the hot journal shows the start line with `mode=probe` and the kill file `/run/rugsnipe/KILL`, and
+   `grpc feed https://...: connected true slot ...`; a Telegram start message arrives. If the hot unit is
+   not running, read its journal: a refused start prints every reason.
+
    `risk.kill_file` must be an absolute path under `/run/rugsnipe/` in probe and live (validation
    refuses anything else; the shipped `/run/rugsnipe/KILL` is right; the paper examples' relative paths
-   are paper-only). After a new ArmSet, re-run install.sh with the new `--probe-armset` and
-   `systemctl daemon-reload && systemctl restart rugsnipe-guard` (not while the guard holds the lease).
+   are paper-only). A new ArmSet (stage B) means 6b again with the new file name, `install.sh` with the new
+   `--probe-armset`, and `sudo systemctl daemon-reload && sudo systemctl restart rugsnipe-guard` (not while the
+   guard holds the lease).
    Every other gate is checked first (nothing opens a socket before); then the gRPC feed starts and
    must be connected with a slot update within `--feed-wait-s` (default 20 s): the journal shows
-   `grpc feed <url>: connected true slot … (… ms)`. Otherwise probe is refused with
-   `no healthy post-execution feed (gRPC <url>: connected …, last slot …, reconnects …)`: check the URL,
-   the `GRPC_TOKEN` line, and `curl -sv <url>` from the box. While running, a feed with no data
+   `grpc feed https://...: connected true slot … (… ms)`. Otherwise probe is refused with
+   `no healthy post-execution feed (gRPC ...: connected …, last slot …, reconnects …)`: check the URL,
+   the `GRPC_TOKEN` line, and `curl -sv https://YOUR-ENDPOINT.rpcpool.com` from the box. While running, a feed with no data
    message for more than `stale_ms`, or trailing `getSlot` by more than 8 slots, latches the kill (§10).
    The leader schedule loads in the first seconds (`leaders epoch …` in the status line); until it
    does, a buy carries both the pay-on-success and the priority variant.
    A position opens only on our own TradeEvent (the feed's or the landed transaction's) or a token
    balance, never on a send; a buy that lands and fails costs its `meta.fee` (counted toward the daily
-   loss); nothing landed means the keeper burns the nonce after `tx.burn_after_slots` and the attempt
+   loss); nothing landed means the hot box burns the nonce after `tx.burn_after_slots` and the attempt
    is `dropped` at no cost. Sells go through the same senders on a recent blockhash; a position closes
    on our own sell TradeEvent or a zero balance. If the hot box stops (its heartbeat older than 5 s with
    a position open), the guard (`--real-sell`, from the drop-in above) takes the exits lease over and
    sells through the same senders; a sell counts only when the wallet's token balance reads 0 (then it
    closes the position in `state.db`), otherwise it is re-sent every 3 s (`--retry-ms`) on a fresh
-   blockhash until `risk.max_sell_spend_lamports` of bids, then `CRITICAL: sell of <mint> not confirmed`
+   blockhash until `risk.max_sell_spend_lamports` of bids, then `CRITICAL: sell of MINT not confirmed`
    (sell by hand). When the restarted hot box beats again and no guard sell is in flight, the guard
    hands the lease back (`hot box is back ...`) and hot resumes its exits. **The daily caps survive a
    restart**: the start reads today's (UTC) failed-attempt cost, closed P&L, real buys (per day, hour and
@@ -478,28 +708,72 @@ that break-even and a median premium at or below +2% (`PROBE-A COMPLETE: ENTER P
    journal) and latches `daily_loss` at once if today is already at the cap. The end-of-run summary's
    `cold.probe` block has the landing stats per sender and per variant (bid, rank, premium, failed cost),
    and `state.db` `kv.probe_report` keeps the last one.
-7. **Read the kill rule** at least daily, and at the end of each stage:
+
+7. **Read the kill rule** at least daily, and at the end of the stage:
    ```bash
    cd /opt/rugsnipe/src
    sudo -u rugsnipe /opt/rugsnipe/venv/bin/python -I analysis/scripts/shadow_gate.py --probe \
-     --state /var/lib/rugsnipe/state.db --config /etc/rugsnipe/rugsnipe.toml
+     --state /var/lib/rugsnipe/state.db --config /etc/rugsnipe/rugsnipe.toml --hard-stop-days 14
    ```
-   It prints attempts, landed trades, the landing rate and its break-even (`pnl_model.break_even_landing`
-   for the 0.25 SOL LEAD at the measured mean failed-attempt cost and median premium; 5.1-13.1% over the
-   modelled 0.00036-0.001 SOL, 9.9% at the default 0.00073), the failed-attempt cost, the median premium,
-   the EV per attempt with its 90% interval (normal and by hour clusters), the worst day against the cap, the largest hour's share of
-   the P&L, attempts and landings per bid variant, and one verdict: `KILL: <reasons>`, `CONTINUE probe-A|B`,
-   `PROBE-A COMPLETE: ENTER PROBE-B`, `PROBE-A COMPLETE: DO NOT ENTER PROBE-B ...: stop` or
-   `PROBE-B COMPLETE: read the live gate`. On `KILL`, touch the kill file (§10). The end-of-run summary's
-   `cold.paper` block carries the same inputs (`attempts_scored`, `landing_rate`, `failed_cost_lamports_mean`,
-   `median_premium_bps_fills`, `ev_per_attempt`, `ev_per_attempt_se`, `ev_per_attempt_90ci`). Raw rows are
-   in `state.db` (`fills`, `positions`, `exits`, `sends`; failed attempts carry `fills.fail_cost` = the
-   `meta.fee` of the failed transaction, 0 for a dropped send; `fills.variant` / `fills.sender` / `fills.fee`
-   / `fills.tip` name the landed variant). The verdict also prints attempts, landings and failed cost
-   **per leader class** (`fills.leader_class` = the class of the slot the transaction landed in,
-   else `intents.leader_class` = the create slot's; `sends.leader_class` = the class each variant bid
-   for), and the summary's `cold.probe.by_leader_class` has the same split. That split decides whether
-   BAM keeps bidding with the priority fee (docs/03 §6.1).
+   `--hard-stop-days 14` is the stage length decided on 2026-10-20 (probe-design-v2 §2 item 4). The hour cap it
+   checks is the config's `risk.max_buys_per_hour`.
+   What you should see (probe design v2 rules, `analysis/scripts/shadow_gate.py`):
+   - `attempts` and the days covered; `landed rule`: only creation-slot fills at +2% or less count as
+     landed, and the late fills (slot+1, +2, +3) and slot-0 fills above +2% are counted apart;
+   - `landing rate` (of the attempts that raced) and its break-even (`pnl_model.break_even_landing` for the
+     0.25 SOL LEAD at the measured mean failed-attempt cost and mean premium; 9.9% at 0.00073 SOL);
+   - `failures`: lost races (`slippage`, `premium`, `not_in_slot0`, `dropped`) and, apart, failures that are
+     **not** races (`instruction_error`, `custom_...`), which the landing rate leaves out;
+   - the failed-attempt cost, the median premium, the EV per attempt with its 90% interval (normal and by
+     hour clusters), the hour cap (`max_per_hour` must be at most the config's `risk.max_buys_per_hour`, 6 as
+     shipped), the worst day against the cap, and
+     attempts and landings per bid variant, per leader class and per sender (`sender helius sent ...,
+     accepted ..., landed ...`);
+   - `in-class subset`: the same landing, premium and EV on the attempts with `bundle_wallets >= 1`;
+   - `stage-B bar`: the larger of the pooled LEAD break-even and the unfiltered shadow break-even at
+     0.25 SOL, with both inputs;
+   - one verdict: `KILL: REASONS`, `CHECK: ...`, `CONTINUE probe-A|B` (also while 350 attempts and 7 days are
+     reached but the in-class subset is below 200), `INCONCLUSIVE: in-class subset N < 200 attempts at the
+     10-day hard stop (...): ... escalate to the owner`, `PROBE-A COMPLETE: ENTER PROBE-B`,
+     `PROBE-A COMPLETE: DO NOT ENTER PROBE-B (...): stop` or `PROBE-B COMPLETE: read the live gate`.
+
+   On `INCONCLUSIVE`, do not stop the project and do not enter B: stage A has too few in-class attempts for any
+   reading, which is not a negative result. Send the whole output to the owner, who decides whether to extend
+   stage A (probe-design-v2 §2 item 4). The box may keep running meanwhile; it drops to paper by itself when the
+   ArmSet expires. On `KILL`, touch the kill file (§10). On `CHECK`, do not stop the project: our own transaction is failing
+   (most likely the CU limit; `sudo -u rugsnipe sqlite3 -readonly /var/lib/rugsnipe/state.db "select
+   fail_reason,count(*) from fills group by 1"` shows which error), so escalate to an engineer. Before day 7
+   only a `KILL` ends stage A. The end-of-run summary's `cold.paper` block carries the same inputs
+   (`attempts_scored`, `landing_rate`, `failed_cost_lamports_mean`, `median_premium_bps_fills`, `ev_per_attempt`,
+   `ev_per_attempt_se`, `ev_per_attempt_90ci`). Raw rows are in `state.db` (`fills`, `positions`, `exits`,
+   `sends`, `feed_bundle`; failed attempts carry `fills.fail_cost` = the `meta.fee` of the failed transaction,
+   0 for a dropped send; `fills.variant` / `fills.sender` / `fills.fee` / `fills.tip` name the landed variant).
+   The verdict also prints attempts, landings and failed cost **per leader class** (`fills.leader_class` = the
+   class of the slot the transaction landed in, else `intents.leader_class` = the create slot's;
+   `sends.leader_class` = the class each variant bid for), and the summary's `cold.probe.by_leader_class` has
+   the same split. That split decides whether BAM keeps bidding with the priority fee (docs/03 §6.1).
+
+   **7b. Balance and top-up** (daily, with step 7). A buy needs `risk.min_hot_balance_lamports` (0.1 SOL) plus the
+   stake and the bid in the wallet; below that buys stop without an alert (exits continue). Run the balance
+   command of step 3b. When it shows less than **0.4 SOL** (about 3-6 days at the shipped caps), top up with the
+   hot unit stopped, never while it runs (§10, `unexplained_drop`). First check that no position is open:
+   ```bash
+   sudo -u rugsnipe sqlite3 -readonly /var/lib/rugsnipe/state.db "select mint,state from positions where state!='closed'"
+   ```
+   What you should see: no output. If a row is listed, wait a minute and run it again (LEAD positions close within
+   seconds); a row that stays: escalate to an engineer. Then stop the hot unit (the guard keeps running):
+   ```bash
+   sudo systemctl stop rugsnipe-hot
+   ```
+   Send the SOL (0.5-1 SOL at the shipped caps) from your exchange or wallet to the address in
+   `/etc/rugsnipe/probe-pubkey.txt`, wait until the step 3b balance command shows it, run the token check of step
+   6a, and start again:
+   ```bash
+   sudo systemctl start rugsnipe-hot
+   sudo journalctl -u rugsnipe-hot -n 30 --no-pager
+   ```
+   What you should see: the start line with `mode=probe`, `risk day restored: ...` (today's caps carry over) and
+   `grpc feed https://...: connected true slot ...`; a Telegram start message arrives.
 
 **Live** needs the docs/06 §9.5 gate for the class-arm LEAD (`gate_passed` in a signed ArmSet): (a) shadow
 over ≥ 1,000 launches and a full day with the hour-cluster 90% lower bound of the EV per attempt above 0;
@@ -573,10 +847,13 @@ the new program first; `unkill` then drops the stored programdata, and the next 
 deployed program as the new baseline. Once real money is involved, stop everything only when flat:
 `sudo sqlite3 -readonly /var/lib/rugsnipe/state.db "select mint,state from positions where state!='closed'"`.
 
-**Telegram** (optional): add `TG_TOKEN = "<bot token>"` and `TG_CHAT = "<chat id>"` to `api-keys.toml`;
-`[obs] alert = { telegram = "TG_TOKEN", chat = "TG_CHAT", hourly = true, commands = false }`. The box
-sends a start message, every kill with its trigger, and an hourly summary (never from the hot thread;
-a failed send is only counted, `cold.alerts`). `commands = true` also polls the bot every 5 s:
+**Telegram** (optional in shadow, **required for the probe**: it is the only alert path in this build; no
+dead-man is built, so nothing else tells you that the box latched its kill or died): add
+`TG_TOKEN = "..."` (the bot token from @BotFather) and `TG_CHAT = "..."` (your chat id) to `api-keys.toml`, each
+on its own line; `[obs] alert = { telegram = "TG_TOKEN", chat = "TG_CHAT", hourly = true, commands = false }`
+(already in `config/probe-a.example.toml`). The box sends a start message, every kill with its trigger, and
+an hourly summary (never from the hot thread; a failed send is only counted, `cold.alerts`). No start message
+after a start means the alert path is broken: fix it before you leave the box alone. `commands = true` also polls the bot every 5 s:
 `/kill` from that chat latches the kill (there is no remote unkill).
 
 ## 11. After Alpenglow (epoch 1064, Oct 21 2026 ~15:00 UTC)
@@ -705,9 +982,9 @@ config uses.
 | `ASTRALANE_KEY` | Astralane sender | per-tx tip, 0.001 SOL (0.00001 at VIP3) | `[senders] astralane.key` |
 | `BLOCKRAZOR_KEY` | BlockRazor sender (auth token, header `apikey`), mode `fast` | free, per-tx tip min 0.0001 SOL, 3 TPS | `[senders] blockrazor.key` |
 | `NEXTBLOCK_KEY` | NextBlock sender (optional) | $249+/mo (trial 1 tx/10 s) | `[senders] nextblock.key` |
-| `TG_TOKEN` | Telegram alert bot token | free | `[obs] alert.telegram` (optional) |
-| `TG_CHAT` | the chat id the alerts go to (and `/kill` is accepted from) | free | `[obs] alert.chat` (optional) |
-| `HC_URL` | healthchecks.io dead-man URL | free tier | `[obs] alert.deadman` |
+| `TG_TOKEN` | Telegram alert bot token | free | `[obs] alert.telegram` (required for the probe: the only alert path) |
+| `TG_CHAT` | the chat id the alerts go to (and `/kill` is accepted from) | free | `[obs] alert.chat` (required for the probe) |
+| `HC_URL` | healthchecks.io dead-man URL | free tier | `[obs] alert.deadman` (not built yet: nothing reads it) |
 | (none) | Helius Sender without a key | as above | `[senders] helius` with no `key` (1 req/s per IP) |
 | (none) | Jito block engine Frankfurt + Amsterdam, `bundleOnly` | per-tx tip, min 1,000 lamports; a failed bundle-only transaction costs nothing | `[senders] jito.regions` (1 req/s per IP per region, one token bucket each) |
 | (DZ ID pubkey) | DoubleZero Edge seat | $1,500/mo | applied for at doublezero.xyz with the box's DZ ID; no API key |
@@ -718,7 +995,8 @@ config uses.
 | Path | What |
 |---|---|
 | `/etc/rugsnipe/shadow.toml` | the shadow config (step 5) |
-| `/etc/rugsnipe/rugsnipe.toml` | the service config (probe/live; never overwritten by install.sh) |
+| `/etc/rugsnipe/rugsnipe.toml` | the service config (probe/live; never overwritten by install.sh; probe A: from `config/probe-a.example.toml`, §9 step 3) |
+| `/etc/rugsnipe/probe-pubkey.txt` | the probe wallet's address (public; §4), read as `$P` in §9 |
 | `/var/lib/rugsnipe/armsets/` | signed ArmSets |
 | `/var/lib/rugsnipe/shadow/{state.db,rslog,summary.json}` | the shadow run's record |
 | `/run/rugsnipe/KILL` | the kill file |

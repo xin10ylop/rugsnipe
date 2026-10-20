@@ -5,7 +5,7 @@ It implements docs/06-architecture.md sections 2, 6, 10, 12 and 13, and docs/03-
 
 **Status.** The deployment layer is ready. The binaries are not.
 - `deploy/install.sh`, the systemd units and `deploy/tune-hot.sh` are linted and verified in this container (see "Validation").
-- `rugsnipe-hot` and `rugsnipe-guard` exist but run paper only (real modes are refused, docs/08 section 0); `rugsnipe-keeper` does not exist yet (M3-M5).
+- `rugsnipe-hot` and `rugsnipe-guard` exist and run paper and probe (live is refused, docs/08 section 0). The nonce burns, leader schedule and recovery that `rugsnipe-keeper` was planned for run inside `rugsnipe-hot`; the `rugsnipe-keeper` binary does not exist. **Never enable `rugsnipe-keeper.service`**: it would restart-loop with `203/EXEC`. Enable `rugsnipe-guard`, `rugsnipe-hot` and `rugsnipe.target` only (docs/08 section 9 step 6). The hot unit still names the keeper in `Wants=`, so a failed keeper unit next to a running hot unit is expected and harmless.
 - The collector unit runs the existing `analysis/scripts/collector.py`. The discover timer is a placeholder that runs the selftest until M2.
 - Python units exit cleanly with code 78 if their module or script is missing, instead of restart-looping. install.sh does not enable a Rust unit whose binary is missing.
 
@@ -16,7 +16,7 @@ It implements docs/06-architecture.md sections 2, 6, 10, 12 and 13, and docs/03-
                                                ▼                               ▼
  public RPC, PumpPortal(x1), ┌──── ohio1  AWS us-east-2  18.188.14.68 ────┐   ┌──── fra1  Frankfurt bare metal (TeraSwitch) ─────────┐
  pump.fun API ──────────────►│ role analytics (exists)                     │   │ role hot (to rent)                                   │
-                             │  rugsnipe-collector  → analytics.db         │   │  rugsnipe-keeper  recovery, nonces, leaders, upgrade │
+                             │  rugsnipe-collector  → analytics.db         │   │  (no keeper unit: recovery, nonces, leaders in hot)  │
                              │  rugsnipe-discover.timer (6 h) → ArmSet+sig │   │  rugsnipe-guard   exit-lease takeover                │
                              │  reports, backups, ArmSet signing key ONLY  │   │  rugsnipe-hot     feed→decide→sign→send, exits       │
                              │  chrony → Amazon Time Sync                  │   │  chrony → ntp.frankfurt.jito.wtf, isolcpus, tuning   │
@@ -34,7 +34,7 @@ It implements docs/06-architecture.md sections 2, 6, 10, 12 and 13, and docs/03-
 |---|---|---|---|
 | this container | tests, paper runs, reports | none (run by hand) | none |
 | **ohio1** (exists) | `sudo deploy/install.sh --role analytics` | `rugsnipe-collector.service`, `rugsnipe-discover.timer`/`.service`, `rugsnipe.target` | `armset-signing.key`, `api-keys.toml`. **Never** wallets (install.sh refuses) |
-| **fra1** (to rent) | `sudo deploy/install.sh --role hot`, then `deploy/tune-hot.sh` | `rugsnipe-keeper`, `rugsnipe-guard`, `rugsnipe-hot`, optional `rugsnipe-tune`, `rugsnipe.target` | `hot-keypair.json`, `probe-keypair.json`, `api-keys.toml`. **Never** the ArmSet signing key (install.sh refuses) |
+| **fra1** (to rent) | `sudo deploy/install.sh --role hot`, then `deploy/tune-hot.sh` | `rugsnipe-guard`, `rugsnipe-hot`, optional `rugsnipe-tune`, `rugsnipe.target` (not `rugsnipe-keeper`: no binary) | `probe-keypair.json`, `api-keys.toml` (`hot-keypair.json` only for live, which this build refuses). **Never** the ArmSet signing key (install.sh refuses) |
 | second box | phase 2, after the gate: tyo1 (TeraSwitch TYO2), then ams1 (AMS3), per docs/03 section 4 and docs/06 section 11 | same as fra1 | same as fra1 |
 
 Step-by-step guides:
@@ -83,8 +83,8 @@ The system stays **paper-only unless the go/no-go gate passes** (docs/06 section
 |---|---|---|---|---|
 | **paper** | ohio1 or this container; `logsSubscribe` + PumpPortal (free) | decode coverage, decisions, internal latency, E2 P&L. Nothing about block 0 | now | $0 extra (Ohio already paid) |
 | **shadow** | fra1 + SVS Yellowstone gRPC; still `mode = "paper"` | detection lead vs rivals' landing slots per leader class | M4 paper run clean (decode-miss < 1%) | box ~$400-425 + SVS $150 |
-| **probe-A** | fra1 + paid post-exec feed (LaserStream fra or SVS); lock probes, then `[probe] stage = "a"`: 0.02 SOL buys, ≤ 50 attempts/day, 1 open position, 0.2 SOL daily loss cap, until 300 attempts or 3 days | landing rank, premium, failed-attempt cost per leader class, which bid variant lands; true `buyers_ahead` replaces the guessed k̂. EV is negative at this size (fixed costs) and is not a kill reason | shadow `GO on (a)`; `cu_limit` set by `ctl sim`, keys 0400, all caps non-zero, clock offset ≤ 5 ms, healthy post-exec feed, a signed ArmSet with `probe_allowed` (and `probe_stage = "a"` if it names one) | + LaserStream $499-999 (if replacing SVS); ≤ 0.6 SOL at risk (3 days × 0.2 SOL cap) |
-| **probe-B** | same box and feed, `[probe] stage = "b"`: 0.25 SOL buys, ≤ 300 attempts/day, 2 open positions, 1 SOL daily loss cap, about 200 landed trades | EV per attempt with failures at our real rank, premium and cost; the inputs of gate (b) | probe-A's landing rate above the break-even for its measured failed-attempt cost (`pnl_model`) and median premium ≤ +2% (`shadow_gate.py --probe`: `ENTER PROBE-B`); a signed ArmSet with `probe_stage = "b"` | ≤ 1 SOL/day at risk under the kill rule (docs/04 §7) |
+| **probe-A** | fra1 + paid post-exec feed (Triton Dragon's Mouth, LaserStream fra or SVS); `config/probe-a.example.toml`, `[probe] stage = "a"`: 0.02 SOL buys on every class-eligible create (unfiltered: the build cannot select before it sends, readiness audit M4), ≤ 150 attempts/day and 6 per UTC hour, 1 open position, 0.6 SOL daily loss cap (decided 2026-10-20, docs/research/probe-design-v2.md §2 item 4, option ii), until ≥ 350 attempts and ≥ 7 days with ≥ 200 in-class attempts (hard stop at 14 days); one ArmSet for the stage (`--valid-hours 360`, `armset_max_age_s = 1_296_000`) | landing rank, premium, failed-attempt cost per leader class, which bid variant lands; true `buyers_ahead` replaces the guessed k̂. EV is negative at this size (fixed costs) and is not a kill reason | shadow `GO on (a)`; `cu_limit` set by `ctl sim`, keys 0400, all caps non-zero, clock offset ≤ 5 ms, healthy post-exec feed, a signed ArmSet with `probe_allowed` (and `probe_stage = "a"` if it names one) | + the feed; ≤ 0.6 SOL a day at risk under the cap, expected 0.19-0.31 SOL a day, about 1.3-4.3 SOL over the 7-14 days |
+| **probe-B** | same box and feed, `[probe] stage = "b"`: 0.25 SOL buys, ≤ 300 attempts/day, 2 open positions, 1 SOL daily loss cap, about 200 landed trades | EV per attempt with failures at our real rank, premium and cost; the inputs of gate (b) | probe-A's **in-class** landing rate (`feed_bundle.bundle_wallets >= 1`) above max(the pooled LEAD break-even at its measured failed-attempt cost, the unfiltered shadow break-even at 0.25 SOL) and in-class median premium ≤ +2% (`shadow_gate.py --probe`: `ENTER PROBE-B`); a signed ArmSet with `probe_stage = "b"` | ≤ 1 SOL/day at risk under the kill rule (docs/04 §7) |
 | **live** | fra1; after the gate add DZ Edge + Helius shreds | money | **gate (below)** + `mode = "live"` in TOML + CLI flag + local `rugsnipe-ctl arm-live` token for that gate run (valid 7 days) | + DZ $1,500 + Helius shreds $800-1,000 + tips |
 
 **Settled (2026-10-14):** the probe runs in two stages, A (measurement at 0.02 SOL) then B (0.25 SOL), as above; docs/04 §7, docs/06 §9.5/§10, docs/08 §9 and the `[probe]` section of the example configs say the same. Shadow runs on `logsSubscribe`; the hot binary has the Yellowstone gRPC feed (docs/08 §9 step 0), which probe requires and shadow may run for the first-seen comparison.
@@ -100,7 +100,7 @@ The system stays **paper-only unless the go/no-go gate passes** (docs/06 section
 The per-operator risk latches stay; operator counts, matched controls and vault EV are no longer gate criteria (the LEAD is a class arm).
 
 Until probes measure landing, farming and exit fills, every EV is an upper bound and no ArmSet can carry `gate_passed = true`.
-The hot box runs **exits only** if the ArmSet is unsigned, older than `armset_max_age_s` (6 h) or from the wrong regime.
+The hot box runs **exits only** if the ArmSet is unsigned, older than `armset_max_age_s` or from the wrong regime. The default is 21,600 s (6 h), the life of a paper ArmSet; a probe signs one ArmSet per stage with `make_paper_armset.py --valid-hours 360` and sets `armset_max_age_s = 1_296_000` (15 days), so a running probe does not drop to paper after 6 hours (docs/08 section 9 step 1).
 
 **Alpenglow** activates at epoch 1064, Oct 21 2026 ~15:00 UTC. `regime_freeze_slots = [[459_640_000, 459_869_000]]` forces buys to paper.
 Re-run the feed and decoder tests that week. Unfreezing needs decode-miss < 1% for 6 h.
@@ -126,7 +126,7 @@ Re-run the feed and decoder tests that week. Unfreezing needs decode-miss < 1% f
 Totals:
 - paper: **$0** extra;
 - shadow: **~$575/mo**;
-- probe: **~$575-1,425/mo** + probe-A ≤ 0.6 SOL at risk (0.2 SOL/day cap, 3 days) + probe-B ≤ 1 SOL/day under the kill rule;
+- probe: **~$575-1,425/mo** + probe-A ≤ 0.6 SOL/day under the cap (expected 0.19-0.31 SOL/day, about 1.3-4.3 SOL over 7-14 days) + probe-B ≤ 1 SOL/day under the kill rule;
 - live: box + DZ + Helius shreds + the post-exec gRPC feed that probe/live require (SVS $150 or LaserStream $499-999) ≈ **$2,850-3,925/mo** + tips.
 
 ## 5. Install and update
@@ -139,7 +139,7 @@ sudo bash deploy/install.sh --role analytics|hot [--user rugsnipe] [--ntp-region
 # update
 cd ~/rugsnipe && git pull && sudo bash deploy/install.sh --role <role>
 sudo systemctl restart rugsnipe-collector                      # ohio1
-sudo systemctl restart rugsnipe-keeper rugsnipe-guard          # fra1, then hot (see the note below)
+sudo systemctl restart rugsnipe-guard                          # fra1, then hot (see the note below); there is no keeper binary
 sudo systemctl restart rugsnipe-hot
 
 # rollback: check out the previous commit (see /opt/rugsnipe/REVISION) and re-run install.sh
@@ -210,7 +210,7 @@ hands the lease back once hot's heartbeat returns (docs/08 section 9).
 
 ### Alerts
 
-Critical alerts go **directly from fra1** to Telegram, plus a healthchecks.io dead-man ping. They never route via Ohio.
+Critical alerts go **directly from fra1** to Telegram. They never route via Ohio. Telegram is the only alert path in this build (the healthchecks.io dead-man below is not built yet), so it must be configured for the probe (`TG_TOKEN`, `TG_CHAT`; docs/08 section 10).
 
 | Alert | Meaning | Do this |
 |---|---|---|
@@ -218,7 +218,7 @@ Critical alerts go **directly from fra1** to Telegram, plus a healthchecks.io de
 | killed | a latch fired | read `kill_reason` (journal / `risk` table), fix the cause, unkill locally |
 | exit feed down / position owned by guard | the post-exec feed for a held mint is lost, or hot's exit loop stalled | check the feed health metrics. Guard sells on a ≥ 30% drop from peak, MaxHold or `grace_s` |
 | sell failing 5 tries | the sell bound or sender path is broken | inspect `exits`/`sends`; the per-position sell-spend cap stops escalation; sell manually if needed |
-| drift | ledger ≠ chain | the keeper reconciles. Buys stop above 60 s |
+| drift | ledger ≠ chain | not built yet (reconcile drift); the gRPC slot drift trigger is (docs/08 section 10) |
 | upgrade | pump / PumpSwap / pump-fees programdata or FeeConfig changed | buys go to paper automatically; wait for `rugsnipe-sim` to pass |
 | low balance | hot wallet < `min_hot_balance` | top up from cold, or leave it in exits-only |
 
@@ -231,7 +231,7 @@ Observe:
 | Failure | Response |
 |---|---|
 | hot crash | systemd restarts it and runs recovery; guard takes over after 5 s and hands back when hot beats again. A panic latches the kill first; the 3rd unclean start within an hour latches `crash_loop`; `10-start-limit.conf` stops the unit after 5 starts per hour |
-| Ohio down | fra1 keeps the last ArmSet until `armset_max_age_s`, then runs exits only |
+| Ohio down | fra1 keeps the last ArmSet until `armset_max_age_s` (6 h by default; 15 days for a probe stage), then runs exits only |
 | fra1 dead | positions stranded, bounded by `max_open_positions × max_snipe`; the dead-man alert fires |
 | paid feeds down | entries go to paper; exits poll within the RPC budget |
 

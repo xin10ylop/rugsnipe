@@ -21,18 +21,73 @@ calibrated and how stage B is read. Inputs: the 14-hour shadow run (3,091 attemp
 
 ## 2. Stage A: 0.02 SOL, thinned, filtered, 7-10 days
 
+> **Readiness audit M4 (2026-10-20, `docs/research/readiness-2026-10-20.md` §2). Items 1-3 and 5-6 follow
+> from the build and the audit; item 4 was decided on 2026-10-20 (option ii, the 6-per-hour row; the owner can
+> change it before the first real start by editing the three config lines together).** Where this block and the table
+> below differ, the block describes what the build and `config/probe-a.example.toml` actually do.
+> 1. **Probe A runs unfiltered on every class-eligible create.** The build cannot apply the skip filter or a
+>    multi-bundle gate before it sends: both act only on paper intents (crates/rugsnipe/src/hot.rs:1064-1101), so
+>    `filter_mode = "skip"`, the multi-bundle universe and the outcome-store pre-warm have no effect on real buys.
+>    The probe config is `config/probe-a.example.toml` (`[entry] filter = "any"`).
+> 2. **`[feeds] grpc.bundle_run` stays on**, so every attempt gets a `feed_bundle` row with `bundle_wallets`.
+> 3. **The stage-B entry is read on the in-class subset only** (`feed_bundle.bundle_wallets >= 1`), never on all
+>    attempts: unbundled launches face fewer rivals and fill easily, so the all-attempt landing rate is inflated.
+> 4. **How stage A reaches 200 in-class attempts (decided, see the end of this item).** Only
+>    10-20% of attempts are in class, so 200 in-class attempts take **1,000-2,000 attempts whatever the rate**.
+>    An attempt is expected to cost 0.0013-0.0022 SOL (20-50% landing; a landed 0.02 SOL trade −17.9% = 0.00358 SOL,
+>    §4; a failed one 0.00073 SOL), so the subset costs about **1.3-4.3 SOL in total** under any option. The rate only
+>    trades calendar days against the daily loss:
+>
+>    | `risk.max_buys_per_hour` | attempts a day | expected loss a day (20-50% landing) | days to 200 in-class (20% / 10% in class) | `a.max_daily_loss_lamports` it needs |
+>    |---|---|---|---|---|
+>    | 2 | 48 | 0.06-0.10 SOL | 21 / 42 | 0.2 SOL |
+>    | 3 | 72 | 0.09-0.16 SOL | 14 / 28 | 0.25-0.3 SOL |
+>    | 4 | 96 | 0.12-0.21 SOL | 11 / 21 | 0.35-0.4 SOL |
+>    | **6 (chosen)** | 144 | 0.19-0.31 SOL | 7 / 14 | 0.6 SOL (shipped) |
+>
+>    The cap needs clear headroom over the expected loss at a high landing rate: one ordinary day at the cap latches
+>    `daily_loss` and the gate reads `KILL` (a false kill caused by config). The 0.2 SOL cap therefore carries 2
+>    attempts an hour (3 only at a low landing rate). `a.max_probes_per_day` must be at least 24 × the hourly cap,
+>    or the evening hours are never sampled (readiness M3b).
+>    - **The shipped file** (`config/probe-a.example.toml`): 6 per UTC hour, 150 a day, 0.6 SOL daily loss, 3 SOL
+>      funded plus top-ups, hard stop at 14 days (`--hard-stop-days 14`), ArmSet signed for 15 days
+>      (`--valid-hours 360`, `armset_max_age_s = 1_296_000`). A subset still below 200 at the hard stop reads
+>      `INCONCLUSIVE: ... escalate to the owner`, not a stop.
+>    - **(i) more calendar days** at the shipped caps (plan 21-42 days): sign the ArmSet for the planned length
+>      (`--valid-hours` = 24 × (days + 1), `armset_max_age_s` = 3,600 × that), pass `--hard-stop-days DAYS` to the
+>      gate (docs/08 §9 step 7), and top the wallet up as in docs/08 §9 step 7b (about 0.06-0.10 SOL a day).
+>    - **(ii) a higher rate:** change `risk.max_buys_per_hour`, `[probe] a.max_probes_per_day` and
+>      `a.max_daily_loss_lamports` together, from one row of the table; fund for the row's daily loss times its days
+>      (or top up per step 7b); pass `--hard-stop-days` if the row needs more than 10 days.
+>    - **(iii)** delay stage A for a pre-send gate (days of Rust).
+>
+>    **Decision (2026-10-20, made by the operator's delegate under the standing "make it your way" mandate):
+>    option (ii), the 6-per-hour row.** Reason: the total cost of reaching 200 in-class attempts is the same at
+>    any rate (1.3-4.3 SOL), so the faster rate only saves box-days (7-14 instead of 21-42 at about $40 a day) and
+>    gets to the stage-B decision sooner; the 0.6 SOL daily cap keeps a bad day small. The owner can override it
+>    before the first real start by editing the three config lines together.
+> 5. **Counted as landed:** only creation-slot fills at a premium of +2% or less; slot+1..+3 fills are reported
+>    apart. Compute or instruction errors (`fills.fail_reason`) are not lost races. The B bar is the larger of the
+>    pooled LEAD break-even (about 9.9%) and the unfiltered shadow break-even at 0.25 SOL (about 36%, §4).
+>    Completion: ≥ 350 attempts and ≥ 7 days, and `shadow_gate.py --probe` waits for 200 in-class attempts before
+>    the B read. At the hard stop a subset still below 200 that meets every other B condition (or holds no attempt)
+>    reads `INCONCLUSIVE ... escalate to the owner`: too little data is not a negative result, so it is never a
+>    `stop`.
+> 6. **The pre-send gate** (a create-only filter or a multi-bundle proxy visible at fire time) is a before-stage-B
+>    item (§9); without it stage B faces the unfiltered 36% bar.
+
 | Setting | v1 | **v2** |
 |---|---|---|
 | stake | 0.02 SOL | 0.02 SOL |
-| attempts | ≤ 50/day, first come | **≤ 4 per UTC hour, ≤ 50/day** (first qualifying launch of each 15-minute quarter, then skip until the next quarter) |
-| duration | 300 attempts or 3 days | **7 to 10 days**, ends at ≥ 350 attempts and ≥ 7 days, hard stop at 10 days |
-| filter | log | **skip-bottom-tertile from day one** (`entry.filter_mode = "skip"`), model `entry_filter_v1_create_only.json` once the hot extractor emits `intx_n_buys`, else v1 |
+| attempts | ≤ 50/day, first come | **≤ 6 per UTC hour, ≤ 150/day**, first come within the hour (decision of 2026-10-20 above; the quarter-hour spacing is a before-stage-B item) |
+| duration | 300 attempts or 3 days | **7 to 14 days**, ends at ≥ 350 attempts, ≥ 7 days and ≥ 200 in-class attempts; hard stop at 14 days (`--hard-stop-days 14`) |
+| filter | log | **log (unfiltered)** in stage A: the skip filter acts only on paper intents in this build (hot.rs:1064-1101); the create-only model becomes the live filter before stage B, once the hot extractor emits `intx_n_buys` |
 | outcome store | empty | **pre-warmed from the shadow state.db** (`prewarm_outcomes.py`) |
 | kill | docs/04 §7 | **unchanged** |
 
 The hourly thinning spreads ≥ 350 attempts over ≥ 150 distinct UTC hours (every hour of the day about 7 times), so
 the hour-cluster bootstrap has enough clusters and the landing rate is a day-average, not a busy-hour number.
-`shadow_gate.py --probe --hour-cap 4` flags any UTC hour above the cap (a config or scheduler bug, not a kill).
+`shadow_gate.py --probe --config /etc/rugsnipe/rugsnipe.toml` flags any UTC hour above the config's `risk.max_buys_per_hour` (a config or scheduler bug, not a kill).
 
 **What A measures:** landing rate per leader class and per sender path, the premium (mean and median), the realised
 failed-attempt cost, which bid variant lands. Its EV is negative by construction (a 0.02 SOL trade carries the
@@ -43,10 +98,10 @@ and bundle wallet). Copy the shadow run's rows into the probe file before the fi
 
 ```bash
 # on the box, with rugsnipe-shadow stopped (or on a copy of its state.db)
-cd /opt/rugsnipe/analysis
-../.venv/bin/python -I scripts/prewarm_outcomes.py --src /var/lib/rugsnipe/shadow/state.db \
+cd /opt/rugsnipe/src
+sudo -u rugsnipe /opt/rugsnipe/venv/bin/python -I analysis/scripts/prewarm_outcomes.py --src /var/lib/rugsnipe/shadow/state.db \
     --dst /var/lib/rugsnipe/state.db --max-age-days 14 --dry-run     # counts only
-../.venv/bin/python -I scripts/prewarm_outcomes.py --src /var/lib/rugsnipe/shadow/state.db \
+sudo -u rugsnipe /opt/rugsnipe/venv/bin/python -I analysis/scripts/prewarm_outcomes.py --src /var/lib/rugsnipe/shadow/state.db \
     --dst /var/lib/rugsnipe/state.db --max-age-days 14
 ```
 
@@ -138,24 +193,31 @@ change, so pre- and post-cutover numbers are not pooled.
 | Oct 21 15:00 | epoch 1064 activates; do not trade or shadow through the transition |
 | Oct 22 00:00 → Oct 23 00:00 | **post-cutover shadow day** on a fresh `state.db`: re-measure ms per slot (the gate now prints it from the wall clock), premium, unresolved share, tertile split |
 | **Oct 23 or later** | **start probe A** if the post-cutover shadow day is not worse than the pre-cutover run (EV per attempt CI overlaps, unresolved ≤ 10%); pre-warm from the post-cutover shadow file plus the pre-cutover one (outcomes are wallet history, not timing-dependent) |
-| A + 7-10 days (≈ Oct 30 - Nov 2) | stage A read, enter B or stop |
+| A + 7-10 days (≈ Oct 30 - Nov 2) | stage A read: enter B, stop, or `INCONCLUSIVE` (in-class subset short of 200: the owner extends A, §2 M4 item 4) |
 
 ## 8. Commands (for docs/08)
 
 ```bash
-cd /opt/rugsnipe/analysis
+cd /opt/rugsnipe/src
 # shadow gate (wall-clock hours; summary must match the file; signer clusters next to hour clusters)
-../.venv/bin/python -I scripts/shadow_gate.py --state /var/lib/rugsnipe/shadow/state.db \
+sudo -u rugsnipe /opt/rugsnipe/venv/bin/python -I analysis/scripts/shadow_gate.py --state /var/lib/rugsnipe/shadow/state.db \
     --summary /var/lib/rugsnipe/shadow/summary.json --cluster signer
-# probe stage A read: hour cap, mean-premium break-even, break-even at the stake from the shadow EV per landed trade
-../.venv/bin/python -I scripts/shadow_gate.py --probe --state /var/lib/rugsnipe/state.db \
-    --config /etc/rugsnipe/rugsnipe.toml --hour-cap 4 --shadow-ev 0.042 --cluster signer
-# pre-warm the probe's outcome store (section 2)
-../.venv/bin/python -I scripts/prewarm_outcomes.py --src /var/lib/rugsnipe/shadow/state.db \
+# probe stage A read (in-class split, stage-B bar, late fills, by sender; the hour cap is the config's
+# risk.max_buys_per_hour; add --hard-stop-days DAYS when the owner extends stage A, section 2 item 4)
+sudo -u rugsnipe /opt/rugsnipe/venv/bin/python -I analysis/scripts/shadow_gate.py --probe --state /var/lib/rugsnipe/state.db \
+    --config /etc/rugsnipe/rugsnipe.toml --cluster signer
+# pre-warm the probe's outcome store (section 2; no effect on real buys in this build, see the M4 block)
+sudo -u rugsnipe /opt/rugsnipe/venv/bin/python -I analysis/scripts/prewarm_outcomes.py --src /var/lib/rugsnipe/shadow/state.db \
     --dst /var/lib/rugsnipe/state.db --max-age-days 14
 ```
 
 ## 9. Rust-side items this design needs (not done here)
+
+> **Readiness audit M4 (2026-10-20):** none of these is a prerequisite for stage A any more: A runs unfiltered on
+> every class-eligible create (§2 M4 block), so the skip filter, the thinning scheduler and the index lane are not
+> needed to start it. The **pre-send entry gate** (a create-only filter with `intx_n_buys`, or a multi-bundle gate
+> or proxy visible at fire time) is a **before-stage-B** item: without it stage B is read against the unfiltered
+> break-even of about 36% at 0.25 SOL instead of about 7.9%.
 
 * the hourly thinning (≤ 4 per UTC hour, first qualifying launch per quarter hour) in the probe scheduler;
 * an index-probe lane (`intents.mode = "index"`, 0.001-0.005 SOL, per sender path);

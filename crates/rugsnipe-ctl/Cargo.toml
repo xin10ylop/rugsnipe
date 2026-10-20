@@ -1,7 +1,7 @@
 [package]
 name = "rugsnipe-ctl"
 version = "0.1.0"
-description = "Operator CLI: config validate, template dump, nonce init/close (dry-run), armset verify, sim (read-only simulateTransaction fit of the per-mint CU limit; feature `rpc`). Never sends transactions."
+description = "Operator CLI: config validate, template dump, nonce create (signs and sends the probe wallet's buy nonce accounts over JSON-RPC; --dry-run sends nothing), nonce init/close (unsigned, dry run), armset verify/keygen/sign, kill status/unkill, sim (read-only simulateTransaction fit of the per-mint CU limit; feature `rpc`). Nothing else sends transactions."
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -10,13 +10,16 @@ publish.workspace = true
 [features]
 default = []
 # `ctl sim`: read-only simulateTransaction (sigVerify false) on live mints.
+# (`nonce create` needs no feature: the JSON-RPC client is always built, so
+# every build install.sh produces has it.)
 rpc = ["rugsnipe-sim/rpc", "rugsnipe-tx/rpc"]
 
 [dependencies]
 pump-codec = { workspace = true }
 rugsnipe-sim = { path = "../rugsnipe-sim" }
 rugsnipe-core = { path = "../rugsnipe-core" }
-rugsnipe-tx = { path = "../rugsnipe-tx" }
+# `rpc`: the JSON-RPC client of `nonce create` (ureq + rustls, cold path only)
+rugsnipe-tx = { path = "../rugsnipe-tx", features = ["rpc"] }
 rugsnipe-exit = { path = "../rugsnipe-exit" }
 rugsnipe-state = { path = "../rugsnipe-state" }
 base64 = { workspace = true }

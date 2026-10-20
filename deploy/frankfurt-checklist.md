@@ -2,7 +2,9 @@
 
 Why Frankfurt: it produces 32-35% of leader slots and is the home of almost every low-latency vendor, all in
 TeraSwitch (AS20326). P(same slot) is 0.78 from Frankfurt and 0.51 from Ohio (docs/03-speed-infra.md
-sections 2-4). fra1 runs `rugsnipe-hot`, `rugsnipe-guard` and `rugsnipe-keeper` (docs/06 section 12). Phase 1 is fra1
+sections 2-4). fra1 runs `rugsnipe-hot` and `rugsnipe-guard` (docs/06 section 12). There is no `rugsnipe-keeper` binary
+(its jobs run inside `rugsnipe-hot`): never enable `rugsnipe-keeper.service`, it would restart-loop with `203/EXEC`
+(docs/08 section 9 step 6). Phase 1 is fra1
 alone until the gate passes. A second box comes in phase 2 (docs/03 section 4, docs/06 section 11: Tokyo TYO2 first, then Amsterdam AMS3).
 
 ## 1. Choose the provider
@@ -30,7 +32,7 @@ Ask for:
 Ask for a test IP or a trial server **in the same facility**. Then run:
 
 ```bash
-test$ git clone <repo> && cd rugsnipe     # or scp deploy/latency_probe.sh
+test$ git clone YOUR-REPO-URL rugsnipe && cd rugsnipe     # YOUR-REPO-URL: this repository's clone URL (or scp deploy/latency_probe.sh)
 test$ bash deploy/latency_probe.sh 30 | tee latency-fra-candidate.txt
 test$ for ip in 64.130.50.88 64.130.50.91 198.13.140.105 198.13.140.227 198.13.140.16; do
         ping -c 100 -i 0.2 -q $ip | tail -2; done
@@ -60,10 +62,10 @@ measurement. Keep `latency-fra-candidate.txt`. If a candidate box fails, it is n
 ## 3. Bring the box up
 
 ```bash
-laptop$ ssh root@<FRA1_IP>
+laptop$ ssh root@FRA1_IP                                        # FRA1_IP: the box's address
 fra1# adduser --disabled-password ops && usermod -aG sudo ops   # then key-only SSH, PasswordAuthentication no
 fra1# apt-get update && apt-get -y full-upgrade && reboot
-ops@fra1$ git clone <repo> ~/rugsnipe && cd ~/rugsnipe
+ops@fra1$ git clone YOUR-REPO-URL ~/rugsnipe && cd ~/rugsnipe
 ops@fra1$ bash deploy/install.sh --role hot --dry-run
 ops@fra1$ sudo bash deploy/install.sh --role hot                # chrony -> ntp.frankfurt.jito.wtf
 ops@fra1$ sudo /opt/rugsnipe/bin/tune-hot.sh --check
@@ -86,19 +88,26 @@ Firewall (ufw):
 
 ## 4. Keys
 
-Create the wallets **on fra1**. Never on a laptop, never in git.
+Create the wallets **on fra1**, as `ops` with `sudo` (the same commands as docs/08 section 4). Never on a laptop,
+never in git.
 
 ```bash
-fra1# umask 077; install -d -m 0700 -o root -g root /etc/rugsnipe/keys
-# solana-keygen ships with the Agave CLI (release.anza.xyz); install it for root only
-fra1# solana-keygen new --no-bip39-passphrase -o /etc/rugsnipe/keys/hot-keypair.json
-fra1# solana-keygen new --no-bip39-passphrase -o /etc/rugsnipe/keys/probe-keypair.json
-fra1# chmod 0400 /etc/rugsnipe/keys/*
-fra1# sudo bash ~/rugsnipe/deploy/install.sh --role hot     # re-checks: refuses group/world-readable keys
+ops@fra1$ sudo install -d -m 0700 -o root -g root /etc/rugsnipe/keys
+# a standard Solana keypair file without the Agave CLI; the pubkey goes into a public file (docs/08 section 4).
+# Safe to paste twice: an existing key (and its pubkey file) is kept
+ops@fra1$ if sudo test -e /etc/rugsnipe/keys/probe-keypair.json; then echo "probe key exists: kept (never replace it)"; else
+  o=$(sudo /opt/rugsnipe/bin/rugsnipe-ctl armset keygen --out /etc/rugsnipe/keys/probe-keypair.json) && printf '%s\n' "$o" | sudo tee /etc/rugsnipe/probe-pubkey.txt; fi
+ops@fra1$ sudo chmod 0400 /etc/rugsnipe/keys/probe-keypair.json
+ops@fra1$ sudo bash ~/rugsnipe/deploy/install.sh --role hot     # re-checks: refuses group/world-readable keys
 ```
 
-- Put the pubkeys of the ArmSet signing key (which lives on ohio1) and of your cold wallet into `[secrets]` in `/etc/rugsnipe/rugsnipe.toml`.
-- Fund the wallets only for probe, one stage at a time (docs/08 section 9): about 1 SOL for probe-A (0.2 SOL/day loss cap), 2-3 SOL for probe-B (1 SOL/day).
+If `/etc/rugsnipe/probe-pubkey.txt` is ever empty, rebuild it from the key with the recovery line of docs/08
+section 4 (`rugsnipe-ctl nonce create --dry-run` prints the probe wallet as its `authority`; it sends nothing).
+
+- No `hot-keypair.json`: the live wallet is not used in this build (the units load the literal `ABSENT` without it).
+- The probe config is `config/probe-a.example.toml` (docs/08 section 9 step 3). Put the pubkeys of the ArmSet signing key (which lives on ohio1) and of your cold wallet into its `[secrets]` in `/etc/rugsnipe/rugsnipe.toml`.
+- The probe ArmSet is signed once per stage with `make_paper_armset.py --ver 101 --valid-hours 360` (15 days; the probe config's `armset_max_age_s = 1_296_000`), not the 6-hour default, into its own emptied directory (docs/08 section 9 step 1).
+- Fund the probe wallet only for probe, one stage at a time (docs/08 section 9): about 3 SOL for probe-A at the shipped caps (0.6 SOL/day loss cap; the expected loss is about 0.19-0.31 SOL a day, so check the balance daily and top up with the hot unit stopped, docs/08 section 9 step 7b) plus about 0.04 SOL for the rent of the 32 nonce accounts (`rugsnipe-ctl nonce create`, docs/08 section 9 step 3c); 2-3 SOL for probe-B (1 SOL/day). The probe-A rate was decided on 2026-10-20 (docs/research/probe-design-v2.md section 2, item 4).
 - Paper mode needs no keys. The units then load the literal `ABSENT`.
 
 ## 5. Feeds (in this order)
@@ -121,7 +130,7 @@ fra1# sudo bash ~/rugsnipe/deploy/install.sh --role hot     # re-checks: refuses
    - The terms of service forbid retransmitting the data.
 4. **After the gate passes: Helius shred delivery, $1,000/IP/mo ($800 on Pro).** It covers every leader at hop ≤ 2 and is the complement for the ~47% of slots whose leaders do not publish to DZ.
    - In the Helius dashboard: Shreds → Add Seat. Pay by card or USDC.
-   - Enter `<FRA1_IP>:<port>`. Use a dedicated UDP port, for example 7734, separate from DZ's 7733.
+   - Enter `FRA1_IP:PORT` (the box's address and a dedicated UDP port, for example 7734, separate from DZ's 7733).
    - Shreds arrive in about 5 s. A seat binds to one IP, and changing the IP issues a new token.
    - Open the port to Helius's source IPs only.
 
@@ -131,28 +140,43 @@ fra1# sudo bash ~/rugsnipe/deploy/install.sh --role hot     # re-checks: refuses
 ## 6. Paid senders: key list
 
 Keys go in `/etc/rugsnipe/keys/api-keys.toml` (root 0400), loaded as the `api-keys` credential. The names match
-`config/rugsnipe.example.toml`. Enable each sender in `[senders]` only after a mock-sender test.
+`config/probe-a.example.toml`, which enables `helius`, `nozomi`, `astralane`, `blockrazor` and `jito` (docs/08
+section 9 steps 2-3). A sender whose key name is missing from the file is refused at the dry run.
 
 | Credential name | Service | Endpoint (FRA) | Min tip / cost | How to get it |
 |---|---|---|---|---|
-| (none) | Helius Sender | `http://fra-sender.helius-rpc.com/fast` | 0.001 SOL, or 5,000 lamports with `swqos_only=true` | keyless: 1 req/s per IP; an API key from the Helius dashboard raises the limit |
+| `HELIUS_KEY` | Helius Sender | `http://fra-sender.helius-rpc.com/fast` | 0.001 SOL, or 5,000 lamports with `swqos_only=true` | Helius dashboard (a key gives 50 req/s; keyless is 1 req/s per IP) |
 | `NOZOMI_KEY` | Nozomi (Temporal) | `http://fra2.nozomi.temporal.xyz` | 0.001 SOL | sign up at temporal.xyz |
-| `ASTRALANE_KEY` | Astralane | `fr` / `ams` | 0.001 SOL (0.00001 at VIP3) | astralane.io dashboard |
-| `NEXTBLOCK_KEY` | NextBlock | `frankfurt:11100` (QUIC) | subscription $249+/mo | nextblock.io |
-| (optional UUID) | Jito block engine | `frankfurt.mainnet.block-engine.jito.wtf` | tip floor p50 ~0.00001 SOL, contested p90 ~0.04 SOL | none needed (1 req/s per IP per region) |
-| `GRPC_TOKEN` | SVS gRPC or Helius LaserStream | vendor endpoint | $150 / $499-999 per month | vendor dashboard |
-| `TG_TOKEN` | Telegram bot for alerts and `/kill` | api.telegram.org | free | @BotFather |
-| `HC_URL` | healthchecks.io dead-man | ping URL | free tier | healthchecks.io |
+| `ASTRALANE_KEY` | Astralane | `http://fr.gateway.astralane.io/irisb` | 0.001 SOL (0.00001 at VIP3) | astralane.io dashboard |
+| `BLOCKRAZOR_KEY` | BlockRazor (auth token, header `apikey`), mode `fast` | `http://frankfurt.solana.blockrazor.xyz:443/sendTransaction` | free, tip min 0.0001 SOL, 3 TPS | the BlockRazor dashboard |
+| (none) | Jito block engine | `frankfurt.mainnet.block-engine.jito.wtf` (+ amsterdam) | tip floor p50 ~0.00001 SOL, contested p90 ~0.04 SOL | keyless (1 req/s per IP per region) |
+| `GRPC_TOKEN` | the gRPC feed: Triton Dragon's Mouth, SVS gRPC or Helius LaserStream | vendor endpoint | Triton pay-as-you-go / $150 / $499-999 per month | vendor dashboard (docs/08 section 9 step 0) |
+| `RPC_URL` | the **paid** RPC endpoint with its key (Solana Vibe Station Basic or Helius Developer, never Helius Free) | vendor URL | plan price | vendor dashboard |
+| `TG_TOKEN` | Telegram bot for alerts and `/kill` (the only alert path; required for the probe) | api.telegram.org | free | @BotFather |
+| `TG_CHAT` | your Telegram chat id | | free | send your bot one message, then read your chat id (docs/08 section 9 step 2) |
+| `NEXTBLOCK_KEY` | NextBlock (optional; off in the probe config) | `frankfurt:11100` (QUIC) | subscription $249+/mo | nextblock.io |
 
-Example `api-keys.toml`. The values are placeholders, and this file never leaves fra1:
+There is no dead-man key: the healthchecks.io ping is not built yet, so nothing reads one.
+
+Example `api-keys.toml`, the same block as docs/08 section 9 step 2 (fill in each `...` with the value from the
+provider's dashboard). Every comment on its own line, every value in double quotes; this file never leaves fra1:
 
 ```toml
-NOZOMI_KEY = "<...>"
-ASTRALANE_KEY = "<...>"
-NEXTBLOCK_KEY = "<...>"
-GRPC_TOKEN = "<...>"
-TG_TOKEN = "<...>"
-HC_URL = "https://hc-ping.com/<uuid>"
+# Helius Sender key: 50 req/s (keyless is 1 req/s per IP)
+HELIUS_KEY = "..."
+NOZOMI_KEY = "..."
+ASTRALANE_KEY = "..."
+# the BlockRazor auth token (header apikey)
+BLOCKRAZOR_KEY = "..."
+# the gRPC feed's x-token (docs/08 section 9 step 0)
+GRPC_TOKEN = "..."
+# the PAID RPC URL with its key (Solana Vibe Station Basic or Helius Developer; never Helius Free)
+RPC_URL = "https://..."
+# Telegram, the only alert path (required for the probe, docs/08 section 10)
+TG_TOKEN = "..."
+TG_CHAT = "..."
+# only with a NextBlock plan:
+# NEXTBLOCK_KEY = "..."
 ```
 
 ## 7. Acceptance summary
@@ -161,6 +185,6 @@ HC_URL = "https://hc-ping.com/<uuid>"
 - [ ] `install.sh --role hot` completes. `tune-hot.sh --check` shows no DIFF. `isolated` is non-empty after reboot.
 - [ ] `chronyc tracking` offset < 1 ms against `ntp.frankfurt.jito.wtf`.
 - [ ] Keys are in `/etc/rugsnipe/keys` with mode 0400 root, and install.sh accepts them.
-- [ ] `systemctl enable --now rugsnipe.target`. The keeper, guard and hot units reach `active (running)` in paper mode, and the watchdog does not fire.
+- [ ] `sudo systemctl enable rugsnipe-guard.service rugsnipe-hot.service rugsnipe.target`, then `sudo systemctl start rugsnipe.target` (never enable `rugsnipe-keeper`: no binary). The guard and hot units reach `active (running)` in paper mode, and the watchdog does not fire.
 - [ ] wg0 to ohio1 is up. Prometheus on 10.77.0.2:9464 is reachable from ohio1 only.
-- [ ] Dead-man ping arrives. A Telegram test alert arrives. Touching `/run/rugsnipe/KILL` latches buys.
+- [ ] A Telegram start message arrives (Telegram is the only alert path; the dead-man ping is not built yet). Touching `/run/rugsnipe/KILL` latches buys.

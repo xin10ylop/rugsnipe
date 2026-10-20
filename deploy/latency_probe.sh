@@ -5,7 +5,8 @@
 #   bash deploy/latency_probe.sh 30         # 30 samples per host
 # Output: median / min TCP connect time in ms (TLS handshake excluded), lower is better.
 # Jito block engines: the region whose block engine answers fastest is the one to tip through.
-# Helius Sender / LaserStream regions and the public RPCs are included for reference.
+# Helius Sender / LaserStream regions, the Nozomi / Astralane / BlockRazor Frankfurt senders and the public RPCs
+# are included for reference.
 set -u
 N=${1:-10}
 
@@ -29,6 +30,10 @@ HOSTS=(
   "helius-sg        http://sg-sender.helius-rpc.com/ping"
   "helius-tyo       http://tyo-sender.helius-rpc.com/ping"
   "helius-global    sender.helius-rpc.com:443"
+  # the other Frankfurt senders of the probe (config/probe-a.example.toml), at the URL and port it sends to
+  "nozomi-fra2      http://fra2.nozomi.temporal.xyz/"
+  "astralane-fr     http://fr.gateway.astralane.io/irisb"
+  "blockrazor-fra   http://frankfurt.solana.blockrazor.xyz:443/"
   # Public RPCs and pump.fun API (reference) --------------------------------------
   "solana-public    api.mainnet-beta.solana.com:443"
   "publicnode       solana-rpc.publicnode.com:443"

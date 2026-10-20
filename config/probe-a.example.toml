@@ -1,0 +1,199 @@
+# rugsnipe PROBE STAGE A configuration (docs/08-runbook.md section 9 step 3; readiness audit
+# docs/research/readiness-2026-10-20.md M1, M3, M4). Install it on fra1 as the service config:
+#
+#   sudo install -m 0640 -o root -g rugsnipe /opt/rugsnipe/src/config/probe-a.example.toml /etc/rugsnipe/rugsnipe.toml
+#
+# Derived from config/rugsnipe.example.toml. Every line that differs from that file carries a
+# "probe-A:" comment that says why. You MUST edit three values before the first start:
+#   [secrets] armset_pubkey  the ArmSet signing pubkey printed on ohio1 (docs/08 section 4)
+#   [secrets] cold_wallet    a pubkey you control off the box (the sweep target)
+#   [feeds]   grpc.url       your Triton Dragon's Mouth endpoint (docs/08 section 9 step 0)
+# `rugsnipe-ctl config validate` refuses the two placeholder pubkeys until they are filled.
+# This file holds NO secrets: key values live in /etc/rugsnipe/keys/api-keys.toml (root 0400).
+#
+# What probe A measures (M4, docs/research/probe-design-v2.md section 2): it buys 0.02 SOL on
+# EVERY class-eligible create, unfiltered (this build cannot select bundled launches before it
+# sends); the stage-B entry is read afterwards on the in-class subset (feed_bundle.bundle_wallets
+# >= 1) by `shadow_gate.py --probe`.
+#
+# Attempt rate (M4 item 4, decided 2026-10-20, option ii: docs/research/probe-design-v2.md section 2):
+# 6 attempts per UTC hour, 150 a day, 0.6 SOL daily loss cap, hard stop at 14 days. Only 10-20% of
+# attempts are in class, so 200 in-class attempts take 1,000-2,000 attempts; at this rate that is
+# 7-14 days and about 0.19-0.31 SOL a day of expected loss. The three lines move together:
+# risk.max_buys_per_hour, [probe] a.max_probes_per_day and a.max_daily_loss_lamports (the table
+# in the design gives the matching values; never raise the rate without the loss cap and the funding).
+[box]
+id = "fra1"
+role = "hot"
+singleton = true
+[mode]
+mode = "probe"                                     # probe-A: real 0.02 SOL buys from the probe wallet (paper | probe | live)
+regime_freeze_slots = [[459_640_000, 459_869_000]] # Alpenglow: buys forced to paper
+max_age_slots = 2
+[secrets]                                          # systemd credential NAMES, never key material
+hot_keypair = "hot-keypair"
+probe_keypair = "probe-keypair"
+api_keys = "api-keys"
+armset_pubkey = "PASTE-ARMSET-SIGNING-PUBKEY"      # probe-A: placeholder; config validate refuses it until you paste the ohio1 pubkey
+cold_wallet = "PASTE-COLD-WALLET-PUBKEY"          # probe-A: placeholder; config validate refuses it until you paste a pubkey you control
+[risk]
+max_snipe_lamports = 250_000_000
+max_probe_lamports = 250_000_000                  # ceiling: [probe] stage a (0.02 SOL) or b (0.25 SOL) narrows it
+max_probes_per_day = 300                           # ceiling, attempts; stage a 50, b 300
+max_open_positions = 4
+max_daily_loss_lamports = 1_000_000_000            # chain-derived, marked to the sell quote
+max_consec_losses_per_op = 20                      # probe-A: the class arm is ONE operator and the median LEAD trade is a small loss; 5 suspends it constantly
+max_buys_per_op_per_day = 300   # ceiling; the class arm counts as one operator, so this must not bind below the probe stage caps (150/day A, 300/day B)
+max_buys_per_hour = 6                              # probe-A: first-come per UTC hour; 6 x 24 = 144 <= 150/day, so every hour of the day is sampled (readiness M3b, M4 option ii)
+max_bid_lamports = 25_000_000
+max_sell_spend_lamports = 20_000_000
+max_entry_vsol_lamports = 115_000_000_000          # probe-A: the LEAD universe (paper-lead): no entry cap below slot-0 graduation, as the shadow scored
+max_hot_balance_lamports = 5_000_000_000
+min_hot_balance_lamports = 100_000_000             # probe-A: the wallet holds about 1 SOL; a 1 SOL floor would refuse every buy
+kill_file = "/run/rugsnipe/KILL"                   # probe-A: a real mode needs an absolute path under /run/rugsnipe/ (docs/08 section 10)
+armset_max_age_s = 1_296_000                       # probe-A: 15 days, one ArmSet for the whole stage (M1); sign it with --valid-hours 360
+decode_miss_kill_ratio = 0.01
+send_error_kill_ratio = 0.20
+max_clock_offset_ms = 5                            # start refusal
+send_error_window = 50                             # kill triggers (probe/live; docs/06 section 13): error ratio over the last N sends,
+unexplained_drop_lamports = 50_000_000             #   wallet drop beyond known spends, state disk use, running clock offset,
+max_disk_used_pct = 90                             #   gRPC slot behind getSlot
+kill_clock_offset_ms = 50
+max_slot_drift = 8
+[feeds]
+logsws = { enabled = false, url = "wss://api.mainnet-beta.solana.com", stale_ms = 10_000 }   # probe-A: off; a real mode fires only from gRPC (a logs create defers), so it is only load
+relay = { enabled = false, socket = "/run/rugsnipe/pp.sock" }    # collector's PumpPortal frames
+# probe-A: the post-execution feed a probe requires. YOUR-ENDPOINT = your Triton Dragon's Mouth name; x_token is the NAME
+# of the api-keys line; stale_ms 4,000 (not 2,000) because one gap longer than stale_ms latches the kill; bundle_run = true
+# gives every attempt a feed_bundle row with bundle_wallets, the in-class split of the stage-B read (M4)
+grpc = { enabled = true, url = "https://YOUR-ENDPOINT.rpcpool.com", x_token = "GRPC_TOKEN", stale_ms = 4_000, bundle_run = true }
+shreds = { enabled = false, bind = "0.0.0.0:7733", sources = ["dz_edge", "helius"] }
+probe_live_require = "post_exec"
+[senders]                                          # probe: one variant per sender on the intent's single durable nonce
+quarantine_min = 10                                # a sender above risk.send_error_kill_ratio over its own last N sends is skipped this long
+# `key` is a NAME inside the api-keys credential (/etc/rugsnipe/keys/api-keys.toml, root 0400), never the key:
+#   HELIUS_KEY = "..."   NOZOMI_KEY = "..."   ASTRALANE_KEY = "..."   BLOCKRAZOR_KEY = "..."   NEXTBLOCK_KEY = "..." (optional)
+# Each sender's tip goes to its own tip accounts and is raised to its minimum (a tip reverts with a failed buy);
+# min_tip can only raise the provider floor (Nozomi silently drops tips below 0.001 SOL).
+paper = { enabled = true }
+rpcsend = { enabled = false, url = "https://api.mainnet-beta.solana.com", sells_only = true }   # probe-A: off; sells go through the five senders, not the public RPC
+helius = { enabled = true, url = "http://fra-sender.helius-rpc.com/fast", key = "HELIUS_KEY" }         # probe-A: on (sender 1 of 5); 0.001 SOL; 50 req/s with a key (1/s keyless)
+helius_swqos = { enabled = false, url = "http://fra-sender.helius-rpc.com/fast" }                      # probe-A: stays off (five senders, readiness section 3 A); &swqos_only=true, uses helius.key
+nozomi = { enabled = true, url = "http://fra2.nozomi.temporal.xyz", key = "NOZOMI_KEY", min_tip = 1_000_000 }    # probe-A: on (sender 2 of 5); batch send, 5/s
+astralane = { enabled = true, url = "http://fr.gateway.astralane.io/irisb", key = "ASTRALANE_KEY", min_tip = 1_000_000 }   # probe-A: on (sender 3 of 5)
+blockrazor = { enabled = true, url = "http://frankfurt.solana.blockrazor.xyz:443/sendTransaction", key = "BLOCKRAZOR_KEY" }   # probe-A: on (sender 4 of 5); mode fast, 0.0001 SOL, 3 TPS
+jito = { enabled = true, regions = ["frankfurt", "amsterdam"], max_rps = 1 }                        # probe-A: on (sender 5 of 5), keyless; bundleOnly; 1 req/s per IP per region
+nextblock = { enabled = false, key = "NEXTBLOCK_KEY" }
+tpu = { enabled = false, leaders_ahead = 2 }
+[rpc_budget]                                       # req/s per public-RPC egress IP; roles sum <= 32
+hot = 4
+guard = 4
+keeper = 8
+collector = 12
+backfill = 4
+per_method = 4                                     # Python buckets: cap per (endpoint host, method)
+per_host = 10                                      # Python buckets: cap per endpoint host, all methods
+# methods = { getBlock = 2 }                       # per-method overrides of per_method (Python)
+[tx]
+format = "legacy"
+# probe-A: 88,000, NOT 65,000. The fresh probe wallet has no pump user_volume_accumulator; the first buy creates it
+# (+1.3 to +2.8k CU) and the per-mint limit assumes it exists, so at 65,000 every landed buy can fail
+# ComputationalBudgetExceeded and the failure reverts the creation every time (0% fills by construction).
+# Move to 65,000 for stage B after `rugsnipe-ctl sim --wallet PROBE-PUBKEY --legacy` passes on the probe wallet.
+cu_limit = 88_000                                  # FLOOR of the per-mint CU limit (65,000 + 1,500*S per mint, clamped to [cu_limit, 1,400,000])
+lads_bytes = 12_124_160                            # probe-A: a real mode refuses 0; the loaded-accounts-data-size limit of docs/08 section 9 step 3
+nonce_pool = 32
+sell_nonce_pool = 8
+burn_after_slots = 3
+partial_fill = false
+[bid]                                              # docs/03 section 6 "Pay on success"
+quantile = 0.75
+# [priority, tip] per leader class. The tip is a transfer AFTER the buy in the same transaction: a failed
+# (slippage-capped) buy reverts it, while the base fee and the priority fee are charged on failure too.
+# Jito-Agave (tip-ordered through the block engine) bids with the tip and keeps the priority fee at the floor.
+# BAM, Harmonic and other clients order by priority fee (BAM: the earlier tx in a round had the higher CU price
+# 86-89% of the time, docs/03 section 6), so there the bid is the priority fee, at risk and capped below.
+# BAM stays priority-ordered until the probe measures which variant lands per leader class.
+split = { jito_agave = [0.0, 1.0], bam = [1.0, 0.0], harmonic = [1.0, 0.0], other = [1.0, 0.0] }
+min_priority_lamports = 10_000                     # header priority fee floor (gap-2: winners p10 1k, p25 45k lamports)
+failed_attempt_lamports_max = 1_000_000            # most a failed attempt may cost (base + priority); priority is clamped to it
+failed_attempt_max_by_class = { jito_agave = 0, bam = 0, harmonic = 0, other = 0 }   # per-class cap override; 0 = the global cap (probe-A arms, docs/06 section 6)
+[probe]                                            # docs/04 section 7, docs/08 section 9; read in mode = "probe" only
+stage = "a"                                        # probe-A: stage a (0.02 SOL); the signed ArmSet must name probe_stage = "a"
+# each cap narrows the [risk] cap of the same name (the smaller non-zero value binds)
+# probe-A (M4 option ii, 2026-10-20): 150 attempts a day (6 per UTC hour), 0.6 SOL daily loss cap. Expected loss
+# about 0.19-0.31 SOL a day (20-50% landing), with headroom under the cap so an ordinary day never latches daily_loss.
+# Only 10-20% of attempts are in class, so the 200 in-class attempts the stage-B read needs take 7-14 days. Ends at
+# >= 350 attempts and >= 7 days; hard stop at 14 days (shadow_gate.py --probe --hard-stop-days 14). A subset still
+# short of 200 at the hard stop reads INCONCLUSIVE (escalate), never a stop. docs/research/probe-design-v2.md section 2.
+a = { max_probe_lamports = 20_000_000, max_probes_per_day = 150, max_open_positions = 1, max_daily_loss_lamports = 600_000_000 }
+b = { max_probe_lamports = 250_000_000, max_probes_per_day = 300, max_open_positions = 2, max_daily_loss_lamports = 1_000_000_000 } # ~200 landed trades
+# kill: EV per attempt (failures included) 90% upper bound < 0 after min_landed landed or min_attempts attempts,
+# median realised premium > max_median_premium, or landing below break-even over landing_attempts (shadow_gate.py --probe)
+kill = { min_landed = 100, min_attempts = 400, max_median_premium = 0.03, landing_attempts = 200 }
+[entry]
+# probe-A: stated explicitly (these are the defaults). max_sol_cost = post-bundle price + 2%, the 4 SOL bundle constant;
+# filter = "any" because this build cannot select bundled launches before it sends (M4): the in-class read is afterwards
+max_premium = 0.02
+bundle_lamports = 4_000_000_000
+filter = "any"
+filter_model = ""
+filter_mode = "log"
+# probe-A: the LEAD exits of config/paper-lead.example.toml, NOT the 2x/3x example exits: the shadow being compared
+# with traded these, and with one position slot a 30-minute hold would block every attempt for minutes.
+[exit.default]                                     # docs/04 section 2, first of:
+tp = [[1.15, 1.0]]                                 # 1. realised value >= +15% of the stake -> sell all
+tp_basis = "value"                                 #    (after fees and our own impact, not the price multiple)
+fire_on = "trade"                                  #    sent on the first event that shows a trigger
+insider_sell = "bundle"                            # 2. any sell by a bundle wallet or the creator set
+bundle_sell_min_lamports = 0
+no_activity_ms = 1_000                             # 3. 1 s without a trade, counted from the landing slot
+phantom_sl = { after_ms = 1_000, drop = 0.15 }     # 4. -15% from the post-bundle price, armed after 1 s
+max_hold_slots = 5                                 # 5. hard exit at landing slot + 5 (fills one slot later)
+max_hold_ms = 0
+tp_slip_bps = 2500                                 # normal sells refuse a fill > 25% below the trigger quote
+trail = { activate = 0.0, retrace_bps = 0 }        # off
+consolidation_pct = 0                              # off (needs a paid feed)
+big_buy_lamports = [0, 0]                          # off (not in the frozen policy)
+sell_retry = { every_slots = 2, max_tries = 15, tip_mult = 2.0 }
+[guard]
+takeover_after_ms = 5_000
+drop_from_peak_bps = 3000
+grace_s = 60
+[watch]
+default_ttl_s = 1800
+remove_if_no_launch_s = 3600
+last_transfer_min_frac = 0.9
+[obs]
+metrics_listen = ["127.0.0.1:9464", "10.77.0.2:9464"]
+rslog_dir = "/var/lib/rugsnipe/rslog"
+# probe-A: Telegram is the ONLY alert path in this build (no dead-man is built): put TG_TOKEN and TG_CHAT in api-keys.toml
+alert = { telegram = "TG_TOKEN", chat = "TG_CHAT", deadman = "", hourly = true, commands = false }
+[ab]                                               # probe/live only
+skip_p = 0.2
+small_arm = [0.2, 0.35]
+small_lamports = 50_000_000
+size_jitter = 0.10
+[collector]                                        # Python collector overrides (collector.py CollectorConfig); all optional
+# db_path = "data/analytics.db"                    # (default: repo data/analytics.db)
+# box = "ohio1"
+# relay_socket = "/run/rugsnipe/pp.sock"           # also set by [feeds] relay.enabled
+# pp_url = "wss://pumpportal.fun/api/data"
+# logs_url = "wss://api.mainnet-beta.solana.com"
+# rpc_endpoints = ["https://api.mainnet-beta.solana.com"]
+# budget_role = "collector"                        # an [rpc_budget] role
+# duration_s = 3600                                # unset = run forever
+# pp_stale_s = 60.0
+# logs_stale_s = 30.0
+# decode_delay_s = 8.0
+# funding_delay_s = 45.0
+# rivals_delay_s = 90.0
+# tape_delay_s = 2100.0                            # tapes at T+35 min
+# tape_early_s = 300
+# tape_early_pages = 10
+# funding_hops = 1                                 # 0 = signer's own funding only
+# funding_scan = 4
+# cache_tx = false
+# workers = 10
+# api_rps = 3.0                                    # pump.fun frontend API
+# stats_every_s = 60.0

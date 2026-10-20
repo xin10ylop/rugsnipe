@@ -9,6 +9,10 @@
 //!                            (default CU = the hot path's per-mint 65,000 + 1,500*S over --cu-floor, default 65,000)
 //! rugsnipe-ctl sim [--n 3] [--rpc URL] [--wallet W] [--nonce N] [--max-age S] [--spend L] [--legacy]
 //!                  (feature `rpc`; read-only simulateTransaction, sigVerify false: measured vs formula CU per mint)
+//! rugsnipe-ctl nonce create --keypair FILE --rpc-url URL|cred:NAME [--count 32] [--start 0] [--dry-run]
+//!                           [--creds DIR] [--confirm-s 30]
+//!                           (SIGNS AND SENDS: creates rs-buy-<start>.. as the hot binary derives them,
+//!                           skips existing ones; see [`nonce_create`])
 //! rugsnipe-ctl nonce init  --authority A [--count N] [--pool buy|sell] [--blockhash B58] [--lamports L]
 //! rugsnipe-ctl nonce close --authority A --to T [--count N] [--pool buy|sell] [--blockhash B58] [--lamports L]
 //! rugsnipe-ctl armset verify <file> --pubkey PK [--sig FILE] [--regime R] [--max-age S] [--now UNIX]
@@ -18,9 +22,11 @@
 //! rugsnipe-ctl unkill --state DB             (local only: clears the persisted latch; restart the service after)
 //! ```
 //!
-//! Nothing here signs or sends: nonce init/close print **unsigned**
-//! transactions (dry run) for review and offline signing; `sim` only calls
-//! `simulateTransaction` (read-only, `sigVerify: false`).
+//! Only `nonce create` signs and sends (the probe wallet's own nonce
+//! accounts, System-program instructions only; `--dry-run` sends nothing).
+//! nonce init/close print **unsigned** transactions (dry run) for review
+//! and offline signing; `sim` only calls `simulateTransaction` (read-only,
+//! `sigVerify: false`).
 
 use base64::Engine as _;
 use pump_codec::constants as c;
@@ -35,6 +41,8 @@ use rugsnipe_tx::sysix;
 use rugsnipe_tx::template::{CurveParams, MintKeys, NonceKeys, Patch, Template};
 use std::fmt::Write as _;
 use std::path::Path;
+
+pub mod nonce_create;
 
 /// Output and exit code of a subcommand.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,13 +88,26 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
-/// Dispatch `args` (without the program name).
+/// Dispatch `args` (without the program name); the whole output is in
+/// the returned [`Out`].
 pub fn run(args: &[String]) -> Out {
+    let mut live = Vec::new();
+    let mut out = run_streaming(args, &mut live);
+    if !live.is_empty() {
+        out.text = String::from_utf8_lossy(&live).into_owned() + &out.text;
+    }
+    out
+}
+
+/// Dispatch `args`; a long-running command (`nonce create`) writes its
+/// progress rows to `live` as they happen, the rest is in the returned [`Out`].
+pub fn run_streaming(args: &[String], live: &mut dyn std::io::Write) -> Out {
     let a: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
     let r = match a.as_slice() {
         ["config", "validate", file, ..] => config_validate(file, &args[3..]),
         ["template", "dump", ..] => template_dump(&args[2..]),
         ["sim", ..] => sim(&args[1..]),
+        ["nonce", "create", ..] => nonce_create::nonce_create(&args[2..], live),
         ["nonce", "init", ..] => nonce_txs(&args[2..], true),
         ["nonce", "close", ..] => nonce_txs(&args[2..], false),
         ["armset", "verify", file, ..] => armset_verify(file, &args[3..]),
@@ -94,12 +115,23 @@ pub fn run(args: &[String]) -> Out {
         ["armset", "sign", ..] => armset_sign(&args[2..]),
         ["kill", "status", ..] => kill_status(&args[2..]),
         ["unkill", ..] => unkill(&args[1..]),
+        ["--help" | "-h" | "help", ..] => Ok(Out {
+            text: format!("{USAGE}\n"),
+            code: 0,
+        }),
         _ => Err(USAGE.to_string()),
     };
     r.unwrap_or_else(err)
 }
 
-pub const USAGE: &str = "usage: rugsnipe-ctl <config validate FILE | template dump | sim | nonce init | nonce close | armset verify FILE | armset keygen | armset sign | kill status | unkill> [options]\n(see `rugsnipe-ctl` crate docs for options)";
+pub const USAGE: &str = "usage: rugsnipe-ctl <config validate FILE | template dump | sim | nonce create | nonce init | nonce close | armset verify FILE | armset keygen | armset sign | kill status | unkill> [options]
+  nonce create --keypair FILE --rpc-url URL|cred:NAME [--count 32] [--start 0] [--dry-run] [--creds DIR] [--confirm-s 30]
+      creates the buy nonce accounts rs-buy-<start>..rs-buy-<start+count-1> (signed with --keypair, sent via --rpc-url);
+      existing ones are skipped, the first failure stops (exit 1), re-running is safe; --dry-run sends nothing
+      any other argument (a mistyped --dry-run) is refused before anything is read or sent; `nonce create --help` lists the options
+      e.g. sudo rugsnipe-ctl nonce create --keypair /etc/rugsnipe/keys/probe-keypair.json --rpc-url cred:RPC_URL --count 32
+  nonce init|close  print unsigned transactions only (review / offline signing)
+(see the `rugsnipe-ctl` crate docs for every option)";
 
 fn state_path(args: &[String]) -> Result<&Path, String> {
     let p = opt(args, "--state").ok_or("--state <state.db> required")?;

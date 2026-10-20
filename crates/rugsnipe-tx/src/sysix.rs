@@ -1,5 +1,6 @@
 //! System-program instructions for durable-nonce account management
-//! (`rugsnipe-ctl nonce init/close`). Nonce accounts are created **with a
+//! (`rugsnipe-ctl nonce init/close`, and the signed
+//! `rugsnipe-ctl nonce create`). Nonce accounts are created **with a
 //! seed** from the authority, so no extra keypairs exist:
 //! `address = sha256(base ‖ seed ‖ system_program)`.
 
@@ -150,6 +151,35 @@ pub fn burn_tx(
     Ok((bytes, sig))
 }
 
+/// A signed legacy transaction creating nonce `i` of `pool` for
+/// `rugsnipe-ctl nonce create`: [`nonce_init_instructions`]
+/// (`CreateAccountWithSeed` with the signer as payer and base, `lamports`,
+/// 80 bytes, owner System; then `InitializeNonceAccount` with the signer as
+/// authority), `blockhash` as its lifetime, one signature (the signer, fee
+/// payer). Returns the transaction, its signature and the nonce address.
+pub fn nonce_create_tx(
+    authority: &crate::signer::HotSigner,
+    pool: &str,
+    i: usize,
+    lamports: u64,
+    blockhash: &[u8; 32],
+) -> Result<(Vec<u8>, [u8; 64], Pubkey), crate::msg::CompileError> {
+    use crate::msg::{compile, Format, KeySpec};
+    let auth = authority.pubkey();
+    let (addr, ixs) = nonce_init_instructions(&auth, pool, i, lamports);
+    let keys = [
+        KeySpec::new(auth, true, true),
+        KeySpec::new(addr, false, true),
+        KeySpec::new(SYSTEM_PROGRAM_ID, false, false),
+        KeySpec::new(RECENT_BLOCKHASHES_SYSVAR_ID, false, false),
+        KeySpec::new(RENT_SYSVAR_ID, false, false),
+    ];
+    let (mut bytes, layout) = compile(&keys, &ixs, blockhash, Format::Legacy)?;
+    let sig = authority.sign(&bytes[layout.message.0..layout.message.1]);
+    bytes[layout.sigs..layout.sigs + 64].copy_from_slice(&sig);
+    Ok((bytes, sig, addr))
+}
+
 #[cfg(test)]
 mod burn_tests {
     use super::*;
@@ -176,5 +206,41 @@ mod burn_tests {
         assert!(crate::signer::verify(&s.pubkey(), &tx[65..], &sig));
         // one instruction: system program (key 3), accounts [1, 2, 0], tag 4
         assert_eq!(&tx[keys_end + 32..], &[1, 3, 3, 1, 2, 0, 4, 4, 0, 0, 0]);
+    }
+
+    #[test]
+    fn nonce_create_tx_is_solanas_create_nonce_account_with_seed_signed() {
+        use solana_system_interface::instruction as si;
+        let s = crate::signer::HotSigner::from_seed(&Zeroizing::new([7u8; 32]));
+        let auth = s.pubkey();
+        let hash = [3u8; 32];
+        let (tx, sig, addr) = nonce_create_tx(&s, "buy", 2, NONCE_RENT_LAMPORTS, &hash).unwrap();
+        assert_eq!(addr, pool_addresses(&auth, "buy", 3)[2]);
+        assert_eq!(
+            addr,
+            create_with_seed(&auth, "rs-buy-2", &SYSTEM_PROGRAM_ID)
+        );
+        assert_eq!(tx[0], 1, "one signature");
+        assert_eq!(&tx[1..65], &sig);
+        assert!(crate::signer::verify(&auth, &tx[65..], &sig));
+        // the message is byte-identical to Solana's own compiler on the
+        // system interface's create_nonce_account_with_seed
+        fn k<P: From<[u8; 32]>>(p: &Pubkey) -> P {
+            P::from(p.to_bytes())
+        }
+        let ixs = si::create_nonce_account_with_seed(
+            &k(&auth),
+            &k(&addr),
+            &k(&auth),
+            "rs-buy-2",
+            &k(&auth),
+            NONCE_RENT_LAMPORTS,
+        );
+        let m = solana_message::legacy::Message::new_with_blockhash(
+            &ixs,
+            Some(&k(&auth)),
+            &solana_hash::Hash::new_from_array(hash),
+        );
+        assert_eq!(&tx[65..], &m.serialize()[..]);
     }
 }
