@@ -2,7 +2,7 @@
 //! (the `serve_rpc` pattern of crates/rugsnipe/tests/common): existing
 //! accounts are skipped, a missing one gets exactly one signed
 //! create + initialize transaction, `--dry-run` sends nothing, a
-//! group-readable keypair or a mistyped `--dry-run` is refused before any
+//! world-readable keypair or a mistyped `--dry-run` is refused before any
 //! network call, `--help` sends nothing, the first failure stops the run,
 //! and `cred:NAME` URLs never print their key.
 
@@ -418,9 +418,9 @@ fn dry_run_sends_nothing() {
 
 #[cfg(unix)]
 #[test]
-fn a_group_readable_keypair_is_refused_before_any_rpc_call() {
+fn a_world_readable_keypair_is_refused_before_any_rpc_call() {
     let d = tmpdir();
-    let (kp, _) = keypair_file(d.path(), 14, 0o640);
+    let (kp, _) = keypair_file(d.path(), 14, 0o644);
     let c = chain(1_056_640, 1_000_000_000);
     let (url, log) = serve(c.clone());
     for extra in [&[][..], &["--dry-run"][..]] {
@@ -686,8 +686,8 @@ fn cred_url_is_read_from_the_api_keys_file_and_never_printed() {
         "{}",
         out.text
     );
-    // a group-readable api-keys file is refused
-    std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o640)).unwrap();
+    // a world-readable api-keys file is refused (0440 of the own group is systemd's credential mode)
+    std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o644)).unwrap();
     let out = run(&s(&[
         "nonce",
         "create",
