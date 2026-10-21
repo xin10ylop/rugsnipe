@@ -325,11 +325,12 @@ fn armset_keygen_sign_verify_roundtrip_and_keygen_refuses_git_tree() {
     assert!(file.contains("armset-7-"));
     let v = rugsnipe_ctl::run(&args(&["armset", "verify", &file, "--pubkey", &pubkey]));
     assert_eq!(v.code, 0, "{}", v.text);
-    // a group-readable key is refused
+    // a world-readable key is refused (group-read by our own group is systemd's
+    // credential mode and is accepted)
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o640)).unwrap();
+        std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o644)).unwrap();
         let r = rugsnipe_ctl::run(&args(&[
             "armset",
             "sign",
