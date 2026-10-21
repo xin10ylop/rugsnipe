@@ -185,14 +185,20 @@ pub fn unkill(args: &[String]) -> Result<Out, String> {
     }
 }
 
-/// Mode bits of a credential file (`None` if missing).
+/// Mode bits of a credential file (`None` if missing); a harmless group-read
+/// (the service's own group or root, systemd's credential layout) is cleared.
 fn mode_of(p: &Path) -> Option<u32> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::metadata(p)
-            .ok()
-            .map(|m| m.permissions().mode() & 0o7777)
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        std::fs::metadata(p).ok().map(|m| {
+            let mode = m.permissions().mode() & 0o7777;
+            if mode & 0o040 != 0 && rugsnipe_tx::signer::mode_private(mode, m.gid()) {
+                mode & !0o040
+            } else {
+                mode
+            }
+        })
     }
     #[cfg(not(unix))]
     {

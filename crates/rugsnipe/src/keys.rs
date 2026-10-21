@@ -72,10 +72,19 @@ pub fn mode_of(p: &Path) -> Option<u32> {
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::metadata(p)
-            .ok()
-            .map(|m| m.permissions().mode() & 0o7777)
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        std::fs::metadata(p).ok().map(|m| {
+            let mode = m.permissions().mode() & 0o7777;
+            // systemd hands credentials over as 0440 (owned by the service's
+            // group, or root:root plus an ACL): report the effective mode
+            // with the harmless group-read cleared, so every consumer of the
+            // mode map (Config::validate included) judges it the same way
+            if mode & 0o040 != 0 && rugsnipe_tx::signer::mode_private(mode, m.gid()) {
+                mode & !0o040
+            } else {
+                mode
+            }
+        })
     }
     #[cfg(not(unix))]
     {
