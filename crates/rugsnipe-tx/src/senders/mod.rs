@@ -54,6 +54,21 @@ pub enum SenderId {
 }
 
 impl SenderId {
+    /// Every id, in discriminant order (index `i` is the id with value `i`):
+    /// size per-sender tables with `SenderId::COUNT` and index them by `id as usize`.
+    pub const ALL: [SenderId; 9] = [
+        Self::Paper,
+        Self::Rpc,
+        Self::Helius,
+        Self::Nozomi,
+        Self::Astralane,
+        Self::Jito,
+        Self::NextBlock,
+        Self::HeliusSwqos,
+        Self::BlockRazor,
+    ];
+    pub const COUNT: usize = Self::ALL.len();
+
     pub fn name(self) -> &'static str {
         match self {
             Self::Paper => "paper",
@@ -657,5 +672,21 @@ fn name_static(n: &str) -> &'static str {
         "blockrazor" => "blockrazor",
         "jito" => "jito",
         _ => "nextblock",
+    }
+}
+
+#[cfg(test)]
+mod id_tests {
+    use super::SenderId;
+
+    #[test]
+    fn all_ids_are_dense_and_in_discriminant_order() {
+        // a per-sender table of SenderId::COUNT entries indexed by `id as usize`
+        // must have a slot for every id (the hot sender thread panicked on
+        // BlockRazor = 8 with a 7-entry table, fra1 2026-10-21)
+        for (i, id) in SenderId::ALL.iter().enumerate() {
+            assert_eq!(*id as usize, i, "{id:?}");
+        }
+        assert_eq!(SenderId::BlockRazor as usize + 1, SenderId::COUNT);
     }
 }

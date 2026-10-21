@@ -107,7 +107,7 @@ pub struct HotStats {
     decisions: [Option<Counter>; 256],
     decisions_other: Counter,
     pub intents: Counter,
-    pub sends: [Counter; 7],
+    pub sends: [Counter; SenderId::COUNT],
     pub fills: Counter,
     pub fills_late: Counter,
     pub unfilled: Counter,
@@ -202,15 +202,7 @@ impl HotStats {
         for (k, n) in DECISIONS {
             decisions[*k as usize] = Some(child(&dec, "outcome", n));
         }
-        let senders = [
-            SenderId::Paper,
-            SenderId::Rpc,
-            SenderId::Helius,
-            SenderId::Nozomi,
-            SenderId::Astralane,
-            SenderId::Jito,
-            SenderId::NextBlock,
-        ];
+        let senders = SenderId::ALL;
         Self {
             feed_events: src(&fe),
             creates: src(&cr),
