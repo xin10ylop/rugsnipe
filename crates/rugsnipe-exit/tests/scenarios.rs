@@ -592,6 +592,77 @@ fn orphan_balance_resync_and_external_close() {
 }
 
 #[test]
+fn unpriced_orphan_sells_blind_on_the_timers() {
+    // A balance adopted on a mint that never trades again: no price is ever
+    // seen (v_fill stays 0), so the price triggers cannot fire. The idle
+    // timer still sells the whole balance with a zero bound.
+    let mut s = Sim::new(ExitPolicy {
+        no_activity_ms: 1_000,
+        ..ExitPolicy::default()
+    });
+    let a = s.ev(ExitEvent::Balance {
+        tokens: 705_990_620_346,
+        slot: s.slot,
+    });
+    assert!(matches!(
+        a[0],
+        ExitAction::Opened {
+            origin: Origin::Orphan,
+            v_fill: 0,
+            ..
+        }
+    ));
+    assert_eq!(s.pos.v_fill, 0);
+    // before the timer: nothing
+    s.ms += 500;
+    s.next_slot(1);
+    assert!(sells(&s.tick()).is_empty());
+    // after it: one order for everything, no price floor
+    s.ms += 600;
+    s.next_slot(1);
+    let o = sells(&s.tick());
+    assert_eq!(o.len(), 1);
+    assert_eq!(o[0].tokens, 705_990_620_346);
+    assert_eq!(o[0].min_sol_output, 0);
+    assert_eq!(o[0].reason, ExitReason::NoActivity);
+    assert!(o[0].close_account);
+    assert_eq!(s.pos.state, PositionState::Exiting);
+    // the fill closes it like any other sell
+    let a = s.ev(ExitEvent::Balance {
+        tokens: 0,
+        slot: s.slot,
+    });
+    assert!(matches!(
+        a[0],
+        ExitAction::Closed {
+            cause: CloseCause::BalanceZero,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn unpriced_orphan_hard_exit_on_max_hold_slots() {
+    let mut s = Sim::new(ExitPolicy {
+        no_activity_ms: 0,
+        max_hold_ms: 0,
+        max_hold_slots: 5,
+        ..ExitPolicy::default()
+    });
+    s.ev(ExitEvent::Balance {
+        tokens: 1_000,
+        slot: s.slot,
+    });
+    s.next_slot(4);
+    assert!(sells(&s.tick()).is_empty());
+    s.next_slot(1);
+    let o = sells(&s.tick());
+    assert_eq!(o.len(), 1);
+    assert_eq!(o[0].reason, ExitReason::MaxHold);
+    assert_eq!(o[0].min_sol_output, 0);
+}
+
+#[test]
 fn other_mints_are_ignored() {
     let mut s = Sim::new(ExitPolicy::default());
     s.open(30 * SOL);

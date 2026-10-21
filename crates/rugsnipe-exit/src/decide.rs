@@ -320,14 +320,44 @@ fn eval_normal(pos: &mut Position, send_slot: u64, now: Now, out: &mut Vec<ExitA
         || pos.dumped.is_some()
         || pos.has_pending()
         || pos.tokens == 0
-        || pos.v_fill == 0
     {
         return;
     }
     let p = pos.policy;
-    let m = pos.mult_bps();
     let held = now.ms.saturating_sub(pos.opened_ms);
     let idle = now.ms.saturating_sub(pos.last_trade_ms);
+    if pos.v_fill == 0 {
+        // An orphan adopted before any trade on the mint was seen has no
+        // price, so none of the price triggers can fire. A dead mint never
+        // trades again, so the balance would sit in its slot forever. The
+        // timers still apply: sell the whole balance blind (the bound is
+        // computed on the empty market, i.e. zero), no price needed.
+        let blind = if p.no_activity_ms > 0 && idle >= p.no_activity_ms {
+            Some(ExitReason::NoActivity)
+        } else if (p.max_hold_ms > 0 && held >= p.max_hold_ms)
+            || (p.max_hold_slots > 0
+                && send_slot >= pos.opened_slot.saturating_add(p.max_hold_slots))
+        {
+            Some(ExitReason::MaxHold)
+        } else {
+            None
+        };
+        if let Some(reason) = blind {
+            let tokens = pos.available_tokens();
+            let trigger_slot = pos.cur_slot;
+            new_order(
+                pos,
+                reason,
+                SellKind::Normal,
+                tokens,
+                trigger_slot,
+                send_slot,
+                out,
+            );
+        }
+        return;
+    }
+    let m = pos.mult_bps();
     // phantom stop mark: our fill price, or the post-bundle price with the
     // curve marked without our own tokens (`from = "entry"`)
     let phantom_m = match p.phantom_from {
