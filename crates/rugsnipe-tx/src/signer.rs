@@ -209,7 +209,9 @@ pub fn mode_private(mode: u32, file_gid: u32) -> bool {
     if mode & 0o040 != 0 {
         // SAFETY: getegid has no preconditions and cannot fail.
         let egid = unsafe { libc::getegid() };
-        return file_gid == egid;
+        // group root (gid 0) can read anything regardless: systemd >= 256 hands
+        // credentials over as root:root 0440 plus an ACL for the service user
+        return file_gid == egid || file_gid == 0;
     }
     true
 }
@@ -227,11 +229,15 @@ mod mode_tests {
     fn systemd_credential_modes_are_private_only_for_our_own_group() {
         // SAFETY: getegid has no preconditions.
         let mine = unsafe { libc::getegid() };
-        let other = mine.wrapping_add(12345);
+        let other = mine.wrapping_add(12345).max(1);
         assert!(mode_private(0o400, other));
         assert!(mode_private(0o600, other));
         assert!(mode_private(0o440, mine), "systemd LoadCredential= files");
         assert!(!mode_private(0o440, other), "another group may read it");
+        assert!(
+            mode_private(0o440, 0),
+            "root:root 0440 + ACL is systemd >= 256"
+        );
         assert!(!mode_private(0o460, mine), "group write");
         assert!(!mode_private(0o444, mine), "world read");
         assert!(!mode_private(0o404, mine));

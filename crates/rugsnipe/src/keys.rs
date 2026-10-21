@@ -102,7 +102,8 @@ pub fn credential_modes(cfg: &Config, dir: &Path) -> BTreeMap<String, Option<u32
 /// Private enough for a credential: no world bits, no group write/execute,
 /// and group-read only when the file's group is this process's own effective
 /// group (systemd's `LoadCredential=` files are 0440 owned by the service's
-/// user and group; a 0440 file of another group is still refused).
+/// user and group, or root:root 0440 with an ACL on newer systemd; a 0440
+/// file of any other group is still refused).
 fn private_mode(p: &Path, mode: u32) -> bool {
     #[cfg(unix)]
     {
