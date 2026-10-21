@@ -323,8 +323,17 @@ if [ -d "$REPO/.git" ] && [ -x "$REPO/.githooks/pre-commit" ]; then
 fi
 log "syncing $REPO -> $SRC"
 run rsync -a --delete "${RSYNC_EXCLUDES[@]}" "$REPO/" "$SRC/"
-REV=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo unknown)
-DIRTY=$(git -C "$REPO" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+# git refuses a checkout owned by someone else ("dubious ownership", exit 128, which pipefail
+# would turn into an abort here), so read the revision as the checkout's owner when root runs us.
+repo_git() {
+  if [ "$(id -u)" = 0 ] && [ -d "$REPO/.git" ] && [ "$(stat -c %U "$REPO/.git")" != root ]; then
+    runuser -u "$(stat -c %U "$REPO/.git")" -- git -C "$REPO" "$@"
+  else
+    git -C "$REPO" "$@"
+  fi
+}
+REV=$(repo_git rev-parse HEAD 2>/dev/null || echo unknown)
+DIRTY=$( (repo_git status --porcelain 2>/dev/null || true) | wc -l | tr -d ' ')
 printf 'commit=%s dirty_files=%s installed=%s role=%s\n' "$REV" "$DIRTY" "$(date -u +%FT%TZ)" "$ROLE" \
   | put_file "$PREFIX/REVISION" 0644 root:root
 if [ -d "$REPO/data" ]; then
