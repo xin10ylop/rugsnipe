@@ -280,8 +280,37 @@ pub fn spawn(
             }
             drop(done_tx);
             let mut sent = 0u64;
+            // the text of a failure, once a minute per sender (the ledger only
+            // keeps the short code), so a dead sender can be diagnosed from
+            // the journal; keys never appear in it (response bodies, OS errors)
+            let last_err_log = std::cell::RefCell::new([0u64; SenderId::COUNT]);
             let record = |d: Done, sent: &mut u64, rslog: &mut RslogProducer| {
                 *sent += 1;
+                if let SendResult::Failed(e) = &d.result {
+                    let detail = match e {
+                        SendError::Io(m) | SendError::Rpc(m) => Some(m.as_str()),
+                        SendError::Http(_) => Some(""),
+                        _ => None,
+                    };
+                    if let Some(detail) = detail {
+                        let mut last = last_err_log.borrow_mut();
+                        let t = crate::now_ms();
+                        if t.saturating_sub(last[d.id as usize]) >= 60_000 {
+                            last[d.id as usize] = t;
+                            let http = match e {
+                                SendError::Http(s) => format!(" http {s}"),
+                                _ => String::new(),
+                            };
+                            eprintln!(
+                                "sender: {} {} {}{http}: {}",
+                                d.label,
+                                kind_name(d.variant.kind),
+                                err_name(&d.result),
+                                detail.replace(['\n', '\r'], " ")
+                            );
+                        }
+                    }
+                }
                 stats.sends[d.id as usize].inc();
                 let now = mono_ns();
                 rslog.push(Rec::Sent {
