@@ -90,14 +90,18 @@ impl HotSigner {
         Self::from_keypair_bytes(&bytes)
     }
 
-    /// Load a keypair file (systemd credential). Refuses group/world-accessible files.
+    /// Load a keypair file (systemd credential). Refuses world-accessible files
+    /// and group-writable or group-executable ones; group-read is accepted only
+    /// when the file's group is the process's own effective group, which is how
+    /// systemd hands credentials to a service (`LoadCredential=` files are
+    /// mode 0440, owned by the service user and its primary group).
     pub fn load_file(path: &std::path::Path) -> Result<Self, KeyError> {
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
+            use std::os::unix::fs::{MetadataExt, PermissionsExt};
             let m = std::fs::metadata(path).map_err(|e| KeyError::Io(e.to_string()))?;
             let mode = m.permissions().mode() & 0o7777;
-            if mode & 0o077 != 0 {
+            if !mode_private(mode, m.gid()) {
                 return Err(KeyError::Permissions(mode));
             }
         }
@@ -191,5 +195,46 @@ mod tests {
         std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o400)).unwrap();
         assert!(HotSigner::load_file(&p).is_ok());
         let _ = std::fs::remove_file(&p);
+    }
+}
+
+/// `true` when a credential's mode keeps it private: no world bits, no group
+/// write/execute, and group-read only if `file_gid` is the process's own
+/// effective group (systemd credentials are 0440 owned by the service's group).
+#[cfg(unix)]
+pub fn mode_private(mode: u32, file_gid: u32) -> bool {
+    if mode & 0o007 != 0 || mode & 0o030 != 0 {
+        return false;
+    }
+    if mode & 0o040 != 0 {
+        // SAFETY: getegid has no preconditions and cannot fail.
+        let egid = unsafe { libc::getegid() };
+        return file_gid == egid;
+    }
+    true
+}
+
+#[cfg(not(unix))]
+pub fn mode_private(_mode: u32, _file_gid: u32) -> bool {
+    true
+}
+
+#[cfg(all(test, unix))]
+mod mode_tests {
+    use super::mode_private;
+
+    #[test]
+    fn systemd_credential_modes_are_private_only_for_our_own_group() {
+        // SAFETY: getegid has no preconditions.
+        let mine = unsafe { libc::getegid() };
+        let other = mine.wrapping_add(12345);
+        assert!(mode_private(0o400, other));
+        assert!(mode_private(0o600, other));
+        assert!(mode_private(0o440, mine), "systemd LoadCredential= files");
+        assert!(!mode_private(0o440, other), "another group may read it");
+        assert!(!mode_private(0o460, mine), "group write");
+        assert!(!mode_private(0o444, mine), "world read");
+        assert!(!mode_private(0o404, mine));
+        assert!(!mode_private(0o450, mine), "group execute");
     }
 }

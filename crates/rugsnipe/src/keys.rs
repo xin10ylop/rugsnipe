@@ -99,6 +99,24 @@ pub fn credential_modes(cfg: &Config, dir: &Path) -> BTreeMap<String, Option<u32
     m
 }
 
+/// Private enough for a credential: no world bits, no group write/execute,
+/// and group-read only when the file's group is this process's own effective
+/// group (systemd's `LoadCredential=` files are 0440 owned by the service's
+/// user and group; a 0440 file of another group is still refused).
+fn private_mode(p: &Path, mode: u32) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let gid = std::fs::metadata(p).map(|m| m.gid()).unwrap_or(u32::MAX);
+        rugsnipe_tx::signer::mode_private(mode, gid)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (p, mode);
+        true
+    }
+}
+
 fn check_file(name: &str, dir: &Path) -> Result<PathBuf, Refusal> {
     if name.is_empty() {
         return Err(Refusal::CredentialMissing("<unnamed>".into()));
@@ -106,7 +124,7 @@ fn check_file(name: &str, dir: &Path) -> Result<PathBuf, Refusal> {
     let p = dir.join(name);
     match mode_of(&p) {
         None => Err(Refusal::CredentialMissing(name.to_string())),
-        Some(m) if m & 0o077 != 0 => Err(Refusal::CredentialPermissive {
+        Some(m) if !private_mode(&p, m) => Err(Refusal::CredentialPermissive {
             name: name.to_string(),
             mode: m,
         }),
@@ -537,7 +555,7 @@ mod tests {
             &d,
             "api-keys",
             "NOZOMI_KEY = \"a\"\nBLOCKRAZOR_KEY = \"b\"\n",
-            0o440,
+            0o444,
         );
         let e = load_real_keys(&cfg, &d).unwrap_err();
         assert!(
@@ -550,7 +568,7 @@ mod tests {
         assert!(
             e.contains(&Refusal::CredentialPermissive {
                 name: "api-keys".into(),
-                mode: 0o440
+                mode: 0o444
             }),
             "{e:?}"
         );
