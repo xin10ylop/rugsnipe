@@ -7,7 +7,7 @@ the probe kill rule and stage transitions off a probe state.db (docs/08 section 
       [--fail-cost-lamports N] [--slot-ms 217] [--last-hours 168] [--json]
   .venv/bin/python -I analysis/scripts/shadow_gate.py --probe --state /var/lib/rugsnipe/state.db \
       [--config /etc/rugsnipe/rugsnipe.toml] [--stage a|b] [--pnl-model data/reports/strategy/pnl_model.json] \
-      [--hour-cap N] [--hard-stop-days 10] [--shadow-ev 0.042] [--unfiltered-ev 0.0132]
+      [--hour-cap N] [--hard-stop-days 10] [--shadow-ev 0.042] [--unfiltered-ev 0.0132] [--late-ok 1]
 
 The rule (fixed before any shadow data existed):
   (a) over >= 1,000 qualifying launches and >= 1 full day, the shadow EV per attempt (fills at the
@@ -38,9 +38,14 @@ buys every class-eligible create unfiltered, because this build cannot select bu
     "stop";
   * in-class subset = attempts whose launch has feed_bundle.bundle_wallets >= 1 (grpc.bundle_run = true writes a
     feed_bundle row for every attempt); landing, EV and premium are printed for all attempts and for the subset;
-  * landed = a fill in the creation slot at a measured premium of +2% or less. Fills in slot+1..+3 (or after the
-    nonce burn started: intents.state = 'late_fill', fills.late) are reported as late fills, slot-0 fills above
-    +2% apart; neither counts as landed, both stay in the denominator. (The real lane writes a missing premium as
+  * landed = a fill at the creation slot + 0..N (--late-ok N, default 1: at 200 ms slots a slot+1 fill did no worse
+    than a same-slot one) at a measured premium of +2% or less. The slot+1..+N fills are the landed_late bucket; the
+    strict landing rate (slot 0 only) is printed next to the inclusive one, which the kill and the stage-B read use.
+    Fills beyond the window (slot+N+1 and later; or, when the fill slot is unknown, after the nonce burn started:
+    intents.state = 'late_fill', fills.late) are reported as late fills, fills above +2% apart (slot-0 and
+    slot+1..+N separately); neither counts as landed, both stay in the denominator. The burn flag alone does not
+    make a fill with a known slot late (at 200 ms slots the burn starts at ~s+3 and the next 400 ms poll flags
+    s+1..s+3 fills too). --late-ok 0 is the strict creation-slot rule. (The real lane writes a missing premium as
     0 bps, so an unmeasured premium on a real fill reads as +0%.);
   * failures split by fills.fail_reason: slippage / premium / not_in_slot0 / dropped are lost races; anything else
     (instruction_error such as ComputationalBudgetExceeded, custom program errors) is a fault of the transaction and
@@ -121,10 +126,15 @@ STAGES = {"a": dict(max_probe_lamports=20_000_000, max_probes_per_day=50, max_op
 KILL = dict(min_landed=100, min_attempts=400, max_median_premium=0.03, landing_attempts=200)
 # probe design v2 (docs/research/probe-design-v2.md section 2, readiness audit M4): stage A ends at >= 350
 # attempts AND >= 7 days (and the in-class subset needs kill.landing_attempts attempts for the B read), hard stop
-# at 10 days by default (--hard-stop-days); a fill counts as landed only in the creation slot at a premium of +2% or less
+# at 10 days by default (--hard-stop-days); a fill counts as landed at the creation slot + 0..--late-ok at a premium of
+# +2% or less
 A_DONE_ATTEMPTS, A_DONE_DAYS, A_HARD_STOP_DAYS = 350, 7.0, 10.0
 B_DONE_LANDED, B_ENTRY_MAX_PREMIUM, B_SIZE = 200, 0.02, 0.25
 LANDED_MAX_PREMIUM_BPS = 200
+# --late-ok N: a fill at create_slot + k with 1 <= k <= N counts as landed (bucket landed_late); 0 = slot 0 only.
+# Default 1: stage A measured one-slot-late fills doing no worse than same-slot fills at 200 ms slots
+LATE_OK_DEFAULT = 1
+LANDED = ("landed", "landed_late")          # the fill classes the landing rate counts (strict, inside the window)
 # the unfiltered shadow EV that sets stage B's second bar: the 14-hour Ohio shadow run's +1.32% per attempt,
 # used as if per landed trade at 0.5 SOL (probe-design-v2.md section 4: 36.0% break-even at 0.25 SOL)
 UNFILTERED_SHADOW_EV = 0.0132
@@ -314,25 +324,37 @@ def _mean_ci(xs, clusters):
 
 
 def late_key(off):
-    return f"slot+{off}" if 1 <= off <= 3 else ("slot+4 or later" if off > 3 else "burn started")
+    """Bucket of a late fill: slot+1..+6 by offset, beyond it, or 'burn started' for a fill whose slot
+    is unknown and that only the burn flag calls late. Fills inside the --late-ok window never reach it."""
+    return f"slot+{off}" if 1 <= off <= 6 else ("slot+7 or later" if off > 6 else "burn started")
 
 
 def probe_stats(recs):
     """Landing, failures, premium and EV of a set of probe attempts (the records built in probe()).
 
-    landed = a fill in the creation slot at a measured premium of +2% or less (the only fills the landing rate
-    counts); late fills (slot+1 and later, or after the nonce burn started: intents.state = 'late_fill'), slot-0
-    fills above +2% and fills without a measured premium are reported apart and stay in the denominator (they
-    raced and did not land in the measured sense). The denominator leaves out failures that are not lost races
-    (RACE_REASONS): a compute or instruction error is a fault of the transaction."""
+    landed = a fill at the creation slot + 0..N (--late-ok N) at a measured premium of +2% or less, the only fills
+    the landing rate counts. `landed` is INCLUSIVE (`landed_strict`, the slot-0 fills, plus `landed_late`, the
+    slot+1..+N ones, split in `landed_late_by_offset`) and so is `landing_rate`, the verdict's number;
+    `landing_rate_strict` counts the slot-0 fills alone. Late fills (beyond the window, or a fill whose slot is
+    unknown after the nonce burn started: intents.state = 'late_fill', fills.late), fills above +2% (slot-0 and
+    slot+1..+N apart) and fills without a measured premium are reported apart and stay in the denominator (they
+    raced and did not land in the measured sense). `flagged_late_within_window` counts the landed fills that carry
+    the burn flag anyway (the flag over-reports at 200 ms slots). The denominator leaves out failures that are not
+    lost races (RACE_REASONS): a compute or instruction error is a fault of the transaction."""
     n = len(recs)
     fills = [r for r in recs if not r["failed"]]
-    landed = sum(1 for r in fills if r["fill"] == "landed")
+    landed_strict = sum(1 for r in fills if r["fill"] == "landed")
+    landed_late = sum(1 for r in fills if r["fill"] == "landed_late")
+    landed = landed_strict + landed_late
     late: dict = {}
+    by_off: dict = {}
     for r in fills:
         if r["fill"] == "late":
             k = late_key(r["offset"])
             late[k] = late.get(k, 0) + 1
+        elif r["fill"] == "landed_late":
+            k = f"slot+{r['offset']}"
+            by_off[k] = by_off.get(k, 0) + 1
     fails = [r for r in recs if r["failed"]]
     by_reason: dict = {}
     for r in fails:
@@ -345,13 +367,18 @@ def probe_stats(recs):
     xs = [r["x"] for r in recs]
     mean, ci, cci = _mean_ci(xs, [r["hour"] for r in recs])
     return {
-        "attempts": n, "landed": landed, "fills": len(fills),
+        "attempts": n, "landed": landed, "landed_strict": landed_strict, "landed_late": landed_late,
+        "landed_late_by_offset": dict(sorted(by_off.items(), key=lambda kv: int(kv[0].split("+")[1]))),
+        "fills": len(fills),
         "late_fills": dict(sorted(late.items()), total=sum(late.values())),
-        "slot0_fills_over_premium": sum(1 for r in fills if r["fill"] == "over_premium"),
+        "slot0_fills_over_premium": sum(1 for r in fills if r["fill"] == "over_premium" and r["offset"] <= 0),
+        "late_fills_over_premium": sum(1 for r in fills if r["fill"] == "over_premium" and r["offset"] >= 1),
         "fills_premium_unmeasured": sum(1 for r in fills if r["fill"] == "unmeasured"),
+        "flagged_late_within_window": sum(1 for r in fills if r["fill"] in LANDED and r["flagged_late"]),
         "failed": len(fails), "race_failures": len(fails) - nonrace, "nonrace_failures": nonrace,
         "by_fail_reason": dict(sorted(by_reason.items(), key=lambda kv: -kv[1]["count"])),
         "raced": raced, "landing_rate": landed / raced if raced else 0.0,
+        "landing_rate_strict": landed_strict / raced if raced else 0.0,
         "failed_cost_lamports_mean": sum(r["cost"] for r in fails) / len(fails) if fails else 0.0,
         "median_premium": median(prem), "mean_premium": sum(prem) / len(prem) if prem else None,
         "premiums_measured": len(prem),
@@ -413,7 +440,8 @@ def probe(a) -> int:
                "variant": r["variant"] if r["variant"] is not None else "?",
                "leader_class": r["leader_class"] or "unknown", "sender": r["sender"] or "?",
                "in_class": None if r["bundle_wallets"] is None else r["bundle_wallets"] >= 1,
-               "premium": None, "fill": None, "offset": 0, "race": True, "reason": None, "cost": 0}
+               "premium": None, "fill": None, "offset": 0, "flagged_late": False, "race": True, "reason": None,
+               "cost": 0}
         if failed:
             rec["cost"] = a.fail_cost_lamports if a.fail_cost_lamports is not None else r["fail_cost"]
             rec["reason"] = r["fail_reason"] or r["outcome"] or "unknown"
@@ -428,14 +456,22 @@ def probe(a) -> int:
             rec["offset"] = off
             if r["premium_bps"] is not None:
                 rec["premium"] = r["premium_bps"] / 1e4
-            if off >= 1 or r["late"] or r["istate"] == "late_fill":
-                rec["fill"] = "late"
+            # offset first: fills.slot - shadow.create_slot is the measured number. The burn flag (fills.late /
+            # intents.state 'late_fill': the nonce burn had started when the fill was seen) decides only when the
+            # fill slot is unknown, because at 200 ms slots the burn starts at ~s+3 and the next 400 ms poll flags
+            # s+1..s+3 fills too. The +2% cap applies inside the window exactly as at slot 0 (the premium is
+            # measured over the slot-0 post-bundle price, which is what the EV model prices)
+            known = r["fill_slot"] is not None and bool(cslot)
+            flagged = bool(r["late"]) or r["istate"] == "late_fill"
+            rec["flagged_late"] = flagged
+            if (known and off > a.late_ok) or (not known and flagged):
+                rec["fill"] = "late"            # beyond the window (late_key(off)), or slot unknown after the burn
             elif r["premium_bps"] is None:
                 rec["fill"] = "unmeasured"
             elif r["premium_bps"] > LANDED_MAX_PREMIUM_BPS:
                 rec["fill"] = "over_premium"
             else:
-                rec["fill"] = "landed"
+                rec["fill"] = "landed" if off <= 0 else "landed_late"
         rec["net"], rec["x"] = net, net / spend
         recs.append(rec)
     n = len(recs)
@@ -455,6 +491,7 @@ def probe(a) -> int:
     signer, sig_src = signer_clusters(con, ids) if a.cluster == "signer" else (None, None)
     slo, shi = cluster_boot(xs, signer) if (signer and n > 1) else (float("nan"), float("nan"))
     landing, fail_mean = allst["landing_rate"], allst["failed_cost_lamports_mean"]
+    landing_strict = allst["landing_rate_strict"]
     med_prem, mean_prem = allst["median_premium"], allst["mean_premium"]
     fills_closed = allst["fills"]
     rep = json.load(open(a.pnl_model))
@@ -483,7 +520,8 @@ def probe(a) -> int:
                                      "source": "--unfiltered-ev" if a.unfiltered_ev != UNFILTERED_SHADOW_EV else
                                      "default: the 14-hour Ohio shadow's +1.32% per attempt (probe-design-v2.md section 4)"},
         "in_class_attempts": inst["attempts"], "in_class_raced": inst["raced"],
-        "in_class_landing_rate": inst["landing_rate"], "in_class_median_premium": inst["median_premium"],
+        "in_class_landing_rate": inst["landing_rate"], "in_class_landing_rate_strict": inst["landing_rate_strict"],
+        "late_ok": a.late_ok, "in_class_median_premium": inst["median_premium"],
         "min_in_class_attempts": kill["landing_attempts"], "max_median_premium": B_ENTRY_MAX_PREMIUM,
     }
     # (d) per-UTC-hour attempt cap (probe design v2: at most --hour-cap attempts per UTC hour)
@@ -525,17 +563,19 @@ def probe(a) -> int:
             v["landed_failed"] += 1
         else:
             v["fills"] += 1
-            v["landed"] += r["fill"] == "landed"
+            v["landed"] += r["fill"] in LANDED
     by_variant: dict = {}
     by_class: dict = {}
     for r in recs:
         v = by_variant.setdefault(r["variant"], [0, 0])
         v[0] += 1
-        v[1] += r["fill"] == "landed"
-        k = by_class.setdefault(r["leader_class"], [0, 0, 0])
+        v[1] += r["fill"] in LANDED
+        # per leader class also the strict count: priority-ordered classes are where the slot+1 fills concentrate
+        k = by_class.setdefault(r["leader_class"], [0, 0, 0, 0])
         k[0] += 1
-        k[1] += r["fill"] == "landed"
+        k[1] += r["fill"] in LANDED
         k[2] += r["cost"] if r["failed"] else 0
+        k[3] += r["fill"] == "landed"
     day_net: dict = {}
     hour_net: dict = {}
     for r in recs:
@@ -553,10 +593,11 @@ def probe(a) -> int:
     if med_prem is not None and med_prem > kill["max_median_premium"]:
         reasons.append(f"median realised premium {med_prem:+.2%} > {kill['max_median_premium']:+.0%}")
     if not broken and allst["raced"] >= kill["landing_attempts"] and landing < be:
-        reasons.append(f"landing {landing:.1%} < break-even {be:.1%} over {allst['raced']} attempts")
+        reasons.append(f"landing {landing:.1%} (strict slot-0 {landing_strict:.1%}) < break-even {be:.1%} over "
+                       f"{allst['raced']} attempts")
     if not broken and inst["raced"] >= kill["landing_attempts"] and inst["landing_rate"] < be_in:
-        reasons.append(f"in-class landing {inst['landing_rate']:.1%} < break-even {be_in:.1%} over "
-                       f"{inst['raced']} in-class attempts")
+        reasons.append(f"in-class landing {inst['landing_rate']:.1%} (strict {inst['landing_rate_strict']:.1%}) < "
+                       f"break-even {be_in:.1%} over {inst['raced']} in-class attempts")
     if worst_day <= -loss_cap:
         reasons.append(f"a day lost {-worst_day} lamports >= the daily loss cap {loss_cap}")
     a_done = n >= A_DONE_ATTEMPTS and span_days >= A_DONE_DAYS
@@ -576,7 +617,8 @@ def probe(a) -> int:
         if bar != bar:
             why.append("the unfiltered shadow EV loses at 0.25 SOL (no landing rate breaks even)")
         elif inst["landing_rate"] <= bar:
-            why.append(f"in-class landing {inst['landing_rate']:.1%} <= the stage-B bar {bar:.1%}")
+            why.append(f"in-class landing {inst['landing_rate']:.1%} (strict {inst['landing_rate_strict']:.1%}) <= "
+                       f"the stage-B bar {bar:.1%}")
         if inst["median_premium"] is None or inst["median_premium"] > B_ENTRY_MAX_PREMIUM:
             why.append(f"in-class median premium {fmt_pct(inst['median_premium'], True)} above +2% or unmeasured")
         # too little data is not a negative result: a short subset that fails nothing else (or holds no attempt
@@ -601,16 +643,25 @@ def probe(a) -> int:
         verdict = "PROBE-B COMPLETE: read the live gate (docs/06 section 9.5)"
     else:
         verdict = f"CONTINUE probe-{stage.upper()}"
+    cap_pct = f"+{LANDED_MAX_PREMIUM_BPS / 100:g}%"
+    landed_rule = (f"fill at the create slot + 0..{a.late_ok} at a measured premium <= {cap_pct} (strict: slot 0 only; "
+                   f"--late-ok {a.late_ok})" if a.late_ok else
+                   f"creation-slot fill at a measured premium <= {cap_pct} (--late-ok 0: strict, slot 0 only)")
     out = {
         "stage": stage, "caps": caps, "kill": kill,
         "completion": {"attempts": A_DONE_ATTEMPTS, "days": A_DONE_DAYS, "hard_stop_days": hard,
                        "in_class_attempts": kill["landing_attempts"]} if stage == "a" else {"landed": B_DONE_LANDED},
-        "attempts": n, "landed_closed": allst["landed"], "fills_closed": fills_closed,
+        "attempts": n, "landed_closed": allst["landed"], "landed_strict_closed": allst["landed_strict"],
+        "landed_late_closed": allst["landed_late"], "landed_late_by_offset": allst["landed_late_by_offset"],
+        "fills_closed": fills_closed,
         "failed_attempts": allst["failed"], "open_positions_left_out": open_left,
-        "landed_rule": f"creation-slot fill at a measured premium <= +{LANDED_MAX_PREMIUM_BPS / 100:g}%",
+        "landed_rule": landed_rule, "late_ok": a.late_ok,
         "late_fills": allst["late_fills"], "slot0_fills_over_premium": allst["slot0_fills_over_premium"],
+        "late_fills_over_premium": allst["late_fills_over_premium"],
         "fills_premium_unmeasured": allst["fills_premium_unmeasured"],
-        "landing_rate": landing, "raced_attempts": allst["raced"], "failed_cost_lamports_mean": fail_mean,
+        "flagged_late_within_window": allst["flagged_late_within_window"],
+        "landing_rate": landing, "landing_rate_strict": landing_strict, "raced_attempts": allst["raced"],
+        "failed_cost_lamports_mean": fail_mean,
         "failures": {"race": allst["race_failures"], "not_race": nonrace, "by_reason": allst["by_fail_reason"],
                      "transaction_broken": broken},
         "median_premium": med_prem, "mean_premium": mean_prem, "premiums_measured": allst["premiums_measured"],
@@ -624,8 +675,9 @@ def probe(a) -> int:
         "hour_cap": hour_cap, "break_even_from_shadow": be_shadow, "worst_day_net_lamports": worst_day, "daily_loss_cap_lamports": loss_cap,
         "max_hour_share_of_positive_pnl": hour_share,
         "by_variant": {str(k): {"attempts": v[0], "landed": v[1]} for k, v in by_variant.items()},
-        "by_leader_class": ({str(k): {"attempts": v[0], "landed": v[1], "landing_rate": v[1] / v[0] if v[0] else 0.0,
-                                      "failed_cost_lamports": v[2]} for k, v in by_class.items()}
+        "by_leader_class": ({str(k): {"attempts": v[0], "landed": v[1], "landed_strict": v[3],
+                                      "landing_rate": v[1] / v[0] if v[0] else 0.0, "failed_cost_lamports": v[2]}
+                             for k, v in by_class.items()}
                             if lc != "NULL" else "not recorded (state.db before schema v5: no leader_class column)"),
         "by_sender": dict(sorted(by_sender.items())),
         "verdict": verdict,
@@ -634,15 +686,24 @@ def probe(a) -> int:
         print(json.dumps(out, indent=1, default=float))
         return 0
     lf = allst["late_fills"]
+    win = f"slot+1..+{a.late_ok}"
     print(f"stage               probe-{stage.upper()}  caps {caps}")
     print(f"attempts            {n} over {span_days:.2f} days (landed {allst['landed']}, other fills "
           f"{fills_closed - allst['landed']}, failed {allst['failed']}, open left out {open_left})")
-    print(f"landed rule         {out['landed_rule']}; late fills {lf['total']}"
+    late_ok_part = ""
+    if a.late_ok:
+        lbo = allst["landed_late_by_offset"]
+        late_ok_part = (f"; landed late ({win}) {allst['landed_late']}"
+                        + (" (" + ", ".join(f"{k} {v}" for k, v in lbo.items()) + ")" if lbo else "")
+                        + (f", burn flag set on {allst['flagged_late_within_window']} landed fill(s)"
+                           if allst["flagged_late_within_window"] else ""))
+    print(f"landed rule         {out['landed_rule']}{late_ok_part}; late fills {lf['total']}"
           + (" (" + ", ".join(f"{k} {v}" for k, v in lf.items() if k != "total") + ")" if lf["total"] else "")
-          + f", slot-0 above +2% {allst['slot0_fills_over_premium']}, premium unmeasured "
-          f"{allst['fills_premium_unmeasured']}: none of them count as landed")
-    print(f"landing rate        {landing:.1%} of {allst['raced']} attempts that raced  break-even {be:.1%} "
-          f"({out['break_even_basis']})")
+          + f", slot-0 above +2% {allst['slot0_fills_over_premium']}"
+          + (f", {win} above +2% {allst['late_fills_over_premium']}" if a.late_ok else "")
+          + f", premium unmeasured {allst['fills_premium_unmeasured']}: none of them count as landed")
+    print(f"landing rate        {landing:.1%} of {allst['raced']} attempts that raced (strict, slot 0 only: "
+          f"{landing_strict:.1%})  break-even {be:.1%} ({out['break_even_basis']})")
     fr = allst["by_fail_reason"]
     print("failures            lost races: " + (", ".join(f"{k} {v['count']}" for k, v in fr.items() if v["race"]) or "none")
           + "; NOT races (left out of the landing rate): "
@@ -669,7 +730,8 @@ def probe(a) -> int:
     ci_in = inst["ev_90ci_hour_cluster"]
     print(f"in-class subset     {inst['attempts']} attempts ({out['in_class']['source']}; out of class {n_out}, "
           f"no feed_bundle row {n_unk}): landed {inst['landed']}, landing {inst['landing_rate']:.1%} of "
-          f"{inst['raced']}, late fills {inst['late_fills']['total']}, median premium "
+          f"{inst['raced']} (strict {inst['landing_rate_strict']:.1%}), late fills {inst['late_fills']['total']}, "
+          f"median premium "
           f"{fmt_pct(inst['median_premium'], True)}, EV per attempt {fmt_pct(inst['ev_per_attempt'], True)} "
           f"hour-cluster [{fmt_pct(ci_in[0], True)}, {fmt_pct(ci_in[1], True)}]")
     print(f"stage-B bar         {fmt_pct(bar)} = max(pooled LEAD break-even {be_in:.1%} [failed cost {cf_in:.5f} SOL, "
@@ -683,8 +745,9 @@ def probe(a) -> int:
         print(f"  variant {k:3s} attempts {v['attempts']}, landed {v['landed']}")
     if isinstance(out["by_leader_class"], dict):
         for k, v in sorted(out["by_leader_class"].items()):
-            print(f"  leader {k:10s} attempts {v['attempts']}, landed {v['landed']} ({v['landing_rate']:.1%}), "
-                  f"failed cost {v['failed_cost_lamports']} lamports")
+            print(f"  leader {k:10s} attempts {v['attempts']}, landed {v['landed']} ({v['landing_rate']:.1%}"
+                  + (f"; strict {v['landed_strict']}" if a.late_ok else "")
+                  + f"), failed cost {v['failed_cost_lamports']} lamports")
     for k, v in out["by_sender"].items():
         print(f"  sender {k:12s} sent {v['sent']}, accepted {v['accepted']}, send errors {v['send_errors']}, "
               f"landed {v['landed']} (fills {v['fills']}), landed and failed {v['landed_failed']}")
@@ -727,9 +790,15 @@ def main() -> int:
                     help="--probe: the UNFILTERED shadow EV per landed trade (fraction) that sets the stage-B bar's "
                          "second input, its break-even at 0.25 SOL (default 0.0132: the 14-hour Ohio shadow's +1.32%% "
                          "per attempt, 36%% at 0.00073 SOL; probe-design-v2.md section 4)")
+    ap.add_argument("--late-ok", type=int, default=LATE_OK_DEFAULT,
+                    help="--probe: a fill at create_slot + k with 1 <= k <= N counts as landed (bucket landed_late); "
+                         "later fills stay late; 0 = the strict creation-slot rule (default 1: at 200 ms slots a "
+                         "slot+1 fill did no worse than a same-slot one in stage A)")
     a = ap.parse_args()
     if a.hard_stop_days < A_DONE_DAYS:
         ap.error(f"--hard-stop-days must be at least {A_DONE_DAYS:g} (stage A completes at >= {A_DONE_DAYS:g} days)")
+    if a.late_ok < 0:
+        ap.error("--late-ok must be >= 0")
     if a.probe:
         return probe(a)
 

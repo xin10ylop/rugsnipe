@@ -6,7 +6,9 @@ config/probe-a.example.toml's stage-A caps (M3b; the M4 rate choice is the owner
 The v2 probe rules tested here: stage A completes at >= 350 attempts AND >= 7 days (with >= 200 in-class
 attempts for the stage-B read), hard stop at 10 days (--hard-stop-days), where a subset short of 200 that fails
 nothing else is INCONCLUSIVE (escalate to the owner), not a stop; the in-class split by feed_bundle.bundle_wallets >= 1;
-only creation-slot fills at a premium of +2% or less count as landed (slot+1..+3 fills reported apart);
+fills at the creation slot + 0..N (--late-ok N, default 1) at a premium of +2% or less count as landed (the
+slot+1..+N ones in a landed_late bucket, the strict slot-0 landing rate printed next to the inclusive one that the
+verdict uses; later fills reported apart; --late-ok 0 is the strict creation-slot rule);
 failures split by fills.fail_reason (transaction errors are not lost races); the stage-B bar = max(pooled LEAD
 break-even, unfiltered shadow break-even at 0.25 SOL); the by_sender block.
 
@@ -391,17 +393,22 @@ def test_probe_splits_attempts_by_leader_class() -> None:
 
 
 def _fill_db(path, rows, stake=20_000_000, t0_ms=1_792_000_000_000, fee=732_080):
-    """A schema-v5 probe file (schema.rs DDL) from (kind, offset, premium_bps, fail_reason, in_class) rows: kind
-    'fill' = our buy landed `offset` slots after the create (positive P&L, closed), 'fail' = landed and failed
-    (`fail_reason`, meta.fee `fee`), 'drop' = nothing landed. Every attempt has a helius (accepted) and a nozomi
-    (send error) buy variant and a burn send; the fill's sender is helius."""
+    """A schema-v5 probe file (schema.rs DDL) from (kind, offset, premium_bps, fail_reason, in_class[, late]) rows:
+    kind 'fill' = our buy landed `offset` slots after the create (positive P&L, closed), 'fill_noslot' = the same
+    with no fill slot recorded (fills.slot NULL), 'fail' = landed and failed (`fail_reason`, meta.fee `fee`),
+    'drop' = nothing landed. fills.late (the nonce burn had started when the fill was seen) is the optional 6th
+    field, default offset >= 2; intents.state is 'late_fill' from offset 1. Every attempt has a helius (accepted)
+    and a nozomi (send error) buy variant and a burn send; the fill's sender is helius. Attempts are a minute apart."""
     con = sqlite3.connect(path)
     con.executescript(_real_ddl())
     slot0 = 460_000_000
-    for i, (kind, off, prem, reason, inc) in enumerate(rows, start=1):
+    for i, row in enumerate(rows, start=1):
+        kind, off, prem, reason, inc = row[:5]
+        late = int(row[5]) if len(row) > 5 else int(off >= 2)
         mint, slot = f"m{i}", slot0 + 50 * i
         t = t0_ms + i * 60_000
-        state = {"fill": "late_fill" if off >= 1 else "landed", "fail": "failed", "drop": "burned"}[kind]
+        state = {"fill": "late_fill" if off >= 1 else "landed", "fill_noslot": "late_fill" if off >= 1 else "landed",
+                 "fail": "failed", "drop": "burned"}[kind]
         con.execute("INSERT INTO intents(intent_id, mint, mode, slot, spend, state) VALUES (?,?,?,?,?,?)",
                     (i, mint, "probe", slot, stake, state))
         if inc is not None:
@@ -412,10 +419,10 @@ def _fill_db(path, rows, stake=20_000_000, t0_ms=1_792_000_000_000, fee=732_080)
                         (f"s{i}{v}", i, v, sender, result, "buy", t))
         con.execute("INSERT INTO sends(sig, intent_id, variant, sender, result, kind, sent_unix_ms) VALUES (?,?,?,?,?,?,?)",
                     (f"b{i}", i, 0, "rpc", "accepted", "burn", t + 1000))
-        if kind == "fill":
+        if kind in ("fill", "fill_noslot"):
             con.execute("INSERT INTO fills(sig, intent_id, mint, slot, tokens, sol_delta, late, fail_cost, fee, variant, sender) "
-                        "VALUES (?,?,?,?,?,?,?,?,?,?,?)", (f"s{i}0", i, mint, slot + off, 1, -stake, int(off >= 2), 0,
-                                                          15_000, 0, "helius"))
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?)", (f"s{i}0", i, mint, None if kind == "fill_noslot" else slot + off,
+                                                          1, -stake, late, 0, 15_000, 0, "helius"))
             con.execute("INSERT INTO shadow(intent_id, mint, model, outcome, create_slot, premium_bps) VALUES (?,?,?,?,?,?)",
                         (i, mint, "probe", "filled", slot, prem))
             con.execute("INSERT INTO positions(mint, intent_id, state) VALUES (?,?,?)", (mint, i, "closed"))
@@ -435,40 +442,136 @@ def _fill_db(path, rows, stake=20_000_000, t0_ms=1_792_000_000_000, fee=732_080)
     con.close()
 
 
-def test_probe_counts_only_creation_slot_fills_at_two_percent_as_landed_and_splits_late_fills() -> None:
-    """Landed = a fill in the creation slot at a premium <= +2%. Slot+1..+3 fills (intents.state 'late_fill',
-    fills.late after the burn started), a slot-0 fill at +2.5% and a fill without a premium stay in the
-    denominator and are reported apart; the in-class subset and by_sender come from the same rows."""
+def test_probe_counts_only_creation_slot_fills_at_two_percent_as_landed_and_splits_late_fills_with_late_ok() -> None:
+    """Landed = a fill at the creation slot + 0..N (--late-ok N, default 1) at a premium <= +2%: the slot+1 fill is
+    landed_late and the inclusive landing rate (the verdict's) carries it, the strict rate (slot 0 only) is printed
+    next to it. Fills beyond the window (intents.state 'late_fill', fills.late after the burn started), a slot-0
+    fill at +2.5% and a fill without a premium stay in the denominator and are reported apart; the in-class subset
+    and by_sender come from the same rows. --late-ok 0 is today's strict rule, --late-ok 3 widens the window (the
+    +3% slot+2 fill still fails the premium cap)."""
     with tempfile.TemporaryDirectory() as d:
         db = Path(d) / "late.db"
         _fill_db(db, [("fill", 0, 150, None, True), ("fill", 1, 120, None, True), ("fill", 2, 300, None, False),
                       ("fill", 3, 90, None, None), ("fill", 0, 250, None, True), ("fill", 0, 200, None, False),
                       ("fail", 0, None, "slippage", True), ("drop", 0, None, None, False)])
         o = _probe(db, "a")
-        assert o["attempts"] == 8 and o["fills_closed"] == 6 and o["landed_closed"] == 2, o   # +1.5% and +2.0%
-        assert o["late_fills"] == {"slot+1": 1, "slot+2": 1, "slot+3": 1, "total": 3}, o["late_fills"]
-        assert o["slot0_fills_over_premium"] == 1 and o["fills_premium_unmeasured"] == 0, o
-        assert o["raced_attempts"] == 8 and abs(o["landing_rate"] - 2 / 8) < 1e-12, o
+        assert o["late_ok"] == 1 and o["b_entry"]["late_ok"] == 1, o["late_ok"]
+        assert o["attempts"] == 8 and o["fills_closed"] == 6 and o["landed_closed"] == 3, o   # +1.5%, +2.0%, slot+1 +1.2%
+        assert o["landed_strict_closed"] == 2 and o["landed_late_closed"] == 1, o
+        assert o["landed_late_by_offset"] == {"slot+1": 1}, o["landed_late_by_offset"]
+        assert o["late_fills"] == {"slot+2": 1, "slot+3": 1, "total": 2}, o["late_fills"]
+        assert o["slot0_fills_over_premium"] == 1 and o["late_fills_over_premium"] == 0, o
+        assert o["fills_premium_unmeasured"] == 0, o
+        assert o["flagged_late_within_window"] == 1, o["flagged_late_within_window"]   # the slot+1 fill: intents.state 'late_fill'
+        assert o["raced_attempts"] == 8 and abs(o["landing_rate"] - 3 / 8) < 1e-12, o
+        assert abs(o["landing_rate_strict"] - 2 / 8) < 1e-12, o["landing_rate_strict"]
+        assert o["landed_rule"] == "fill at the create slot + 0..1 at a measured premium <= +2% (strict: slot 0 only; --late-ok 1)", o["landed_rule"]
         assert o["failures"]["by_reason"] == {"slippage": {"count": 1, "cost_lamports": 732_080, "race": True},
                                               "dropped": {"count": 1, "cost_lamports": 0, "race": True}}, o["failures"]
-        # in class: the +1.5% slot-0 fill (landed), the slot+1 fill, the +2.5% fill and the slippage loser
+        # in class: the +1.5% slot-0 fill and the slot+1 fill (landed), the +2.5% fill and the slippage loser
         ic = o["in_class"]
-        assert ic["attempts"] == 4 and ic["landed"] == 1 and ic["late_fills"]["total"] == 1, ic
-        assert ic["out_of_class"] == 3 and ic["without_feed_bundle_row"] == 1, ic
-        assert abs(ic["landing_rate"] - 0.25) < 1e-12 and ic["median_premium"] == 0.015, ic   # +1.5 / +1.2 / +2.5%
+        assert ic["attempts"] == 4 and ic["landed"] == 2 and ic["landed_strict"] == 1 and ic["landed_late"] == 1, ic
+        assert ic["late_fills"]["total"] == 0 and ic["out_of_class"] == 3 and ic["without_feed_bundle_row"] == 1, ic
+        assert abs(ic["landing_rate"] - 0.5) < 1e-12 and abs(ic["landing_rate_strict"] - 0.25) < 1e-12, ic
+        assert ic["median_premium"] == 0.015, ic                                 # +1.5 / +1.2 / +2.5%: unchanged
         assert ic["source"] == "feed_bundle.bundle_wallets >= 1", ic
+        assert o["b_entry"]["in_class_landing_rate"] == 0.5 and o["b_entry"]["in_class_landing_rate_strict"] == 0.25, o["b_entry"]
         # by sender: buy variants only (the burn sends are not counted), nozomi's all errors
         bs = o["by_sender"]
-        assert bs["helius"] == {"sent": 8, "accepted": 8, "send_errors": 0, "fills": 6, "landed": 2, "landed_failed": 1}, bs
+        assert bs["helius"] == {"sent": 8, "accepted": 8, "send_errors": 0, "fills": 6, "landed": 3, "landed_failed": 1}, bs
         assert bs["nozomi"] == {"sent": 8, "accepted": 0, "send_errors": 8, "fills": 0, "landed": 0, "landed_failed": 0}, bs
         assert "rpc" not in bs, bs
         assert o["clock"].startswith("wall clock"), o["clock"]
-        # the text report prints the same blocks
+        lc = o["by_leader_class"]
+        assert lc["unknown"]["attempts"] == 8 and lc["unknown"]["landed"] == 3 and lc["unknown"]["landed_strict"] == 2, lc
+        # the text report prints the same blocks, the strict rate next to the inclusive one
         out = subprocess.run([sys.executable, "-I", str(GATE), "--probe", "--state", str(db), "--stage", "a",
                               "--pnl-model", str(PNL)], capture_output=True, text=True, check=True).stdout
-        for needle in ("late fills 3 (slot+1 1, slot+2 1, slot+3 1)", "in-class subset     4 attempts",
+        for needle in ("late fills 2 (slot+2 1, slot+3 1)", "landed late (slot+1..+1) 1 (slot+1 1), burn flag set on 1 landed fill(s)",
+                       "(strict, slot 0 only: 25.0%)", "--late-ok 1", "slot+1..+1 above +2% 0",
+                       "landing 50.0% of 4 (strict 25.0%)", "in-class subset     4 attempts",
                        "stage-B bar", "sender helius", "lost races: slippage 1, dropped 1"):
             assert needle in out, (needle, out)
+        # --late-ok 0: the strict creation-slot rule, today's numbers exactly
+        o = _probe(db, "a", ("--late-ok", "0"))
+        assert o["late_ok"] == 0 and o["landed_closed"] == 2 and o["landed_strict_closed"] == 2, o
+        assert o["landed_late_closed"] == 0 and o["landed_late_by_offset"] == {}, o
+        assert o["late_fills"] == {"slot+1": 1, "slot+2": 1, "slot+3": 1, "total": 3}, o["late_fills"]
+        assert o["slot0_fills_over_premium"] == 1 and o["late_fills_over_premium"] == 0 and o["fills_premium_unmeasured"] == 0, o
+        assert abs(o["landing_rate"] - 2 / 8) < 1e-12 and abs(o["landing_rate_strict"] - 2 / 8) < 1e-12, o
+        assert o["landed_rule"] == "creation-slot fill at a measured premium <= +2% (--late-ok 0: strict, slot 0 only)", o["landed_rule"]
+        assert o["by_sender"]["helius"]["landed"] == 2, o["by_sender"]
+        ic = o["in_class"]
+        assert ic["landed"] == 1 and abs(ic["landing_rate"] - 0.25) < 1e-12 and ic["late_fills"]["total"] == 1, ic
+        assert o["by_variant"] == {"0": {"attempts": 8, "landed": 2}}, o["by_variant"]
+        out = subprocess.run([sys.executable, "-I", str(GATE), "--probe", "--state", str(db), "--stage", "a",
+                              "--pnl-model", str(PNL), "--late-ok", "0"], capture_output=True, text=True, check=True).stdout
+        assert "late fills 3 (slot+1 1, slot+2 1, slot+3 1)" in out and "landed late" not in out, out
+        assert "25.0% of 8 attempts that raced (strict, slot 0 only: 25.0%)" in out, out
+        # --late-ok 3: slot+1..+3 are inside the window; the +3% slot+2 fill fails the premium cap, not the window
+        o = _probe(db, "a", ("--late-ok", "3"))
+        assert o["landed_closed"] == 4 and o["landed_strict_closed"] == 2 and o["landed_late_closed"] == 2, o
+        assert o["late_fills"] == {"total": 0} and abs(o["landing_rate"] - 4 / 8) < 1e-12, o
+        assert o["landed_late_by_offset"] == {"slot+1": 1, "slot+3": 1}, o["landed_late_by_offset"]
+        assert o["late_fills_over_premium"] == 1 and o["slot0_fills_over_premium"] == 1, o
+        assert abs(o["landing_rate_strict"] - 2 / 8) < 1e-12, o["landing_rate_strict"]
+        p = subprocess.run([sys.executable, "-I", str(GATE), "--probe", "--state", str(db), "--late-ok", "-1"],
+                           capture_output=True, text=True)
+        assert p.returncode != 0 and "--late-ok" in p.stderr, p.stderr
+
+
+def test_probe_late_ok_applies_the_premium_cap_and_ignores_the_burn_flag_inside_the_window() -> None:
+    """Inside the window the +2% cap applies as at slot 0 (a +3% slot+1 fill is late_fills_over_premium, not landed);
+    the burn flag (fills.late) on a fill with a known slot-0 slot does not make it late (at 200 ms slots the flag
+    over-reports), it is counted and reported as flagged_late_within_window; a fill with no slot recorded and the
+    flag set is the 'burn started' late bucket."""
+    with tempfile.TemporaryDirectory() as d:
+        db = Path(d) / "flag.db"
+        _fill_db(db, [("fill", 1, 300, None, True), ("fill", 0, 150, None, True, 1), ("fill_noslot", 0, 100, None, True, 1)])
+        o = _probe(db, "a")
+        assert o["fills_closed"] == 3 and o["landed_closed"] == 1 and o["landed_strict_closed"] == 1, o
+        assert o["landed_late_closed"] == 0 and o["landed_late_by_offset"] == {}, o
+        assert o["late_fills_over_premium"] == 1 and o["slot0_fills_over_premium"] == 0, o
+        assert o["flagged_late_within_window"] == 1, o["flagged_late_within_window"]
+        assert o["late_fills"] == {"burn started": 1, "total": 1}, o["late_fills"]
+        assert abs(o["landing_rate"] - 1 / 3) < 1e-12 and abs(o["landing_rate_strict"] - 1 / 3) < 1e-12, o
+        assert o["in_class"]["flagged_late_within_window"] == 1 and o["in_class"]["landed"] == 1, o["in_class"]
+        out = subprocess.run([sys.executable, "-I", str(GATE), "--probe", "--state", str(db), "--stage", "a",
+                              "--pnl-model", str(PNL)], capture_output=True, text=True, check=True).stdout
+        for needle in ("burn flag set on 1 landed fill(s)", "late fills 1 (burn started 1)", "slot+1..+1 above +2% 1"):
+            assert needle in out, (needle, out)
+        # --late-ok 0: the +3% slot+1 fill is a late fill beyond the window; the flagged slot-0 fill still lands
+        o = _probe(db, "a", ("--late-ok", "0"))
+        assert o["late_fills"] == {"burn started": 1, "slot+1": 1, "total": 2}, o["late_fills"]
+        assert o["landed_closed"] == 1 and o["late_fills_over_premium"] == 0 and o["flagged_late_within_window"] == 1, o
+
+
+def test_probe_late_ok_window_drives_the_landing_kill_and_prints_the_strict_rate() -> None:
+    """250 in-class attempts: 10 slot-0 fills, 30 slot+1 fills, 210 slippage losers (4.2 h, stage A). At --late-ok 1
+    the landing rate is 16% (> the ~9.9% pooled LEAD break-even at 732,080 lamports / +1%) and the probe continues,
+    the strict 4% printed next to it; at --late-ok 0 the same file is a landing KILL on all attempts and in class."""
+    with tempfile.TemporaryDirectory() as d:
+        db = Path(d) / "window.db"
+        _fill_db(db, [("fill", 0, 100, None, True)] * 10 + [("fill", 1, 100, None, True)] * 30
+                 + [("fail", 0, None, "slippage", True)] * 210)
+        o = _probe(db, "a")
+        assert o["raced_attempts"] == 250 and o["landed_closed"] == 40 and o["landed_late_closed"] == 30, o
+        assert abs(o["landing_rate"] - 0.16) < 1e-12 and abs(o["landing_rate_strict"] - 0.04) < 1e-12, o
+        assert 0.08 < o["break_even_landing"] < 0.12, o["break_even_landing"]
+        assert o["verdict"] == "CONTINUE probe-A", o["verdict"]
+        ic = o["in_class"]
+        assert ic["raced"] == 250 and abs(ic["landing_rate"] - 0.16) < 1e-12 and abs(ic["landing_rate_strict"] - 0.04) < 1e-12, ic
+        assert o["b_entry"]["in_class_landing_rate_strict"] == ic["landing_rate_strict"], o["b_entry"]
+        assert o["landed_late_by_offset"] == {"slot+1": 30} and o["late_fills"] == {"total": 0}, o
+        out = subprocess.run([sys.executable, "-I", str(GATE), "--probe", "--state", str(db), "--stage", "a",
+                              "--pnl-model", str(PNL)], capture_output=True, text=True, check=True).stdout
+        assert "16.0% of 250 attempts that raced (strict, slot 0 only: 4.0%)" in out, out
+        assert "landed late (slot+1..+1) 30 (slot+1 30)" in out and "verdict             CONTINUE probe-A" in out, out
+        o = _probe(db, "a", ("--late-ok", "0"))
+        assert abs(o["landing_rate"] - 0.04) < 1e-12 and o["late_fills"] == {"slot+1": 30, "total": 30}, o
+        v = o["verdict"]
+        assert v.startswith("KILL") and "landing 4.0% (strict slot-0 4.0%) < break-even" in v, v
+        assert "in-class landing 4.0% (strict 4.0%) < break-even" in v, v
 
 
 def test_probe_splits_failures_by_fail_reason_so_transaction_errors_are_not_lost_races() -> None:
@@ -492,7 +595,7 @@ def test_probe_splits_failures_by_fail_reason_so_transaction_errors_are_not_lost
                  + [("fail", 0, None, "instruction_error", True)] * 3)
         o = _probe(db2, "a")
         assert not o["failures"]["transaction_broken"] and o["raced_attempts"] == 247, o["failures"]
-        assert o["verdict"].startswith("KILL") and "landing 2.0% < break-even" in o["verdict"], o["verdict"]
+        assert o["verdict"].startswith("KILL") and "landing 2.0% (strict slot-0 2.0%) < break-even" in o["verdict"], o["verdict"]
 
 
 def test_make_paper_armset_valid_hours_sets_the_stage_validity() -> None:
@@ -519,30 +622,31 @@ def test_make_paper_armset_valid_hours_sets_the_stage_validity() -> None:
 
 
 def test_probe_a_config_ships_the_build_caps_and_they_are_consistent() -> None:
-    """config/probe-a.example.toml ships the stage-A caps decided on 2026-10-20 (probe-design-v2 section 2 item 4,
-    option ii: 6 per UTC hour, 150 a day, 0.6 SOL daily loss). Whatever the values, the hour
-    cap must sample all 24 UTC hours inside the daily cap, and the daily loss cap must keep clear headroom over
-    the expected daily loss at a high (50%) landing rate (probe-design-v2 section 4: a landed 0.02 SOL trade
-    -17.9%, a failed attempt 0.00073 SOL), or an ordinary day latches daily_loss (a false kill). The gate reads
-    its hour cap from the same file."""
+    """config/probe-a.example.toml ships the stage-A caps raised on 2026-10-22 (12 per UTC hour, 300 a day, 1 SOL
+    daily loss; decided 2026-10-20 as 6/150/0.6, probe-design-v2 section 2 item 4, option ii). Whatever the values,
+    the hour cap must sample all 24 UTC hours inside the daily cap, and the daily loss cap must sit above the
+    expected daily loss at a high (50%) landing rate (probe-design-v2 section 4: a landed 0.02 SOL trade -17.9%,
+    a failed attempt 0.00213 SOL at the 2026-10-22 bid caps: BAM and other carry the 3.4M bid as the priority fee).
+    The margin is 10%: at 288 attempts the day's loss has a standard deviation of about 0.07 SOL, so a cap at
+    1.2x the expectation latches only on a genuinely bad day. The gate reads its hour cap from the same file."""
     import tomllib
     cfg = tomllib.load(open(REPO / "config" / "probe-a.example.toml", "rb"))
     a, risk = cfg["probe"]["a"], cfg["risk"]
     assert cfg["probe"]["stage"] == "a" and a["max_probe_lamports"] == 20_000_000, a
-    assert (risk["max_buys_per_hour"], a["max_probes_per_day"], a["max_daily_loss_lamports"]) == (6, 150, 600_000_000), a
+    assert (risk["max_buys_per_hour"], a["max_probes_per_day"], a["max_daily_loss_lamports"]) == (12, 300, 1_000_000_000), a
     per_day = min(24 * risk["max_buys_per_hour"], a["max_probes_per_day"])
     assert 24 * risk["max_buys_per_hour"] <= a["max_probes_per_day"] <= risk["max_buys_per_op_per_day"], (risk, a)
     stake = a["max_probe_lamports"]
-    expected = per_day * (0.5 * 0.179 * stake + 0.5 * 730_000)
-    assert expected <= 0.6 * a["max_daily_loss_lamports"], (expected, a["max_daily_loss_lamports"])
+    expected = per_day * (0.5 * 0.179 * stake + 0.5 * 2_130_000)
+    assert expected <= 0.9 * a["max_daily_loss_lamports"], (expected, a["max_daily_loss_lamports"])
     with tempfile.TemporaryDirectory() as d:
         db = Path(d) / "a.db"
         _db(db, 400, land=0.5, premium_bps=110, hours=200, in_class_every=5, **A_ARGS)
         o = _gate("--probe", "--state", str(db), "--config", str(REPO / "config" / "probe-a.example.toml"),
                   "--pnl-model", str(PNL))
-        assert o["stage"] == "a" and o["caps"]["max_probes_per_day"] == 150, o["caps"]
-        assert o["hour_cap"]["cap"] == 6 and o["hour_cap"]["source"] == "the config's risk.max_buys_per_hour", o["hour_cap"]
-        assert o["daily_loss_cap_lamports"] == 600_000_000, o["daily_loss_cap_lamports"]
+        assert o["stage"] == "a" and o["caps"]["max_probes_per_day"] == 300, o["caps"]
+        assert o["hour_cap"]["cap"] == 12 and o["hour_cap"]["source"] == "the config's risk.max_buys_per_hour", o["hour_cap"]
+        assert o["daily_loss_cap_lamports"] == 1_000_000_000, o["daily_loss_cap_lamports"]
         o = _gate("--probe", "--state", str(db), "--config", str(REPO / "config" / "probe-a.example.toml"),
                   "--pnl-model", str(PNL), "--hour-cap", "3")
         assert o["hour_cap"]["cap"] == 3 and o["hour_cap"]["source"] == "--hour-cap", o["hour_cap"]
