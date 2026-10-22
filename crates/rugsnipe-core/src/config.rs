@@ -127,6 +127,11 @@ pub struct RiskCfg {
     pub max_consec_losses_per_op: u64,
     pub max_buys_per_op_per_day: u64,
     pub max_buys_per_hour: u64,
+    /// Spread `max_buys_per_hour` across the hour: the k-th buy of a UTC hour
+    /// is allowed only once `(k-1) * 3600 / max_buys_per_hour` seconds of the
+    /// hour have passed (unused windows carry over within the hour). Off =
+    /// first-come, which in a busy market spends the hour in its first minute.
+    pub spread_buys_per_hour: bool,
     pub max_bid_lamports: u64,
     pub max_sell_spend_lamports: u64,
     pub max_entry_vsol_lamports: u64,
@@ -162,6 +167,7 @@ impl Default for RiskCfg {
             max_consec_losses_per_op: 0,
             max_buys_per_op_per_day: 0,
             max_buys_per_hour: 0,
+            spread_buys_per_hour: false,
             max_bid_lamports: 0,
             max_sell_spend_lamports: 0,
             max_entry_vsol_lamports: 0,

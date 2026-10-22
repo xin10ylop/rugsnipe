@@ -44,7 +44,8 @@ max_open_positions = 4
 max_daily_loss_lamports = 1_000_000_000            # chain-derived, marked to the sell quote
 max_consec_losses_per_op = 20                      # probe-A: the class arm is ONE operator and the median LEAD trade is a small loss; 5 suspends it constantly
 max_buys_per_op_per_day = 300   # ceiling; the class arm counts as one operator, so this must not bind below the probe stage caps (150/day A, 300/day B)
-max_buys_per_hour = 6                              # probe-A: first-come per UTC hour; 6 x 24 = 144 <= 150/day, so every hour of the day is sampled (readiness M3b, M4 option ii)
+max_buys_per_hour = 12                             # probe-A: per UTC hour; doubled 2026-10-22 (12 x 24 = 288 <= 300/day)
+spread_buys_per_hour = true                        # one buy per 5-minute window (unused windows carry over): samples the whole hour, not its first minute
 max_bid_lamports = 25_000_000
 max_sell_spend_lamports = 20_000_000
 max_entry_vsol_lamports = 115_000_000_000          # probe-A: the LEAD universe (paper-lead): no entry cap below slot-0 graduation, as the shadow scored
@@ -126,7 +127,7 @@ stage = "a"                                        # probe-A: stage a (0.02 SOL)
 # Only 10-20% of attempts are in class, so the 200 in-class attempts the stage-B read needs take 7-14 days. Ends at
 # >= 350 attempts and >= 7 days; hard stop at 14 days (shadow_gate.py --probe --hard-stop-days 14). A subset still
 # short of 200 at the hard stop reads INCONCLUSIVE (escalate), never a stop. docs/research/probe-design-v2.md section 2.
-a = { max_probe_lamports = 20_000_000, max_probes_per_day = 150, max_open_positions = 1, max_daily_loss_lamports = 600_000_000 }
+a = { max_probe_lamports = 20_000_000, max_probes_per_day = 300, max_open_positions = 1, max_daily_loss_lamports = 1_000_000_000 }   # 2026-10-22: 12/h, 300/day, 1 SOL cap
 b = { max_probe_lamports = 250_000_000, max_probes_per_day = 300, max_open_positions = 2, max_daily_loss_lamports = 1_000_000_000 } # ~200 landed trades
 # kill: EV per attempt (failures included) 90% upper bound < 0 after min_landed landed or min_attempts attempts,
 # median realised premium > max_median_premium, or landing below break-even over landing_attempts (shadow_gate.py --probe)

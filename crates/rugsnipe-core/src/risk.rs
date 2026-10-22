@@ -495,12 +495,26 @@ impl RiskGate {
         None
     }
 
+    /// The hour cap in force at `now_unix`: the whole cap, or with
+    /// `spread_buys_per_hour` the share of it the elapsed part of the hour
+    /// has released (one buy per `3600 / cap` seconds, the first at once).
+    fn hour_cap_now(&self, now_unix: u64) -> u64 {
+        let cap = self.caps.max_buys_per_hour;
+        if !self.caps.spread_buys_per_hour || cap == 0 || cap >= 3_600 {
+            return cap;
+        }
+        let window = 3_600 / cap;
+        ((now_unix % 3_600) / window + 1).min(cap)
+    }
+
     fn counted_would_skip(&self, i: &DecideInput) -> Option<SkipReason> {
         let c = &self.caps;
         if self.open_positions.load(Acquire) >= c.max_open_positions {
             return Some(SkipReason::MaxOpenPositions);
         }
-        if packed_count(self.buys_hour.load(Acquire), hour_of(i.now_unix)) >= c.max_buys_per_hour {
+        if packed_count(self.buys_hour.load(Acquire), hour_of(i.now_unix))
+            >= self.hour_cap_now(i.now_unix)
+        {
             return Some(SkipReason::MaxBuysPerHour);
         }
         let op = self.ops.get(i.op_slot)?;
@@ -571,7 +585,7 @@ impl RiskGate {
         {
             return Decision::Skip(SkipReason::MaxOpenPositions);
         }
-        if !packed_try_inc(&self.buys_hour, hour, c.max_buys_per_hour) {
+        if !packed_try_inc(&self.buys_hour, hour, self.hour_cap_now(i.now_unix)) {
             self.release_unfilled();
             return Decision::Skip(SkipReason::MaxBuysPerHour);
         }
@@ -632,6 +646,66 @@ mod tests {
         let g = RiskGate::new(caps());
         g.set_hot_balance(3_000_000_000);
         g
+    }
+
+    #[test]
+    fn spread_releases_one_buy_per_window() {
+        let mut c = caps();
+        c.max_buys_per_hour = 12;
+        c.spread_buys_per_hour = true;
+        c.max_open_positions = 100;
+        c.max_buys_per_op_per_day = 100;
+        let g = RiskGate::new(c);
+        g.set_hot_balance(3_000_000_000);
+        let hour0 = 1_791_968_762 / 3_600 * 3_600;
+        let at = |s: u64| {
+            let mut i = inp(Mode::Live);
+            i.now_unix = hour0 + s;
+            i
+        };
+        // first minute: one buy, the second waits for the next 5-minute window
+        assert_eq!(g.decide(&at(10)), Decision::Fire);
+        assert_eq!(
+            g.decide(&at(20)),
+            Decision::Skip(SkipReason::MaxBuysPerHour)
+        );
+        assert_eq!(
+            g.decide(&at(299)),
+            Decision::Skip(SkipReason::MaxBuysPerHour)
+        );
+        assert_eq!(g.decide(&at(300)), Decision::Fire);
+        assert_eq!(
+            g.decide(&at(301)),
+            Decision::Skip(SkipReason::MaxBuysPerHour)
+        );
+        // quiet windows carry over: at 20 min three more are available
+        assert_eq!(g.decide(&at(1_200)), Decision::Fire);
+        assert_eq!(g.decide(&at(1_200)), Decision::Fire);
+        assert_eq!(g.decide(&at(1_200)), Decision::Fire);
+        assert_eq!(
+            g.decide(&at(1_200)),
+            Decision::Skip(SkipReason::MaxBuysPerHour)
+        );
+        // the last window still caps the hour at 12
+        for _ in 0..7 {
+            assert_eq!(g.decide(&at(3_599)), Decision::Fire);
+        }
+        assert_eq!(
+            g.decide(&at(3_599)),
+            Decision::Skip(SkipReason::MaxBuysPerHour)
+        );
+        // a new hour starts over
+        assert_eq!(g.decide(&at(3_600)), Decision::Fire);
+        // off: first-come
+        let mut c = caps();
+        c.max_buys_per_hour = 3;
+        c.max_open_positions = 100;
+        let g = RiskGate::new(c);
+        g.set_hot_balance(3_000_000_000);
+        for _ in 0..3 {
+            assert_eq!(g.decide(&at(1)), Decision::Fire);
+        }
+        assert_eq!(g.decide(&at(1)), Decision::Skip(SkipReason::MaxBuysPerHour));
     }
 
     #[test]
