@@ -68,6 +68,7 @@ use rugsnipe_exit::{
     SellOrder, Trade, Venue,
 };
 use rugsnipe_feed::clock::mono_ns;
+use rugsnipe_feed::health::MissKind;
 use rugsnipe_feed::wiremeta::{WireMeta, EMPTY_INNER, MAX_INNER, MAX_LOADED};
 use rugsnipe_feed::{Feed, FeedBuf, FeedEvent, FeedSrc, FeedStatus, Fired, FiredSet, Payload};
 use rugsnipe_tx::nonce::NoncePool;
@@ -619,9 +620,9 @@ impl HotLoop {
                         };
                         let loaded = (nl > 0).then(|| &self.loaded[..nl]);
                         pump_codec::create_hit(&tx, loaded, &inner[..ni], self.cfg.fees)
-                            .map_err(|_| ())
+                            .map_err(|e| MissKind::of_hit(&e))
                     }
-                    Err(_) => Err(()),
+                    Err(e) => Err(MissKind::of_decode(&e)),
                 };
                 match res {
                     Ok(Some(mut hit)) => {
@@ -629,8 +630,12 @@ impl HotLoop {
                         self.on_create(ev.src, ev.recv_ns, ev.slot, ev.bank_id, &hit, t0);
                     }
                     Ok(None) => {}
-                    Err(()) => {
+                    Err(kind) => {
+                        // counted by kind (a match and two atomic adds: the
+                        // error is never formatted here); the adapter's line
+                        // for the same signature says which shape it was
                         self.stats.wire_misses.inc();
+                        self.stats.wire_miss_kind[kind as usize].inc();
                     }
                 }
             }

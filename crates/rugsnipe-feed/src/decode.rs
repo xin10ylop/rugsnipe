@@ -536,11 +536,62 @@ mod tests {
         );
         assert_eq!(parse_pumpportal("[]"), PpMsg::Other);
     }
+
+    #[test]
+    fn logs_create_without_event_is_a_logs_miss() {
+        let sig = bs58::encode(&[5u8; 64][..]).into_string();
+        let logs = |failed: bool| LogsNote {
+            subscription: 1,
+            slot: 5,
+            signature: Cow::Owned(sig.clone()),
+            failed,
+            logs: vec![
+                Cow::Borrowed("Program 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P invoke [1]"),
+                Cow::Borrowed("Program log: Instruction: Create"),
+                Cow::Borrowed("Program 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P success"),
+            ],
+        };
+        let health = FeedHealth::new(FeedSrc::LogsWs, 0);
+        let mut dec = FrameDecoder::new();
+        let n = logs(false);
+        let o = dec.logs_note(FeedSrc::LogsWs, 0, &n, false, &health, &mut |_| {
+            panic!("nothing emitted")
+        });
+        assert!(o.is_miss());
+        assert_eq!(
+            health
+                .decode_miss
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+        assert_eq!(
+            health.decode_miss_kind[MissKind::Logs as usize]
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+        assert_eq!(health.creates.load(std::sync::atomic::Ordering::Relaxed), 0);
+        // a failed transaction is not a miss
+        let n = logs(true);
+        let o = dec.logs_note(FeedSrc::LogsWs, 0, &n, false, &health, &mut |_| {
+            panic!("nothing emitted")
+        });
+        assert!(!o.is_miss() && o.failed);
+        assert_eq!(
+            health.failed_tx.load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+        assert_eq!(
+            health
+                .decode_miss
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+    }
 }
 
 // ------------------------------------------------------- frame -> FeedEvents
 use crate::event::{FeedEvent, FeedSrc, Payload};
-use crate::health::FeedHealth;
+use crate::health::{log_gate, miss_line, FeedHealth, MissInfo, MissKind};
 
 /// Turns raw frames into [`FeedEvent`]s and keeps the health counters.
 /// Owns a reusable scratch vector (no per-frame allocation besides the JSON parse).
@@ -582,7 +633,45 @@ impl FrameDecoder {
                 .fetch_add(o.decode_errors as u64, std::sync::atomic::Ordering::Relaxed);
         }
         if o.is_miss() {
-            FeedHealth::inc(&health.decode_miss);
+            let n = health.miss(MissKind::Logs);
+            // replay loads stay quiet (the loader's summary prints decode_miss)
+            if log_gate(n) && src != FeedSrc::Replay {
+                let mut info = MissInfo::blank(MissKind::Logs);
+                info.slot = note.slot;
+                info.sig = sig.0;
+                info.ordinal = n;
+                for l in &note.logs {
+                    // top-level programs: "Program <id> invoke [1]"
+                    let Some((id, tail)) = l
+                        .as_ref()
+                        .strip_prefix("Program ")
+                        .and_then(|r| r.split_once(' '))
+                    else {
+                        continue;
+                    };
+                    if tail != "invoke [1]" {
+                        continue;
+                    }
+                    if (info.n_programs as usize) < info.programs.len() {
+                        if let Ok(p) = id.parse::<Pubkey>() {
+                            info.programs[info.n_programs as usize] = p;
+                            info.n_programs += 1;
+                        }
+                    }
+                    info.n_ix = info.n_ix.saturating_add(1);
+                }
+                eprintln!(
+                    "{}",
+                    miss_line(
+                        src.name(),
+                        &info,
+                        &format_args!(
+                            "no CreateEvent (decode_errors {}, truncated {}, trades {})",
+                            o.decode_errors, o.truncated, o.trades
+                        )
+                    )
+                );
+            }
         }
         if let Some(h) = o.hit {
             FeedHealth::inc(&health.creates);

@@ -41,7 +41,7 @@ use crate::bundle::{BundleAssembler, BundleRun, RunTrade};
 use crate::clock::mono_ns;
 use crate::decode::decode_logs;
 use crate::event::{FeedEvent, FeedSrc, Payload, Sig, TradeLite};
-use crate::health::FeedHealth;
+use crate::health::{log_gate, miss_line, FeedHealth, MissInfo, MissKind};
 use crate::ring::{ring, RingFeed, RingSink};
 use crate::wiremeta;
 use crate::wirering::{wire_ring, WireSink, WireSource};
@@ -49,7 +49,8 @@ use crate::{Feed, FeedStatus};
 use futures_util::{SinkExt, StreamExt};
 use pump_codec::constants::{MINT_AUTHORITY, PUMP_PROGRAM_ID};
 use pump_codec::events::{events_from_inner_instructions, InnerInstruction, PumpEvent};
-use pump_codec::Pubkey;
+use pump_codec::tx::{TxVersion, TxView};
+use pump_codec::{HitError, Pubkey};
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -424,6 +425,9 @@ struct Adapter {
     meta_buf: Vec<u8>,
     last_pos: (u64, u32),
     recent: HashMap<Pubkey, u64>,
+    /// A gated decode miss of the current transaction, printed by `on_tx`
+    /// after the wire push (never between the decode and the hot ring).
+    pending_miss: Option<(MissInfo, HitError)>,
 }
 
 impl Adapter {
@@ -451,6 +455,7 @@ impl Adapter {
             meta_buf: Vec::with_capacity(16 * 1024),
             last_pos: (0, 0),
             recent: HashMap::new(),
+            pending_miss: None,
         }
     }
 
@@ -711,10 +716,14 @@ impl Adapter {
             wiremeta::encode(&m, &mut self.meta_buf);
             // decode here too (cold side of the thread): health counters and
             // the mint of the bundle run; the hot thread decodes its own copy
-            created = self.check_create(&wire, &keys);
+            created = self.check_create(&wire, &keys, slot);
             if self.wire.push(recv, slot, u.bank_id, &wire, &self.meta_buf) {
                 self.stats.wire_events.fetch_add(1, Ordering::Relaxed);
                 self.health.event(slot);
+            }
+            // the miss line (a blocking stderr write) only after the push
+            if let Some((info, err)) = self.pending_miss.take() {
+                eprintln!("{}", miss_line(self.health.src.name(), &info, &err));
             }
         }
         let n = trades_of(u, &keys, &mut self.trades);
@@ -779,26 +788,86 @@ impl Adapter {
         }
     }
 
-    /// Decode the create on the adapter thread: health counters and the mint.
-    fn check_create(&self, wire: &[u8], keys: &[Pubkey]) -> Option<Pubkey> {
-        let tx = pump_codec::tx::TxView::parse(wire).ok()?;
-        let n_static = tx.static_account_keys().len();
-        let loaded = (keys.len() > n_static).then(|| &keys[n_static..]);
-        match pump_codec::create_hit(&tx, loaded, &[], pump_codec::curve::FeeBps::DEFAULT) {
-            Ok(Some(h)) => {
+    /// Decode the create on the adapter thread: health counters (creates,
+    /// decode misses by kind) and the mint for the bundle run. A gated miss
+    /// is parked in `pending_miss` for `on_tx` to print after the wire push.
+    fn check_create(&mut self, wire: &[u8], keys: &[Pubkey], slot: u64) -> Option<Pubkey> {
+        match classify_create(wire, keys) {
+            CreateCheck::Hit(mint) => {
                 FeedHealth::inc(&self.health.creates);
-                Some(h.mint)
+                Some(mint)
             }
-            Ok(None) => None,
-            Err(pump_codec::HitError::CpiCreateNeedsMeta { .. }) => {
+            CreateCheck::NeedsMeta => {
                 // a launcher CPI: the hot thread has the inner instructions
                 FeedHealth::inc(&self.health.creates);
                 None
             }
-            Err(_) => {
-                FeedHealth::inc(&self.health.decode_miss);
+            CreateCheck::NotCreate => None,
+            CreateCheck::Miss { err, mut info } => {
+                info.slot = slot;
+                info.ordinal = self.health.miss(info.kind);
+                if log_gate(info.ordinal) {
+                    self.pending_miss = Some((info, err));
+                }
                 None
             }
+        }
+    }
+}
+
+/// What the adapter-side decode of a `creates`-filter transaction found.
+#[derive(Debug, Clone, Copy)]
+pub enum CreateCheck {
+    /// A create of this mint.
+    Hit(Pubkey),
+    /// A launcher CPI create: only the hot thread (with the inner
+    /// instructions) can resolve the mint.
+    NeedsMeta,
+    /// Mentions the mint authority but creates nothing (expected: the
+    /// `creates` filter is a mention filter).
+    NotCreate,
+    /// A create-looking transaction the decoder rejected, with what the log
+    /// line needs (`info.slot` / `info.ordinal` are the caller's).
+    Miss { err: HitError, info: MissInfo },
+}
+
+/// Classify a `creates`-filter transaction as the adapter decodes it: no
+/// inner instructions (`create_hit` with an empty list), the ALT-loaded keys
+/// from `keys` (static keys first, then `meta.loadedAddresses`).
+///
+/// A transaction whose wire bytes do not parse is a `Miss` too (it feeds the
+/// decode-miss kill ratio): the bytes are our own re-serialization of the
+/// protobuf, so this is a codec bug and should stay at zero.
+pub fn classify_create(wire: &[u8], keys: &[Pubkey]) -> CreateCheck {
+    let tx = match TxView::parse(wire) {
+        Ok(tx) => tx,
+        Err(e) => {
+            return CreateCheck::Miss {
+                err: HitError::Decode(e),
+                info: MissInfo::blank(MissKind::of_decode(&e)),
+            };
+        }
+    };
+    let n_static = tx.static_account_keys().len();
+    let loaded = (keys.len() > n_static).then(|| &keys[n_static..]);
+    match pump_codec::create_hit(&tx, loaded, &[], pump_codec::curve::FeeBps::DEFAULT) {
+        Ok(Some(h)) => CreateCheck::Hit(h.mint),
+        Ok(None) => CreateCheck::NotCreate,
+        Err(HitError::CpiCreateNeedsMeta { .. }) => CreateCheck::NeedsMeta,
+        Err(e) => {
+            let mut info = MissInfo::blank(MissKind::of_hit(&e));
+            if let Some(sig) = tx.signature(0) {
+                info.sig = *sig;
+            }
+            for ix in tx.instructions().take(info.programs.len()) {
+                info.programs[info.n_programs as usize] = *tx.program_id(&ix);
+                info.n_programs += 1;
+            }
+            info.n_ix = tx.num_instructions().min(255) as u8;
+            info.lut = Some(tx.version() != TxVersion::Legacy);
+            info.loaded = Some(loaded.is_some());
+            info.inner = Some(false);
+            CreateCheck::Miss { err: e, info }
         }
     }
 }
@@ -841,5 +910,129 @@ mod tests {
             }
         );
         assert!(!dbg.contains("secret"), "the token is never printed");
+    }
+
+    /// A legacy transaction with one pump instruction of `disc ++ args`.
+    fn pump_tx(disc: [u8; 8], args: &[u8]) -> (Vec<u8>, Vec<Pubkey>) {
+        use yellowstone_grpc_proto::prelude::{
+            CompiledInstruction, Message, MessageHeader, Transaction,
+        };
+        let payer = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+        let keys = vec![payer, mint, MINT_AUTHORITY, PUMP_PROGRAM_ID];
+        let mut data = disc.to_vec();
+        data.extend_from_slice(args);
+        let tx = Transaction {
+            signatures: vec![vec![7; 64]],
+            message: Some(Message {
+                header: Some(MessageHeader {
+                    num_required_signatures: 1,
+                    num_readonly_signed_accounts: 0,
+                    num_readonly_unsigned_accounts: 2,
+                }),
+                account_keys: keys.iter().map(|k| k.to_bytes().to_vec()).collect(),
+                recent_blockhash: vec![3; 32],
+                instructions: vec![CompiledInstruction {
+                    program_id_index: 3,
+                    accounts: vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    data,
+                }],
+                ..Default::default()
+            }),
+        };
+        (convert::tx_to_wire(&tx).unwrap(), keys)
+    }
+
+    #[test]
+    fn malformed_create_is_counted_and_classified() {
+        use crate::wirering::wire_ring;
+        use pump_codec::constants::ix;
+        use pump_codec::DecodeError;
+        // borsh string of length 5 with one byte present
+        let (wire, keys) = pump_tx(ix::CREATE_V2, &[5, 0, 0, 0, b'a']);
+        let CreateCheck::Miss { err, info } = classify_create(&wire, &keys) else {
+            panic!("a miss");
+        };
+        assert!(
+            matches!(
+                err,
+                HitError::Decode(DecodeError::UnexpectedEof {
+                    offset: 12,
+                    needed: 4
+                })
+            ),
+            "{err:?}"
+        );
+        assert_eq!(info.kind, MissKind::Eof);
+        assert_eq!((info.n_programs, info.n_ix), (1, 1));
+        assert_eq!(info.programs[0], PUMP_PROGRAM_ID);
+        assert_eq!(info.sig, [7; 64]);
+        assert_eq!(
+            (info.lut, info.loaded, info.inner),
+            (Some(false), Some(false), Some(false))
+        );
+        // valid name / symbol / uri / creator, then is_mayhem_mode = 2
+        let mut args = vec![];
+        for s in ["name", "SYM", "https://x"] {
+            args.extend_from_slice(&(s.len() as u32).to_le_bytes());
+            args.extend_from_slice(s.as_bytes());
+        }
+        args.extend_from_slice(&[9; 32]);
+        args.push(2);
+        let (bad_bool, keys2) = pump_tx(ix::CREATE_V2, &args);
+        assert!(matches!(
+            classify_create(&bad_bool, &keys2),
+            CreateCheck::Miss {
+                err: HitError::Decode(DecodeError::InvalidBool { value: 2, .. }),
+                info: MissInfo {
+                    kind: MissKind::InvalidBool,
+                    ..
+                }
+            }
+        ));
+        // the legacy create takes the same path
+        let (legacy, keys3) = pump_tx(ix::CREATE, &[5, 0, 0, 0, b'a']);
+        assert!(matches!(
+            classify_create(&legacy, &keys3),
+            CreateCheck::Miss {
+                info: MissInfo {
+                    kind: MissKind::Eof,
+                    ..
+                },
+                ..
+            }
+        ));
+        // the adapter: counted by kind, the gate admits the first misses
+        let (sink, _feed, _stop) = ring(FeedSrc::Grpc, 64, 0);
+        let health = sink.health().clone();
+        let (wsink, _wire) = wire_ring(FeedSrc::Grpc, 1 << 16, health.clone());
+        let (btx, _brx) = std::sync::mpsc::sync_channel(4);
+        let mut a = Adapter::new(GrpcConfig::default(), sink, wsink, Arc::default(), btx);
+        assert_eq!(a.check_create(&wire, &keys, 1), None);
+        assert_eq!(a.check_create(&wire, &keys, 1), None);
+        assert_eq!(health.decode_miss.load(Ordering::Relaxed), 2);
+        assert_eq!(
+            health.decode_miss_kind[MissKind::Eof as usize].load(Ordering::Relaxed),
+            2
+        );
+        assert_eq!(health.creates.load(Ordering::Relaxed), 0);
+        let (info, err) = a.pending_miss.take().expect("gated miss parked");
+        assert_eq!((info.ordinal, info.slot, info.kind), (2, 1, MissKind::Eof));
+        let line = miss_line("grpc", &info, &err);
+        assert!(
+            line.contains(" n=2 slot=1 ") && line.contains(" kind=eof "),
+            "{line}"
+        );
+        // an unknown pump instruction that mentions the mint authority is the
+        // launcher-CPI shape: a create for the counters, never a miss
+        let (plain, keys4) = pump_tx([0; 8], &[]);
+        assert!(matches!(
+            classify_create(&plain, &keys4),
+            CreateCheck::NeedsMeta
+        ));
+        assert_eq!(a.check_create(&plain, &keys4, 2), None);
+        assert_eq!(health.creates.load(Ordering::Relaxed), 1);
+        assert_eq!(health.decode_miss.load(Ordering::Relaxed), 2);
+        assert!(a.pending_miss.is_none());
     }
 }

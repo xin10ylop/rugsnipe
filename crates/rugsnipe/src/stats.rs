@@ -7,6 +7,7 @@ use prometheus_client::metrics::family::Family;
 use prometheus_client::metrics::gauge::Gauge;
 use prometheus_client::registry::Registry;
 use rugsnipe_feed::event::SRC_COUNT;
+use rugsnipe_feed::health::{MissKind, MISS_KIND_COUNT};
 use rugsnipe_feed::FeedSrc;
 use rugsnipe_tx::senders::SenderId;
 
@@ -15,6 +16,10 @@ type Labels = Vec<(String, String)>;
 /// Pipeline decision codes recorded in rslog `Decision.code` next to the
 /// RiskGate codes (0 fire, 0x10 | paper reason, 0x20 | skip reason).
 pub mod code {
+    /// A real buy handed to the fire ring (probe/live only; paper records
+    /// its paper code instead), so `rugsnipe_decisions{outcome="fire"}`
+    /// counts real buys sent.
+    pub const FIRE: u8 = 0x00;
     pub const CLASS: u8 = 0x41;
     pub const NO_MATCH: u8 = 0x42;
     pub const SHADOW: u8 = 0x43;
@@ -43,7 +48,7 @@ pub mod code {
 
 /// `(code, label)` of every decision outcome.
 pub const DECISIONS: &[(u8, &str)] = &[
-    (0x00, "fire"),
+    (code::FIRE, "fire"),
     (0x11, "paper"),
     (0x12, "paper_regime_frozen"),
     (0x13, "paper_op_not_armed"),
@@ -104,6 +109,9 @@ pub struct HotStats {
     pub creates: [Counter; SRC_COUNT],
     pub dups: Counter,
     pub wire_misses: Counter,
+    /// `rugsnipe_feed_decode_miss_kind{src="hot",kind}`: the hot thread's
+    /// own decode of the wire copy, by [`MissKind`] (index = `kind as usize`).
+    pub wire_miss_kind: [Gauge; MISS_KIND_COUNT],
     decisions: [Option<Counter>; 256],
     decisions_other: Counter,
     pub intents: Counter,
@@ -129,6 +137,12 @@ pub struct HotStats {
     pub decision_p99_ns: Gauge,
     pub event_p99_ns: Gauge,
     pub killed: Gauge,
+    /// Unix time of the last real buy this run (0: none since start; a
+    /// restart with a persisted latch shows 0).
+    pub last_fire_unix: Gauge,
+    /// Minutes since the last real buy, or since start when none this run
+    /// (set every minute by the cold thread's dead-man tick).
+    pub minutes_since_fire: Gauge,
     pub mode: Gauge,
     pub armset_ver: Gauge,
     pub armset_age_s: Gauge,
@@ -137,6 +151,9 @@ pub struct HotStats {
     pub watch_dynamic: Gauge,
     pub feed_connected: [Gauge; SRC_COUNT],
     pub feed_decode_miss: [Gauge; SRC_COUNT],
+    /// `rugsnipe_feed_decode_miss_kind{src,kind}` set from the feed health
+    /// snapshots (`[src as usize][kind as usize]`).
+    pub feed_decode_miss_kind: [[Gauge; MISS_KIND_COUNT]; SRC_COUNT],
     pub feed_since_frame_ms: [Gauge; SRC_COUNT],
     pub feed_reconnects: [Gauge; SRC_COUNT],
     pub state_written: Gauge,
@@ -146,6 +163,14 @@ pub struct HotStats {
 fn child<M: Clone + Default>(f: &Family<Labels, M>, k: &str, v: &str) -> M {
     f.get_or_create(&vec![(k.to_string(), v.to_string())])
         .clone()
+}
+
+fn child2<M: Clone + Default>(f: &Family<Labels, M>, a: (&str, &str), b: (&str, &str)) -> M {
+    f.get_or_create(&vec![
+        (a.0.to_string(), a.1.to_string()),
+        (b.0.to_string(), b.1.to_string()),
+    ])
+    .clone()
 }
 
 impl HotStats {
@@ -183,6 +208,11 @@ impl HotStats {
             "rugsnipe_feed_decode_miss",
             "Creates without a decodable CreateEvent",
         );
+        let fk = fam_g(
+            reg,
+            "rugsnipe_feed_decode_miss_kind",
+            "Creates without a decodable CreateEvent by failure kind (src=hot: the hot thread's decode of the wire copy)",
+        );
         let fs = fam_g(
             reg,
             "rugsnipe_feed_since_frame_ms",
@@ -212,6 +242,9 @@ impl HotStats {
                 "rugsnipe_wire_decode_errors",
                 "Wire payloads that failed to decode",
             ),
+            wire_miss_kind: std::array::from_fn(|k| {
+                child2(&fk, ("src", "hot"), ("kind", MissKind::ALL[k].name()))
+            }),
             decisions,
             decisions_other: child(&dec, "outcome", "other"),
             intents: c(reg, "rugsnipe_intents", "Intents (paper or real)"),
@@ -277,6 +310,16 @@ impl HotStats {
                 "Per-event hot loop time, p99 (ns)",
             ),
             killed: g(reg, "rugsnipe_killed", "Kill latch set"),
+            last_fire_unix: g(
+                reg,
+                "rugsnipe_last_fire_unix",
+                "Unix time of the last real buy sent (0: none this run)",
+            ),
+            minutes_since_fire: g(
+                reg,
+                "rugsnipe_minutes_since_fire",
+                "Minutes since the last real buy, or since start when none this run",
+            ),
             mode: g(reg, "rugsnipe_mode", "0 paper, 1 probe, 2 live"),
             armset_ver: g(reg, "rugsnipe_armset_ver", "Loaded ArmSet version"),
             armset_age_s: g(reg, "rugsnipe_armset_age_s", "ArmSet age"),
@@ -293,6 +336,15 @@ impl HotStats {
             watch_dynamic: g(reg, "rugsnipe_watch_dynamic", "Dynamic watchlist entries"),
             feed_connected: srcg(&fc),
             feed_decode_miss: srcg(&fm),
+            feed_decode_miss_kind: std::array::from_fn(|i| {
+                std::array::from_fn(|k| {
+                    child2(
+                        &fk,
+                        ("src", FeedSrc::ALL[i].name()),
+                        ("kind", MissKind::ALL[k].name()),
+                    )
+                })
+            }),
             feed_since_frame_ms: srcg(&fs),
             feed_reconnects: srcg(&fr),
             state_written: g(reg, "rugsnipe_state_written", "state.db statements written"),
@@ -321,6 +373,11 @@ impl HotStats {
             .unwrap_or(0)
     }
 
+    /// Distinct creates seen (first copies, summed over the feed sources).
+    pub fn creates_total(&self) -> u64 {
+        self.creates.iter().map(|c| c.get()).sum()
+    }
+
     /// `(label, count)` of every non-zero decision outcome.
     pub fn decision_counts(&self) -> Vec<(&'static str, u64)> {
         let mut v: Vec<(&'static str, u64)> = DECISIONS
@@ -340,4 +397,75 @@ pub fn encode(reg: &Registry) -> String {
     let mut s = String::new();
     let _ = prometheus_client::encoding::text::encode(&mut s, reg);
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_miss_kind_children_exist_for_every_kind_and_source() {
+        let mut reg = Registry::default();
+        let st = HotStats::new(&mut reg);
+        let text = encode(&reg);
+        assert!(text.contains("rugsnipe_feed_decode_miss_kind{"), "{text}");
+        for k in MissKind::ALL {
+            let kind = format!("kind=\"{}\"", k.name());
+            assert!(text.contains(&kind), "{kind} in the exposition");
+            for src in FeedSrc::ALL {
+                let want = format!(
+                    "rugsnipe_feed_decode_miss_kind{{src=\"{}\",kind=\"{}\"}} 0",
+                    src.name(),
+                    k.name()
+                );
+                assert!(text.contains(&want), "{want}");
+            }
+            let hot = format!(
+                "rugsnipe_feed_decode_miss_kind{{src=\"hot\",kind=\"{}\"}} 0",
+                k.name()
+            );
+            assert!(text.contains(&hot), "{hot}");
+        }
+        st.wire_miss_kind[MissKind::Eof as usize].inc();
+        st.feed_decode_miss_kind[FeedSrc::Grpc as usize][MissKind::InvalidBool as usize].set(3);
+        let text = encode(&reg);
+        assert!(text.contains("rugsnipe_feed_decode_miss_kind{src=\"hot\",kind=\"eof\"} 1"));
+        assert!(
+            text.contains("rugsnipe_feed_decode_miss_kind{src=\"grpc\",kind=\"invalid_bool\"} 3")
+        );
+        assert_eq!(st.wire_miss_kind[MissKind::Eof as usize].get(), 1);
+    }
+
+    #[test]
+    fn dead_man_gauges_and_fire_count_are_registered() {
+        let mut reg = Registry::default();
+        let st = HotStats::new(&mut reg);
+        let text = encode(&reg);
+        assert!(text.contains("rugsnipe_last_fire_unix 0"), "{text}");
+        assert!(text.contains("rugsnipe_minutes_since_fire 0"), "{text}");
+        st.last_fire_unix.set(1_761_100_000);
+        st.minutes_since_fire.set(17);
+        st.creates[FeedSrc::Grpc as usize].inc();
+        st.creates[FeedSrc::Grpc as usize].inc();
+        st.creates[0].inc();
+        st.decision(code::FIRE);
+        st.decision(code::LATE_SLOT);
+        let text = encode(&reg);
+        assert!(
+            text.contains("rugsnipe_last_fire_unix 1761100000"),
+            "{text}"
+        );
+        assert!(text.contains("rugsnipe_minutes_since_fire 17"), "{text}");
+        assert_eq!(st.creates_total(), 3);
+        assert_eq!(st.decision_count(code::FIRE), 1);
+        assert!(
+            text.contains("rugsnipe_decisions_total{outcome=\"fire\"} 1"),
+            "{text}"
+        );
+        assert_eq!(
+            st.decision_counts(),
+            vec![("fire", 1), ("late_slot", 1)],
+            "DECISIONS order, non-zero only"
+        );
+    }
 }

@@ -18,11 +18,17 @@ use rugsnipe_feed::bundle::CloseReason;
 use rugsnipe_feed::grpc::convert::{tx_to_wire, wire_to_tx};
 use rugsnipe_feed::grpc::mock::{fixture_update, ping_update, slot_update, MockServer};
 use rugsnipe_feed::grpc::{Grpc, GrpcConfig, F_CREATES, F_MINTS, F_PUMP, F_WALLET};
+use rugsnipe_feed::health::MissKind;
 use rugsnipe_feed::wiremeta::{self, WireMeta, EMPTY_INNER, MAX_INNER, MAX_LOADED};
 use rugsnipe_feed::{Feed, FeedBuf, Payload};
 use serde_json::Value;
 use std::sync::atomic::Ordering::Relaxed;
 use std::time::{Duration, Instant};
+use yellowstone_grpc_proto::prelude::subscribe_update::UpdateOneof;
+use yellowstone_grpc_proto::prelude::{
+    CompiledInstruction, Message, MessageHeader, SubscribeUpdate, SubscribeUpdateTransaction,
+    SubscribeUpdateTransactionInfo, Transaction, TransactionStatusMeta,
+};
 
 fn fixture(name: &str) -> Value {
     let p = format!(
@@ -190,6 +196,114 @@ fn first_trade(f: &Value) -> (Pubkey, Pubkey) {
     let mut trades = vec![];
     rugsnipe_feed::decode::decode_logs(0, Default::default(), false, &logs, &mut trades);
     (trades[0].user, trades[0].mint)
+}
+
+/// A `creates`-filter update of a hand-made legacy transaction whose pump
+/// CreateV2 arguments are cut short (a borsh string of length 5 with one
+/// byte present): the decoder rejects it with `UnexpectedEof`.
+fn malformed_create_update(slot: u64, index: u64) -> SubscribeUpdate {
+    use pump_codec::constants::{ix, MINT_AUTHORITY, PUMP_PROGRAM_ID};
+    let keys = [
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+        MINT_AUTHORITY,
+        PUMP_PROGRAM_ID,
+    ];
+    let mut data = ix::CREATE_V2.to_vec();
+    data.extend_from_slice(&[5, 0, 0, 0, b'a']);
+    let tx = Transaction {
+        signatures: vec![vec![7; 64]],
+        message: Some(Message {
+            header: Some(MessageHeader {
+                num_required_signatures: 1,
+                num_readonly_signed_accounts: 0,
+                num_readonly_unsigned_accounts: 2,
+            }),
+            account_keys: keys.iter().map(|k| k.to_bytes().to_vec()).collect(),
+            recent_blockhash: vec![3; 32],
+            instructions: vec![CompiledInstruction {
+                program_id_index: 3,
+                accounts: vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                data,
+            }],
+            ..Default::default()
+        }),
+    };
+    SubscribeUpdate {
+        filters: vec![F_CREATES.to_string()],
+        update_oneof: Some(UpdateOneof::Transaction(SubscribeUpdateTransaction {
+            transaction: Some(SubscribeUpdateTransactionInfo {
+                signature: vec![7; 64],
+                is_vote: false,
+                transaction: Some(tx),
+                meta: Some(TransactionStatusMeta::default()),
+                index,
+            }),
+            slot,
+            bank_id: 0,
+        })),
+        created_at: None,
+    }
+}
+
+#[test]
+fn malformed_create_is_a_counted_miss_end_to_end() {
+    let srv = MockServer::start(None);
+    let mut g = Grpc::spawn(GrpcConfig {
+        url: srv.url(),
+        stale_ms: 2_000,
+        ..Default::default()
+    })
+    .unwrap();
+    let h = g.handle();
+    wait("connection", 10, || {
+        srv.geyser.connected() && !srv.geyser.requests().is_empty()
+    });
+    let slot = 456_000_100u64;
+    let good = fixture("v0_create_v2_buy_v3");
+    assert!(srv
+        .geyser
+        .push(fixture_update(&good, slot, 1, &[F_CREATES]).unwrap()));
+    assert!(srv.geyser.push(malformed_create_update(slot, 2)));
+    wait("the miss is counted", 10, || {
+        h.health().decode_miss.load(Relaxed) == 1
+    });
+    assert_eq!(
+        h.health().decode_miss_kind[MissKind::Eof as usize].load(Relaxed),
+        1
+    );
+    wait("the good create is counted", 10, || {
+        h.health().creates.load(Relaxed) == 1
+    });
+    // both reach the hot ring; the hot side rejects the same bytes the same way
+    let mut buf = FeedBuf::with_capacity(256, 1 << 20);
+    let mut seen = vec![];
+    wait("two wire events", 10, || {
+        buf.clear();
+        g.poll(&mut buf);
+        for e in buf.events() {
+            if let Payload::Wire(w) = e.payload {
+                seen.push(hot_decode(buf.wire_tx(w), buf.wire_meta(w)).map(|h| h.map(|h| h.mint)));
+            }
+        }
+        seen.len() == 2
+    });
+    assert!(matches!(seen[0], Ok(Some(_))), "{:?}", seen[0]);
+    assert!(
+        matches!(
+            seen[1],
+            Err(pump_codec::HitError::Decode(
+                pump_codec::DecodeError::UnexpectedEof {
+                    offset: 12,
+                    needed: 4
+                }
+            ))
+        ),
+        "{:?}",
+        seen[1]
+    );
+    assert_eq!(h.health().creates.load(Relaxed), 1);
+    assert_eq!(h.health().decode_miss.load(Relaxed), 1);
 }
 
 #[test]

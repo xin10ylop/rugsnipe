@@ -9,6 +9,7 @@
 //! | [`leader`] | leader schedule per epoch + `getClusterNodes` classes (Jito-Agave, BAM, Harmonic, Firedancer, other), a lock-free per-slot snapshot for the hot loop |
 //! | [`triggers`] | the kill triggers of docs/06 section 13 as pure evaluators (send errors, unexplained drop, upgrade, disk, clock, drift, feed stale, marked-to-market daily loss) |
 //! | [`alerts`] | optional Telegram alerts (start, kill, hourly) and `/kill` polling, off the hot thread |
+//! | [`deadman`] | dead-man check (no real buys while launches keep flowing): a 15-minute ring of per-minute create/fire deltas from the hot thread's counters, pure; the cold thread ticks it every minute and alerts at most hourly |
 //! | [`real`] | the real fill lane (probe): signature statuses, our own TradeEvent, `meta.fee` of failed buys, landing rank and premium, drops after the nonce burn, sells and balances |
 //! | [`cold`] | cold thread (tokio current-thread runtime): ledger -> `state.db`, kill file + SIGUSR1 latch, exits lease, simulated nonce keeper, funding watcher updates, ArmSet reload, paper E2 fill lane, Prometheus metrics |
 //! | [`e1`] | paper fill model E1 (rank 1 behind the bundle, docs/04): creation-slot reconstruction, verdict, replay tape |
@@ -30,6 +31,7 @@ pub mod app;
 pub mod cli;
 pub mod cold;
 pub mod convert;
+pub mod deadman;
 pub mod e1;
 pub mod e2;
 pub mod filter;

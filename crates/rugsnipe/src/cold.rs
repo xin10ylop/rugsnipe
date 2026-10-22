@@ -780,6 +780,9 @@ struct Cold {
     first_trigger: Option<(String, String)>,
     pd_baseline: Option<trig::ProgramData>,
     hourly_at: u64,
+    /// "No real buys while launches keep flowing": ticked every minute from
+    /// the hot thread's counters; one stderr line + one alert per hour at most.
+    deadman: crate::deadman::DeadMan,
     /// Creator set of each pending intent's mint (feed bundle runs).
     mint_info: HashMap<Pubkey, (u64, Pubkey, Pubkey)>,
 }
@@ -813,6 +816,13 @@ impl Cold {
         );
         lock(&p.report).paper.filter = lane.report.clone();
         let tc = p.cfg.triggers.clone();
+        let now = crate::now_unix();
+        let deadman = crate::deadman::DeadMan::new(
+            now,
+            p.stats.creates_total(),
+            p.stats.decision_count(crate::stats::code::FIRE),
+            p.stats.decision_counts(),
+        );
         Self {
             lane,
             p,
@@ -845,7 +855,8 @@ impl Cold {
             lanes_stop: Arc::new(AtomicBool::new(false)),
             first_trigger: None,
             pd_baseline: tc.programdata_baseline,
-            hourly_at: crate::now_unix() + 3_600,
+            hourly_at: now + 3_600,
+            deadman,
             mint_info: HashMap::new(),
         }
     }
@@ -1304,6 +1315,7 @@ impl Cold {
                         spend.saturating_add(self.p.cfg.triggers.spend_pad_lamports),
                         crate::now_ms(),
                     );
+                    self.deadman.on_fire(crate::now_unix());
                 }
                 if let Some(i) = self.nonce_intent.get_mut(nonce_idx as usize) {
                     *i = intent;
@@ -2492,7 +2504,8 @@ impl Cold {
         }
     }
 
-    /// Disk, clock (every minute), Telegram's hourly summary.
+    /// Disk, clock (every minute), the dead-man check, Telegram's hourly
+    /// summary.
     fn every_minute(&mut self) {
         let t = self.p.cfg.triggers.clone();
         if let Some(dir) = &t.state_dir {
@@ -2525,6 +2538,8 @@ impl Cold {
             }
         }
         let now = crate::now_unix();
+        // after this minute's kill triggers, so a fresh kill is named
+        self.dead_man(now);
         if now >= self.hourly_at {
             self.hourly_at = now + 3_600;
             if self.p.cfg.alerts.as_ref().is_some_and(|a| a.hourly) {
@@ -2544,6 +2559,44 @@ impl Cold {
                     r.kill_reason.as_deref().unwrap_or("no")
                 ));
             }
+        }
+    }
+
+    /// Tick the dead-man ring from the hot thread's counters, set the
+    /// `rugsnipe_last_fire_unix` / `rugsnipe_minutes_since_fire` gauges and,
+    /// in a real mode, write the alert (one stderr line + one Telegram
+    /// message, the same text) when launches flowed for 15 minutes without
+    /// a buy; at most once an hour. Kills, clears and resets nothing.
+    fn dead_man(&mut self, now: u64) {
+        let st = &self.p.stats;
+        self.deadman.tick(
+            now,
+            st.creates_total(),
+            st.decision_count(crate::stats::code::FIRE),
+            st.decision_counts(),
+        );
+        st.last_fire_unix
+            .set(self.deadman.last_fire_unix().unwrap_or(0) as i64);
+        st.minutes_since_fire
+            .set(self.deadman.minutes_since_fire(now) as i64);
+        if !self.p.cfg.mode.is_real() {
+            return;
+        }
+        if let Some(v) = self.deadman.check(now) {
+            let kill = self
+                .p
+                .risk
+                .kill_reason()
+                .map(|k| match &self.first_trigger {
+                    Some((n, d)) => format!("{} ({n}: {d})", k.name()),
+                    None => k.name().to_string(),
+                });
+            let text =
+                crate::deadman::text(&self.p.cfg.box_id, self.mode_str(), &v, kill.as_deref());
+            eprintln!("{text}");
+            // a no-op when Telegram is off; the stderr line still reaches the journal
+            self.alerts.send(text);
+            self.deadman.alerted(now);
         }
     }
 
@@ -2713,6 +2766,9 @@ impl Cold {
             let i = s.src as usize;
             self.p.stats.feed_connected[i].set(s.connected as i64);
             self.p.stats.feed_decode_miss[i].set(s.decode_miss as i64);
+            for (k, g) in self.p.stats.feed_decode_miss_kind[i].iter().enumerate() {
+                g.set(s.decode_miss_kind[k] as i64);
+            }
             self.p.stats.feed_since_frame_ms[i].set(s.since_frame_ms.min(i64::MAX as u64) as i64);
             self.p.stats.feed_reconnects[i].set(s.reconnects as i64);
             let n = s.creates + s.decode_miss;
