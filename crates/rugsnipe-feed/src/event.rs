@@ -198,6 +198,10 @@ pub struct TradeLite {
     pub sig: Sig,
     /// Ordinal of this TradeEvent in its transaction (dedup key part).
     pub ordinal: u8,
+    /// Transaction index in its block (`u32::MAX` when the feed gave none:
+    /// the logs path). The bundle gate needs it: a bundle buy sits within
+    /// `RUN_MAX_AFTER` indices after the create.
+    pub index: u32,
 }
 
 /// Wire bytes of a transaction, stored in a [`crate::FeedBuf`] arena:

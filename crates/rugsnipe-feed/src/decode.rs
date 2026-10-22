@@ -279,6 +279,7 @@ pub fn decode_logs<S: AsRef<str>>(
                     virtual_token_reserves: t.virtual_token_reserves,
                     slot,
                     sig,
+                    index: u32::MAX,
                     ordinal,
                 });
                 out.trades += 1;

@@ -138,6 +138,7 @@ pub fn trade(
         slot,
         sig: sig(n),
         ordinal: 0,
+        index: u32::MAX,
     }
 }
 

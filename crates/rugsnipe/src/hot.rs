@@ -67,6 +67,7 @@ use rugsnipe_exit::{
     decide_into, BundleSet, ExitAction, ExitEvent, ExitPolicy, Now, Position, PositionState,
     SellOrder, Trade, Venue,
 };
+use rugsnipe_feed::bundle::RUN_MAX_AFTER;
 use rugsnipe_feed::clock::mono_ns;
 use rugsnipe_feed::event::TradeLite;
 use rugsnipe_feed::health::MissKind;
@@ -406,20 +407,32 @@ pub struct Parked {
     pub intent: u64,
     pub rates: (Option<u32>, Option<u32>),
     pub parked_ns: u64,
+    /// The create's transaction index in its block (`u32::MAX` unknown).
+    pub create_index: u32,
 }
 
 /// Whether `t` is the bundle buy a parked create waits for: a buy of the
-/// mint in the create slot by a wallet that is neither ours nor the
-/// creator's (the create's signer or `creator` argument).
+/// mint in the create slot, within [`RUN_MAX_AFTER`] transactions after the
+/// create in block order (the dev's bundle, the in-class launch:
+/// `feed_bundle.bundle_wallets`), by a wallet that is neither ours nor the
+/// creator's (the create's signer or `creator` argument). A buy further
+/// down the block is another sniper, not the bundle: buying behind one is
+/// the entry the LEAD policy was not scored on. Unknown indices never
+/// trigger.
 pub fn bundle_buy_triggers(
     hit: &CreateHit,
     create_slot: u64,
+    create_index: u32,
     t: &TradeLite,
     owner: &Pubkey,
 ) -> bool {
     t.mint == hit.mint
         && t.is_buy
         && t.slot == create_slot
+        && create_index != u32::MAX
+        && t.index != u32::MAX
+        && t.index > create_index
+        && t.index <= create_index.saturating_add(RUN_MAX_AFTER)
         && t.user != *owner
         && t.user != hit.user
         && t.user != hit.creator_arg
@@ -658,6 +671,7 @@ impl HotLoop {
                     ev.bank_id,
                     &hit,
                     t0,
+                    u32::MAX,
                 );
             }
             Payload::Wire(w) => {
@@ -684,7 +698,16 @@ impl HotLoop {
                 match res {
                     Ok(Some(mut hit)) => {
                         hit.slot = Some(ev.slot);
-                        self.on_create(ev.src, ev.recv_ns, ev.slot, ev.bank_id, &hit, t0);
+                        let create_index = meta.and_then(|m| m.tx_index).unwrap_or(u32::MAX);
+                        self.on_create(
+                            ev.src,
+                            ev.recv_ns,
+                            ev.slot,
+                            ev.bank_id,
+                            &hit,
+                            t0,
+                            create_index,
+                        );
                     }
                     Ok(None) => {}
                     Err(kind) => {
@@ -755,6 +778,7 @@ impl HotLoop {
         });
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn on_create(
         &mut self,
         src: FeedSrc,
@@ -763,6 +787,7 @@ impl HotLoop {
         bank_id: u64,
         hit: &CreateHit,
         t0: u64,
+        create_index: u32,
     ) {
         self.counters.creates += 1;
         self.stats.creates[src as usize].inc();
@@ -821,6 +846,7 @@ impl HotLoop {
                 intent,
                 rates,
                 parked_ns: mono_ns(),
+                create_index,
             });
             return;
         }
@@ -871,7 +897,7 @@ impl HotLoop {
         let Some(p) = self.parked[i] else {
             return false;
         };
-        if !bundle_buy_triggers(&p.hit, p.slot, t, &self.owner) {
+        if !bundle_buy_triggers(&p.hit, p.slot, p.create_index, t, &self.owner) {
             return true;
         }
         self.parked[i] = None;
@@ -2538,7 +2564,7 @@ mod bundle_gate_tests {
         })
     }
 
-    fn trade(mint: Pubkey, user: Pubkey, is_buy: bool, slot: u64) -> TradeLite {
+    fn trade(mint: Pubkey, user: Pubkey, is_buy: bool, slot: u64, index: u32) -> TradeLite {
         TradeLite {
             mint,
             user,
@@ -2551,11 +2577,12 @@ mod bundle_gate_tests {
             slot,
             sig: Sig([9; 64]),
             ordinal: 0,
+            index,
         }
     }
 
     #[test]
-    fn only_another_wallets_buy_in_the_create_slot_fires_a_parked_create() {
+    fn only_a_bundle_buy_right_behind_the_create_fires_a_parked_create() {
         let (owner, dev, creator, other) = (
             Pubkey::new_unique(),
             Pubkey::new_unique(),
@@ -2563,48 +2590,34 @@ mod bundle_gate_tests {
             Pubkey::new_unique(),
         );
         let h = hit(dev, creator);
-        assert!(bundle_buy_triggers(
-            &h,
-            100,
-            &trade(h.mint, other, true, 100),
-            &owner
-        ));
+        // the create is transaction 10 of its block; the bundle follows it
+        let ci = 10;
+        let ok = |t: &TradeLite| bundle_buy_triggers(&h, 100, ci, t, &owner);
+        assert!(ok(&trade(h.mint, other, true, 100, ci + 1)));
+        assert!(ok(&trade(h.mint, other, true, 100, ci + RUN_MAX_AFTER)));
         // the dev's own buy, the creator's, ours: not a bundle
-        assert!(!bundle_buy_triggers(
-            &h,
-            100,
-            &trade(h.mint, dev, true, 100),
-            &owner
-        ));
-        assert!(!bundle_buy_triggers(
-            &h,
-            100,
-            &trade(h.mint, creator, true, 100),
-            &owner
-        ));
-        assert!(!bundle_buy_triggers(
-            &h,
-            100,
-            &trade(h.mint, owner, true, 100),
-            &owner
-        ));
+        assert!(!ok(&trade(h.mint, dev, true, 100, ci + 1)));
+        assert!(!ok(&trade(h.mint, creator, true, 100, ci + 1)));
+        assert!(!ok(&trade(h.mint, owner, true, 100, ci + 1)));
         // a sell, a later slot, another mint
+        assert!(!ok(&trade(h.mint, other, false, 100, ci + 1)));
+        assert!(!ok(&trade(h.mint, other, true, 101, ci + 1)));
+        assert!(!ok(&trade(Pubkey::new_unique(), other, true, 100, ci + 1)));
+        // a sniper further down the block, a buy at or before the create, unknown indices
+        assert!(!ok(&trade(
+            h.mint,
+            other,
+            true,
+            100,
+            ci + RUN_MAX_AFTER + 1
+        )));
+        assert!(!ok(&trade(h.mint, other, true, 100, ci)));
+        assert!(!ok(&trade(h.mint, other, true, 100, u32::MAX)));
         assert!(!bundle_buy_triggers(
             &h,
             100,
-            &trade(h.mint, other, false, 100),
-            &owner
-        ));
-        assert!(!bundle_buy_triggers(
-            &h,
-            100,
-            &trade(h.mint, other, true, 101),
-            &owner
-        ));
-        assert!(!bundle_buy_triggers(
-            &h,
-            100,
-            &trade(Pubkey::new_unique(), other, true, 100),
+            u32::MAX,
+            &trade(h.mint, other, true, 100, 11),
             &owner
         ));
     }

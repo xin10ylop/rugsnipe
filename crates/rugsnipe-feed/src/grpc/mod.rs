@@ -399,6 +399,7 @@ pub fn trades_of(
                         .fee
                         .unwrap_or(0)
                         .saturating_add(t.creator_fee.unwrap_or(0)),
+                    index: u32::MAX,
                     virtual_sol_reserves: t.virtual_sol_reserves,
                     virtual_token_reserves: t.virtual_token_reserves,
                     slot: u.slot,
@@ -727,6 +728,9 @@ impl Adapter {
             }
         }
         let n = trades_of(u, &keys, &mut self.trades);
+        for t in self.trades.iter_mut() {
+            t.index = index.unwrap_or(u32::MAX);
+        }
         if n > 0 {
             let wallet = self.cfg.wallet;
             for t in self.trades.iter() {
