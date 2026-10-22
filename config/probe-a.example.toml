@@ -42,7 +42,7 @@ max_probe_lamports = 250_000_000                  # ceiling: [probe] stage a (0.
 max_probes_per_day = 300                           # ceiling, attempts; stage a 50, b 300
 max_open_positions = 4
 max_daily_loss_lamports = 1_000_000_000            # chain-derived, marked to the sell quote
-max_consec_losses_per_op = 20                      # probe-A: the class arm is ONE operator and the median LEAD trade is a small loss; 5 suspends it constantly
+max_consec_losses_per_op = 1_000_000               # probe: NOT a stop for the class arm. It is ONE operator and the median LEAD trade is a small loss: 20 in a row latched it until the next UTC day on 2026-10-22 08:00 Beirut (silent: positions 0, killed no, intents frozen). The daily loss cap is the stop.
 max_buys_per_op_per_day = 300   # ceiling; the class arm counts as one operator, so this must not bind below the probe stage caps (150/day A, 300/day B)
 max_buys_per_hour = 12                             # probe-A: per UTC hour; doubled 2026-10-22 (12 x 24 = 288 <= 300/day)
 spread_buys_per_hour = true                        # one buy per 5-minute window (unused windows carry over): samples the whole hour, not its first minute
