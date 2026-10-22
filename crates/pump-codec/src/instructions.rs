@@ -335,15 +335,29 @@ fn read_create_args<'a>(r: &mut Reader<'a>, v2: bool) -> Result<CreateArgs<'a>> 
             is_holder_reward: None,
         });
     }
+    let is_mayhem_mode = r.bool()?;
+    let is_cashback_enabled = r.opt_bool()?;
+    // The trailing fields are flags appended over time and encoded as plain
+    // values, not Option tags: clients that know only some of them send a
+    // shorter tail. `creator_fee_bps` is present only when 8 bytes remain
+    // for it; a single trailing byte is `is_holder_reward` (seen live on
+    // 2026-10-22: `00 00 01` after the creator, 1.3% of creates, which read
+    // the `01` as the first byte of a u64 and failed the whole create).
+    let creator_fee_bps = if r.remaining() >= 8 {
+        r.opt_u64()?
+    } else {
+        None
+    };
+    let is_holder_reward = r.opt_bool()?;
     Ok(CreateArgs {
         name,
         symbol,
         uri,
         creator,
-        is_mayhem_mode: r.bool()?,
-        is_cashback_enabled: r.opt_bool()?,
-        creator_fee_bps: r.opt_u64()?,
-        is_holder_reward: r.opt_bool()?,
+        is_mayhem_mode,
+        is_cashback_enabled,
+        creator_fee_bps,
+        is_holder_reward,
     })
 }
 
@@ -1248,6 +1262,59 @@ pub fn buy_v3_with_ata(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The `create_v2` argument bytes of a live launch (slot 460008810,
+    /// 2026-10-22, a rapidlaunch coin): after the creator the tail is
+    /// `00 00 01` = mayhem false, cashback false, holder reward true, with no
+    /// `creator_fee_bps`. Before the tolerant tail this was a decode miss.
+    #[test]
+    fn create_v2_args_with_a_holder_reward_tail_and_no_fee() {
+        let mut d = Vec::new();
+        for s in ["Poopy", "POOP", "https://m.rapidlaunch.io/m/3uRJc0aJ4"] {
+            d.extend_from_slice(&(s.len() as u32).to_le_bytes());
+            d.extend_from_slice(s.as_bytes());
+        }
+        let creator: [u8; 32] = [
+            0xb4, 0x85, 0x6f, 0xee, 0xab, 0xd3, 0x48, 0xc6, 0x0c, 0x43, 0x10, 0x02, 0x13, 0x00,
+            0x1b, 0x03, 0xf4, 0xb8, 0xc3, 0xbb, 0x25, 0xe6, 0xc0, 0xf5, 0x3a, 0x2d, 0x4d, 0xac,
+            0xf5, 0x60, 0xc5, 0xbf,
+        ];
+        d.extend_from_slice(&creator);
+        d.extend_from_slice(&[0x00, 0x00, 0x01]);
+        assert_eq!(d.len(), 92);
+        let mut r = Reader::new(&d);
+        let a = read_create_args(&mut r, true).unwrap();
+        assert_eq!((a.name, a.symbol), ("Poopy", "POOP"));
+        assert_eq!(a.creator, Pubkey::new_from_array(creator));
+        assert_eq!(a.is_mayhem_mode, false);
+        assert_eq!(a.is_cashback_enabled, Some(false));
+        assert_eq!(a.creator_fee_bps, None);
+        assert_eq!(a.is_holder_reward, Some(true));
+        // the shapes that already parsed keep their meaning
+        for (tail, cash, fee, holder) in [
+            (vec![0x00u8], None, None, None),
+            (vec![0x00, 0x01], Some(true), None, None),
+            (
+                vec![0x00, 0x00, 30, 0, 0, 0, 0, 0, 0, 0, 0x01],
+                Some(false),
+                Some(30),
+                Some(true),
+            ),
+        ] {
+            let mut d2 = d[..d.len() - 3].to_vec();
+            d2.extend_from_slice(&tail);
+            let mut r2 = Reader::new(&d2);
+            let a2 = read_create_args(&mut r2, true).unwrap();
+            assert_eq!(
+                (
+                    a2.is_cashback_enabled,
+                    a2.creator_fee_bps,
+                    a2.is_holder_reward
+                ),
+                (cash, fee, holder)
+            );
+        }
+    }
 
     #[test]
     fn buy_v3_data_bytes() {
