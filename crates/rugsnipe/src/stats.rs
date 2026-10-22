@@ -45,6 +45,11 @@ pub mod code {
     /// wallet's buy of the mint (the launch was not bundled): not sent, no
     /// risk or nonce taken.
     pub const NO_BUNDLE: u8 = 0x4e;
+    /// `entry.require_bundle`: a trade of the mint beyond the bundle run
+    /// executed in the create slot before the parked create fired, so the
+    /// first buy behind the bundle is someone else's: not sent (docs/04
+    /// section 2 scores rank 1 only), no risk or nonce taken.
+    pub const NOT_FIRST: u8 = 0x4f;
     /// Metrics only: a paper decision that a real mode would have skipped
     /// (rslog keeps the RiskGate code and the `would_skip` reason).
     pub const PAPER_WOULD_SKIP: u8 = 0x1f;
@@ -84,6 +89,7 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (code::FREE_FEED_DEFERS, "free_feed_defers"),
     (code::LATE_SLOT, "late_slot"),
     (code::NO_BUNDLE, "skip_no_bundle"),
+    (code::NOT_FIRST, "skip_not_first"),
 ];
 
 /// Label of a decision code.

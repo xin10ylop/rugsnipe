@@ -781,14 +781,24 @@ pub struct EntryCfg {
     /// Fill cap over the post-bundle price (`max_sol_cost` bound): a fill
     /// that would pay more fails (cheaply) instead.
     pub max_premium: f64,
-    /// Expected SOL of the bundle's buys that are **not** in the create
-    /// transaction (separate transactions of the same Jito bundle, not yet
-    /// visible when the hot path fires). The on-chain bound is computed at
-    /// `V_cap = min(v_max, V_pb * sqrt(1 + max_premium))` with
-    /// `V_pb = V0 + bundle_lamports` (V0: the curve after the create's
-    /// in-tx buys); a bigger bundle fails the buy on `min_tokens_out` (the
-    /// cheap failure), and paper E1 applies the same bound (docs/06 7.1).
+    /// The fallback expectation of the bundle's SOL outside the create
+    /// transaction, used only when the bundle run was not observed
+    /// (`require_bundle` off, or a feed without block order). The on-chain
+    /// bound is computed at `V_cap = min(v_max, V_pb * sqrt(1 +
+    /// max_premium))`; with `require_bundle` `V_pb` is the run's observed
+    /// post-trade reserve, otherwise `V0 + bundle_lamports` (V0: the curve
+    /// after the create's in-tx buys), and paper E1 applies the same bound
+    /// (docs/06 7.1). 2026-10-22: with the fixed 4 SOL expectation every
+    /// bundle above about 4.3 SOL failed on chain (43 of 61 slippage
+    /// failures; the landed fills averaged a 0.79 SOL bundle).
     pub bundle_lamports: u64,
+    /// With `require_bundle`: how long (ms) a parked create waits after its
+    /// first bundle buy for the rest of the run (the same Jito bundle's
+    /// other buys, adjacent in the block) before it fires anyway. The
+    /// stream's run-complete signal (a pump transaction beyond create + 5)
+    /// or a trade at create + 5 fires it earlier. 0 fires on the first
+    /// bundle buy (the bound then misses the rest of the bundle).
+    pub bundle_wait_ms: u64,
     pub filter: EntryFilter,
     /// The frozen P(take-profit) model of the entry filter
     /// (`data/reports/strategy/entry_filter_v1.json`, docs/04 section 2);
@@ -814,6 +824,7 @@ impl Default for EntryCfg {
         Self {
             max_premium: 0.02,
             bundle_lamports: 4_000_000_000,
+            bundle_wait_ms: 2,
             filter: EntryFilter::Any,
             filter_model: String::new(),
             filter_mode: FilterMode::Log,
@@ -1327,6 +1338,13 @@ impl Config {
         }
         if !(0.0..1.0).contains(&self.entry.max_premium) {
             inv(&mut r, "entry.max_premium", "must be in [0, 1)");
+        }
+        if self.entry.bundle_wait_ms > 200 {
+            inv(
+                &mut r,
+                "entry.bundle_wait_ms",
+                "must be at most 200 (ms; the create slot is 400 ms)",
+            );
         }
         if self.entry.require_bundle && !self.feeds.grpc.bundle_run {
             inv(

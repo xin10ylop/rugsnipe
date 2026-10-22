@@ -120,8 +120,8 @@ b = { max_probe_lamports = 250_000_000, max_probes_per_day = 300, max_open_posit
 kill = { min_landed = 100, min_attempts = 400, max_median_premium = 0.03, landing_attempts = 200 }
 [entry]
 max_premium = 0.02                                 # max_sol_cost = post-bundle price + 2%: a rank-3 fill fails cheaply
-bundle_lamports = 4_000_000_000                    # expected bundle SOL outside the create tx: min_tokens_out at
-                                                   # min(v_max, (V0 + this) * sqrt(1 + max_premium)); bigger bundles fail cheaply
+bundle_lamports = 4_000_000_000                    # fallback bundle SOL outside the create tx when the run is not observed
+                                                   # (require_bundle off): min_tokens_out at min(v_max, (V0 + this) * sqrt(1 + max_premium))
 filter = "multi_bundle"                            # >= 1 bundle wallet outside the creator set (gap-3 definition)
 filter_model = "data/reports/strategy/entry_filter_v1.json"   # frozen P(take-profit) trees (docs/04 section 2); "" = off
 filter_mode = "log"                                # log: score + tertile on every intent | skip: also drop score < t1

@@ -234,6 +234,18 @@ pub struct DupInfo {
     pub key: u64,
 }
 
+/// The creation slot's bundle run of `mint` is complete: the stream showed
+/// a pump transaction of the same slot at `index`, more than
+/// [`crate::bundle::RUN_MAX_AFTER`] transactions after the create, so no
+/// later transaction can be part of the bundle. The hot loop's bundle gate
+/// fires a parked create on it, at the post-bundle state it holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunDoneLite {
+    pub mint: Pubkey,
+    pub slot: u64,
+    pub index: u32,
+}
+
 /// Payload of a [`FeedEvent`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Payload {
@@ -245,6 +257,8 @@ pub enum Payload {
     Funding(FundingEvent),
     /// A trade on a watched mint.
     Trade(TradeLite),
+    /// A recent create's bundle run is complete (gRPC `bundle_run`).
+    RunDone(RunDoneLite),
     /// Duplicate of an earlier event.
     Dup(DupInfo),
 }
@@ -290,7 +304,8 @@ impl FeedEvent {
                 f.sig.hash() ^ K_FUND ^ xxhash_rust::xxh3::xxh3_64(f.recipient.as_ref())
             }
             Payload::Trade(t) => t.sig.hash() ^ K_TRADE.wrapping_mul(t.ordinal as u64 + 1),
-            Payload::Dup(_) => return None,
+            // one source, never a duplicate
+            Payload::RunDone(_) | Payload::Dup(_) => return None,
         };
         Some(k)
     }
@@ -300,6 +315,7 @@ impl FeedEvent {
         match &self.payload {
             Payload::Hit(h) => Some(h.mint),
             Payload::Trade(t) => Some(t.mint),
+            Payload::RunDone(r) => Some(r.mint),
             _ => None,
         }
     }

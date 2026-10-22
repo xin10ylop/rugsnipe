@@ -160,20 +160,25 @@ impl BundleAssembler {
     }
 
     /// Trades of one transaction (`(mint, trade)` pairs) at `slot`/`index`.
-    /// Only mints with an open run in that slot are kept.
+    /// Only mints with an open run in that slot are kept. Returns the mints
+    /// whose bundle run this transaction completed (its index is beyond
+    /// `create + RUN_MAX_AFTER`): the adapter reports them to the hot loop
+    /// ([`crate::event::RunDoneLite`]).
     pub fn on_trades(
         &mut self,
         slot: u64,
         index: Option<u32>,
         now_ns: u64,
         trades: &[(Pubkey, RunTrade)],
-    ) {
+    ) -> Vec<Pubkey> {
         let idx = index.unwrap_or(u32::MAX);
+        let mut done = Vec::new();
         for o in self.open.iter_mut().filter(|o| o.run.slot == slot) {
             if let (Some(ci), false) = (o.run.create_index, o.run_done) {
                 if idx != u32::MAX && idx > ci.saturating_add(RUN_MAX_AFTER) {
                     o.run_done = true;
                     o.run.run_closed_ns = now_ns;
+                    done.push(o.run.mint);
                 }
             }
             for (m, t) in trades {
@@ -191,6 +196,7 @@ impl BundleAssembler {
                 });
             }
         }
+        done
     }
 
     /// The stream reached `slot`: runs of earlier slots are complete.
@@ -261,17 +267,31 @@ mod tests {
         let mut a = BundleAssembler::new(16, 2_000);
         a.on_create(mint, Sig([1; 64]), 100, Some(40), 1_000, &[tr(1, 500)]);
         // out of index order: 43 before 41
-        a.on_trades(100, Some(43), 2_000, &[(mint, tr(3, 200))]);
-        a.on_trades(
-            100,
-            Some(41),
-            3_000,
-            &[(mint, tr(2, 300)), (other, tr(7, 1))],
-        );
-        a.on_trades(101, Some(1), 3_500, &[(mint, tr(4, 100))]); // later slot: not slot 0
+        assert!(a
+            .on_trades(100, Some(43), 2_000, &[(mint, tr(3, 200))])
+            .is_empty());
+        assert!(a
+            .on_trades(
+                100,
+                Some(41),
+                3_000,
+                &[(mint, tr(2, 300)), (other, tr(7, 1))],
+            )
+            .is_empty());
+        // later slot: not slot 0 (and no run of that slot to complete)
+        assert!(a
+            .on_trades(101, Some(1), 3_500, &[(mint, tr(4, 100))])
+            .is_empty());
+        // index 45 = 40 + 5 is still inside the run
+        assert!(a.on_trades(100, Some(45), 3_800, &[]).is_empty());
         assert_eq!(a.open_runs(), 1);
-        // index 46 > 40 + 5: the bundle run is complete, later slot-0 trades still count
-        a.on_trades(100, Some(46), 4_000, &[(mint, tr(5, 50))]);
+        // index 46 > 40 + 5: the bundle run is complete (reported once),
+        // later slot-0 trades still count
+        assert_eq!(
+            a.on_trades(100, Some(46), 4_000, &[(mint, tr(5, 50))]),
+            vec![mint]
+        );
+        assert!(a.on_trades(100, Some(47), 4_100, &[]).is_empty());
         a.on_slot(101, 5_000);
         let runs = a.drain();
         assert_eq!(runs.len(), 1);
@@ -280,6 +300,11 @@ mod tests {
         assert_eq!(r.create_index, Some(40));
         let idx: Vec<u32> = r.trades.iter().map(|t| t.index).collect();
         assert_eq!(idx, vec![40, 41, 43, 46]);
+        assert_eq!(
+            r.trades.len(),
+            4,
+            "the empty index-45 / 47 transactions added no trade"
+        );
         assert!(r.trades[0].is_create && !r.trades[1].is_create);
         assert_eq!(r.out_of_order, 1);
         assert_eq!((r.run_closed_ns, r.closed_ns), (4_000, 5_000));

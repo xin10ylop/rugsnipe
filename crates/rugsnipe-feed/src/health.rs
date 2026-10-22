@@ -177,7 +177,7 @@ impl MissKind {
 /// is the ordinal, so there is no other rate-limit state.
 #[inline]
 pub fn log_gate(n: u64) -> bool {
-    n <= 50 || n % 100 == 0
+    n <= 50 || n.is_multiple_of(100)
 }
 
 /// Everything a decode-miss log line says, collected on the stack at the

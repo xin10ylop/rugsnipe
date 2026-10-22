@@ -40,7 +40,7 @@ use crate::buf::FeedBuf;
 use crate::bundle::{BundleAssembler, BundleRun, RunTrade};
 use crate::clock::mono_ns;
 use crate::decode::decode_logs;
-use crate::event::{FeedEvent, FeedSrc, Payload, Sig, TradeLite};
+use crate::event::{FeedEvent, FeedSrc, Payload, RunDoneLite, Sig, TradeLite};
 use crate::health::{log_gate, miss_line, FeedHealth, MissInfo, MissKind};
 use crate::ring::{ring, RingFeed, RingSink};
 use crate::wiremeta;
@@ -147,6 +147,8 @@ pub struct GrpcStats {
     pub transactions: AtomicU64,
     pub wire_events: AtomicU64,
     pub trade_events: AtomicU64,
+    /// Bundle-run completions reported to the hot loop ([`RunDoneLite`]).
+    pub run_done_events: AtomicU64,
     pub slot_updates: AtomicU64,
     pub pings: AtomicU64,
     pub reordered: AtomicU64,
@@ -778,7 +780,7 @@ impl Adapter {
                     )
                 })
                 .collect();
-            if let Some(mint) = created {
+            let done = if let Some(mint) = created {
                 let own: Vec<RunTrade> = run_trades
                     .iter()
                     .filter(|(m, _)| *m == mint)
@@ -787,11 +789,31 @@ impl Adapter {
                 let sig = Sig(info.signature.as_slice().try_into().unwrap_or([0; 64]));
                 self.asm.on_create(mint, sig, slot, index, recv, &own);
                 self.recent.insert(mint, slot);
+                // a create is a later index for the slot's other open runs
+                self.asm.on_trades(slot, index, recv, &[])
             } else if run_trades.iter().any(|(m, _)| self.recent.contains_key(m)) {
-                self.asm.on_trades(slot, index, recv, &run_trades);
+                self.asm.on_trades(slot, index, recv, &run_trades)
             } else {
                 // a later index of the slot still closes open bundle runs
-                self.asm.on_trades(slot, index, recv, &[]);
+                self.asm.on_trades(slot, index, recv, &[])
+            };
+            // the hot loop's bundle gate fires a parked create once its run
+            // is complete (the post-bundle state is then known)
+            for mint in done {
+                let ev = FeedEvent {
+                    src: FeedSrc::Grpc,
+                    recv_ns: recv,
+                    slot,
+                    bank_id: u.bank_id,
+                    payload: Payload::RunDone(RunDoneLite {
+                        mint,
+                        slot,
+                        index: index.unwrap_or(u32::MAX),
+                    }),
+                };
+                if self.sink.push(ev) {
+                    self.stats.run_done_events.fetch_add(1, Ordering::Relaxed);
+                }
             }
             if slot > self.recent_slot || self.recent.len() > 4_096 {
                 self.recent_slot = self.recent_slot.max(slot);
