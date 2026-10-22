@@ -426,6 +426,8 @@ struct Adapter {
     meta_buf: Vec<u8>,
     last_pos: (u64, u32),
     recent: HashMap<Pubkey, u64>,
+    /// Highest slot seen by the pruning of `recent`.
+    recent_slot: u64,
     /// A gated decode miss of the current transaction, printed by `on_tx`
     /// after the wire push (never between the decode and the hot ring).
     pending_miss: Option<(MissInfo, HitError)>,
@@ -456,6 +458,7 @@ impl Adapter {
             meta_buf: Vec::with_capacity(16 * 1024),
             last_pos: (0, 0),
             recent: HashMap::new(),
+            recent_slot: 0,
             pending_miss: None,
         }
     }
@@ -739,7 +742,7 @@ impl Adapter {
                 // on another wallet's buy in the create slot
                 if Some(t.user) == wallet
                     || self.mint_set.contains(&t.mint)
-                    || (self.cfg.bundle_run && self.recent.contains_key(&t.mint))
+                    || (self.cfg.bundle_run && self.recent.get(&t.mint) == Some(&slot))
                 {
                     let ev = FeedEvent {
                         src: FeedSrc::Grpc,
@@ -790,7 +793,8 @@ impl Adapter {
                 // a later index of the slot still closes open bundle runs
                 self.asm.on_trades(slot, index, recv, &[]);
             }
-            if self.recent.len() > 4_096 {
+            if slot > self.recent_slot || self.recent.len() > 4_096 {
+                self.recent_slot = self.recent_slot.max(slot);
                 let floor = slot.saturating_sub(4);
                 self.recent.retain(|_, s| *s >= floor);
             }
@@ -802,7 +806,15 @@ impl Adapter {
     /// decode misses by kind) and the mint for the bundle run. A gated miss
     /// is parked in `pending_miss` for `on_tx` to print after the wire push.
     fn check_create(&mut self, wire: &[u8], keys: &[Pubkey], slot: u64) -> Option<Pubkey> {
-        match classify_create(wire, keys) {
+        let mut check = classify_create(wire, keys);
+        if matches!(check, CreateCheck::NeedsMeta) {
+            // a launcher CPI create: the trailer just encoded carries the
+            // inner instructions, as the hot thread reads them; without this
+            // the mint is unknown here, its bundle run is never assembled
+            // and its trades never reach the hot loop's bundle gate
+            check = classify_cpi_create(wire, keys, &self.meta_buf);
+        }
+        match check {
             CreateCheck::Hit(mint) => {
                 FeedHealth::inc(&self.health.creates);
                 Some(mint)
@@ -839,6 +851,40 @@ pub enum CreateCheck {
     /// A create-looking transaction the decoder rejected, with what the log
     /// line needs (`info.slot` / `info.ordinal` are the caller's).
     Miss { err: HitError, info: MissInfo },
+}
+
+/// [`classify_create`] for a launcher CPI create, with the inner
+/// instructions of the encoded wire trailer `meta` (what the hot thread
+/// decodes). `NeedsMeta` again means the trailer holds no inner
+/// instructions (`inner_instructions_none`).
+pub fn classify_cpi_create(wire: &[u8], keys: &[Pubkey], meta: &[u8]) -> CreateCheck {
+    let Ok(tx) = TxView::parse(wire) else {
+        return CreateCheck::NeedsMeta;
+    };
+    let Some(m) = wiremeta::WireMeta::parse(meta) else {
+        return CreateCheck::NeedsMeta;
+    };
+    let mut inner = [wiremeta::EMPTY_INNER; wiremeta::MAX_INNER];
+    let ni = m.inner_into(&mut inner);
+    if ni == 0 {
+        return CreateCheck::NeedsMeta;
+    }
+    let n_static = tx.static_account_keys().len();
+    let loaded = (keys.len() > n_static).then(|| &keys[n_static..]);
+    match pump_codec::create_hit(
+        &tx,
+        loaded,
+        &inner[..ni],
+        pump_codec::curve::FeeBps::DEFAULT,
+    ) {
+        Ok(Some(h)) => CreateCheck::Hit(h.mint),
+        Ok(None) => CreateCheck::NotCreate,
+        Err(HitError::CpiCreateNeedsMeta { .. }) => CreateCheck::NeedsMeta,
+        Err(e) => CreateCheck::Miss {
+            err: e,
+            info: MissInfo::blank(MissKind::of_hit(&e)),
+        },
+    }
 }
 
 /// Classify a `creates`-filter transaction as the adapter decodes it: no

@@ -611,6 +611,10 @@ async fn analyze_inner(
 /// reached (2026-10-22: a 0.25 SOL position was closed as BalanceZero in
 /// its opening slot, its tokens left in the wallet unsold).
 pub const MISSING_ACCOUNT_GRACE_SLOTS: u64 = 32;
+/// The same grace once a sell was sent (the position is exiting): the final
+/// sell closes the token account, so a missing account is then the normal
+/// end of the position and each re-sent sell would fail on chain for a fee.
+pub const MISSING_ACCOUNT_GRACE_SLOTS_EXITING: u64 = 8;
 
 /// Whether a balance report may size or close a position opened at
 /// `opened_slot`. A non-zero balance is always applied. A zero balance is
@@ -622,6 +626,7 @@ pub fn balance_is_trustworthy(
     tokens: u64,
     report_slot: u64,
     opened_slot: u64,
+    exiting: bool,
 ) -> bool {
     if tokens > 0 {
         return true;
@@ -629,7 +634,12 @@ pub fn balance_is_trustworthy(
     if report_slot <= opened_slot {
         return false;
     }
-    exists || report_slot >= opened_slot.saturating_add(MISSING_ACCOUNT_GRACE_SLOTS)
+    let grace = if exiting {
+        MISSING_ACCOUNT_GRACE_SLOTS_EXITING
+    } else {
+        MISSING_ACCOUNT_GRACE_SLOTS
+    };
+    exists || report_slot >= opened_slot.saturating_add(grace)
 }
 
 pub fn token_amount(data: &[u8]) -> Option<u64> {
@@ -1159,29 +1169,25 @@ mod tests {
 
     #[test]
     fn a_zero_balance_closes_only_from_a_view_past_the_fill() {
+        let g = MISSING_ACCOUNT_GRACE_SLOTS;
         // the live case: the first poll after the open, from a node still at
         // the opening slot, found no account
-        assert!(!balance_is_trustworthy(false, 0, 100, 100));
-        assert!(!balance_is_trustworthy(false, 0, 99, 100));
+        assert!(!balance_is_trustworthy(false, 0, 100, 100, false));
+        assert!(!balance_is_trustworthy(false, 0, 99, 100, false));
         // a missing account stays "not visible yet" through the grace window
-        assert!(!balance_is_trustworthy(
-            false,
-            0,
-            100 + MISSING_ACCOUNT_GRACE_SLOTS - 1,
-            100
-        ));
-        assert!(balance_is_trustworthy(
-            false,
-            0,
-            100 + MISSING_ACCOUNT_GRACE_SLOTS,
-            100
-        ));
+        assert!(!balance_is_trustworthy(false, 0, 100 + g - 1, 100, false));
+        assert!(balance_is_trustworthy(false, 0, 100 + g, 100, false));
+        // exiting: the final sell closes the account, a shorter grace
+        let e = MISSING_ACCOUNT_GRACE_SLOTS_EXITING;
+        assert!(!balance_is_trustworthy(false, 0, 100 + e - 1, 100, true));
+        assert!(balance_is_trustworthy(false, 0, 100 + e, 100, true));
+        assert!(!balance_is_trustworthy(false, 0, 100, 100, true));
         // an existing, empty account after the open is a sold position
-        assert!(balance_is_trustworthy(true, 0, 101, 100));
-        assert!(!balance_is_trustworthy(true, 0, 100, 100));
+        assert!(balance_is_trustworthy(true, 0, 101, 100, false));
+        assert!(!balance_is_trustworthy(true, 0, 100, 100, false));
         // tokens are always applied (sizing, orphan adoption)
-        assert!(balance_is_trustworthy(false, 5, 1, 100));
-        assert!(balance_is_trustworthy(true, 5, 100, 100));
+        assert!(balance_is_trustworthy(false, 5, 1, 100, false));
+        assert!(balance_is_trustworthy(true, 5, 100, 100, true));
     }
 
     #[test]

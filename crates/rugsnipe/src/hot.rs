@@ -390,7 +390,7 @@ const OWN_SIGS: usize = 8;
 
 /// `entry.require_bundle`: parked creates at most (one create slot's worth
 /// at the highest launch rate seen; a full table drops the oldest).
-pub const PARK_SLOTS: usize = 16;
+pub const PARK_SLOTS: usize = 64;
 /// A parked create older than this is skipped even without a slot event.
 pub const PARK_MAX_NS: u64 = 1_000_000_000;
 
@@ -1503,8 +1503,10 @@ impl HotLoop {
                     // a zero from a node view not past the fill (or a missing
                     // account in the first seconds) is "not visible yet", not
                     // "sold": closing on it leaves the tokens in the wallet
-                    let opened = self.slots[i].as_ref().map_or(0, |s| s.pos.opened_slot);
-                    if !crate::real::balance_is_trustworthy(exists, tokens, slot, opened) {
+                    let (opened, exiting) = self.slots[i].as_ref().map_or((0, false), |s| {
+                        (s.pos.opened_slot, s.pos.state == PositionState::Exiting)
+                    });
+                    if !crate::real::balance_is_trustworthy(exists, tokens, slot, opened, exiting) {
                         self.counters.balance_ignored += 1;
                         return;
                     }
@@ -2129,6 +2131,9 @@ impl HotLoop {
     }
 
     fn tick(&mut self, now_ns: u64) {
+        if self.cfg.require_bundle {
+            self.expire_parked();
+        }
         let now = Now {
             ms: crate::now_ms(),
             slot: self.slot_now,
