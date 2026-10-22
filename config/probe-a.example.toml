@@ -68,6 +68,8 @@ relay = { enabled = false, socket = "/run/rugsnipe/pp.sock" }    # collector's P
 # of the api-keys line; stale_ms 4,000 (not 2,000) because one gap longer than stale_ms latches the kill; bundle_run = true
 # gives every attempt a feed_bundle row with bundle_wallets, the in-class split of the stage-B read (M4)
 grpc = { enabled = true, url = "https://YOUR-ENDPOINT.rpcpool.com", x_token = "GRPC_TOKEN", stale_ms = 4_000, bundle_run = true }
+# a second Yellowstone provider on trial, raced against grpc by the cold report's first_seen block (docs/08 section 6c):
+# grpc_b = { enabled = true, url = "https://TRIAL-ENDPOINT", x_token = "GRPC_B_TOKEN", stale_ms = 4_000 }
 shreds = { enabled = false, bind = "0.0.0.0:7733", sources = ["dz_edge", "helius"] }
 probe_live_require = "post_exec"
 [senders]                                          # probe: one variant per sender on the intent's single durable nonce

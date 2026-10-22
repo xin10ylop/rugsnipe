@@ -674,7 +674,7 @@ fn hist() -> Histogram<u64> {
 #[inline]
 fn src_class(src: FeedSrc) -> u8 {
     match src {
-        FeedSrc::Grpc | FeedSrc::Shreds => LIVE_CLASS,
+        FeedSrc::Grpc | FeedSrc::GrpcB | FeedSrc::Shreds => LIVE_CLASS,
         _ => FREE_CLASS,
     }
 }

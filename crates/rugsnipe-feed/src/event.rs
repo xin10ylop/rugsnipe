@@ -22,10 +22,14 @@ pub enum FeedSrc {
     Grpc = 4,
     /// Shreds (later).
     Shreds = 5,
+    /// A second Yellowstone gRPC feed beside the first (`feeds.grpc_b`: a
+    /// provider on trial). The same class as [`FeedSrc::Grpc`]; the
+    /// first-seen report races the two copies of every create.
+    GrpcB = 6,
 }
 
 /// Number of [`FeedSrc`] values.
-pub const SRC_COUNT: usize = 6;
+pub const SRC_COUNT: usize = 7;
 
 impl FeedSrc {
     pub const ALL: [FeedSrc; SRC_COUNT] = [
@@ -35,6 +39,7 @@ impl FeedSrc {
         FeedSrc::Replay,
         FeedSrc::Grpc,
         FeedSrc::Shreds,
+        FeedSrc::GrpcB,
     ];
 
     pub fn name(self) -> &'static str {
@@ -45,6 +50,7 @@ impl FeedSrc {
             FeedSrc::Replay => "replay",
             FeedSrc::Grpc => "grpc",
             FeedSrc::Shreds => "shreds",
+            FeedSrc::GrpcB => "grpc_b",
         }
     }
 
@@ -331,7 +337,8 @@ mod tests {
             assert_eq!(FeedSrc::from_name(s.name()), Some(s));
             assert_eq!(FeedSrc::from_u8(s as u8), Some(s));
         }
-        assert_eq!(FeedSrc::from_u8(6), None);
+        assert_eq!(FeedSrc::from_u8(6), Some(FeedSrc::GrpcB));
+        assert_eq!(FeedSrc::from_u8(7), None);
     }
 
     #[test]

@@ -74,6 +74,9 @@ pub const F_SLOTS: &str = "slots";
 /// Settings (`[feeds] grpc = { enabled, url, x_token, stale_ms, bundle_run }`).
 #[derive(Clone, PartialEq)]
 pub struct GrpcConfig {
+    /// The source every event of this adapter carries ([`FeedSrc::Grpc`],
+    /// or [`FeedSrc::GrpcB`] for the comparison feed).
+    pub src: FeedSrc,
     /// `https://host[:port]` (TLS, native roots) or `http://` (plain h2c: local tests).
     pub url: String,
     /// The `x-token` value (the credential's content; never logged).
@@ -115,6 +118,7 @@ impl std::fmt::Debug for GrpcConfig {
 impl Default for GrpcConfig {
     fn default() -> Self {
         GrpcConfig {
+            src: FeedSrc::Grpc,
             url: String::new(),
             x_token: None,
             stale_ms: 2_000,
@@ -163,6 +167,7 @@ pub struct GrpcStats {
 /// The adapter (a [`Feed`]): two rings from the adapter thread.
 #[derive(Debug)]
 pub struct Grpc {
+    src: FeedSrc,
     events: RingFeed,
     wire: WireSource,
     ctl: mpsc::UnboundedSender<Control>,
@@ -203,15 +208,16 @@ impl Grpc {
                 "grpc url must be http(s)://",
             ));
         }
-        let (sink, mut events, stop) = ring(FeedSrc::Grpc, cfg.ring_capacity, cfg.stale_ms);
-        let (wsink, wire) = wire_ring(FeedSrc::Grpc, cfg.wire_ring_bytes, sink.health().clone());
+        let src = cfg.src;
+        let (sink, mut events, stop) = ring(src, cfg.ring_capacity, cfg.stale_ms);
+        let (wsink, wire) = wire_ring(src, cfg.wire_ring_bytes, sink.health().clone());
         let (ctl, ctl_rx) = mpsc::unbounded_channel();
         let stats = Arc::new(GrpcStats::default());
         let (btx, brx) = std::sync::mpsc::sync_channel::<BundleRun>(1_024);
         let st = stats.clone();
         let bundle = cfg.bundle_run;
         let h = std::thread::Builder::new()
-            .name("feed-grpc".into())
+            .name(format!("feed-{}", src.name()))
             .spawn(move || {
                 let rt = match tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -225,6 +231,7 @@ impl Grpc {
             })?;
         events.set_thread(h);
         Ok(Grpc {
+            src,
             events,
             wire,
             ctl,
@@ -275,7 +282,7 @@ impl Feed for Grpc {
     }
 
     fn src(&self) -> FeedSrc {
-        FeedSrc::Grpc
+        self.src
     }
 
     fn health(&self) -> Option<&FeedHealth> {
@@ -747,7 +754,7 @@ impl Adapter {
                     || (self.cfg.bundle_run && self.recent.get(&t.mint) == Some(&slot))
                 {
                     let ev = FeedEvent {
-                        src: FeedSrc::Grpc,
+                        src: self.cfg.src,
                         recv_ns: recv,
                         slot,
                         bank_id: u.bank_id,
@@ -801,7 +808,7 @@ impl Adapter {
             // is complete (the post-bundle state is then known)
             for mint in done {
                 let ev = FeedEvent {
-                    src: FeedSrc::Grpc,
+                    src: self.cfg.src,
                     recv_ns: recv,
                     slot,
                     bank_id: u.bank_id,

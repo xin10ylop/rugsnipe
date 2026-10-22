@@ -244,6 +244,11 @@ fn run(args: &[String]) -> Result<(), String> {
         cfg.feeds.grpc.enabled,
         &cfg.feeds.grpc.url,
     )?;
+    let grpc_b_url = resolve(
+        "feeds.grpc_b.url",
+        cfg.feeds.grpc_b.enabled,
+        &cfg.feeds.grpc_b.url,
+    )?;
     let logsws_url = resolve(
         "feeds.logsws.url",
         cfg.feeds.logsws.enabled,
@@ -255,12 +260,17 @@ fn run(args: &[String]) -> Result<(), String> {
         );
     }
     eprintln!(
-        "rpc {} | grpc {} | logsws {} | kill file {}",
+        "rpc {} | grpc {} | grpc_b {} | logsws {} | kill file {}",
         rugsnipe::keys::redact_url(&rpc_url),
         if grpc_url.is_empty() {
             "off".into()
         } else {
             rugsnipe::keys::redact_url(&grpc_url)
+        },
+        if grpc_b_url.is_empty() {
+            "off".into()
+        } else {
+            rugsnipe::keys::redact_url(&grpc_b_url)
         },
         if logsws_url.is_empty() {
             "off".into()
@@ -271,7 +281,7 @@ fn run(args: &[String]) -> Result<(), String> {
     );
     // --- the gRPC feed's x-token (paper may run the gRPC feed: a feed, not
     // a sender; the token is a credential like the sender keys)
-    if cfg.feeds.grpc.enabled && !cfg!(feature = "grpc") {
+    if (cfg.feeds.grpc.enabled || cfg.feeds.grpc_b.enabled) && !cfg!(feature = "grpc") {
         return Err(
             "feeds.grpc is enabled but this binary has no gRPC feed (build with --features grpc)"
                 .into(),
@@ -294,6 +304,26 @@ fn run(args: &[String]) -> Result<(), String> {
                     ))
                 }
             }
+    } else {
+        None
+    };
+    let grpc_b_token: Option<zeroize::Zeroizing<String>> = if cfg.feeds.grpc_b.enabled
+        && !cfg.feeds.grpc_b.x_token.is_empty()
+    {
+        let name = &cfg.feeds.grpc_b.x_token;
+        let found = match rugsnipe::keys::credentials_dir() {
+            Ok(d) => rugsnipe::keys::named_secret(&cfg, &d, name)
+                .map_err(|r| format!("feeds.grpc_b.x_token: {r}"))?,
+            Err(_) => None,
+        };
+        match found {
+            Some(t) => Some(t),
+            None => {
+                return Err(format!(
+                    "feeds.grpc_b.x_token {name:?}: not found as a line of the api-keys credential nor as $CREDENTIALS_DIRECTORY/{name} (empty x_token = no x-token header)"
+                ))
+            }
+        }
     } else {
         None
     };
@@ -481,6 +511,30 @@ fn run(args: &[String]) -> Result<(), String> {
                 s.bundle_runs.load(R)
             )
         }));
+        feeds.push(Box::new(g));
+    }
+    // the comparison feed: the same adapter as a second source, no bundle
+    // run, no watch hand-off, never the kill's post-execution feed; the
+    // cold report's first_seen block races it against grpc
+    #[cfg(feature = "grpc")]
+    if cfg.feeds.grpc_b.enabled {
+        use rugsnipe_feed::grpc::{Grpc, GrpcConfig};
+        let g = Grpc::spawn(GrpcConfig {
+            src: rugsnipe_feed::FeedSrc::GrpcB,
+            url: grpc_b_url.clone(),
+            x_token: grpc_b_token.as_ref().map(|t| t.to_string()),
+            stale_ms: cfg.feeds.grpc_b.stale_ms,
+            wallet,
+            bundle_run: false,
+            max_watches: num(args, "--max-watches", 64usize)?,
+            ..Default::default()
+        })
+        .map_err(|e| format!("grpc_b feed: {e}"))?;
+        healths.push(g.health_arc().clone());
+        eprintln!(
+            "grpc_b feed {}: started beside grpc (comparison only; read cold.first_seen)",
+            rugsnipe::keys::redact_url(&grpc_b_url)
+        );
         feeds.push(Box::new(g));
     }
     #[cfg(not(feature = "grpc"))]

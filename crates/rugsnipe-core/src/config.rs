@@ -292,6 +292,13 @@ pub struct FeedsCfg {
     pub logsws: LogsWsCfg,
     pub relay: RelayCfg,
     pub grpc: GrpcCfg,
+    /// A second Yellowstone endpoint run beside `grpc` for comparison (a
+    /// provider on trial): the same adapter, source `grpc_b`, no bundle
+    /// run, never the kill's post-execution feed. The hot loop fires on
+    /// whichever copy of a create arrives first; the cold report's
+    /// `first_seen` block (`first_by`, `lag."grpc_behind_grpc_b"` /
+    /// `"grpc_b_behind_grpc"`) says which feed is ahead and by how much.
+    pub grpc_b: GrpcCfg,
     pub shreds: ShredsCfg,
     pub pumpportal: PumpPortalCfg,
     /// Feed class required before probe/live may fire (`post_exec`).
@@ -303,6 +310,12 @@ impl Default for FeedsCfg {
             logsws: LogsWsCfg::default(),
             relay: RelayCfg::default(),
             grpc: GrpcCfg::default(),
+            grpc_b: GrpcCfg {
+                x_token: "GRPC_B_TOKEN".into(),
+                stale_ms: 4_000,
+                bundle_run: false,
+                ..GrpcCfg::default()
+            },
             shreds: ShredsCfg::default(),
             pumpportal: PumpPortalCfg::default(),
             probe_live_require: "post_exec".into(),
@@ -1411,6 +1424,55 @@ impl Config {
                     &mut r,
                     "feeds.grpc.x_token",
                     "is a credential NAME (e.g. GRPC_TOKEN), not the token",
+                );
+            }
+        }
+        let b = &self.feeds.grpc_b;
+        if b.enabled {
+            if !g.enabled {
+                inv(
+                    &mut r,
+                    "feeds.grpc_b",
+                    "is the comparison feed beside feeds.grpc: enable feeds.grpc too",
+                );
+            }
+            if b.url.starts_with("cred:") {
+                // resolved from the credentials at start
+            } else if !(b.url.starts_with("https://") || b.url.starts_with("http://")) {
+                inv(
+                    &mut r,
+                    "feeds.grpc_b.url",
+                    "must be an https:// Yellowstone endpoint (http:// only for a local server)",
+                );
+            } else if b.url.starts_with("http://")
+                && !(b.url.starts_with("http://127.") || b.url.starts_with("http://localhost"))
+            {
+                w.push(format!(
+                    "feeds.grpc_b.url {} is plain http: the x-token travels unencrypted",
+                    b.url
+                ));
+            }
+            if b.url == g.url {
+                inv(
+                    &mut r,
+                    "feeds.grpc_b.url",
+                    "is the same endpoint as feeds.grpc",
+                );
+            }
+            if !(200..=60_000).contains(&b.stale_ms) {
+                inv(&mut r, "feeds.grpc_b.stale_ms", "must be in [200, 60000]");
+            }
+            if b.x_token.chars().any(|c| c.is_whitespace() || c == '=') {
+                inv(
+                    &mut r,
+                    "feeds.grpc_b.x_token",
+                    "is a credential NAME (e.g. GRPC_B_TOKEN), not the token",
+                );
+            }
+            if b.bundle_run {
+                w.push(
+                    "feeds.grpc_b.bundle_run is ignored: the bundle run comes from feeds.grpc"
+                        .into(),
                 );
             }
         }
