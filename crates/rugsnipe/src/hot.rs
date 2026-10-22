@@ -805,11 +805,21 @@ impl HotLoop {
         while let Ok(m) = self.fills_in.pop() {
             self.on_hot_in(m);
         }
+        // The feed's slot updates keep the clock moving when no event does:
+        // the exit engine evaluates at slot close, and a held mint that goes
+        // quiet used to wait for the next event anywhere (a create, or the
+        // dump on the mint itself) before its hold timers were looked at
+        // (2026-10-22: sells triggered 3-17 slots late at night).
+        let before = self.slot_now;
+        self.advance_slot(feed.slot());
         let now = mono_ns();
         if self.cfg.require_bundle {
             self.fire_due_parked(now);
         }
-        if now.saturating_sub(self.last_tick_ns) >= self.cfg.tick_ms * 1_000_000 {
+        // a slot close is looked at as soon as it is known, not at the next tick
+        if self.slot_now > before
+            || now.saturating_sub(self.last_tick_ns) >= self.cfg.tick_ms * 1_000_000
+        {
             self.last_tick_ns = now;
             self.tick(now);
         }
@@ -817,17 +827,23 @@ impl HotLoop {
         st
     }
 
-    /// Process one feed event.
-    pub fn on_event(&mut self, ev: &FeedEvent, buf: &FeedBuf, t0: u64) {
-        self.counters.events += 1;
-        self.stats.feed_events[ev.src as usize].inc();
-        if ev.slot > self.slot_now {
-            self.slot_now = ev.slot;
-            self.shared.slot_now.store(ev.slot, Relaxed);
+    /// The slot clock moves forward (an event's slot, or the feed's slot
+    /// updates between events).
+    fn advance_slot(&mut self, slot: u64) {
+        if slot > self.slot_now {
+            self.slot_now = slot;
+            self.shared.slot_now.store(slot, Relaxed);
             if self.cfg.require_bundle {
                 self.expire_parked();
             }
         }
+    }
+
+    /// Process one feed event.
+    pub fn on_event(&mut self, ev: &FeedEvent, buf: &FeedBuf, t0: u64) {
+        self.counters.events += 1;
+        self.stats.feed_events[ev.src as usize].inc();
+        self.advance_slot(ev.slot);
         match ev.payload {
             Payload::Hit(lite) => {
                 let hit = hit_from_lite(&lite);

@@ -119,4 +119,8 @@ impl Feed for FeedMux {
     fn src(&self) -> FeedSrc {
         self.feeds.first().map_or(FeedSrc::Replay, |f| f.src())
     }
+
+    fn slot(&self) -> u64 {
+        self.feeds.iter().map(|f| f.slot()).max().unwrap_or(0)
+    }
 }

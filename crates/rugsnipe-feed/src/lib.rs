@@ -121,4 +121,12 @@ pub trait Feed {
     fn health(&self) -> Option<&FeedHealth> {
         None
     }
+    /// The newest slot the adapter has seen, slot updates included (0 when
+    /// it tracks none). The hot loop's slot clock advances on it between
+    /// events, so hold timers run on quiet mints too.
+    fn slot(&self) -> u64 {
+        self.health().map_or(0, |h| {
+            h.last_slot.load(std::sync::atomic::Ordering::Relaxed)
+        })
+    }
 }
