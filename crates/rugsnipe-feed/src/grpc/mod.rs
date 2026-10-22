@@ -730,7 +730,13 @@ impl Adapter {
         if n > 0 {
             let wallet = self.cfg.wallet;
             for t in self.trades.iter() {
-                if Some(t.user) == wallet || self.mint_set.contains(&t.mint) {
+                // held mints, our own trades and (bundle_run) the trades of
+                // the last slots' creates: the hot loop's bundle gate fires
+                // on another wallet's buy in the create slot
+                if Some(t.user) == wallet
+                    || self.mint_set.contains(&t.mint)
+                    || (self.cfg.bundle_run && self.recent.contains_key(&t.mint))
+                {
                     let ev = FeedEvent {
                         src: FeedSrc::Grpc,
                         recv_ns: recv,

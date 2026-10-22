@@ -135,6 +135,7 @@ b = { max_probe_lamports = 250_000_000, max_probes_per_day = 300, max_open_posit
 # median realised premium > max_median_premium, or landing below break-even over landing_attempts (shadow_gate.py --probe)
 kill = { min_landed = 100, min_attempts = 400, max_median_premium = 0.03, landing_attempts = 200 }
 [entry]
+require_bundle = true                              # 2026-10-22: a real buy fires only once another wallet's buy of the mint shows in the create slot (the launch is bundled: the LEAD policy's population, docs/04 section 2), right behind the bundle; a create slot that moves on without one is skipped as skip_no_bundle at no cost. Stage B's first 10 attempts were all unbundled launches (feed_bundle.bundle_wallets = 0) and all exited on no_activity at -2.5%. Needs feeds.grpc bundle_run = true
 # probe-A: stated explicitly (these are the defaults). max_sol_cost = post-bundle price + 2%, the 4 SOL bundle constant;
 # filter = "any" because this build cannot select bundled launches before it sends (M4): the in-class read is afterwards
 max_premium = 0.02

@@ -68,6 +68,7 @@ use rugsnipe_exit::{
     SellOrder, Trade, Venue,
 };
 use rugsnipe_feed::clock::mono_ns;
+use rugsnipe_feed::event::TradeLite;
 use rugsnipe_feed::health::MissKind;
 use rugsnipe_feed::wiremeta::{WireMeta, EMPTY_INNER, MAX_INNER, MAX_LOADED};
 use rugsnipe_feed::{Feed, FeedBuf, FeedEvent, FeedSrc, FeedStatus, Fired, FiredSet, Payload};
@@ -187,6 +188,9 @@ pub struct HotCfg {
     /// `entry.max_premium` in basis points: the fill cap over the expected
     /// post-bundle price that the on-chain bound enforces.
     pub max_premium_bps: u32,
+    /// `entry.require_bundle`: real buys fire only on another wallet's buy
+    /// of the mint in the create slot (see [`Parked`]).
+    pub require_bundle: bool,
     /// `entry.bundle_lamports`: expected bundle SOL outside the create
     /// transaction (`V_pb = V0 + this`).
     pub bundle_lamports: u64,
@@ -228,6 +232,7 @@ impl HotCfg {
             post_exec_feed: false,
             max_premium_bps: (cfg.entry.max_premium * 10_000.0).round().clamp(0.0, 1e6) as u32,
             bundle_lamports: cfg.entry.bundle_lamports,
+            require_bundle: cfg.entry.require_bundle,
         }
     }
 
@@ -382,6 +387,44 @@ struct Slot {
 /// Own-trade signatures remembered per position.
 const OWN_SIGS: usize = 8;
 
+/// `entry.require_bundle`: parked creates at most (one create slot's worth
+/// at the highest launch rate seen; a full table drops the oldest).
+pub const PARK_SLOTS: usize = 16;
+/// A parked create older than this is skipped even without a slot event.
+pub const PARK_MAX_NS: u64 = 1_000_000_000;
+
+/// A create held by the bundle gate: everything `decide_from_watch` needs,
+/// `Copy` (no heap on the create path).
+#[derive(Debug, Clone, Copy)]
+pub struct Parked {
+    pub hit: CreateHit,
+    pub src: FeedSrc,
+    pub recv_ns: u64,
+    pub slot: u64,
+    pub bank_id: u64,
+    pub t0: u64,
+    pub intent: u64,
+    pub rates: (Option<u32>, Option<u32>),
+    pub parked_ns: u64,
+}
+
+/// Whether `t` is the bundle buy a parked create waits for: a buy of the
+/// mint in the create slot by a wallet that is neither ours nor the
+/// creator's (the create's signer or `creator` argument).
+pub fn bundle_buy_triggers(
+    hit: &CreateHit,
+    create_slot: u64,
+    t: &TradeLite,
+    owner: &Pubkey,
+) -> bool {
+    t.mint == hit.mint
+        && t.is_buy
+        && t.slot == create_slot
+        && t.user != *owner
+        && t.user != hit.user
+        && t.user != hit.creator_arg
+}
+
 /// Plain counters for reports (the metrics hold the same numbers).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
 pub struct LoopCounters {
@@ -396,6 +439,10 @@ pub struct LoopCounters {
     pub closed: u64,
     pub trades: u64,
     pub ring_full: u64,
+    /// `entry.require_bundle`: creates parked for a bundle buy, and the
+    /// parked creates that fired on one.
+    pub parked: u64,
+    pub bundle_fired: u64,
     /// Real: zero-balance reports not trusted (node view not past the fill,
     /// or a missing account inside the grace window), `balance_is_trustworthy`.
     pub balance_ignored: u64,
@@ -465,6 +512,9 @@ pub struct HotLoop {
     pub counters: LoopCounters,
     /// Creates per 60 / 600 s (entry filter feature).
     rates: CreateRate,
+    /// `entry.require_bundle`: creates waiting for a bundle buy (fixed
+    /// table: no allocation on the create path).
+    parked: [Option<Parked>; PARK_SLOTS],
     leaders: LeaderSnapshot,
     /// Scratch for the ALT-loaded addresses of a wire event (no allocation).
     loaded: Box<[Pubkey]>,
@@ -523,6 +573,7 @@ impl HotLoop {
             hist_event: hist(),
             counters: LoopCounters::default(),
             rates: CreateRate::new(crate::now_ms()),
+            parked: [None; PARK_SLOTS],
             leaders: p.leaders,
             loaded: vec![Pubkey::default(); MAX_LOADED].into_boxed_slice(),
             last_mark_ns: 0,
@@ -593,6 +644,9 @@ impl HotLoop {
         if ev.slot > self.slot_now {
             self.slot_now = ev.slot;
             self.shared.slot_now.store(ev.slot, Relaxed);
+            if self.cfg.require_bundle {
+                self.expire_parked();
+            }
         }
         match ev.payload {
             Payload::Hit(lite) => {
@@ -646,7 +700,11 @@ impl HotLoop {
                 // our own TradeEvent from the feed: opens / sizes a real position
                 self.on_own_trade(t.sig.0, trade_from_lite(&t));
             }
-            Payload::Trade(t) => self.on_trade(trade_from_lite(&t)),
+            Payload::Trade(t) => {
+                if !(self.cfg.require_bundle && self.parked_trade(&t)) {
+                    self.on_trade(trade_from_lite(&t));
+                }
+            }
             Payload::Funding(f) => {
                 self.stats.funding_events.inc();
                 self.send_cold(ColdMsg::Funding(f));
@@ -748,6 +806,96 @@ impl HotLoop {
         {
             return self.decision(intent, hit, code::CLASS, 0, 0, 0, 0, 0);
         }
+        // 4b: the bundle gate (real only): park until another wallet's buy
+        // of the mint shows in the create slot; the slot moving on without
+        // one skips the launch (docs/04 section 2: the LEAD policy's
+        // population is the bundled launch, entered right behind the bundle)
+        if self.cfg.require_bundle && self.cfg.mode.is_real() && src_class(src) != FREE_CLASS {
+            self.park(Parked {
+                hit: *hit,
+                src,
+                recv_ns,
+                slot,
+                bank_id,
+                t0,
+                intent,
+                rates,
+                parked_ns: mono_ns(),
+            });
+            return;
+        }
+        self.decide_from_watch(src, recv_ns, slot, bank_id, hit, t0, intent, rates);
+    }
+
+    /// Park a create for the bundle gate; a full table drops its oldest
+    /// entry as `skip_no_bundle`.
+    fn park(&mut self, p: Parked) {
+        self.counters.parked += 1;
+        if let Some(free) = self.parked.iter_mut().find(|x| x.is_none()) {
+            *free = Some(p);
+            return;
+        }
+        let oldest = (0..PARK_SLOTS)
+            .min_by_key(|&i| self.parked[i].map_or(u64::MAX, |x| x.parked_ns))
+            .unwrap_or(0);
+        if let Some(old) = self.parked[oldest].take() {
+            self.decision(old.intent, &old.hit, code::NO_BUNDLE, 0, 0, 0, 0, 0);
+        }
+        self.parked[oldest] = Some(p);
+    }
+
+    /// The slot moved on (or a second passed): parked creates of earlier
+    /// slots are launches with no bundle buy, skipped.
+    fn expire_parked(&mut self) {
+        let now = mono_ns();
+        for i in 0..PARK_SLOTS {
+            let Some(p) = self.parked[i] else { continue };
+            if p.slot < self.slot_now || now.saturating_sub(p.parked_ns) > PARK_MAX_NS {
+                self.parked[i] = None;
+                self.decision(p.intent, &p.hit, code::NO_BUNDLE, 0, 0, 0, 0, 0);
+            }
+        }
+    }
+
+    /// A trade on a parked mint: another wallet's buy in the create slot
+    /// fires the parked decision. `true` when the trade was for a parked
+    /// mint (consumed either way: there is no position to size yet).
+    fn parked_trade(&mut self, t: &TradeLite) -> bool {
+        let Some(i) = self
+            .parked
+            .iter()
+            .position(|x| x.is_some_and(|p| p.hit.mint == t.mint))
+        else {
+            return false;
+        };
+        let Some(p) = self.parked[i] else {
+            return false;
+        };
+        if !bundle_buy_triggers(&p.hit, p.slot, t, &self.owner) {
+            return true;
+        }
+        self.parked[i] = None;
+        self.counters.bundle_fired += 1;
+        self.decide_from_watch(
+            p.src, p.recv_ns, p.slot, p.bank_id, &p.hit, p.t0, p.intent, p.rates,
+        );
+        true
+    }
+
+    /// Steps 5-11 of the decision: watchlist, risk, keys, nonce, size and
+    /// the send (or the paper record).
+    #[allow(clippy::too_many_arguments)]
+    fn decide_from_watch(
+        &mut self,
+        src: FeedSrc,
+        recv_ns: u64,
+        slot: u64,
+        bank_id: u64,
+        hit: &CreateHit,
+        t0: u64,
+        intent: u64,
+        rates: (Option<u32>, Option<u32>),
+    ) {
         // 5: watchlist
         let now_ms = crate::now_ms();
         let now_unix = now_ms / 1_000;
@@ -2360,4 +2508,104 @@ fn sell_sig(o: SellOrder) -> [u8; 64] {
     s[12..20].copy_from_slice(&o.trigger_slot.to_le_bytes());
     s[20..28].copy_from_slice(&o.tokens.to_le_bytes());
     s
+}
+
+#[cfg(test)]
+mod bundle_gate_tests {
+    use super::*;
+    use crate::convert::hit_from_lite;
+    use pump_codec::constants::TOKEN_2022_PROGRAM_ID;
+    use rugsnipe_feed::event::{hit_flags as hf, CreateHitLite};
+    use rugsnipe_feed::Sig;
+
+    fn hit(user: Pubkey, creator: Pubkey) -> CreateHit {
+        hit_from_lite(&CreateHitLite {
+            mint: Pubkey::new_unique(),
+            bc: Pubkey::new_unique(),
+            abc: Pubkey::new_unique(),
+            user,
+            creator,
+            token_program: TOKEN_2022_PROGRAM_ID,
+            quote_mint: Pubkey::default(),
+            mayhem: false,
+            slot: 100,
+            sig: Sig([5; 64]),
+            intx_sol_in: 1_000_000_000,
+            intx_tokens_out: 34_612_903_225_806,
+            intx_buys: 1,
+            v_after: 31_000_000_000,
+            flags: hf::TOKEN_PROGRAM_KNOWN | hf::QUOTE_KNOWN | hf::CREATOR_KNOWN | hf::ABC_KNOWN,
+        })
+    }
+
+    fn trade(mint: Pubkey, user: Pubkey, is_buy: bool, slot: u64) -> TradeLite {
+        TradeLite {
+            mint,
+            user,
+            is_buy,
+            sol_amount: 500_000_000,
+            token_amount: 1,
+            fee: 0,
+            virtual_sol_reserves: 31_500_000_000,
+            virtual_token_reserves: 1,
+            slot,
+            sig: Sig([9; 64]),
+            ordinal: 0,
+        }
+    }
+
+    #[test]
+    fn only_another_wallets_buy_in_the_create_slot_fires_a_parked_create() {
+        let (owner, dev, creator, other) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let h = hit(dev, creator);
+        assert!(bundle_buy_triggers(
+            &h,
+            100,
+            &trade(h.mint, other, true, 100),
+            &owner
+        ));
+        // the dev's own buy, the creator's, ours: not a bundle
+        assert!(!bundle_buy_triggers(
+            &h,
+            100,
+            &trade(h.mint, dev, true, 100),
+            &owner
+        ));
+        assert!(!bundle_buy_triggers(
+            &h,
+            100,
+            &trade(h.mint, creator, true, 100),
+            &owner
+        ));
+        assert!(!bundle_buy_triggers(
+            &h,
+            100,
+            &trade(h.mint, owner, true, 100),
+            &owner
+        ));
+        // a sell, a later slot, another mint
+        assert!(!bundle_buy_triggers(
+            &h,
+            100,
+            &trade(h.mint, other, false, 100),
+            &owner
+        ));
+        assert!(!bundle_buy_triggers(
+            &h,
+            100,
+            &trade(h.mint, other, true, 101),
+            &owner
+        ));
+        assert!(!bundle_buy_triggers(
+            &h,
+            100,
+            &trade(Pubkey::new_unique(), other, true, 100),
+            &owner
+        ));
+    }
 }

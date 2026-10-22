@@ -798,6 +798,16 @@ pub struct EntryCfg {
     /// `skip`: also drop the intents scoring below the bottom-tertile cut
     /// point `t1` (no send, no cost).
     pub filter_mode: FilterMode,
+    /// Real modes only: send a buy only once another wallet's buy of the
+    /// mint has shown in the create slot (the launch is bundled, the
+    /// population the LEAD policy was scored on: docs/04 section 2). The
+    /// create is parked after the class filters and fires on that buy, right
+    /// behind the bundle; a create slot that moves on without one is skipped
+    /// (`skip_no_bundle`, no risk or nonce taken). Needs
+    /// `feeds.grpc.bundle_run` (the bundle's buys come from the pump
+    /// transaction stream). 2026-10-22: the first 10 stage-B attempts all
+    /// hit launches with no bundle wallet and all exited on no_activity.
+    pub require_bundle: bool,
 }
 impl Default for EntryCfg {
     fn default() -> Self {
@@ -807,6 +817,7 @@ impl Default for EntryCfg {
             filter: EntryFilter::Any,
             filter_model: String::new(),
             filter_mode: FilterMode::Log,
+            require_bundle: false,
         }
     }
 }
@@ -1316,6 +1327,13 @@ impl Config {
         }
         if !(0.0..1.0).contains(&self.entry.max_premium) {
             inv(&mut r, "entry.max_premium", "must be in [0, 1)");
+        }
+        if self.entry.require_bundle && !self.feeds.grpc.bundle_run {
+            inv(
+                &mut r,
+                "entry.require_bundle",
+                "needs feeds.grpc.bundle_run = true (the bundle's buys come from the pump transaction stream)",
+            );
         }
         if !(0.0..1.0).contains(&self.paper.entry_premium) {
             inv(&mut r, "paper.entry_premium", "must be in [0, 1)");

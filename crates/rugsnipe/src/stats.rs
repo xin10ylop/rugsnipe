@@ -41,6 +41,10 @@ pub mod code {
     /// already past it): the buy could not land in the creation slot, so it
     /// is not sent (docs/04 section 2: fire only in the create slot).
     pub const LATE_SLOT: u8 = 0x4d;
+    /// `entry.require_bundle`: the create slot moved on with no other
+    /// wallet's buy of the mint (the launch was not bundled): not sent, no
+    /// risk or nonce taken.
+    pub const NO_BUNDLE: u8 = 0x4e;
     /// Metrics only: a paper decision that a real mode would have skipped
     /// (rslog keeps the RiskGate code and the `would_skip` reason).
     pub const PAPER_WOULD_SKIP: u8 = 0x1f;
@@ -79,6 +83,7 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (code::BAD_KEYS, "bad_keys"),
     (code::FREE_FEED_DEFERS, "free_feed_defers"),
     (code::LATE_SLOT, "late_slot"),
+    (code::NO_BUNDLE, "skip_no_bundle"),
 ];
 
 /// Label of a decision code.
