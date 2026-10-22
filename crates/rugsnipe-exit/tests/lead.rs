@@ -278,6 +278,35 @@ fn hard_exit_at_landing_slot_plus_five_and_idle_counts_from_the_landing() {
 }
 
 #[test]
+fn a_balance_report_from_a_node_ahead_of_the_feed_does_not_freeze_the_hold_timers() {
+    // 2026-10-22: the lane's balance report carries the RPC node's slot;
+    // when that ran ahead of the feed the exit clock jumped past it and the
+    // hold timers were not evaluated until the feed caught up (dead
+    // launches closed at +11..+14 instead of +6)
+    let mut l = Lead::new(lead(), &[]);
+    l.buy(500_000_000);
+    l.slot = 101;
+    let now = l.now();
+    let tokens = l.pos.tokens;
+    assert!(sells(&decide(
+        &mut l.pos,
+        &ExitEvent::Balance { tokens, slot: 120 },
+        now
+    ))
+    .is_empty());
+    assert!(sells(&l.tick(104)).is_empty());
+    let s = sells(&l.tick(105));
+    assert_eq!(
+        s.len(),
+        1,
+        "the idle exit fires at +5 whatever slot the balance report named"
+    );
+    assert_eq!(s[0].reason, ExitReason::NoActivity);
+    // the trigger is the slot that just closed, not the report's 120
+    assert_eq!(s[0].trigger_slot, 104);
+}
+
+#[test]
 fn phantom_stop_measures_from_the_post_bundle_price_without_our_tokens() {
     let user = Pubkey::new_unique();
     // a sell that takes the historical price 14% below the post-bundle price

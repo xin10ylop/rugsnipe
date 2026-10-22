@@ -551,6 +551,45 @@ pub fn bundle_buy_triggers(
         && t.user != hit.creator_arg
 }
 
+/// The first 8 base58 characters of a key, allocation-free (journal lines
+/// on the hot thread).
+fn key8(k: &Pubkey) -> [u8; 8] {
+    let mut buf = [0u8; 48];
+    let n = bs58::encode(k.as_ref()).onto(&mut buf[..]).unwrap_or(0);
+    let mut out = [b'?'; 8];
+    let n = n.min(8);
+    out[..n].copy_from_slice(&buf[..n]);
+    out
+}
+
+/// A journal line from the hot thread: formatted on the stack and written to
+/// stderr in one call (`eprintln!` goes through the test harness's output
+/// capture, which allocates). Truncated at 255 bytes.
+struct LineBuf {
+    buf: [u8; 256],
+    len: usize,
+}
+
+impl core::fmt::Write for LineBuf {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let n = s.len().min(self.buf.len() - 1 - self.len);
+        self.buf[self.len..self.len + n].copy_from_slice(&s.as_bytes()[..n]);
+        self.len += n;
+        Ok(())
+    }
+}
+
+fn journal(args: core::fmt::Arguments<'_>) {
+    use std::io::Write as _;
+    let mut b = LineBuf {
+        buf: [0u8; 256],
+        len: 0,
+    };
+    let _ = core::fmt::write(&mut b, args);
+    b.buf[b.len] = b'\n';
+    let _ = std::io::stderr().write_all(&b.buf[..b.len + 1]);
+}
+
 /// Plain counters for reports (the metrics hold the same numbers).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
 pub struct LoopCounters {
@@ -849,7 +888,7 @@ impl HotLoop {
             }
             Payload::Trade(t) if t.user == self.owner && self.cfg.mode.is_real() => {
                 // our own TradeEvent from the feed: opens / sizes a real position
-                self.on_own_trade(t.sig.0, trade_from_lite(&t));
+                self.on_own_trade(t.sig.0, trade_from_lite(&t), false);
             }
             Payload::Trade(t) => {
                 if !(self.cfg.require_bundle && self.parked_trade(&t)) {
@@ -1736,10 +1775,10 @@ impl HotLoop {
             }
             HotIn::RealBuy { intent, sig, trade } => {
                 if self.find_intent(intent).is_some() {
-                    self.on_own_trade(sig, trade);
+                    self.on_own_trade(sig, trade, true);
                 }
             }
-            HotIn::RealTrade { sig, trade } => self.on_own_trade(sig, trade),
+            HotIn::RealTrade { sig, trade } => self.on_own_trade(sig, trade, true),
             HotIn::RealFailed {
                 intent,
                 cost,
@@ -1767,9 +1806,11 @@ impl HotLoop {
                         self.counters.balance_ignored += 1;
                         return;
                     }
+                    // the hot loop's slot is the exit clock; the report's
+                    // own slot (the RPC node's) only sized the trust check
                     let now = Now {
                         ms: crate::now_ms(),
-                        slot: slot.max(self.slot_now),
+                        slot: self.slot_now,
                     };
                     self.exit_event(i, ExitEvent::Balance { tokens, slot }, now);
                 }
@@ -1781,7 +1822,7 @@ impl HotLoop {
     /// position (never a send: docs/06 section 8), a sell sizes or closes
     /// it. The feed and the real fill lane can both report one trade: each
     /// signature is applied once.
-    fn on_own_trade(&mut self, sig: [u8; 64], t: Trade) {
+    fn on_own_trade(&mut self, sig: [u8; 64], t: Trade, from_lane: bool) {
         let Some(i) = self.find_mint(&t.mint) else {
             return;
         };
@@ -1809,6 +1850,16 @@ impl HotLoop {
             s.buf_len = 0;
             self.counters.fills += 1;
             self.stats.fills.inc();
+            // the fill's timing, for the journal (rare: one line per position)
+            let k8 = key8(&mint);
+            journal(format_args!(
+                "fill {} slot {} slot_now {} via {} buffered {}",
+                std::str::from_utf8(&k8).unwrap_or("?"),
+                t.slot,
+                self.slot_now,
+                if from_lane { "lane" } else { "feed" },
+                n
+            ));
             self.exit_event(i, ExitEvent::Trade(t), now);
             self.send_cold(ColdMsg::RealHeld { intent, mint });
             for tr in buf[..n].iter().flatten() {
@@ -2667,6 +2718,20 @@ impl HotLoop {
         let Some(s) = self.slots[i].as_mut() else {
             return;
         };
+        // the sell's timing against the policy, for the journal
+        let k8 = key8(&s.pos.mint);
+        journal(format_args!(
+            "sell {} reason {:?} try {} opened_slot {} trigger_slot {} slot_now {} held_ms {} idle_ms {} tokens {}",
+            std::str::from_utf8(&k8).unwrap_or("?"),
+            order.reason,
+            order.try_no,
+            s.pos.opened_slot,
+            order.trigger_slot,
+            self.slot_now,
+            now.ms.saturating_sub(s.pos.opened_ms),
+            now.ms.saturating_sub(s.pos.last_trade_ms),
+            order.tokens
+        ));
         // a paper position (paper mode, or forced to paper in a real mode) never
         // reaches a real sender
         let paper = !(self.cfg.mode.is_real() && s.real);

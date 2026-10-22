@@ -47,7 +47,16 @@ pub fn decide_into(pos: &mut Position, ev: &ExitEvent, now: Now, out: &mut Vec<E
         ExitEvent::Transfer(x) if x.mint != pos.mint => return,
         _ => {}
     }
-    let slot = now.slot.max(ev.slot().unwrap_or(0));
+    // The exit clock is the caller's slot (the hot loop's feed slot); a
+    // trade's slot may bump it (the feed's, never ahead of it). A balance,
+    // pool or completion report carries the RPC node's slot, which can run
+    // ahead of the feed: taking it as the clock froze the hold timers until
+    // the feed caught up (2026-10-22: dead launches closed at slot +11..+14
+    // instead of +6, the sell triggered 1-2 s late).
+    let slot = now.slot.max(match ev {
+        ExitEvent::Trade(t) => t.slot,
+        _ => 0,
+    });
 
     // 1. slot close
     if slot > pos.cur_slot {
