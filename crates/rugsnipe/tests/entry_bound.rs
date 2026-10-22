@@ -2,7 +2,9 @@
 //! 2, docs/06 section 7.1 steps 8b and 11):
 //!
 //! * `min_tokens_out` is computed at `V_cap = min(v_max, V_pb * sqrt(1 +
-//!   entry.max_premium))` with `V_pb = V0 + entry.bundle_lamports`, so a
+//!   entry.max_premium))` with `V_pb = V0 + entry.bundle_lamports` when the
+//!   bundle run is not observed (these tests; `entry.require_bundle` binds
+//!   at the observed run instead, `hot::park_trade`), so a
 //!   fill at +11% over the post-bundle price (rank 3 behind the bundle)
 //!   fails on chain while +1.5% lands (the operator's wide `v_max` bound
 //!   alone let the +11% fill through);

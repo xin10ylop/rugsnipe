@@ -790,8 +790,20 @@ fn run(args: &[String]) -> Result<(), String> {
                 .as_ref()
                 .map(|f| format!(" | {}", f()))
                 .unwrap_or_default();
+            let gate = if c.parked > 0 {
+                format!(
+                    " | gate parked {} fired {} run_done {} not_first {} wait_us {}",
+                    c.parked,
+                    c.bundle_fired,
+                    c.run_done,
+                    c.not_first,
+                    c.bundle_wait_us / c.bundle_fired.max(1)
+                )
+            } else {
+                String::new()
+            };
             eprintln!(
-                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {} | {kill}{g} | {} | {}",
+                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {}{gate} | {kill}{g} | {} | {}",
                 t0.elapsed().as_secs(),
                 c.events,
                 c.creates,

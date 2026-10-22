@@ -426,7 +426,22 @@ pub struct Parked {
     pub pb_index: u32,
     pub bundle_ns: u64,
     pub bundle_buys: u8,
+    /// The qualifying bundle buyers (distinct, at most one per run index):
+    /// they join the position's bundle set so the LEAD exit's insider-sell
+    /// rule sees their sells (the sim's bundle wallets).
+    pub wallets: [Pubkey; RUN_MAX_AFTER as usize],
+    pub n_wallets: u8,
+    /// A trade of the mint beyond the run was delivered before any bundle
+    /// buy (out-of-order stream): a bundle buy that arrives later cannot
+    /// make us first any more.
+    pub behind: bool,
 }
+
+/// The number of trades the hot loop keeps for mints that have no park
+/// yet: the create's wire record and its slot's trades travel on two rings,
+/// so a bundle buy can be polled one iteration before its create
+/// ([`HotLoop::park`] replays them).
+pub const PREPARK: usize = 16;
 
 /// What a trade of a parked mint did to its park ([`park_trade`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -434,7 +449,8 @@ pub enum ParkStep {
     /// Another slot, no block order, or at / before the create: nothing.
     Ignore,
     /// Inside the run: recorded (the post-run state; a bundle buy counted),
-    /// still waiting for the run to complete.
+    /// still waiting for the run to complete. Also a trade beyond the run
+    /// on a park with no bundle buy yet (the park only remembers it).
     Hold,
     /// The run holds a bundle buy and cannot grow (a trade at its last
     /// possible index) or no wait is configured: fire now.
@@ -442,7 +458,8 @@ pub enum ParkStep {
     /// A trade of the mint beyond the run executed before we fired: the
     /// first buy behind the bundle is someone else's.
     NotFirst,
-    /// A trade beyond the run and no bundle buy before it: not bundled.
+    /// Unused by [`park_trade`] since the out-of-order fix: an unarmed park
+    /// waits for the slot to end (kept for the hot loop's slot-end skip).
     NoBundle,
 }
 
@@ -469,21 +486,31 @@ pub fn park_trade(
     }
     let last = p.create_index.saturating_add(RUN_MAX_AFTER);
     if t.index > last {
-        return if p.bundle_buys > 0 {
-            ParkStep::NotFirst
-        } else {
-            ParkStep::NoBundle
-        };
+        if p.bundle_buys > 0 {
+            return ParkStep::NotFirst;
+        }
+        // no bundle buy yet: the stream may be out of order (the bundle's
+        // own trades still to come), so the park stays until the slot ends
+        p.behind = true;
+        return ParkStep::Hold;
     }
     if t.index >= p.pb_index {
         p.pb_index = t.index;
         p.pb = Some((t.virtual_sol_reserves, t.virtual_token_reserves));
     }
     if bundle_buy_triggers(&p.hit, p.slot, p.create_index, t, owner) {
+        if p.behind {
+            return ParkStep::NotFirst;
+        }
         if p.bundle_buys == 0 {
             p.bundle_ns = now_ns;
         }
         p.bundle_buys = p.bundle_buys.saturating_add(1);
+        let n = p.n_wallets as usize;
+        if !p.wallets[..n].contains(&t.user) && n < p.wallets.len() {
+            p.wallets[n] = t.user;
+            p.n_wallets += 1;
+        }
     }
     if p.bundle_buys > 0 && (t.index == last || wait_ns == 0) {
         ParkStep::Fire
@@ -621,6 +648,9 @@ pub struct HotLoop {
     /// `entry.require_bundle`: creates waiting for a bundle buy (fixed
     /// table: no allocation on the create path).
     parked: [Option<Parked>; PARK_SLOTS],
+    /// Recent trades of mints with no park and no position ([`PREPARK`]).
+    prepark: [Option<TradeLite>; PREPARK],
+    prepark_at: usize,
     leaders: LeaderSnapshot,
     /// Scratch for the ALT-loaded addresses of a wire event (no allocation).
     loaded: Box<[Pubkey]>,
@@ -680,6 +710,8 @@ impl HotLoop {
             counters: LoopCounters::default(),
             rates: CreateRate::new(crate::now_ms()),
             parked: [None; PARK_SLOTS],
+            prepark: [None; PREPARK],
+            prepark_at: 0,
             leaders: p.leaders,
             loaded: vec![Pubkey::default(); MAX_LOADED].into_boxed_slice(),
             last_mark_ns: 0,
@@ -821,6 +853,15 @@ impl HotLoop {
             }
             Payload::Trade(t) => {
                 if !(self.cfg.require_bundle && self.parked_trade(&t)) {
+                    if self.cfg.require_bundle
+                        && t.index != u32::MAX
+                        && self.find_mint(&t.mint).is_none()
+                    {
+                        // a bundle buy polled before its create's wire
+                        // record: replayed when the create is parked
+                        self.prepark[self.prepark_at % PREPARK] = Some(t);
+                        self.prepark_at = self.prepark_at.wrapping_add(1);
+                    }
                     self.on_trade(trade_from_lite(&t));
                 }
             }
@@ -954,6 +995,9 @@ impl HotLoop {
                 pb_index: 0,
                 bundle_ns: 0,
                 bundle_buys: 0,
+                wallets: [Pubkey::default(); RUN_MAX_AFTER as usize],
+                n_wallets: 0,
+                behind: false,
             });
             return;
         }
@@ -961,33 +1005,48 @@ impl HotLoop {
     }
 
     /// Park a create for the bundle gate; a full table drops its oldest
-    /// entry as `skip_no_bundle`.
+    /// entry as `skip_no_bundle`. Trades of the mint polled before the
+    /// create's wire record ([`PREPARK`]) are replayed into the new park.
     fn park(&mut self, p: Parked) {
         self.counters.parked += 1;
-        if let Some(free) = self.parked.iter_mut().find(|x| x.is_none()) {
-            *free = Some(p);
-            return;
+        let i = match self.parked.iter().position(|x| x.is_none()) {
+            Some(i) => i,
+            None => {
+                let oldest = (0..PARK_SLOTS)
+                    .min_by_key(|&i| self.parked[i].map_or(u64::MAX, |x| x.parked_ns))
+                    .unwrap_or(0);
+                if let Some(old) = self.parked[oldest].take() {
+                    self.decision(old.intent, &old.hit, code::NO_BUNDLE, 0, 0, 0, 0, 0);
+                }
+                oldest
+            }
+        };
+        self.parked[i] = Some(p);
+        let (mint, slot) = (p.hit.mint, p.slot);
+        for k in 0..PREPARK {
+            let Some(t) = self.prepark[k] else { continue };
+            if t.mint != mint || t.slot != slot {
+                continue;
+            }
+            self.prepark[k] = None;
+            if self.parked[i].is_none() || !self.parked_trade(&t) {
+                break;
+            }
         }
-        let oldest = (0..PARK_SLOTS)
-            .min_by_key(|&i| self.parked[i].map_or(u64::MAX, |x| x.parked_ns))
-            .unwrap_or(0);
-        if let Some(old) = self.parked[oldest].take() {
-            self.decision(old.intent, &old.hit, code::NO_BUNDLE, 0, 0, 0, 0, 0);
-        }
-        self.parked[oldest] = Some(p);
     }
 
     /// The slot moved on (or a second passed): a parked create of an
     /// earlier slot with no bundle buy is an unbundled launch, skipped; one
-    /// with a bundle buy had its run end with the slot and is decided now
-    /// (step 8b refuses a real buy after the create slot: `late_slot`).
+    /// with a bundle buy had its run end with the slot: a real buy after
+    /// the create slot is refused (step 8b), recorded as `late_slot` here
+    /// without a decision (no risk token, no nonce).
     fn expire_parked(&mut self) {
         let now = mono_ns();
         for i in 0..PARK_SLOTS {
             let Some(p) = self.parked[i] else { continue };
             if p.slot < self.slot_now && p.bundle_buys > 0 {
                 self.parked[i] = None;
-                self.fire_parked(&p, now);
+                self.decision(p.intent, &p.hit, code::LATE_SLOT, 0, 0, 0, 0, 0);
             } else if p.slot < self.slot_now || now.saturating_sub(p.parked_ns) > PARK_MAX_NS {
                 self.parked[i] = None;
                 self.decision(p.intent, &p.hit, code::NO_BUNDLE, 0, 0, 0, 0, 0);
@@ -1034,8 +1093,9 @@ impl HotLoop {
 
     /// The stream's run-complete signal (a pump transaction of the create
     /// slot beyond the run): a parked create with a bundle buy fires at the
-    /// run's state; one without is an unbundled launch, skipped now rather
-    /// than at the end of the slot.
+    /// run's state. One without stays parked (the signal follows delivery
+    /// order, the bundle's own trades may still come): the slot's end
+    /// skips it.
     fn parked_run_done(&mut self, r: &RunDoneLite) {
         self.counters.run_done += 1;
         let Some(i) = self
@@ -1045,13 +1105,11 @@ impl HotLoop {
         else {
             return;
         };
-        let Some(p) = self.parked[i].take() else {
+        if self.parked[i].is_some_and(|p| p.bundle_buys == 0) {
             return;
-        };
-        if p.bundle_buys > 0 {
+        }
+        if let Some(p) = self.parked[i].take() {
             self.fire_parked(&p, mono_ns());
-        } else {
-            self.decision(p.intent, &p.hit, code::NO_BUNDLE, 0, 0, 0, 0, 0);
         }
     }
 
@@ -1076,14 +1134,23 @@ impl HotLoop {
         self.counters.bundle_fired += 1;
         self.counters.bundle_wait_us += now.saturating_sub(p.bundle_ns) / 1_000;
         self.decide_from_watch(
-            p.src, p.recv_ns, p.slot, p.bank_id, &p.hit, p.t0, p.intent, p.rates, p.pb,
+            p.src,
+            p.recv_ns,
+            p.slot,
+            p.bank_id,
+            &p.hit,
+            p.t0,
+            p.intent,
+            p.rates,
+            Some(p),
         );
     }
 
     /// Steps 5-11 of the decision: watchlist, risk, keys, nonce, size and
-    /// the send (or the paper record). `pb`: the bundle run's observed
-    /// post-trade reserves (the bundle gate), the state the buy is bound
-    /// at; `None` falls back to `V0 + entry.bundle_lamports`.
+    /// the send (or the paper record). `parked`: the bundle gate's park,
+    /// with the run's observed post-trade reserves (the state the buy is
+    /// bound at; without it the bound falls back to `V0 +
+    /// entry.bundle_lamports`) and the bundle wallets for the position.
     #[allow(clippy::too_many_arguments)]
     fn decide_from_watch(
         &mut self,
@@ -1095,8 +1162,9 @@ impl HotLoop {
         t0: u64,
         intent: u64,
         rates: (Option<u32>, Option<u32>),
-        pb: Option<(u64, u64)>,
+        parked: Option<&Parked>,
     ) {
+        let pb = parked.and_then(|p| p.pb);
         // 5: watchlist
         let now_ms = crate::now_ms();
         let now_unix = now_ms / 1_000;
@@ -1474,6 +1542,12 @@ impl HotLoop {
         bundle.insert(hit.creator_arg);
         if let Some(fp) = hit.fee_payer {
             bundle.insert(fp);
+        }
+        // the bundle's separate-transaction buyers (exit rule: their sells)
+        if let Some(p) = parked {
+            for w in &p.wallets[..p.n_wallets as usize] {
+                bundle.insert(*w);
+            }
         }
         let pos = Position::pending(
             hit.mint,
@@ -2826,6 +2900,9 @@ mod bundle_gate_tests {
             pb_index: 0,
             bundle_ns: 0,
             bundle_buys: 0,
+            wallets: [Pubkey::default(); RUN_MAX_AFTER as usize],
+            n_wallets: 0,
+            behind: false,
         }
     }
 
@@ -2918,6 +2995,12 @@ mod bundle_gate_tests {
         );
         assert_eq!(s, ParkStep::Fire);
         assert_eq!(p.pb, Some((35_000_000_000, 1)));
+        // the two bundle wallets, once each, for the position's bundle set
+        // (four qualifying buys: +2, +3, the late copy of +2, +5)
+        assert_eq!(
+            (&p.wallets[..p.n_wallets as usize], p.bundle_buys),
+            (&[w1, w2][..], 4)
+        );
     }
 
     #[test]
@@ -2953,7 +3036,9 @@ mod bundle_gate_tests {
             ),
             ParkStep::NotFirst
         );
-        // the same beyond-the-run trade on an unarmed park: not bundled
+        // the same beyond-the-run trade on an unarmed park: remembered, the
+        // park stays (the stream may be out of order); a bundle buy that
+        // arrives after it cannot make us first
         let mut q = parked(&h, ci);
         assert_eq!(
             park_trade(
@@ -2963,8 +3048,20 @@ mod bundle_gate_tests {
                 WAIT,
                 2_000
             ),
-            ParkStep::NoBundle
+            ParkStep::Hold
         );
+        assert!(q.behind && q.bundle_buys == 0 && q.pb.is_none());
+        assert_eq!(
+            park_trade(
+                &mut q,
+                &trade_v(h.mint, w1, true, ci + 1, 33_000_000_000),
+                &owner,
+                WAIT,
+                2_500
+            ),
+            ParkStep::NotFirst
+        );
+        assert_eq!(q.bundle_buys, 0);
         // another slot, no block order, the create's own index, no create index
         let mut r = parked(&h, ci);
         let mut t = trade_v(h.mint, w1, true, ci + 1, 33_000_000_000);
