@@ -655,6 +655,12 @@ break-even (about 9.9% at the measured failed cost and premium) and the unfilter
    cred:RPC_URL`. Keep `--busy-poll`: the drop-in replaces the whole base line, and without it the hot thread
    sleeps 200 µs when idle.
 
+   **6b-bis. The Jito relay** (once per box; 2026-10-22). The hot senders speak plain HTTP and Jito's block
+   engine refuses it, so Jito goes through a local nginx that terminates TLS (`deploy/nginx/jito-relay.conf`,
+   install and check commands in the file's header). The config line is
+   `jito = { enabled = true, region = "frankfurt", url = "http://127.0.0.1:8081", max_rps = 1 }`. Without the
+   relay leave `jito` disabled: every send fails `io` (connection refused) and the sender's breaker opens.
+
    **6c. The guard's drop-in and the units.** install.sh writes the guard's probe drop-in; then enable the units
    explicitly (the target starts nothing that is not enabled). Replace `SHA` again:
    ```bash

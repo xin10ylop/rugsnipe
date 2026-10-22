@@ -82,7 +82,7 @@ helius_swqos = { enabled = false, url = "http://fra-sender.helius-rpc.com/fast" 
 nozomi = { enabled = true, url = "http://fra2.nozomi.temporal.xyz", key = "NOZOMI_KEY", min_tip = 1_000_000 }    # probe-A: on (sender 2 of 5); batch send, 5/s
 astralane = { enabled = true, url = "http://fr.gateway.astralane.io/irisb", key = "ASTRALANE_KEY", min_tip = 1_000_000 }   # probe-A: on (sender 3 of 5)
 blockrazor = { enabled = true, url = "http://frankfurt.solana.blockrazor.xyz:443/sendTransaction", key = "BLOCKRAZOR_KEY" }   # probe-A: on (sender 4 of 5); mode fast, 0.0001 SOL, 3 TPS
-jito = { enabled = false, regions = ["frankfurt", "amsterdam"], max_rps = 1 }                       # probe-A: off 2026-10-21: the block engine refuses plain HTTP and the hot sender has no TLS; keyless, 1 req/s
+jito = { enabled = true, region = "frankfurt", url = "http://127.0.0.1:8081", max_rps = 1 }      # probe-A: on via the local TLS relay (deploy/nginx/jito-relay.conf); the block engine refuses plain HTTP
 nextblock = { enabled = false, key = "NEXTBLOCK_KEY" }
 tpu = { enabled = false, leaders_ahead = 2 }
 [rpc_budget]                                       # req/s per public-RPC egress IP; roles sum <= 32
