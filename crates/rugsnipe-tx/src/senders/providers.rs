@@ -304,8 +304,10 @@ impl HttpSender {
         let latency_ns = t0.elapsed().as_nanos() as u64;
         match r {
             Ok(s) if (200..300).contains(&s) => {
-                // JSON-RPC errors come back as 200 with an "error" member
-                if json_errors && contains(conn.last_body(), b"\"error\"") {
+                // JSON-RPC errors come back as 200 with an "error" member;
+                // BlockRazor's success reply carries an empty one
+                // (`{"signature":"...","error":""}`), which is not an error
+                if json_errors && body_has_error(conn.last_body()) {
                     self.breaker.on_failure(now_ms());
                     let msg = String::from_utf8_lossy(conn.last_body())
                         .chars()
@@ -330,6 +332,28 @@ impl HttpSender {
             }
         }
     }
+}
+
+/// An `"error"` member whose value is not the empty string (`"error":""`
+/// and `"error": ""` are BlockRazor's "no error").
+fn body_has_error(body: &[u8]) -> bool {
+    let key = b"\"error\"";
+    let Some(i) = body.windows(key.len()).position(|w| w == key) else {
+        return false;
+    };
+    let rest = &body[i + key.len()..];
+    let rest = rest
+        .iter()
+        .position(|b| !b.is_ascii_whitespace())
+        .map_or(&rest[0..0], |j| &rest[j..]);
+    let Some(rest) = rest.strip_prefix(b":") else {
+        return true;
+    };
+    let rest = rest
+        .iter()
+        .position(|b| !b.is_ascii_whitespace())
+        .map_or(&rest[0..0], |j| &rest[j..]);
+    !rest.starts_with(b"\"\"")
 }
 
 fn contains(h: &[u8], n: &[u8]) -> bool {
@@ -573,4 +597,24 @@ pub fn build(name: &str, c: &HttpSenderCfg, keys: &ApiKeys) -> Result<Box<dyn Se
         other => return Err(format!("unknown sender {other}")),
     };
     Ok(Box::new(s))
+}
+
+#[cfg(test)]
+mod body_error_tests {
+    use super::body_has_error;
+
+    #[test]
+    fn empty_error_member_is_success() {
+        assert!(!body_has_error(br#"{"signature":"56oj","error":""}"#));
+        assert!(!body_has_error(br#"{"signature":"56oj", "error": ""}"#));
+        assert!(body_has_error(
+            br#"{"signature":"","error":"rpc error: code = Unknown desc = illegal transaction"}"#
+        ));
+        assert!(body_has_error(
+            br#"{"jsonrpc":"2.0","error":{"code":-32002,"message":"x"},"id":1}"#
+        ));
+        assert!(!body_has_error(
+            br#"{"jsonrpc":"2.0","result":"sig","id":1}"#
+        ));
+    }
 }

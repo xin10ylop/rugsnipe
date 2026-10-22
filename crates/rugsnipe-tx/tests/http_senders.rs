@@ -277,8 +277,11 @@ fn build_from_config_uses_api_keys() {
 #[test]
 fn blockrazor_fast_mode_body_and_apikey_header() {
     let (url, rx) = mock(vec![
-        (200, r#"{"signature":"x"}"#),
-        (200, r#"{"error":"bad tx"}"#),
+        (200, r#"{"signature":"x","error":""}"#),
+        (
+            200,
+            r#"{"signature":"","error":"rpc error: code = Unknown desc = illegal transaction"}"#,
+        ),
         (200, r#"{"signature":"y"}"#),
         (200, r#"{"signature":"z"}"#),
     ]);
