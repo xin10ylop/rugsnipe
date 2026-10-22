@@ -2012,9 +2012,18 @@ impl Cold {
                 r.probe
                     .error(format!("sell {} failed ({reason}), fee {fee}", b58(&sig)));
             }
-            E::Balance { mint, tokens, slot } => {
-                self.to_hot_q
-                    .push_back(HotIn::RealBalance { mint, tokens, slot });
+            E::Balance {
+                mint,
+                tokens,
+                slot,
+                exists,
+            } => {
+                self.to_hot_q.push_back(HotIn::RealBalance {
+                    mint,
+                    tokens,
+                    slot,
+                    exists,
+                });
             }
             E::Nonce { idx, value, slot } => {
                 let i = idx as usize;

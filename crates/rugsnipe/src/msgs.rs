@@ -255,6 +255,8 @@ pub enum HotIn {
         mint: Pubkey,
         tokens: u64,
         slot: u64,
+        /// The token account exists (a missing one reports 0 tokens).
+        exists: bool,
     },
     /// The E2 state for a paper intent (`ok = false`: resolution failed,
     /// the hot loop falls back to its buffered trades at the deadline).

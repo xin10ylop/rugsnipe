@@ -396,6 +396,9 @@ pub struct LoopCounters {
     pub closed: u64,
     pub trades: u64,
     pub ring_full: u64,
+    /// Real: zero-balance reports not trusted (node view not past the fill,
+    /// or a missing account inside the grace window), `balance_is_trustworthy`.
+    pub balance_ignored: u64,
     /// E1 verdicts other than a fill (premium, slippage, not in slot 0, class, unresolved).
     pub e1_failed: u64,
     pub e1_replayed_trades: u64,
@@ -1311,13 +1314,26 @@ impl HotLoop {
                 cost,
                 dropped,
             } => self.real_failed(intent, cost, dropped),
-            HotIn::RealBalance { mint, tokens, slot } => {
+            HotIn::RealBalance {
+                mint,
+                tokens,
+                slot,
+                exists,
+            } => {
                 let Some(i) = self.find_mint(&mint) else {
                     return;
                 };
                 // a pending intent opens on its own TradeEvent (the lane sends
                 // it first); a balance only sizes or closes a held position
                 if self.slots[i].as_ref().is_some_and(|s| s.real && s.filled) {
+                    // a zero from a node view not past the fill (or a missing
+                    // account in the first seconds) is "not visible yet", not
+                    // "sold": closing on it leaves the tokens in the wallet
+                    let opened = self.slots[i].as_ref().map_or(0, |s| s.pos.opened_slot);
+                    if !crate::real::balance_is_trustworthy(exists, tokens, slot, opened) {
+                        self.counters.balance_ignored += 1;
+                        return;
+                    }
                     let now = Now {
                         ms: crate::now_ms(),
                         slot: slot.max(self.slot_now),

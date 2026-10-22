@@ -209,11 +209,13 @@ pub enum LaneEvent {
         fee: u64,
         reason: String,
     },
-    /// A held mint's token balance.
+    /// A held mint's token balance. `exists`: the token account was found
+    /// (a missing one reads as 0 tokens; see [`balance_is_trustworthy`]).
     Balance {
         mint: Pubkey,
         tokens: u64,
         slot: u64,
+        exists: bool,
     },
     /// A watched nonce now holds `value`.
     Nonce {
@@ -602,6 +604,34 @@ async fn analyze_inner(
 }
 
 /// Token amount of an SPL / Token-2022 account (base layout: amount at 64).
+/// Slots after a position opened during which a *missing* token account is
+/// "not visible yet", not "sold": the balance poll reads at `confirmed` and
+/// the position opens on our own TradeEvent at `processed`, so a node a
+/// block or two behind returns no account at all for a fill it has not
+/// reached (2026-10-22: a 0.25 SOL position was closed as BalanceZero in
+/// its opening slot, its tokens left in the wallet unsold).
+pub const MISSING_ACCOUNT_GRACE_SLOTS: u64 = 32;
+
+/// Whether a balance report may size or close a position opened at
+/// `opened_slot`. A non-zero balance is always applied. A zero balance is
+/// trusted only from a node view past the opening slot, and, when the
+/// account is missing rather than empty, only once
+/// [`MISSING_ACCOUNT_GRACE_SLOTS`] have passed since the open.
+pub fn balance_is_trustworthy(
+    exists: bool,
+    tokens: u64,
+    report_slot: u64,
+    opened_slot: u64,
+) -> bool {
+    if tokens > 0 {
+        return true;
+    }
+    if report_slot <= opened_slot {
+        return false;
+    }
+    exists || report_slot >= opened_slot.saturating_add(MISSING_ACCOUNT_GRACE_SLOTS)
+}
+
 pub fn token_amount(data: &[u8]) -> Option<u64> {
     data.get(64..72)
         .and_then(|b| b.try_into().ok())
@@ -1086,9 +1116,16 @@ async fn slow(
             let slot = v["context"]["slot"].as_u64().unwrap_or(0);
             if let Ok(datas) = rugsnipe_state::chain::parse_multiple_accounts(&v, mints.len()) {
                 for (mint, d) in mints.into_iter().zip(datas) {
-                    // a missing account is a closed one: zero tokens
+                    // a missing account reads as zero tokens; the hot loop
+                    // decides whether to trust it (balance_is_trustworthy)
+                    let exists = d.is_some();
                     let tokens = d.as_deref().and_then(token_amount).unwrap_or(0);
-                    let _ = out.send(LaneEvent::Balance { mint, tokens, slot });
+                    let _ = out.send(LaneEvent::Balance {
+                        mint,
+                        tokens,
+                        slot,
+                        exists,
+                    });
                 }
             }
         }
@@ -1119,6 +1156,33 @@ mod tests {
     use super::*;
     use crate::e2::TradeObs;
     use serde_json::json;
+
+    #[test]
+    fn a_zero_balance_closes_only_from_a_view_past_the_fill() {
+        // the live case: the first poll after the open, from a node still at
+        // the opening slot, found no account
+        assert!(!balance_is_trustworthy(false, 0, 100, 100));
+        assert!(!balance_is_trustworthy(false, 0, 99, 100));
+        // a missing account stays "not visible yet" through the grace window
+        assert!(!balance_is_trustworthy(
+            false,
+            0,
+            100 + MISSING_ACCOUNT_GRACE_SLOTS - 1,
+            100
+        ));
+        assert!(balance_is_trustworthy(
+            false,
+            0,
+            100 + MISSING_ACCOUNT_GRACE_SLOTS,
+            100
+        ));
+        // an existing, empty account after the open is a sold position
+        assert!(balance_is_trustworthy(true, 0, 101, 100));
+        assert!(!balance_is_trustworthy(true, 0, 100, 100));
+        // tokens are always applied (sizing, orphan adoption)
+        assert!(balance_is_trustworthy(false, 5, 1, 100));
+        assert!(balance_is_trustworthy(true, 5, 100, 100));
+    }
 
     #[test]
     fn statuses_errors_and_premium() {
