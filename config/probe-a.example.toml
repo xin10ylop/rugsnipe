@@ -164,6 +164,12 @@ trail = { activate = 0.0, retrace_bps = 0 }        # off
 consolidation_pct = 0                              # off (needs a paid feed)
 big_buy_lamports = [0, 0]                          # off (not in the frozen policy)
 sell_retry = { every_slots = 2, max_tries = 15, tip_mult = 2.0 }
+# 2026-10-22 (night): the sell bid equals the buy bid. The shipped defaults (50,000 normal / 200,000 dump) put our sells at the
+# back of every priority-ordered leader's queue: 20 of 43 stage-B positions closed 3 to 8 slots after the policy's slot+5, and
+# one of them sold one slot after a 9.7 SOL dump (-44% instead of -3%). The dry run assumes the sell lands one slot after its
+# trigger and already charges a full-bid round trip (docs/04 cost 0.0085). risk.max_sell_spend_lamports (20M) still caps retries.
+sell_tip_lamports = 3_400_000
+dump_tip_lamports = 3_400_000
 [guard]
 takeover_after_ms = 5_000
 drop_from_peak_bps = 3000
