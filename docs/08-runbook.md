@@ -22,7 +22,7 @@ the `rugsnipe` user: every command that reads them starts with `sudo` (or `sudo 
 | **Probe** (task #12, both halves, 2026-10-16): probe key loading from systemd credentials, the real senders (Helius incl. the `swqos_only` leg, Jito Frankfurt + Amsterdam `bundleOnly`, Nozomi, Astralane, BlockRazor, NextBlock), the real fill lane (our own TradeEvent, `meta.fee` of our failed buys, rank and premium, drops after the nonce burn, real sells and balances), nonce seeding from chain, recovery adoption, `--probe-dry`; the **Yellowstone gRPC post-execution feed** (creates as wire bytes decoded on the hot thread, our own trades, held mints, the creation slot's bundle run), probe start gated on a healthy gRPC feed, a stale feed latching the kill; the **kill latch persisted** in `state.db` with eight triggers (§10); the **leader schedule** (bid variant per leader class of the create slot and the next, the class recorded on every send and fill); Telegram alerts (the only alert path: required for the probe) | |
 | Read rule (a) of the go/no-go gate: EV per attempt with a 90% lower bound (`analysis/scripts/shadow_gate.py`) | **Rule (b)** (are we ahead of the first follower?). The shadow lane *assumes* rank 1; our real rank needs real sends or a shred feed. It is decided in the probe |
 | Feeds: `logsSubscribe` over any websocket URL, PumpPortal, the collector relay, **Yellowstone gRPC** (Triton, Alchemy or any standard endpoint; paper runs it only when `[feeds] grpc.enabled = true`, which also gives the first-seen comparison of §9) | DoubleZero Edge or Helius shreds: not in the hot binary |
-| Bid policy: tip after the buy (pay on success) where the leader orders by tip (Jito-Agave), priority fee clamped by `bid.failed_attempt_lamports_max` elsewhere (BAM, Harmonic, other); sells take the same split, the bid paid once (docs/03 §6.1). Probe reads the leader schedule (`getLeaderSchedule` per epoch, `getClusterNodes` every 3 min) and bids for the class of the create slot's leader and the next slot's | Paper uses the stake-weighted mix unless started with `--leader-schedule` |
+| Bid policy: tip after the buy (pay on success) where the leader orders by tip (Jito-Agave), priority fee clamped by the class cap `bid.failed_attempt_max_by_class` elsewhere (BAM, Harmonic, other; 0 = the global `failed_attempt_lamports_max`); sells take the same split, the bid paid once (docs/03 §6.1). Probe reads the leader schedule (`getLeaderSchedule` per epoch, `getClusterNodes` every 3 min) and bids for the class of the create slot's leader and the next slot's | Paper uses the stake-weighted mix unless started with `--leader-schedule` |
 | The P(TP) entry filter (`[entry] filter_model`, `filter_mode = "log"` or `"skip"`, docs/04 §3a) scores every paper intent from the E1 lane's reconstruction and records the score and tertile in `state.db` `filter`. With the gRPC feed the creation slot's bundle run is assembled from the stream and its 17 bundle features land in `state.db` `feed_bundle` (probe: for every real attempt) | Scoring a probe buy *before* it fires (the bundle run streams in after the create; a real buy cannot wait for it); `filter_mode = "skip"` stays a paper-only rule |
 
 **Probe A measures the unfiltered stream** (readiness audit M4, `docs/research/probe-design-v2.md` §2). This
@@ -32,8 +32,8 @@ attempt gets a `feed_bundle` row with its `bundle_wallets`, and the stage-B entr
 (`bundle_wallets >= 1`) only: unbundled launches face fewer rivals and fill easily, so the landing rate over all
 attempts is inflated. Only 10-20% of attempts are in class, so the 200 in-class attempts the B read needs take
 1,000-2,000 attempts (about 1.3-4.3 SOL of expected loss at 0.02 SOL). **Decided 2026-10-20 (probe-design-v2
-§2 item 4, option ii):** `config/probe-a.example.toml` ships 6 attempts per UTC hour, 150 a day, a 0.6 SOL daily
-loss cap (expected loss about 0.19-0.31 SOL a day), a hard stop at 14 days and a 15-day ArmSet, so the in-class
+§2 item 4, option ii):** `config/probe-a.example.toml` ships 12 attempts per UTC hour, 300 a day, a 1 SOL daily
+loss cap (raised 2026-10-22; expected loss about 0.7-0.85 SOL a day in the no-edge model at the raised bid caps), a hard stop at 14 days and a 15-day ArmSet, so the in-class
 subset reaches 200 in 7-14 days. A subset still short at the hard stop ends with `INCONCLUSIVE ... escalate to
 the owner`, not with a stop. A filter that acts before the send is a before-stage-B item.
 
@@ -343,8 +343,9 @@ leader schedule.
   have no effect on real buys and are not part of stage A;
 - `[feeds] grpc.bundle_run` stays on, so every attempt gets a `feed_bundle` row with `bundle_wallets`;
 - the stage-B entry is read on the **in-class subset** (`bundle_wallets >= 1`) only, never on all attempts;
-- the caps as shipped (decided 2026-10-20, probe-design-v2 §2 item 4, option ii): **150 attempts a day, 6 per UTC
-  hour, 0.6 SOL daily loss** (expected loss about 0.19-0.31 SOL a day). The in-class subset (10-20% of attempts)
+- the caps as shipped (decided 2026-10-20 as 6/150/0.6, raised 2026-10-22): **300 attempts a day (288 reachable at 12 per
+  UTC hour), 1 SOL daily loss** (expected loss about 0.7-0.85 SOL a day in the no-edge model at the 2026-10-22 bid caps:
+  a bad day can latch `daily_loss` before its last attempts, which is the cap doing its job). The in-class subset (10-20% of attempts)
   reaches 200 in 7-14 days. The three values move together (`risk.max_buys_per_hour`, `[probe] a.max_probes_per_day`,
   `a.max_daily_loss_lamports`): a higher rate under a small cap latches `daily_loss` on ordinary days (a false
   kill); fund 3 SOL and top up per step 7b;
@@ -364,12 +365,15 @@ signed ArmSet that names `probe_stage` must name the same stage, and stage B nee
 
 | Stage | Per buy | Attempts/day | Open positions | Daily loss cap | Runs until | Purpose |
 |---|---|---|---|---|---|---|
-| **A** (`stage = "a"`) | 0.02 SOL | 150 (6 per UTC hour) | 1 | 0.6 SOL | ≥ 350 attempts **and** ≥ 7 days (with ≥ 200 in-class attempts); hard stop at 14 days | measure landing, premium, failed-attempt cost per leader class and per sender, which variant lands, on all attempts and on the in-class subset. EV is negative at this size (fixed costs): **not** a kill reason |
+| **A** (`stage = "a"`) | 0.02 SOL | 300 (12 per UTC hour: 288) | 1 | 1 SOL | ≥ 350 attempts **and** ≥ 7 days (with ≥ 200 in-class attempts); hard stop at 14 days | measure landing, premium, failed-attempt cost per leader class and per sender, which variant lands, on all attempts and on the in-class subset. EV is negative at this size (fixed costs): **not** a kill reason |
 | **B** (`stage = "b"`) | 0.25 SOL | 300 | 2 | 1 SOL | about 200 landed trades | the EV per attempt at our real rank and cost; gate (b) |
 
-**Landed** means a fill in the creation slot at a premium of +2% or less. Fills one to three slots after the
-create (or after the nonce burn started: `intents.state = 'late_fill'`) and slot-0 fills above +2% are reported
-apart and do not count as landed.
+**Landed** means a fill in the creation slot, or one slot after it (`shadow_gate.py --late-ok 1`, the default
+since 2026-10-22: stage A measured one-slot-late fills doing no worse than same-slot fills at 200 ms slots), at a
+premium of +2% or less. Fills later than slot+1 (slot+2 and on, until the nonce burn lands: `tx.burn_after_slots = 3`
+sends it once a feed event from slot+3 has arrived), fills after the nonce burn started (`intents.state =
+'late_fill'`) and fills above +2% are reported apart and do not count as landed; `--late-ok 0` is the strict
+creation-slot rule, printed next to the inclusive rate.
 
 **Kill** (either stage; `shadow_gate.py --probe` prints the verdict): the EV per **attempt**, failed
 attempts included, has a 90% upper bound below 0 after 100 landed trades or 400 attempts, whichever
@@ -511,8 +515,8 @@ break-even (about 9.9% at the measured failed cost and premium) and the unfilter
 
    | Key | Value | Note |
    |---|---|---|
-   | `[probe] a` | 0.02 SOL per buy, 150 attempts/day, 1 open position, 0.6 SOL daily loss | the stage-A caps decided 2026-10-20 (probe-design-v2 §2 item 4, option ii); the three lines move together (`max_buys_per_hour`, `a.max_probes_per_day`, `a.max_daily_loss_lamports`). B keeps 0.25 SOL, 300, 2, 1 SOL |
-   | `risk.max_buys_per_hour` | `6` | the cap is first-come per UTC hour: 6 × 24 = 144 ≤ 150 a day, so every hour of the day is sampled (40 would use up the day by early morning) |
+   | `[probe] a` | 0.02 SOL per buy, 300 attempts/day, 1 open position, 1 SOL daily loss | the stage-A caps raised 2026-10-22 (decided 2026-10-20 as 6/150/0.6, probe-design-v2 §2 item 4, option ii); the three lines move together (`max_buys_per_hour`, `a.max_probes_per_day`, `a.max_daily_loss_lamports`). B keeps 0.25 SOL, 300, 2, 1 SOL |
+   | `risk.max_buys_per_hour` | `12` | one buy per 300 s (`spread_buys_per_hour`): 12 × 24 = 288 ≤ 300 a day, so every hour of the day is sampled (40 would use up the day by early morning) |
    | `risk.max_entry_vsol_lamports` | `115_000_000_000` | the LEAD universe the shadow scored (40 SOL would skip large launches) |
    | `[exit.default]` | the LEAD exits of `paper-lead.example.toml` | +15% take-profit, sell when a bundle wallet sells, 1 s without a trade, −15% stop after 1 s, hard exit at slot+5 |
    | `risk.min_hot_balance_lamports` | `100_000_000` | a buy needs this + the stake + the bid in the wallet (the lane reads the balance every 2 s): keep it below what you fund |
@@ -521,9 +525,10 @@ break-even (about 9.9% at the measured failed cost and premium) and the unfilter
    | `risk.kill_file` | `"/run/rugsnipe/KILL"` | the kill switch of §10 |
    | `tx.cu_limit`, `tx.lads_bytes` | `88_000`, `12_124_160` | **not** 65,000: the fresh probe wallet creates its pump volume accumulator on its first buy (+1.3 to +2.8k CU), so at 65,000 every landed buy can fail and the failure undoes the creation each time. Move to 65,000 for B only after `rugsnipe-ctl sim --wallet PROBE_PUBKEY --legacy` passes |
    | `tx.nonce_pool` | `32` | the accounts of step 3c |
+   | `tx.burn_after_slots` | `3` (as shipped) | kept on 2026-10-22 although the readiness audit (`docs/research/readiness-2026-10-20.md` §5) lists it among the constants sized for 400 ms slots. A nonce's `since_slot` is the hot thread's feed slot at claim (the create slot s); the burn is due once a post-execution event from s+3 has arrived (`due_for_burn`, keeper every 100 ms) and the AdvanceNonce then lands a slot or so later, so slot+1 and slot+2 fills are never pre-empted: the 12 of 22 contested stage-A launches that landed by slot+1 were measured at 3. Going to 6 would only let variants still queued at s+3..s+5 land; `shadow_gate.py --late-ok 1` counts those as late, not landed, and each that lands and fails slippage costs the class priority fee of the `bid.failed_attempt_max_by_class` row (3,405,000 BAM/other, 1,995,000 Harmonic) where a burnt nonce resolves `dropped` at 0. Raise it only with `fills.slot - shadow.create_slot` per leader class showing s+3..s+5 fills worth that cost |
    | `[feeds]` | gRPC on (`stale_ms = 4_000`, `bundle_run = true`), logsws off | a real mode fires only from the gRPC feed |
    | `[senders]` | `helius`, `nozomi`, `astralane`, `blockrazor`, `jito` on; `rpcsend`, `helius_swqos` off | the five senders of the dry run (step 5) |
-   | `bid.*`, `rpc_budget.keeper` | as shipped (`failed_attempt_lamports_max = 1_000_000`, `keeper = 8`) | Jito-Agave pays on success (tip); BAM, Harmonic, other bid with the capped priority fee |
+   | `bid.failed_attempt_max_by_class`, `rpc_budget.keeper` | `{ jito_agave = 0, bam = 4_000_000, harmonic = 2_000_000, other = 4_000_000 }` (the global `failed_attempt_lamports_max = 1_000_000` and the rest of `[bid]` as shipped), `keeper = 8` | Jito-Agave pays on success (priority 10,000 + tip 3,400,000; a failure costs 15,000). BAM and other carry the whole 3.4M bid as the priority fee (a failure costs 3,405,000), Harmonic 1,995,000 (clamped by its 2M cap). Before 2026-10-22 the 1M global cap clamped every priority-ordered class to 995,000, 3.4x under the median winning bid on 73% of leaders. Expected failed-attempt cost 0.00073 -> 0.00213 SOL, about +0.126 SOL/day at 90 failures a day; sizing, `max_bid_lamports` and the ArmSet are untouched |
    | `[obs] alert` | `TG_TOKEN`, `TG_CHAT` | Telegram, the only alert path (step 2) |
 
    The senders: `helius` (`key = "HELIUS_KEY"`, 0.001 SOL minimum), `nozomi` (`NOZOMI_KEY`, never below
@@ -535,8 +540,9 @@ break-even (about 9.9% at the measured failed cost and premium) and the unfilter
 
    **3b. Fund the probe wallet:** 3 SOL for stage A at the shipped caps (2-3 SOL for B) plus about 0.04 SOL for
    the nonce rent of step 3c, sent from your exchange or wallet to the address in `/etc/rugsnipe/probe-pubkey.txt`.
-   At the shipped caps stage A is expected to lose about 0.19-0.31 SOL a day (at most 0.6 SOL, the daily cap), so
-   3 SOL lasts roughly 10-14 days: check it daily and top up as in step 7b. Then check the balance:
+   At the shipped caps stage A is expected to lose about 0.7-0.85 SOL a day in the no-edge model (at most 1 SOL, the
+   daily cap; stage A's first 66 real attempts cost 0.0036 SOL each before the 2026-10-22 bid raise), so 3 SOL lasts
+   roughly 3 days: check it daily and top up as in step 7b. Then check the balance:
    ```bash
    P=$(sudo awk '$1 == "pubkey" {print $2}' /etc/rugsnipe/probe-pubkey.txt); echo "probe wallet $P"
    curl -s https://api.mainnet-beta.solana.com -X POST -H 'Content-Type: application/json' \
@@ -724,8 +730,10 @@ break-even (about 9.9% at the measured failed cost and premium) and the unfilter
    `--hard-stop-days 14` is the stage length decided on 2026-10-20 (probe-design-v2 §2 item 4). The hour cap it
    checks is the config's `risk.max_buys_per_hour`.
    What you should see (probe design v2 rules, `analysis/scripts/shadow_gate.py`):
-   - `attempts` and the days covered; `landed rule`: only creation-slot fills at +2% or less count as
-     landed, and the late fills (slot+1, +2, +3) and slot-0 fills above +2% are counted apart;
+   - `attempts` and the days covered; `landed rule`: creation-slot and slot+1 fills (`--late-ok 1`) at +2% or
+     less count as landed; the later fills (slot+2 and on, bucketed per slot up to +6 and then "slot+7 or later";
+     at `tx.burn_after_slots = 3` the nonce burn lands around slot+4) and fills above +2% are counted apart, the
+     strict slot-0 rate next to the inclusive one;
    - `landing rate` (of the attempts that raced) and its break-even (`pnl_model.break_even_landing` for the
      0.25 SOL LEAD at the measured mean failed-attempt cost and mean premium; 9.9% at 0.00073 SOL);
    - `failures`: lost races (`slippage`, `premium`, `not_in_slot0`, `dropped`) and, apart, failures that are
@@ -853,14 +861,51 @@ the new program first; `unkill` then drops the stored programdata, and the next 
 deployed program as the new baseline. Once real money is involved, stop everything only when flat:
 `sudo sqlite3 -readonly /var/lib/rugsnipe/state.db "select mint,state from positions where state!='closed'"`.
 
-**Telegram** (optional in shadow, **required for the probe**: it is the only alert path in this build; no
-dead-man is built, so nothing else tells you that the box latched its kill or died): add
+**Telegram** (optional in shadow, **required for the probe**: it is the only alert path in this build besides
+the journal; the dead-man line below tells you the box stopped buying, nothing tells you it died): add
 `TG_TOKEN = "..."` (the bot token from @BotFather) and `TG_CHAT = "..."` (your chat id) to `api-keys.toml`, each
 on its own line; `[obs] alert = { telegram = "TG_TOKEN", chat = "TG_CHAT", hourly = true, commands = false }`
 (already in `config/probe-a.example.toml`). The box sends a start message, every kill with its trigger, and
 an hourly summary (never from the hot thread; a failed send is only counted, `cold.alerts`). No start message
 after a start means the alert path is broken: fix it before you leave the box alone. `commands = true` also polls the bot every 5 s:
 `/kill` from that chat latches the kill (there is no remote unkill).
+
+**Dead-man line (no buys while launches keep flowing, 2026-10-22).** In probe and live the cold thread checks once a
+minute whether launches kept flowing while the bot bought nothing: a full 15-minute window with at least 50 creates
+seen and zero real buys (`rugsnipe_decisions{outcome="fire"}` unchanged), the process at least 15 minutes old. When
+it holds, the bot writes one stderr line (in `journalctl -u rugsnipe-hot`) and sends the same text to Telegram (a
+no-op when Telegram is off), at most once an hour, whether or not the status line looks normal; it clears, kills and
+resets nothing. The line reads `dead-man on fra1 (probe): no buys in the last 15 min, 1204 creates seen; last fire
+212 min ago; decisions: skip_op_latched 611, no_match 430, late_slot 71; killed: no`: `last fire` is minutes since
+the last real buy this run (`none this run` after a restart that never bought), `decisions` the three most frequent
+decision outcomes of the window, `killed` the kill reason or `no`. The top outcome usually names the cause:
+`skip_op_latched` is the per-operator consecutive-loss latch (`risk.max_consec_losses_per_op`; clear it as in the
+config table above), `skip_killed` the kill latch (possibly restored from `state.db` at start: `rugsnipe-ctl kill
+status`, find the cause, then `unkill`), `skip_max_buys_per_hour` the hourly cap (normal when it dominates with
+`last fire` under an hour), `no_match` / `skip_class` dominating with no kill means the feed and the gate are fine
+and nothing qualifies (normal at quiet hours). Metrics for a rule: `rugsnipe_last_fire_unix` (0 before the first buy
+of the run) and `rugsnipe_minutes_since_fire` (since process start when none this run), e.g. `rugsnipe_mode > 0 and
+rugsnipe_minutes_since_fire > 15 and increase(rugsnipe_creates[15m]) > 50`. Paper mode runs the ring and the gauges
+but never alerts. The constants live in `crates/rugsnipe/src/deadman.rs` (15 min window, 50 creates, 60 min spacing).
+
+**Decode misses (2026-10-22).** Every create the decoder rejects now writes one stderr line: `decode miss:
+src=<grpc|logsws|...> n=<ordinal> slot=<slot> sig=<base58> kind=<eof|invalid_bool|invalid_utf8|invalid_length|
+invalid_transaction|invalid_base64|bad_discriminator|cpi_needs_meta|unresolved_accounts|logs> err="<decoder error>"
+programs=<up to 4 top-level program ids>[+k] v0=<1|0|?> loaded=<1|0|?> inner=<1|0|?>`. `n` is that feed's running
+decode-miss count since the process started (the count `risk.decode_miss_kill_ratio` uses); lines are limited to the
+first 50 misses per feed per run, then every 100th, so a gap in `n` is the limiter, not lost misses. `eof`,
+`invalid_bool`, `invalid_utf8`, `invalid_length` mean a pump instruction's arguments do not match the layout we decode
+(a new instruction shape: fetch `sig` with getTransaction and compare the create args); `invalid_transaction` means our
+own re-serialised bytes did not parse (a codec bug, must stay 0); `logs` means the logs feed saw a Create with no
+CreateEvent. `inner=0` under `src=grpc` is normal (the adapter decodes without inner instructions). The metric
+`rugsnipe_feed_decode_miss_kind{src,kind}` splits `rugsnipe_feed_decode_miss` by kind, plus `src="hot"` for the hot
+thread's own decode (there, `cpi_needs_meta` / `unresolved_accounts` mean the gRPC trailer lacked inner instructions or
+lookup addresses). On the box: `journalctl -u rugsnipe-hot --since -6h | grep 'decode miss:' | awk '{print $7}' | sort
+| uniq -c` is the kind histogram of the logged misses (the first 50 carry signatures to look up); `curl -s
+127.0.0.1:9464/metrics | grep decode_miss_kind | grep -v ' 0$'` the live counters. When the `decode_miss` kill latches,
+the kind with the largest count under `src="grpc"` is the transaction shape to fix. On 2026-10-22 the kill latched at
+1.3 misses per 100 creates with the pump program unchanged; `decode_miss_kill_ratio` was raised to 0.05 on fra1 until
+the kind is known.
 
 ## 11. After Alpenglow (epoch 1064, Oct 21 2026 ~15:00 UTC)
 
@@ -965,7 +1010,7 @@ EV of the frozen LEAD. Two consecutive weeks with the 90% lower bound below zero
 | Helius shred delivery per IP | 800-1,000 | live, after the gate | **no** |
 | NextBlock sender | 249+ | live, if an A/B shows value | yes, optional (`[senders] nextblock`, feature `real-senders`) |
 | Landed buy, all-in | ~0.004 SOL median per landed buy (p75 0.014) | probe, live | |
-| Failed attempt (modelled, docs/03 §6.1) | ~0.00073 SOL at the defaults (range 0.00036-0.001); at most `bid.failed_attempt_lamports_max` | probe, live | |
+| Failed attempt (modelled, docs/03 §6.1) | ~0.00073 SOL at the shipped caps (range 0.00036-0.001); ~0.00213 SOL at the probe-A caps of 2026-10-22 (`bid.failed_attempt_max_by_class`: 15,000 Jito-Agave, 3,405,000 BAM/other, 2,000,000 Harmonic); at most the class cap, or `bid.failed_attempt_lamports_max` where it is 0 | probe, live | |
 
 Totals: **shadow $0-425/mo** (+ an RPC plan if needed); **probe ≈ $425/mo + the probe's SOL**; live per
 docs/07 §4 ≈ $2,850-3,925/mo + tips, only after the gate.

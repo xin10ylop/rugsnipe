@@ -66,8 +66,10 @@ calibrated and how stage B is read. Inputs: the 14-hour shadow run (3,091 attemp
 >    any rate (1.3-4.3 SOL), so the faster rate only saves box-days (7-14 instead of 21-42 at about $40 a day) and
 >    gets to the stage-B decision sooner; the 0.6 SOL daily cap keeps a bad day small. The owner can override it
 >    before the first real start by editing the three config lines together.
-> 5. **Counted as landed:** only creation-slot fills at a premium of +2% or less; slot+1..+3 fills are reported
->    apart. Compute or instruction errors (`fills.fail_reason`) are not lost races. The B bar is the larger of the
+> 5. **Counted as landed:** fills at the creation slot + 0..N at a premium of +2% or less (`shadow_gate.py --late-ok N`,
+>    default 1 since 2026-10-22, after stage A measured one-slot-late fills doing no worse than same-slot fills at 200 ms
+>    slots); the slot+1..+N fills are the `landed_late` bucket and the strict slot-0 rate is printed next to the inclusive
+>    rate the verdict uses; later fills are reported apart. Compute or instruction errors (`fills.fail_reason`) are not lost races. The B bar is the larger of the
 >    pooled LEAD break-even (about 9.9%) and the unfiltered shadow break-even at 0.25 SOL (about 36%, §4).
 >    Completion: ≥ 350 attempts and ≥ 7 days, and `shadow_gate.py --probe` waits for 200 in-class attempts before
 >    the B read. At the hard stop a subset still below 200 that meets every other B condition (or holds no attempt)

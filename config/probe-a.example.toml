@@ -105,7 +105,7 @@ cu_limit = 88_000                                  # FLOOR of the per-mint CU li
 lads_bytes = 12_124_160                            # probe-A: a real mode refuses 0; the loaded-accounts-data-size limit of docs/08 section 9 step 3
 nonce_pool = 32
 sell_nonce_pool = 8
-burn_after_slots = 3
+burn_after_slots = 3                               # probe-A 2026-10-22: kept at 3 at 200 ms slots (the readiness audit section 5 lists it as sized for 400 ms). A nonce's since_slot is the hot thread's feed slot at claim (the create slot s); the burn is due once a post-execution event from s+3 has arrived (due_for_burn, keeper every 100 ms) and the AdvanceNonce lands a slot or so later, so slot+1 and slot+2 fills are never pre-empted: the 12 of 22 contested stage-A launches that landed by slot+1 were measured at 3. 6 would only let variants still queued at s+3..s+5 land, which shadow_gate.py --late-ok 1 counts as late (not landed) and which cost the class priority fee below (3,405,000 BAM/other, 1,995,000 Harmonic) when they land and fail slippage, where a burnt nonce resolves dropped at 0
 partial_fill = false
 [bid]                                              # docs/03 section 6 "Pay on success"
 quantile = 0.75
@@ -117,13 +117,15 @@ quantile = 0.75
 # BAM stays priority-ordered until the probe measures which variant lands per leader class.
 split = { jito_agave = [0.0, 1.0], bam = [1.0, 0.0], harmonic = [1.0, 0.0], other = [1.0, 0.0] }
 min_priority_lamports = 10_000                     # header priority fee floor (gap-2: winners p10 1k, p25 45k lamports)
-failed_attempt_lamports_max = 1_000_000            # most a failed attempt may cost (base + priority); priority is clamped to it
-failed_attempt_max_by_class = { jito_agave = 0, bam = 0, harmonic = 0, other = 0 }   # per-class cap override; 0 = the global cap (probe-A arms, docs/06 section 6)
+failed_attempt_lamports_max = 1_000_000            # most a failed attempt may cost (base + priority) where failed_attempt_max_by_class is 0 (Jito-Agave); priority is clamped to it
+failed_attempt_max_by_class = { jito_agave = 0, bam = 4_000_000, harmonic = 2_000_000, other = 4_000_000 }   # probe-A 2026-10-22: BAM and other may risk the whole 3.4M bid as the priority fee (failed cost 3,405,000), Harmonic 1,995,000 of it (cap 2M); Jito-Agave stays pay-on-success at the global cap (failed cost 15,000). Was 0/0/0/0: the 1M global cap clamped the priority fee to 995,000 on 73% of leaders, 3.4x under the measured median winning bid of 3.4M, and contested launches landed 29% on BAM vs 60% on Harmonic. Expected failed-attempt cost 0.00073 -> 0.00213 SOL, about +0.126 SOL/day at 90 failures a day (docs/06 section 6)
 [probe]                                            # docs/04 section 7, docs/08 section 9; read in mode = "probe" only
 stage = "a"                                        # probe-A: stage a (0.02 SOL); the signed ArmSet must name probe_stage = "a"
 # each cap narrows the [risk] cap of the same name (the smaller non-zero value binds)
-# probe-A (M4 option ii, 2026-10-20): 150 attempts a day (6 per UTC hour), 0.6 SOL daily loss cap. Expected loss
-# about 0.19-0.31 SOL a day (20-50% landing), with headroom under the cap so an ordinary day never latches daily_loss.
+# probe-A (M4 option ii, 2026-10-20; raised 2026-10-22): 300 attempts a day (12 per UTC hour: 288), 1 SOL daily loss cap.
+# Expected loss about 0.7-0.85 SOL a day in the no-edge model at the 2026-10-22 bid caps (20-60% landing): a bad day can
+# latch daily_loss before its last attempts, which is the cap doing its job, not a false kill (the first 66 real attempts
+# cost 0.0036 SOL each before the bid raise).
 # Only 10-20% of attempts are in class, so the 200 in-class attempts the stage-B read needs take 7-14 days. Ends at
 # >= 350 attempts and >= 7 days; hard stop at 14 days (shadow_gate.py --probe --hard-stop-days 14). A subset still
 # short of 200 at the hard stop reads INCONCLUSIVE (escalate), never a stop. docs/research/probe-design-v2.md section 2.
