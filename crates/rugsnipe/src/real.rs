@@ -427,19 +427,37 @@ pub async fn analyze_landing(
     owner: &Pubkey,
     snipers: &Mutex<HashSet<Pubkey>>,
 ) -> Rank {
-    let mut rank = Rank {
-        info: ShadowInfo {
-            create_slot: p.slot,
+    // The buy resolved at `confirmed`, but the provider's other nodes may not
+    // hold the creation slot yet (2026-10-22: 100 of 128 ranks ended in
+    // "create transaction missing" and the shadow table showed every launch
+    // as uncontested). A transient miss is retried twice, 1.5 s apart.
+    let mut rank = Rank::default();
+    for attempt in 0..3u32 {
+        let mut r = Rank {
+            info: ShadowInfo {
+                create_slot: p.slot,
+                ..Default::default()
+            },
             ..Default::default()
-        },
-        ..Default::default()
-    };
-    if let Err(e) = analyze_inner(
-        rpc, budget, calls, p, sig, land_slot, trade, owner, snipers, &mut rank,
-    )
-    .await
-    {
-        rank.error = Some(e);
+        };
+        match analyze_inner(
+            rpc, budget, calls, p, sig, land_slot, trade, owner, snipers, &mut r,
+        )
+        .await
+        {
+            Ok(()) => return r,
+            Err(e) => {
+                let transient = e.contains("not reconstructed")
+                    || e.contains("not available")
+                    || e.contains("getBlock");
+                r.error = Some(e);
+                rank = r;
+                if !transient || attempt == 2 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(1500)).await;
+            }
+        }
     }
     rank
 }
@@ -598,7 +616,15 @@ async fn analyze_inner(
         rank.info.premium_bps = rank.premium_bps.unwrap_or(0);
     }
     if slot0.is_none() {
-        return Err("creation slot not reconstructed (create transaction missing)".into());
+        return Err(format!(
+            "creation slot not reconstructed (create seen {}, its block index {:?}, {} curve \
+             transactions in slot {s0} of {} in the block, {} signatures fetched)",
+            create_tx.is_some(),
+            create_tx.and_then(|t| t.index),
+            s0_txs.len(),
+            block_len.get(&s0).copied().unwrap_or(0),
+            sigs.len()
+        ));
     }
     Ok(())
 }
