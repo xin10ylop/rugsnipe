@@ -249,6 +249,11 @@ fn run(args: &[String]) -> Result<(), String> {
         cfg.feeds.grpc_b.enabled,
         &cfg.feeds.grpc_b.url,
     )?;
+    let deshred_url = resolve(
+        "feeds.deshred.url",
+        cfg.feeds.deshred.enabled,
+        &cfg.feeds.deshred.url,
+    )?;
     let logsws_url = resolve(
         "feeds.logsws.url",
         cfg.feeds.logsws.enabled,
@@ -281,7 +286,9 @@ fn run(args: &[String]) -> Result<(), String> {
     );
     // --- the gRPC feed's x-token (paper may run the gRPC feed: a feed, not
     // a sender; the token is a credential like the sender keys)
-    if (cfg.feeds.grpc.enabled || cfg.feeds.grpc_b.enabled) && !cfg!(feature = "grpc") {
+    if (cfg.feeds.grpc.enabled || cfg.feeds.grpc_b.enabled || cfg.feeds.deshred.enabled)
+        && !cfg!(feature = "grpc")
+    {
         return Err(
             "feeds.grpc is enabled but this binary has no gRPC feed (build with --features grpc)"
                 .into(),
@@ -304,6 +311,26 @@ fn run(args: &[String]) -> Result<(), String> {
                     ))
                 }
             }
+    } else {
+        None
+    };
+    let deshred_token: Option<zeroize::Zeroizing<String>> = if cfg.feeds.deshred.enabled
+        && !cfg.feeds.deshred.x_token.is_empty()
+    {
+        let name = &cfg.feeds.deshred.x_token;
+        let found = match rugsnipe::keys::credentials_dir() {
+            Ok(d) => rugsnipe::keys::named_secret(&cfg, &d, name)
+                .map_err(|r| format!("feeds.deshred.x_token: {r}"))?,
+            Err(_) => None,
+        };
+        match found {
+            Some(t) => Some(t),
+            None => {
+                return Err(format!(
+                    "feeds.deshred.x_token {name:?}: not found as a line of the api-keys credential nor as $CREDENTIALS_DIRECTORY/{name} (empty x_token = no x-token header)"
+                ))
+            }
+        }
     } else {
         None
     };
@@ -424,6 +451,7 @@ fn run(args: &[String]) -> Result<(), String> {
     let mut post_exec: Option<rugsnipe::cold::PostExecFeed> = None;
     #[allow(unused_mut, unused_assignments)]
     let mut grpc_stats_line: Option<Box<dyn Fn() -> String>> = None;
+    let mut deshred_stats_line: Option<Box<dyn Fn() -> String>> = None;
     #[cfg(feature = "grpc")]
     if cfg.feeds.grpc.enabled {
         use rugsnipe_feed::grpc::{Grpc, GrpcConfig};
@@ -537,8 +565,47 @@ fn run(args: &[String]) -> Result<(), String> {
         );
         feeds.push(Box::new(g));
     }
+    // the pre-execution feed: the same adapter in deshred mode, source
+    // `shreds`, with the bundle run (the create slot's buys quoted on our own
+    // curve) so the hot loop's bundle gate fires before the chain executes;
+    // creates arrive here first, the grpc copy is the mux's duplicate
+    #[cfg(feature = "grpc")]
+    if cfg.feeds.deshred.enabled {
+        use rugsnipe_feed::grpc::{Grpc, GrpcConfig};
+        let g = Grpc::spawn(GrpcConfig {
+            src: rugsnipe_feed::FeedSrc::Shreds,
+            url: deshred_url.clone(),
+            x_token: deshred_token.as_ref().map(|t| t.to_string()),
+            stale_ms: cfg.feeds.deshred.stale_ms,
+            wallet,
+            bundle_run: true,
+            deshred: true,
+            max_watches: num(args, "--max-watches", 64usize)?,
+            ..Default::default()
+        })
+        .map_err(|e| format!("deshred feed: {e}"))?;
+        healths.push(g.health_arc().clone());
+        let st = g.stats().clone();
+        deshred_stats_line = Some(Box::new(move || {
+            use std::sync::atomic::Ordering::Relaxed as R;
+            format!(
+                "deshred: slot {} tx {} creates->wire {} trades {} run_done {} reconnects {}",
+                st.slot.load(R),
+                st.transactions.load(R),
+                st.wire_events.load(R),
+                st.trade_events.load(R),
+                st.run_done_events.load(R),
+                st.resubscribes.load(R)
+            )
+        }));
+        eprintln!(
+            "deshred feed {}: started beside grpc (pre-execution creates and bundle runs)",
+            rugsnipe::keys::redact_url(&deshred_url)
+        );
+        feeds.push(Box::new(g));
+    }
     #[cfg(not(feature = "grpc"))]
-    let _ = (&grpc_token, wallet);
+    let _ = (&grpc_token, wallet, &deshred_token, &deshred_url);
     if mode.is_real() && post_exec.is_none() && !dry {
         return Err(format!(
             "mode {mode} refused:\n  - no healthy post-execution feed (feeds.grpc is not enabled)"
@@ -843,7 +910,11 @@ fn run(args: &[String]) -> Result<(), String> {
             let g = grpc_stats_line
                 .as_ref()
                 .map(|f| format!(" | {}", f()))
-                .unwrap_or_default();
+                .unwrap_or_default()
+                + &deshred_stats_line
+                    .as_ref()
+                    .map(|f| format!(" | {}", f()))
+                    .unwrap_or_default();
             let gate = if c.parked > 0 {
                 format!(
                     " | gate parked {} fired {} run_done {} not_first {} wait_us {}",

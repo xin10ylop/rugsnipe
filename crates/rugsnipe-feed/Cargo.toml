@@ -52,3 +52,7 @@ required-features = ["ws"]
 [[test]]
 name = "grpc_mock"
 required-features = ["grpc-mock"]
+
+[[test]]
+name = "deshred"
+required-features = ["grpc-mock"]

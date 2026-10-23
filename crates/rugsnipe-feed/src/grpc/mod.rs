@@ -48,7 +48,9 @@ use crate::wirering::{wire_ring, WireSink, WireSource};
 use crate::{Feed, FeedStatus};
 use futures_util::{SinkExt, StreamExt};
 use pump_codec::constants::{MINT_AUTHORITY, PUMP_PROGRAM_ID};
+use pump_codec::curve::{CurveState, FeeBps};
 use pump_codec::events::{events_from_inner_instructions, InnerInstruction, PumpEvent};
+use pump_codec::instructions::TradeAmounts;
 use pump_codec::tx::{TxVersion, TxView};
 use pump_codec::{HitError, Pubkey};
 use std::collections::{HashMap, HashSet};
@@ -59,10 +61,15 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use yellowstone_grpc_client::{ClientTlsConfig, GeyserGrpcClient};
 use yellowstone_grpc_proto::prelude::{
-    subscribe_update::UpdateOneof, CommitmentLevel, SubscribeRequest, SubscribeRequestFilterSlots,
+    subscribe_update::UpdateOneof, subscribe_update_deshred::UpdateOneof as DeshredOneof,
+    CommitmentLevel, SubscribeDeshredRequest, SubscribeRequest,
+    SubscribeRequestFilterDeshredTransactions, SubscribeRequestFilterSlots,
     SubscribeRequestFilterTransactions, SubscribeRequestPing, SubscribeUpdate,
-    SubscribeUpdateTransaction,
+    SubscribeUpdateDeshred, SubscribeUpdateDeshredTransaction, SubscribeUpdateTransaction,
 };
+
+/// The deshred stream's filter name.
+pub const F_DESHRED: &str = "deshred";
 
 /// Filter names (the server echoes them in `SubscribeUpdate.filters`).
 pub const F_CREATES: &str = "creates";
@@ -98,6 +105,15 @@ pub struct GrpcConfig {
     /// bundle run ([`BundleRun`], to the cold thread).
     pub bundle_run: bool,
     pub bundle_timeout_ms: u64,
+    /// Subscribe to the pre-execution stream (`SubscribeDeshred`: transactions
+    /// decoded from shreds before the block is replayed) instead of the
+    /// post-execution `Subscribe`. Every pump transaction arrives with no
+    /// meta; creates go to the hot loop as wire frames with an arrival-order
+    /// index, and the create slot's buys are quoted on our own curve so the
+    /// bundle gate sees the run before the chain executes it.
+    pub deshred: bool,
+    /// Fee schedule for the pre-execution quotes.
+    pub fees: FeeBps,
     /// Client pings when the server is quiet (`<= stale_ms / 3`).
     pub ping_ms: u64,
 }
@@ -134,6 +150,8 @@ impl Default for GrpcConfig {
             bundle_run: false,
             bundle_timeout_ms: 2_000,
             ping_ms: 5_000,
+            deshred: false,
+            fees: FeeBps::DEFAULT,
         }
     }
 }
@@ -340,6 +358,59 @@ fn ping_request(id: i32) -> SubscribeRequest {
     }
 }
 
+/// The pre-execution subscription: every pump transaction (no votes) and the
+/// slot updates. Pings go in later requests only ([`deshred_ping`]): a ping
+/// in the first request makes some servers ignore the filters.
+pub fn build_deshred_request(_cfg: &GrpcConfig) -> SubscribeDeshredRequest {
+    let mut req = SubscribeDeshredRequest::default();
+    req.deshred_transactions.insert(
+        F_DESHRED.to_string(),
+        SubscribeRequestFilterDeshredTransactions {
+            vote: Some(false),
+            account_include: vec![PUMP_PROGRAM_ID.to_string()],
+            ..Default::default()
+        },
+    );
+    req.slots.insert(
+        F_SLOTS.to_string(),
+        SubscribeRequestFilterSlots {
+            filter_by_commitment: Some(true),
+            ..Default::default()
+        },
+    );
+    req
+}
+
+/// Quote a buy before execution on our simulated curve and advance the
+/// curve by it: the trade the chain is about to execute, as the bundle gate
+/// and the exit engine will see it. `None` for a sell, an empty buy or a buy
+/// the curve cannot fill.
+pub fn pre_exec_buy(
+    curve: &mut CurveState,
+    amounts: TradeAmounts,
+    fees: FeeBps,
+) -> Option<pump_codec::curve::BuyQuote> {
+    let q = match amounts {
+        TradeAmounts::ExactTokensOut { amount, .. } => curve.quote_buy_exact_tokens(amount, fees),
+        TradeAmounts::ExactQuoteIn {
+            spendable_quote_in, ..
+        } => curve.quote_buy_exact_sol_in(spendable_quote_in, fees),
+        TradeAmounts::Sell { .. } => None,
+    }?;
+    if q.tokens == 0 {
+        return None;
+    }
+    curve.apply_buy(q.tokens, q.sol_cost);
+    Some(q)
+}
+
+fn deshred_ping(id: i32) -> SubscribeDeshredRequest {
+    SubscribeDeshredRequest {
+        ping: Some(SubscribeRequestPing { id }),
+        ..Default::default()
+    }
+}
+
 /// Jittered exponential backoff (xorshift on the clock).
 fn jitter(ms: u64) -> u64 {
     let mut x = mono_ns() | 1;
@@ -435,6 +506,11 @@ struct Adapter {
     meta_buf: Vec<u8>,
     last_pos: (u64, u32),
     recent: HashMap<Pubkey, u64>,
+    /// Deshred: (slot, next arrival index) of the current slot.
+    seq: (u64, u32),
+    /// Deshred: our simulated curve per create of the last slots, advanced by
+    /// every pre-execution buy we quote.
+    pre: HashMap<Pubkey, CurveState>,
     /// Highest slot seen by the pruning of `recent`.
     recent_slot: u64,
     /// A gated decode miss of the current transaction, printed by `on_tx`
@@ -467,6 +543,8 @@ impl Adapter {
             meta_buf: Vec::with_capacity(16 * 1024),
             last_pos: (0, 0),
             recent: HashMap::new(),
+            seq: (0, 0),
+            pre: HashMap::new(),
             recent_slot: 0,
             pending_miss: None,
         }
@@ -549,6 +627,9 @@ impl Adapter {
         stop: &AtomicBool,
         ctl: &mut mpsc::UnboundedReceiver<Control>,
     ) -> Result<(), String> {
+        if self.cfg.deshred {
+            return self.session_deshred(stop, ctl).await;
+        }
         let mut client = self.connect().await?;
         let req = build_request(&self.cfg, &self.mints);
         let (mut sink, mut stream) = tokio::time::timeout(
@@ -619,6 +700,302 @@ impl Adapter {
             }
         }
         Ok(())
+    }
+
+    /// The pre-execution session: `SubscribeDeshred` with the pump program
+    /// filter and slot updates; pings keep the stream alive.
+    async fn session_deshred(
+        &mut self,
+        stop: &AtomicBool,
+        ctl: &mut mpsc::UnboundedReceiver<Control>,
+    ) -> Result<(), String> {
+        let mut client = self.connect().await?;
+        let req = build_deshred_request(&self.cfg);
+        let (mut sink, mut stream) = tokio::time::timeout(
+            Duration::from_millis(self.cfg.connect_timeout_ms),
+            client.subscribe_deshred_with_request(Some(req)),
+        )
+        .await
+        .map_err(|_| "subscribe_deshred timeout".to_string())?
+        .map_err(|e| e.to_string())?;
+        self.health.connected.store(true, Ordering::Relaxed);
+        self.health
+            .last_frame_ns
+            .store(mono_ns(), Ordering::Relaxed);
+        let ping_ms = if self.cfg.stale_ms > 0 {
+            self.cfg.ping_ms.min(self.cfg.stale_ms / 3)
+        } else {
+            self.cfg.ping_ms
+        }
+        .max(200);
+        let mut ping = tokio::time::interval(Duration::from_millis(ping_ms));
+        ping.tick().await;
+        let mut check = tokio::time::interval(Duration::from_millis(50));
+        let mut ping_id: i32 = 1;
+        while !stop.load(Ordering::Acquire) {
+            tokio::select! {
+                m = stream.next() => {
+                    match m {
+                        Some(Ok(u)) => {
+                            if self.on_deshred_update(u) {
+                                ping_id = ping_id.wrapping_add(1);
+                                if sink.send(deshred_ping(ping_id)).await.is_err() {
+                                    return Err("ping reply failed".into());
+                                }
+                            }
+                        }
+                        Some(Err(e)) => return Err(e.to_string()),
+                        None => return Err("stream ended".into()),
+                    }
+                }
+                _ = ping.tick() => {
+                    ping_id = ping_id.wrapping_add(1);
+                    if sink.send(deshred_ping(ping_id)).await.is_err() {
+                        return Err("ping failed".into());
+                    }
+                }
+                _ = check.tick() => {
+                    let now = mono_ns();
+                    if self.health.is_stale_at(now) {
+                        FeedHealth::inc(&self.health.stale_reconnects);
+                        return Err("stale".into());
+                    }
+                    self.asm.on_tick(now);
+                    self.flush_bundles();
+                }
+                Some(c) = ctl.recv() => {
+                    // watch changes do not change the deshred filter (every
+                    // pump transaction is streamed); the state is kept
+                    self.apply(c);
+                    while let Ok(c) = ctl.try_recv() {
+                        self.apply(c);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// One deshred update; `true` when the server pinged (answer it).
+    fn on_deshred_update(&mut self, u: SubscribeUpdateDeshred) -> bool {
+        let recv = mono_ns();
+        let Some(up) = u.update_oneof else {
+            return false;
+        };
+        match up {
+            DeshredOneof::Ping(_) => {
+                self.stats.pings.fetch_add(1, Ordering::Relaxed);
+                return true;
+            }
+            DeshredOneof::Pong(_) => {}
+            DeshredOneof::Slot(s) => {
+                self.health.frame();
+                self.stats.slot_updates.fetch_add(1, Ordering::Relaxed);
+                self.bump_slot(s.slot);
+                self.asm.on_slot(s.slot, recv);
+                self.flush_bundles();
+            }
+            DeshredOneof::DeshredTransaction(t) => {
+                self.health.frame();
+                self.on_deshred_tx(&t, recv);
+            }
+            DeshredOneof::DeshredUpdateParent(_) => {}
+        }
+        false
+    }
+
+    /// A pre-execution transaction: the create goes to the hot loop as a
+    /// wire frame (no meta, arrival-order index); a buy of a create of the
+    /// last slots is quoted on our simulated curve and goes to the hot loop
+    /// as the trade the chain is about to execute (same signature and
+    /// ordinal as the post-execution copy, so the mux drops the later one).
+    fn on_deshred_tx(&mut self, t: &SubscribeUpdateDeshredTransaction, recv: u64) {
+        self.stats.transactions.fetch_add(1, Ordering::Relaxed);
+        let Some(info) = t.transaction.as_ref() else {
+            return;
+        };
+        if info.is_vote {
+            return;
+        }
+        let Some(tx) = info.transaction.as_ref() else {
+            return;
+        };
+        let slot = t.slot;
+        self.bump_slot(slot);
+        if slot != self.seq.0 {
+            if slot < self.seq.0 {
+                self.stats.reordered.fetch_add(1, Ordering::Relaxed);
+            }
+            self.seq = (slot, 0);
+        }
+        let index = self.seq.1;
+        self.seq.1 = self.seq.1.saturating_add(1);
+        let wire = match convert::tx_to_wire(tx) {
+            Ok(w) => w,
+            Err(_) => {
+                self.stats.convert_errors.fetch_add(1, Ordering::Relaxed);
+                FeedHealth::inc(&self.health.decode_errors);
+                return;
+            }
+        };
+        let mut keys: Vec<Pubkey> = tx
+            .message
+            .as_ref()
+            .map(|m| {
+                m.account_keys
+                    .iter()
+                    .filter_map(|k| <[u8; 32]>::try_from(k.as_slice()).ok())
+                    .map(Pubkey::new_from_array)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let n_static = keys.len();
+        let mut meta = wiremeta::MetaIn {
+            tx_index: Some(index),
+            ..Default::default()
+        };
+        for k in &info.loaded_writable_addresses {
+            if let Ok(a) = <[u8; 32]>::try_from(k.as_slice()) {
+                keys.push(Pubkey::new_from_array(a));
+                meta.loaded_writable.push(a);
+            }
+        }
+        for k in &info.loaded_readonly_addresses {
+            if let Ok(a) = <[u8; 32]>::try_from(k.as_slice()) {
+                keys.push(Pubkey::new_from_array(a));
+                meta.loaded_readonly.push(a);
+            }
+        }
+        self.meta_buf.clear();
+        wiremeta::encode(&meta, &mut self.meta_buf);
+        let sig = Sig(info.signature.as_slice().try_into().unwrap_or([0; 64]));
+        let created = self.check_create(&wire, &keys, slot);
+        if let Some(mint) = created {
+            if self.wire.push(recv, slot, 0, &wire, &self.meta_buf) {
+                self.stats.wire_events.fetch_add(1, Ordering::Relaxed);
+                self.health.event(slot);
+            }
+            if let Some((info, err)) = self.pending_miss.take() {
+                eprintln!("{}", miss_line(self.health.src.name(), &info, &err));
+            }
+            // the create's own buys and the curve after them, from the
+            // instruction arguments (no execution yet)
+            let mut own: Vec<RunTrade> = Vec::new();
+            if let Ok(view) = TxView::parse(&wire) {
+                let loaded = (keys.len() > n_static).then(|| &keys[n_static..]);
+                if let Ok(Some(h)) = pump_codec::create_hit(&view, loaded, &[], self.cfg.fees) {
+                    if let Some(c) = h.curve_after {
+                        if h.intx_sol_in > 0 {
+                            own.push(RunTrade {
+                                index,
+                                is_create: true,
+                                user: h.user,
+                                is_buy: true,
+                                sol: h.intx_sol_in,
+                                tok: h.intx_tokens_out,
+                                v: c.virtual_sol,
+                                t: c.virtual_token,
+                            });
+                        }
+                        self.pre.insert(mint, c);
+                    }
+                }
+            }
+            if self.cfg.bundle_run {
+                self.asm.on_create(mint, sig, slot, Some(index), recv, &own);
+                self.recent.insert(mint, slot);
+                let done = self.asm.on_trades(slot, Some(index), recv, &[]);
+                self.push_run_done(done, slot, index, recv);
+            }
+        } else if self.cfg.bundle_run {
+            // buys of the last slots' creates, quoted before execution
+            self.trades.clear();
+            if let Ok(view) = TxView::parse(&wire) {
+                let loaded = (keys.len() > n_static).then(|| &keys[n_static..]);
+                if let Ok(buys) = pump_codec::create_hit::pump_buys(&view, loaded, &[]) {
+                    for (k, b) in buys.iter().enumerate() {
+                        let Some(mint) = b.mint else { continue };
+                        if self.recent.get(&mint) != Some(&slot) {
+                            continue;
+                        }
+                        let Some(curve) = self.pre.get_mut(&mint) else {
+                            continue;
+                        };
+                        let Some(q) = pre_exec_buy(curve, b.amounts, self.cfg.fees) else {
+                            continue;
+                        };
+                        self.trades.push(TradeLite {
+                            mint,
+                            user: b.user.unwrap_or_default(),
+                            is_buy: true,
+                            sol_amount: q.sol_cost,
+                            token_amount: q.tokens,
+                            fee: q.protocol_fee.saturating_add(q.creator_fee),
+                            virtual_sol_reserves: curve.virtual_sol,
+                            virtual_token_reserves: curve.virtual_token,
+                            slot,
+                            sig,
+                            ordinal: k.min(255) as u8,
+                            index,
+                        });
+                    }
+                }
+            }
+            let mut run_trades: Vec<(Pubkey, RunTrade)> = Vec::with_capacity(self.trades.len());
+            for t in self.trades.iter() {
+                let ev = FeedEvent {
+                    src: self.cfg.src,
+                    recv_ns: recv,
+                    slot,
+                    bank_id: 0,
+                    payload: Payload::Trade(*t),
+                };
+                if self.sink.push(ev) {
+                    self.stats.trade_events.fetch_add(1, Ordering::Relaxed);
+                    self.health.event(slot);
+                }
+                run_trades.push((
+                    t.mint,
+                    RunTrade {
+                        index,
+                        is_create: false,
+                        user: t.user,
+                        is_buy: true,
+                        sol: t.sol_amount,
+                        tok: t.token_amount,
+                        v: t.virtual_sol_reserves,
+                        t: t.virtual_token_reserves,
+                    },
+                ));
+            }
+            let done = self.asm.on_trades(slot, Some(index), recv, &run_trades);
+            self.push_run_done(done, slot, index, recv);
+        }
+        if self.cfg.bundle_run {
+            if slot > self.recent_slot || self.recent.len() > 4_096 {
+                self.recent_slot = self.recent_slot.max(slot);
+                let floor = slot.saturating_sub(4);
+                self.recent.retain(|_, s| *s >= floor);
+                let recent = &self.recent;
+                self.pre.retain(|m, _| recent.contains_key(m));
+            }
+            self.flush_bundles();
+        }
+    }
+
+    fn push_run_done(&mut self, done: Vec<Pubkey>, slot: u64, index: u32, recv: u64) {
+        for mint in done {
+            let ev = FeedEvent {
+                src: self.cfg.src,
+                recv_ns: recv,
+                slot,
+                bank_id: 0,
+                payload: Payload::RunDone(RunDoneLite { mint, slot, index }),
+            };
+            if self.sink.push(ev) {
+                self.stats.run_done_events.fetch_add(1, Ordering::Relaxed);
+            }
+        }
     }
 
     fn bump_slot(&self, slot: u64) {
@@ -960,6 +1337,70 @@ pub fn classify_create(wire: &[u8], keys: &[Pubkey]) -> CreateCheck {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_deshred_request_streams_every_pump_transaction_and_the_slots() {
+        let r = build_deshred_request(&GrpcConfig::default());
+        let f = &r.deshred_transactions[F_DESHRED];
+        assert_eq!(f.account_include, vec![PUMP_PROGRAM_ID.to_string()]);
+        assert_eq!(f.vote, Some(false));
+        assert!(r.slots.contains_key(F_SLOTS));
+        assert!(
+            r.ping.is_none(),
+            "a ping in the first request disables the filters on some servers"
+        );
+        assert!(deshred_ping(9).ping.is_some_and(|p| p.id == 9));
+    }
+
+    #[test]
+    fn pre_execution_buys_follow_the_curve_the_chain_will_run() {
+        let creator = Pubkey::new_unique();
+        let fees = FeeBps::DEFAULT;
+        let mut c = CurveState::fresh(creator);
+        let v0 = c.virtual_sol;
+        let sim = CurveState::fresh(creator).simulate_buys(&[1_000_000_000, 500_000_000], fees);
+        let q1 = pre_exec_buy(
+            &mut c,
+            TradeAmounts::ExactQuoteIn {
+                spendable_quote_in: 1_000_000_000,
+                min_tokens_out: 0,
+            },
+            fees,
+        )
+        .unwrap();
+        assert_eq!(q1.tokens, sim[0].0.tokens);
+        assert_eq!(c.virtual_sol, sim[0].1.virtual_sol);
+        assert!(c.virtual_sol > v0);
+        let q2 = pre_exec_buy(
+            &mut c,
+            TradeAmounts::ExactTokensOut {
+                amount: sim[1].0.tokens,
+                max_quote_cost: u64::MAX,
+            },
+            fees,
+        )
+        .unwrap();
+        assert_eq!(q2.tokens, sim[1].0.tokens);
+        assert_eq!(c.virtual_token, sim[1].1.virtual_token);
+        assert!(pre_exec_buy(
+            &mut c,
+            TradeAmounts::Sell {
+                amount: 1,
+                min_quote_out: 0
+            },
+            fees
+        )
+        .is_none());
+        assert!(pre_exec_buy(
+            &mut c,
+            TradeAmounts::ExactTokensOut {
+                amount: 0,
+                max_quote_cost: 1
+            },
+            fees
+        )
+        .is_none());
+    }
 
     #[test]
     fn request_has_every_filter() {

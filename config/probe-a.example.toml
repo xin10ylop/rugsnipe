@@ -69,6 +69,7 @@ relay = { enabled = false, socket = "/run/rugsnipe/pp.sock" }    # collector's P
 # gives every attempt a feed_bundle row with bundle_wallets, the in-class split of the stage-B read (M4)
 grpc = { enabled = true, url = "https://YOUR-ENDPOINT.rpcpool.com", x_token = "GRPC_TOKEN", stale_ms = 4_000, bundle_run = true }
 # a second Yellowstone provider on trial, raced against grpc by the cold report's first_seen block (docs/08 section 6c):
+# deshred = { enabled = true, url = "https://YOUR-TRITON-ENDPOINT", x_token = "DESHRED_TOKEN", stale_ms = 4_000, bundle_run = true }   # pre-execution feed (Yellowstone SubscribeDeshred, Triton Dragon's Mouth): creates and the create slot's bundle before replay; feeds.grpc stays on
 # grpc_b = { enabled = true, url = "https://laserstream-mainnet-fra.helius-rpc.com", x_token = "GRPC_B_TOKEN", stale_ms = 4_000 }   # Helius LaserStream, Frankfurt; the x-token is the Helius API key (api-keys.toml: GRPC_B_TOKEN = "...")
 shreds = { enabled = false, bind = "0.0.0.0:7733", sources = ["dz_edge", "helius"] }
 probe_live_require = "post_exec"

@@ -26,6 +26,8 @@ type UpdateStream =
 struct Inner {
     requests: Vec<SubscribeRequest>,
     sender: Option<mpsc::Sender<Result<SubscribeUpdate, Status>>>,
+    deshred_requests: Vec<SubscribeDeshredRequest>,
+    dsender: Option<mpsc::Sender<Result<SubscribeUpdateDeshred, Status>>>,
     connections: u64,
     refused: u64,
 }
@@ -75,6 +77,24 @@ impl MockGeyser {
             Some(tx) => tx.try_send(Ok(u)).is_ok(),
             None => false,
         }
+    }
+
+    /// Send a deshred update to the connected `SubscribeDeshred` client.
+    pub fn push_deshred(&self, u: SubscribeUpdateDeshred) -> bool {
+        let tx = self.lock().dsender.clone();
+        match tx {
+            Some(tx) => tx.try_send(Ok(u)).is_ok(),
+            None => false,
+        }
+    }
+
+    /// Every `SubscribeDeshred` request received (the first is the subscription).
+    pub fn deshred_requests(&self) -> Vec<SubscribeDeshredRequest> {
+        self.lock().deshred_requests.clone()
+    }
+
+    pub fn deshred_connected(&self) -> bool {
+        self.lock().dsender.is_some()
     }
 
     /// End the current stream (the client sees it close and reconnects).
@@ -137,9 +157,46 @@ impl Geyser for MockGeyser {
 
     async fn subscribe_deshred(
         &self,
-        _r: Request<Streaming<SubscribeDeshredRequest>>,
+        request: Request<Streaming<SubscribeDeshredRequest>>,
     ) -> Result<Response<Self::SubscribeDeshredStream>, Status> {
-        Err(Status::unimplemented("mock"))
+        let tok = request
+            .metadata()
+            .get("x-token")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
+        if self.token.is_some() && tok != self.token {
+            self.lock().refused += 1;
+            return Err(Status::unauthenticated("bad x-token"));
+        }
+        let (tx, rx) = mpsc::channel(4_096);
+        {
+            let mut g = self.lock();
+            g.connections += 1;
+            g.dsender = Some(tx);
+        }
+        let me = self.clone();
+        let mut reqs = request.into_inner();
+        tokio::spawn(async move {
+            while let Some(Ok(r)) = reqs.next().await {
+                let ping = r.ping;
+                me.lock().deshred_requests.push(r);
+                if let Some(p) = ping {
+                    let pong = SubscribeUpdateDeshred {
+                        update_oneof: Some(subscribe_update_deshred::UpdateOneof::Pong(
+                            SubscribeUpdatePong { id: p.id },
+                        )),
+                        ..Default::default()
+                    };
+                    me.push_deshred(pong);
+                }
+            }
+        });
+        let s =
+            futures_util::stream::unfold(
+                rx,
+                |mut rx| async move { rx.recv().await.map(|m| (m, rx)) },
+            );
+        Ok(Response::new(Box::pin(s)))
     }
 
     async fn subscribe_gossip(
@@ -389,6 +446,70 @@ pub fn slot_update(slot: u64) -> SubscribeUpdate {
             dead_error: None,
             bank_id: None,
         })),
+        created_at: None,
+    }
+}
+
+/// A deshred (pre-execution) copy of a recorded transaction: the raw
+/// transaction and the loaded addresses from its meta, no execution meta.
+pub fn fixture_deshred_update(
+    fixture: &serde_json::Value,
+    slot: u64,
+) -> Result<SubscribeUpdateDeshred, String> {
+    let r = &fixture["result"];
+    let b64 = r["transaction"][0]
+        .as_str()
+        .ok_or("no base64 transaction")?;
+    let raw = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|e| e.to_string())?;
+    let tx = wire_to_tx(&raw)?;
+    let sig = tx.signatures.first().cloned().unwrap_or_default();
+    let m = &r["meta"];
+    let addrs = |k: &str| -> Vec<Vec<u8>> {
+        m["loadedAddresses"][k]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str())
+                    .filter_map(|s| bs58::decode(s).into_vec().ok())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    Ok(SubscribeUpdateDeshred {
+        filters: vec![super::F_DESHRED.to_string()],
+        update_oneof: Some(subscribe_update_deshred::UpdateOneof::DeshredTransaction(
+            SubscribeUpdateDeshredTransaction {
+                slot,
+                transaction: Some(SubscribeUpdateDeshredTransactionInfo {
+                    signature: sig,
+                    is_vote: false,
+                    transaction: Some(tx),
+                    loaded_writable_addresses: addrs("writable"),
+                    loaded_readonly_addresses: addrs("readonly"),
+                    completed_data_set_starting_shred_index: 0,
+                    completed_data_set_ending_shred_index_exclusive: 0,
+                }),
+            },
+        )),
+        created_at: None,
+    })
+}
+
+/// A deshred slot update.
+pub fn deshred_slot_update(slot: u64) -> SubscribeUpdateDeshred {
+    SubscribeUpdateDeshred {
+        filters: vec![super::F_SLOTS.to_string()],
+        update_oneof: Some(subscribe_update_deshred::UpdateOneof::Slot(
+            SubscribeUpdateSlot {
+                slot,
+                parent: slot.checked_sub(1),
+                status: SlotStatus::SlotProcessed as i32,
+                dead_error: None,
+                bank_id: None,
+            },
+        )),
         created_at: None,
     }
 }

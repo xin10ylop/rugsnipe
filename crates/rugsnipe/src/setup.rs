@@ -458,9 +458,11 @@ mod tests {
             match_all: None,
         };
         let st = ArmState::from_armset(&a, true, "sha");
-        let mut eff = rugsnipe_core::config::RiskCfg::default();
-        eff.max_probe_lamports = 250_000_000; // [risk] left at the 0.25 stage
-        eff.max_snipe_lamports = 500_000_000;
+        let mut eff = rugsnipe_core::config::RiskCfg {
+            max_probe_lamports: 250_000_000, // [risk] left at the 0.25 stage
+            max_snipe_lamports: 500_000_000,
+            ..Default::default()
+        };
         let r = st.size_cap_refusals(&eff, Mode::Probe);
         assert_eq!(r.len(), 1, "{r:?}");
         assert!(

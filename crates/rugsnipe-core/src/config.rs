@@ -299,6 +299,14 @@ pub struct FeedsCfg {
     /// `first_seen` block (`first_by`, `lag."grpc_behind_grpc_b"` /
     /// `"grpc_b_behind_grpc"`) says which feed is ahead and by how much.
     pub grpc_b: GrpcCfg,
+    /// The pre-execution feed (Yellowstone `SubscribeDeshred`: transactions
+    /// decoded from shreds before the block is replayed; Triton's Dragon's
+    /// Mouth). The same adapter in deshred mode, source `shreds`: creates
+    /// reach the hot loop 50-80 ms before the post-execution copy, and the
+    /// create slot's buys are quoted on our own curve so the bundle gate
+    /// fires before the chain executes them. `feeds.grpc` stays on for
+    /// fills, exits and the kill's post-execution health.
+    pub deshred: GrpcCfg,
     pub shreds: ShredsCfg,
     pub pumpportal: PumpPortalCfg,
     /// Feed class required before probe/live may fire (`post_exec`).
@@ -314,6 +322,12 @@ impl Default for FeedsCfg {
                 x_token: "GRPC_B_TOKEN".into(),
                 stale_ms: 4_000,
                 bundle_run: false,
+                ..GrpcCfg::default()
+            },
+            deshred: GrpcCfg {
+                x_token: "DESHRED_TOKEN".into(),
+                stale_ms: 4_000,
+                bundle_run: true,
                 ..GrpcCfg::default()
             },
             shreds: ShredsCfg::default(),
@@ -1549,6 +1563,41 @@ impl Config {
                 w.push(
                     "feeds.grpc_b.bundle_run is ignored: the bundle run comes from feeds.grpc"
                         .into(),
+                );
+            }
+        }
+        let d = &self.feeds.deshred;
+        if d.enabled {
+            if !g.enabled {
+                inv(
+                    &mut r,
+                    "feeds.deshred",
+                    "is the pre-execution feed beside feeds.grpc: enable feeds.grpc too (fills, exits and the post-execution health come from it)",
+                );
+            }
+            if d.url.starts_with("cred:") {
+            } else if !(d.url.starts_with("https://") || d.url.starts_with("http://")) {
+                inv(
+                    &mut r,
+                    "feeds.deshred.url",
+                    "must be an https:// Yellowstone endpoint with SubscribeDeshred (http:// only for a local server)",
+                );
+            } else if d.url.starts_with("http://")
+                && !(d.url.starts_with("http://127.") || d.url.starts_with("http://localhost"))
+            {
+                w.push(format!(
+                    "feeds.deshred.url {} is plain http: the x-token travels unencrypted",
+                    d.url
+                ));
+            }
+            if !(200..=60_000).contains(&d.stale_ms) {
+                inv(&mut r, "feeds.deshred.stale_ms", "must be in [200, 60000]");
+            }
+            if d.x_token.chars().any(|c| c.is_whitespace() || c == '=') {
+                inv(
+                    &mut r,
+                    "feeds.deshred.x_token",
+                    "is a credential NAME (e.g. DESHRED_TOKEN), not the token",
                 );
             }
         }
