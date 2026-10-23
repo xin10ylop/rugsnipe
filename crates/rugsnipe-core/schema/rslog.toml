@@ -104,3 +104,12 @@ size = 59
 # The entry filter (entry.filter_model): score_bits = f64::to_bits(P(take-profit)); tertile 0 bottom (< t1),
 # 1 middle, 2 top (>= t2), 255 not scored; mode 0 log, 1 skip; skipped = dropped (outcome 6 filtered);
 # op_lead_n / bw_lead_n = our own LEAD outcomes known for the signer / the best-known bundle wallet.
+
+[[kind]]
+id = 16
+name = "Presend"
+fields = ["intent:u64", "mint:[32]", "score_bits:u64", "tertile:u8", "mode:u8", "cut:u8", "scored:u8", "skipped:u8"]
+size = 53
+# The pre-send entry gate (entry.presend_model) at the fire point: score_bits = f64::to_bits(P(take-profit)) of the
+# pre-send vector; tertile 0 bottom (< t1), 1 middle, 2 top (>= t2); mode 1 log, 2 skip; cut 1 = t1, 2 = t2;
+# scored 0 = no create trade (bundle block zeros, never skipped); skipped = not sent (decision skip_presend).

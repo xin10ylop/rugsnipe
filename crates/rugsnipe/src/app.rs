@@ -468,6 +468,29 @@ pub fn build(o: AppOpts) -> Result<App, String> {
             &crate::filter::resolve_path(&cfg.entry.filter_model),
         )?))
     };
+    // --- the pre-send entry gate (entry.presend_model): loaded once, refused if broken
+    let presend = if cfg.entry.presend_model.is_empty()
+        || cfg.entry.presend_mode == rugsnipe_core::config::PresendMode::Off
+    {
+        if cfg.entry.presend_mode != rugsnipe_core::config::PresendMode::Off {
+            return Err("entry.presend_mode = \"log\" / \"skip\" needs entry.presend_model".into());
+        }
+        None
+    } else {
+        let m = crate::filter::Model::load(&crate::filter::resolve_path(&cfg.entry.presend_model))?;
+        // the wire decoder counts tips to the codec's Jito accounts
+        let codec: std::collections::HashSet<Pubkey> = pump_codec::constants::JITO_TIP_ACCOUNTS
+            .iter()
+            .copied()
+            .collect();
+        if m.tip_accounts != codec {
+            return Err(format!(
+                "entry.presend_model {}: its MEV tip accounts differ from the decoder's",
+                cfg.entry.presend_model
+            ));
+        }
+        Some(Arc::new(m))
+    };
     // --- state.db + recovery (before READY)
     let mut outcomes = vec![];
     let mut restored_latch = None;
@@ -676,6 +699,10 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     let leaders = crate::leader::empty_snapshot();
     // the operator-dump set, seeded from state.db (entry.dumper_skip)
     let dumpers = crate::dumpers::snapshot_from(dumper_seed.clone());
+    // the outcome store's operator features for the pre-send gate, as the
+    // last run left the store (the cold thread republishes on changes)
+    let presend_ops =
+        crate::filter::op_snapshot(&crate::filter::OutcomeStore::from_rows(&outcomes));
     let has_post_exec = o.post_exec.is_some();
     // one budget for the keeper's reads: real fill lane, chain checks, leaders
     let keeper_budget = Arc::new(RpcBudget::new(cfg.rpc_budget.keeper.max(1) as f64));
@@ -774,6 +801,8 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         paper_start_balance: o.paper_balance,
         filter: filter.clone(),
         filter_mode: cfg.entry.filter_mode,
+        presend: presend.clone(),
+        presend_mode: cfg.entry.presend_mode,
         real: real_opts.as_ref().map(|r| RealCold {
             lane: crate::real::LaneCfg {
                 rpc_url: r.rpc_url.clone(),
@@ -813,12 +842,15 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         post_exec: o.post_exec,
         leaders: leaders.clone(),
         dumpers: dumpers.clone(),
+        presend_ops: presend_ops.clone(),
     })
     .map_err(|e| e.to_string())?;
     let mut hot_cfg = HotCfg::from_config(&cfg, policy);
     hot_cfg.fill_timeout_slots = o.fill_timeout_slots;
     hot_cfg.fill_lane = fill_lane;
     hot_cfg.filter = filter;
+    hot_cfg.presend = presend;
+    hot_cfg.presend_ops = presend_ops;
     hot_cfg.post_exec_feed = has_post_exec && mode.is_real();
     let mut hot = HotLoop::new(HotParts {
         cfg: hot_cfg,

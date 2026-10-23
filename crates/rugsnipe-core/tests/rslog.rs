@@ -140,6 +140,16 @@ fn sample_records() -> Vec<Rec> {
             op_lead_n: 4,
             bw_lead_n: 1,
         },
+        Rec::Presend {
+            intent: 0xdead_beef,
+            mint: k(3),
+            score_bits: 0.1875f64.to_bits(),
+            tertile: 0,
+            mode: 2,
+            cut: 2,
+            scored: 1,
+            skipped: 1,
+        },
     ]
 }
 

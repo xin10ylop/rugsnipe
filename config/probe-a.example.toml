@@ -156,6 +156,13 @@ bundle_lamports = 4_000_000_000
 filter = "any"
 filter_model = ""
 filter_mode = "log"
+# The pre-send entry gate (off by default): the create scored at the fire point, before the send, on what is known then
+# (the bundle run seen so far, the create's wire bytes, the signer's outcomes, unknown funding, the time). "log" records
+# every decision that reaches the send (state.db presend, rslog Presend), "skip" also drops the ones scoring below the cut
+# (skip_presend). Use a model retrained with funding masked to unknown; log first.
+# presend_model = "/etc/rugsnipe/entry_filter_v2.json"
+# presend_mode = "log"                             # "off" | "log" | "skip"
+# presend_cut = "t2"                               # skip below the model's t1 (bottom tertile) or t2 (bottom two)
 # probe-A: the LEAD exits of config/paper-lead.example.toml, NOT the 2x/3x example exits: the shadow being compared
 # with traded these, and with one position slot a 30-minute hold would block every attempt for minutes.
 [exit.default]                                     # docs/04 section 2, first of:

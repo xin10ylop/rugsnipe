@@ -19,7 +19,10 @@
 //! `feed_bundle`, the creation slot's bundle run as the gRPC feed assembled
 //! it (the entry filter's bundle features from the stream). The kill latch
 //! and its triggers live in `kv` (`kill_latch`, `kill_trigger:<name>`,
-//! [`crate::killkv`]). [`migrate`] upgrades version-1 to -4 files in place.
+//! [`crate::killkv`]). `dumpers` (the operator-dump set) and `presend` (the
+//! pre-send entry gate's score of every decision that reached the send) are
+//! new tables only (`CREATE TABLE IF NOT EXISTS`, no version bump).
+//! [`migrate`] upgrades version-1 to -4 files in place.
 
 /// Schema version stored in `PRAGMA user_version`.
 pub const VERSION: i64 = 5;
@@ -58,6 +61,8 @@ CREATE TABLE IF NOT EXISTS feed_bundle(mint TEXT PRIMARY KEY, intent_id INT, slo
   bundle_wallets INT, s0_third INT, dev_sol REAL, bundle_sol REAL, me_sol REAL, closed TEXT, run_close_ms REAL,
   out_of_order INT, features TEXT);
 CREATE TABLE IF NOT EXISTS dumpers(wallet TEXT PRIMARY KEY, mint TEXT, slot INT, sold_bps INT, written_ms INT);
+CREATE TABLE IF NOT EXISTS presend(intent_id INTEGER PRIMARY KEY, mint TEXT, model TEXT, score REAL, tertile INT, mode TEXT,
+  skipped INT, features TEXT, written_ms INT);
 "#;
 
 /// The version-2 `intents` DDL under a temporary name (CHECK constraints
@@ -74,7 +79,7 @@ ALTER TABLE intents_v2 RENAME TO intents;
 "#;
 
 /// Table names in DDL order.
-pub const TABLES: [&str; 16] = [
+pub const TABLES: [&str; 17] = [
     "intents",
     "sends",
     "fills",
@@ -91,6 +96,7 @@ pub const TABLES: [&str; 16] = [
     "outcomes",
     "feed_bundle",
     "dumpers",
+    "presend",
 ];
 
 /// Open settings for every connection: WAL, NORMAL sync, busy timeout,

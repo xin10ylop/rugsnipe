@@ -47,7 +47,7 @@
 //! ring, metrics are pre-created atomics (checked by `rugsnipe-replay`).
 
 use crate::convert::{hit_from_lite, trade_from_lite, v0_of};
-use crate::filter::{CreateRate, Feat, Model};
+use crate::filter::{presend_features, CreateRate, Feat, Model, OpStats, S0Trade};
 use crate::leader::{ClientClass, LeaderSnapshot, UNKNOWN as LEADER_UNKNOWN};
 use crate::msgs::{reason_code, reason_index, ColdMsg, FireJob, HotIn, ShadowInfo};
 use crate::setup::{min_tokens_out, op_armed, ArmState, Templates};
@@ -59,7 +59,9 @@ use pump_codec::create_hit::CreateHit;
 use pump_codec::curve::{CurveState, FeeBps};
 use pump_codec::{pda, Pubkey};
 use rugsnipe_core::bid::{BidPlan, BidPolicy, LeaderClass};
-use rugsnipe_core::config::{Config, FillModel, FilterMode, LeaderMix, ProbeStage};
+use rugsnipe_core::config::{
+    Config, FillModel, FilterMode, LeaderMix, PresendCut, PresendMode, ProbeStage,
+};
 use rugsnipe_core::risk::{DecideInput, Decision, RiskGate};
 use rugsnipe_core::rslog::{CreateHitRec, Rec, RslogProducer, ShadowOutcome};
 use rugsnipe_core::watchlist::{Match, Via, Watchlist};
@@ -207,6 +209,13 @@ pub struct HotCfg {
     pub leader_allowed: Option<[bool; crate::leader::Region::COUNT]>,
     /// `entry.dumper_skip`.
     pub dumper_skip: rugsnipe_core::config::DumperSkip,
+    /// The pre-send entry gate (`entry.presend_model`, loaded at startup;
+    /// `None`: off), its mode and cut, and the per-signer operator features
+    /// the cold thread publishes from the outcome store.
+    pub presend: Option<Arc<Model>>,
+    pub presend_mode: PresendMode,
+    pub presend_cut: PresendCut,
+    pub presend_ops: crate::filter::OpSnapshot,
 }
 
 impl HotCfg {
@@ -259,6 +268,10 @@ impl HotCfg {
             leader_allowed: leader_mask(&cfg.entry.leader_regions),
             dumper_skip: cfg.entry.dumper_skip,
             require_bundle: cfg.entry.require_bundle,
+            presend: None,
+            presend_mode: cfg.entry.presend_mode,
+            presend_cut: cfg.entry.presend_cut,
+            presend_ops: Arc::new(ArcSwap::from_pointee(Default::default())),
         }
     }
 
@@ -454,6 +467,71 @@ pub struct Parked {
     /// buy (out-of-order stream): a bundle buy that arrives later cannot
     /// make us first any more.
     pub behind: bool,
+    /// Every trade of the mint inside the run as delivered (the pre-send
+    /// gate's bundle block).
+    pub run: RunTrades,
+}
+
+/// Trades of the run a park keeps: two per run index (a bundle
+/// transaction rarely holds more than one buy of the mint).
+pub const PARK_RUN: usize = 2 * RUN_MAX_AFTER as usize;
+
+/// The run's trades of a parked mint (fixed arrays, `Copy`: no heap on the
+/// create path), deduplicated by (transaction index, event ordinal).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RunTrades {
+    pub t: [S0Trade; PARK_RUN],
+    pub ord: [u8; PARK_RUN],
+    pub n: u8,
+    /// A trade did not fit: the bundle block is incomplete (unscored).
+    pub full: bool,
+}
+
+impl RunTrades {
+    /// Record a trade of the run (a copy already recorded is ignored).
+    pub fn push(&mut self, t: &TradeLite) {
+        let n = self.n as usize;
+        if (0..n).any(|k| self.t[k].index == t.index && self.ord[k] == t.ordinal) {
+            return;
+        }
+        if n == PARK_RUN {
+            self.full = true;
+            return;
+        }
+        self.t[n] = S0Trade {
+            index: t.index,
+            is_create: false,
+            user: t.user,
+            is_buy: t.is_buy,
+            sol: t.sol_amount,
+            tok: t.token_amount,
+            v: t.virtual_sol_reserves,
+            t: t.virtual_token_reserves,
+        };
+        self.ord[n] = t.ordinal;
+        self.n += 1;
+    }
+
+    /// The creation slot as seen so far, in block order: the create's own
+    /// trade (if any) then the run's (stable by index) into `out`; the count.
+    pub fn collect(&self, create: Option<S0Trade>, out: &mut [S0Trade; PARK_RUN + 1]) -> usize {
+        let mut k = 0;
+        if let Some(c) = create {
+            out[0] = c;
+            k = 1;
+        }
+        let start = k;
+        for t in &self.t[..self.n as usize] {
+            let mut j = k;
+            while j > start && out[j - 1].index > t.index {
+                out[j] = out[j - 1];
+                j -= 1;
+            }
+            out[j] = *t;
+            k += 1;
+        }
+        k
+    }
 }
 
 /// The number of trades the hot loop keeps for mints that have no park
@@ -513,6 +591,7 @@ pub fn park_trade(
         p.behind = true;
         return ParkStep::Hold;
     }
+    p.run.push(t);
     if t.index >= p.pb_index {
         p.pb_index = t.index;
         p.pb = Some((t.virtual_sol_reserves, t.virtual_token_reserves));
@@ -687,6 +766,13 @@ pub struct LoopCounters {
     pub real_dropped: u64,
     pub own_trades: u64,
     pub sells_no_blockhash: u64,
+    /// The pre-send entry gate: decisions scored (bundle block present) /
+    /// unscored, skipped (`skip` mode), and the scored ones per tertile
+    /// (low, mid, high).
+    pub presend_scored: u64,
+    pub presend_unscored: u64,
+    pub presend_skipped: u64,
+    pub presend_tertiles: [u64; 3],
 }
 
 /// Everything [`HotLoop::new`] needs.
@@ -1052,6 +1138,104 @@ impl HotLoop {
         });
     }
 
+    /// The pre-send entry gate at the fire point (`entry.presend_mode` log
+    /// or skip): assemble the pre-send vector, score it, record it (rslog
+    /// `Presend`, cold `Presend` for the `presend` row) and say whether
+    /// `skip` drops the create (`score < cut`; an unscored create, one
+    /// without its own trade or with an overflowing run, is never dropped).
+    /// No allocation.
+    #[allow(clippy::too_many_arguments)]
+    fn presend_gate(
+        &mut self,
+        intent: u64,
+        hit: &CreateHit,
+        slot: u64,
+        create_index: u32,
+        rates: (Option<u32>, Option<u32>),
+        parked: Option<&Parked>,
+        now_ms: u64,
+    ) -> bool {
+        let mode = self.cfg.presend_mode;
+        if mode == PresendMode::Off || self.cfg.presend.is_none() {
+            return false;
+        }
+        let mut buf = [S0Trade::default(); PARK_RUN + 1];
+        let create = crate::filter::create_trade(hit, create_index);
+        let (n, full) = match parked {
+            Some(p) => (p.run.collect(create, &mut buf), p.run.full),
+            None => (RunTrades::default().collect(create, &mut buf), false),
+        };
+        let op = self
+            .cfg
+            .presend_ops
+            .load()
+            .get(&hit.user)
+            .copied()
+            .unwrap_or_else(|| OpStats::default().features());
+        let tx_index = (create_index != u32::MAX).then_some(create_index);
+        let (feat, bundle) = presend_features(
+            &buf[..n],
+            hit,
+            tx_index,
+            &op,
+            (now_ms / 1_000) as i64,
+            slot,
+            rates,
+        );
+        let scored = bundle && !full;
+        let Some(m) = self.cfg.presend.as_deref() else {
+            return false;
+        };
+        let score = m.score(&feat);
+        let tertile = m.tertile(score);
+        let cut = match self.cfg.presend_cut {
+            PresendCut::T1 => m.t1,
+            PresendCut::T2 => m.t2,
+        };
+        let skipped = mode == PresendMode::Skip && scored && score < cut;
+        let c = &mut self.counters;
+        if scored {
+            c.presend_scored += 1;
+            c.presend_tertiles[(tertile as usize).min(2)] += 1;
+        } else {
+            c.presend_unscored += 1;
+        }
+        c.presend_skipped += skipped as u64;
+        self.rslog.push(Rec::Presend {
+            intent,
+            mint: hit.mint,
+            score_bits: score.to_bits(),
+            tertile,
+            mode: mode as u8,
+            cut: match self.cfg.presend_cut {
+                PresendCut::T1 => 1,
+                PresendCut::T2 => 2,
+            },
+            scored: scored as u8,
+            skipped: skipped as u8,
+        });
+        self.send_cold(ColdMsg::Presend {
+            intent,
+            mint: hit.mint,
+            scored,
+            score,
+            tertile,
+            skipped,
+            feat,
+        });
+        skipped
+    }
+
+    /// `(mode, cut)` of the pre-send gate when it runs (status line).
+    pub fn presend_desc(&self) -> Option<(&'static str, &'static str)> {
+        (self.cfg.presend_mode != PresendMode::Off && self.cfg.presend.is_some()).then(|| {
+            (
+                self.cfg.presend_mode.as_str(),
+                self.cfg.presend_cut.as_str(),
+            )
+        })
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn on_create(
         &mut self,
@@ -1144,10 +1328,22 @@ impl HotLoop {
                 wallets: [Pubkey::default(); RUN_MAX_AFTER as usize],
                 n_wallets: 0,
                 behind: false,
+                run: RunTrades::default(),
             });
             return;
         }
-        self.decide_from_watch(src, recv_ns, slot, bank_id, hit, t0, intent, rates, None);
+        self.decide_from_watch(
+            src,
+            recv_ns,
+            slot,
+            bank_id,
+            hit,
+            t0,
+            intent,
+            rates,
+            None,
+            create_index,
+        );
     }
 
     /// Park a create for the bundle gate; a full table drops its oldest
@@ -1289,6 +1485,7 @@ impl HotLoop {
             p.intent,
             p.rates,
             Some(p),
+            p.create_index,
         );
     }
 
@@ -1309,6 +1506,7 @@ impl HotLoop {
         intent: u64,
         rates: (Option<u32>, Option<u32>),
         parked: Option<&Parked>,
+        create_index: u32,
     ) {
         let pb = parked.and_then(|p| p.pb);
         // 5: watchlist
@@ -1465,6 +1663,16 @@ impl HotLoop {
         if real && self.slot_now > slot {
             self.risk.release_unfilled();
             return self.decision(intent, hit, code::LATE_SLOT, 0, op.size, op.v_max, 0, 0);
+        }
+        // 8c: the pre-send entry gate (entry.presend_mode): the create scored
+        // on what is known now (the run seen so far, the create's wire
+        // bytes, the signer's outcomes, the time); `skip` below the cut
+        // sends nothing
+        if self.presend_gate(intent, hit, slot, create_index, rates, parked, now_ms) {
+            if real {
+                self.risk.release_unfilled();
+            }
+            return self.decision(intent, hit, code::PRESEND, would, op.size, op.v_max, 0, 0);
         }
         // 9: randomized skip (probe/live only; A/B is off in paper)
         if real && self.cfg.ab_enabled && op.ab_skip_p > 0.0 {
@@ -3147,6 +3355,7 @@ mod bundle_gate_tests {
             wallets: [Pubkey::default(); RUN_MAX_AFTER as usize],
             n_wallets: 0,
             behind: false,
+            run: RunTrades::default(),
         }
     }
 
@@ -3331,6 +3540,349 @@ mod bundle_gate_tests {
             ParkStep::Ignore
         );
         assert_eq!((r.bundle_buys, r.pb, u.bundle_buys), (0, None, 0));
+    }
+
+    // ------------------------------------------------------------- pre-send gate
+
+    use crate::filter::{
+        bundle_features, create_trade, create_tx_features, create_tx_features_wire, create_uri,
+        funding_features, op_snapshot, time_features, Funding, OutcomeStore, BUNDLE, CREATE_TX,
+        FUNDING, N_BUNDLE, N_CREATE, N_FUNDING, N_OPERATOR, N_TIME, OPERATOR, TIME,
+    };
+    use pump_codec::events::InnerInstruction;
+    use pump_codec::tx::{TxVersion, TxView};
+    use serde_json::{json, Value};
+
+    /// A pump-codec transaction fixture (`getTransaction` base64 + meta).
+    struct Fx {
+        raw: Vec<u8>,
+        result: Value,
+        inner: Vec<(u8, u8, Vec<u8>, Vec<u8>)>,
+        loaded: Vec<Pubkey>,
+    }
+
+    impl Fx {
+        fn load(name: &str) -> Self {
+            use base64::Engine as _;
+            let p = format!(
+                "{}/../pump-codec/fixtures/tx/{name}",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let v: Value = serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
+            let result = v["result"].clone();
+            let raw = base64::engine::general_purpose::STANDARD
+                .decode(result["transaction"][0].as_str().unwrap())
+                .unwrap();
+            let meta = &result["meta"];
+            let mut inner = vec![];
+            for g in meta["innerInstructions"].as_array().into_iter().flatten() {
+                for ix in g["instructions"].as_array().unwrap() {
+                    inner.push((
+                        g["index"].as_u64().unwrap() as u8,
+                        ix["programIdIndex"].as_u64().unwrap() as u8,
+                        ix["accounts"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|a| a.as_u64().unwrap() as u8)
+                            .collect(),
+                        bs58::decode(ix["data"].as_str().unwrap())
+                            .into_vec()
+                            .unwrap(),
+                    ));
+                }
+            }
+            let mut loaded = vec![];
+            if let Some(la) = meta.get("loadedAddresses").filter(|x| !x.is_null()) {
+                for k in ["writable", "readonly"] {
+                    for a in la[k].as_array().unwrap() {
+                        loaded.push(a.as_str().unwrap().parse().unwrap());
+                    }
+                }
+            }
+            Self {
+                raw,
+                result,
+                inner,
+                loaded,
+            }
+        }
+        fn inner(&self) -> Vec<InnerInstruction<'_>> {
+            self.inner
+                .iter()
+                .map(|(o, p, a, d)| InnerInstruction {
+                    outer_index: *o,
+                    program_id_index: *p,
+                    accounts: a,
+                    data: d,
+                })
+                .collect()
+        }
+        fn loaded(&self) -> Option<&[Pubkey]> {
+            (!self.loaded.is_empty()).then_some(&self.loaded[..])
+        }
+        /// The create as the hot loop decodes it from the gRPC copy (wire
+        /// bytes + the meta's inner instructions and loaded addresses).
+        fn hit(&self) -> Option<CreateHit> {
+            let tx = TxView::parse(&self.raw).unwrap();
+            pump_codec::create_hit(&tx, self.loaded(), &self.inner(), FeeBps::DEFAULT)
+                .ok()
+                .flatten()
+        }
+        /// The jsonParsed `getTransaction` result `create_tx_features`
+        /// reads, built from the wire parse (System transfers parsed, every
+        /// other instruction raw; fee and logs from the fixture's meta).
+        fn json_parsed(&self) -> Value {
+            let tx = TxView::parse(&self.raw).unwrap();
+            let keys: Vec<Pubkey> = tx
+                .static_account_keys()
+                .iter()
+                .chain(&self.loaded)
+                .copied()
+                .collect();
+            let ix_json = |prog: Pubkey, accts: &[u8], data: &[u8]| -> Value {
+                let a: Vec<Pubkey> = accts.iter().map(|i| keys[*i as usize]).collect();
+                let u64_at = |o: usize| u64::from_le_bytes(data[o..o + 8].try_into().unwrap());
+                if prog == pump_codec::constants::SYSTEM_PROGRAM_ID && data.len() >= 12 {
+                    let tag = u32::from_le_bytes(data[..4].try_into().unwrap());
+                    let parsed = match tag {
+                        0 => Some(
+                            json!({"type": "createAccount", "info": {"source": a[0].to_string(),
+                            "newAccount": a[1].to_string(), "lamports": u64_at(4)}}),
+                        ),
+                        2 => Some(
+                            json!({"type": "transfer", "info": {"source": a[0].to_string(),
+                            "destination": a[1].to_string(), "lamports": u64_at(4)}}),
+                        ),
+                        3 => {
+                            let n = u64_at(36) as usize;
+                            Some(
+                                json!({"type": "createAccountWithSeed", "info": {"source": a[0].to_string(),
+                                "newAccount": a[1].to_string(), "lamports": u64_at(44 + n)}}),
+                            )
+                        }
+                        11 => Some(
+                            json!({"type": "transferWithSeed", "info": {"source": a[0].to_string(),
+                            "destination": a[2].to_string(), "lamports": u64_at(4)}}),
+                        ),
+                        _ => None,
+                    };
+                    if let Some(p) = parsed {
+                        return json!({"program": "system", "programId": prog.to_string(), "parsed": p});
+                    }
+                }
+                json!({"programId": prog.to_string(),
+                    "accounts": a.iter().map(|k| k.to_string()).collect::<Vec<_>>(),
+                    "data": bs58::encode(data).into_string()})
+            };
+            let nreq = tx.header().num_required_signatures as usize;
+            let account_keys: Vec<Value> = keys
+                .iter()
+                .enumerate()
+                .map(|(i, k)| json!({"pubkey": k.to_string(), "signer": i < nreq}))
+                .collect();
+            let instructions: Vec<Value> = tx
+                .instructions()
+                .map(|ix| ix_json(*tx.program_id(&ix), ix.accounts, ix.data))
+                .collect();
+            let mut groups: Vec<(u8, Vec<Value>)> = vec![];
+            for (o, p, a, d) in &self.inner {
+                let v = ix_json(keys[*p as usize], a, d);
+                match groups.last_mut() {
+                    Some((g, list)) if *g == *o => list.push(v),
+                    _ => groups.push((*o, vec![v])),
+                }
+            }
+            let sigs: Vec<String> = (0..tx.num_signatures())
+                .map(|i| bs58::encode(tx.signature(i).unwrap()).into_string())
+                .collect();
+            json!({
+                "version": match tx.version() {
+                    TxVersion::Legacy => json!("legacy"),
+                    TxVersion::V0 => json!(0),
+                    TxVersion::V1 => json!(1),
+                },
+                "meta": {
+                    "fee": self.result["meta"]["fee"],
+                    "logMessages": self.result["meta"]["logMessages"],
+                    "innerInstructions": groups.iter().map(|(g, l)| json!({"index": g, "instructions": l})).collect::<Vec<_>>(),
+                },
+                "transaction": {"signatures": sigs, "message": {
+                    "accountKeys": account_keys, "instructions": instructions}},
+            })
+        }
+    }
+
+    fn model() -> Model {
+        Model::load(&crate::filter::resolve_path(
+            "data/reports/strategy/entry_filter_v1.json",
+        ))
+        .unwrap()
+    }
+
+    /// `create_tx_features_wire` (the hot loop's decode) equals
+    /// `create_tx_features` (the jsonParsed path) on every create fixture
+    /// the decoder resolves, all 21 features (the uri block where the logs
+    /// carry the CreateEvent).
+    #[test]
+    fn wire_create_features_match_the_json_path_on_the_fixtures() {
+        let m = model();
+        let dir = format!("{}/../pump-codec/fixtures/tx", env!("CARGO_MANIFEST_DIR"));
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        let (mut n, mut tips, mut prio, mut uris, mut v1) = (0, 0, 0, 0, 0);
+        for name in &names {
+            let fx = Fx::load(name);
+            let Some(hit) = fx.hit() else { continue };
+            let j = fx.json_parsed();
+            let uri = create_uri(&j);
+            let want = create_tx_features(
+                &j,
+                Some(77),
+                &hit.creator_arg,
+                &hit.user,
+                &uri,
+                &m.tip_accounts,
+            );
+            let got = create_tx_features_wire(&hit, Some(77));
+            let k = if uri.is_empty() { 14 } else { N_CREATE };
+            assert_eq!(got[..k], want[..k], "{name}");
+            n += 1;
+            tips += (got[2] > 0.0) as u32;
+            prio += (got[4] > 0.0) as u32;
+            uris += !uri.is_empty() as u32;
+            v1 += (hit.version == Some(TxVersion::V1)) as u32;
+        }
+        assert!(n >= 20, "create fixtures decoded: {n}");
+        assert!(
+            tips >= 3 && prio >= 10 && uris >= 15 && v1 >= 5,
+            "exercised: {tips} tips, {prio} priority fees, {uris} uris, {v1} v1"
+        );
+    }
+
+    /// The pre-send vector of a fixture create and its bundle run, block
+    /// by block: the bundle block is `bundle_features` on the same trades
+    /// (delivered out of order, one twice), the create block the JSON
+    /// path's, funding the masked defaults, operator the snapshot entry,
+    /// time `time_features`.
+    #[test]
+    fn presend_vector_layout_on_a_fixture_create_and_run() {
+        let m = model();
+        let fx = Fx::load("fresh_v0alt_create_v2_buy18.json");
+        let h = fx.hit().expect("the fixture is a create");
+        assert!(h.intx_buys > 0 && h.tx_shape.tip_lamports > 0);
+        let (owner, w1, w2, w3) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let ci = 40;
+        let mut p = parked(&h, ci);
+        let (v0, t0) = crate::convert::v0_of(&h);
+        // the run: w1 at +1, w2 at +3 (delivered first), a sell at +2, w3
+        // at +4, the +1 copy again
+        let tr = |user, is_buy, index, sol: u64, k: u64| {
+            let mut t = trade(h.mint, user, is_buy, 100, index);
+            t.sol_amount = sol;
+            t.token_amount = sol * 31;
+            t.virtual_sol_reserves = v0 + k * 1_000_000_000;
+            t.virtual_token_reserves = t0 - k * 20_000_000_000_000;
+            t
+        };
+        let run = [
+            tr(w2, true, ci + 3, 750_000_000, 3),
+            tr(w1, true, ci + 1, 500_000_000, 1),
+            tr(w1, false, ci + 2, 100_000_000, 2),
+            tr(w3, true, ci + 4, 500_000_000, 4),
+            tr(w1, true, ci + 1, 500_000_000, 1),
+        ];
+        for t in &run {
+            park_trade(&mut p, t, &owner, WAIT, 1_000);
+        }
+        assert_eq!((p.run.n, p.run.full, p.bundle_buys), (4, false, 4));
+        let mut buf = [S0Trade::default(); PARK_RUN + 1];
+        let n = p.run.collect(create_trade(&h, ci), &mut buf);
+        // the same creation slot built independently, in block order
+        let s0 = |t: &TradeLite| S0Trade {
+            index: t.index,
+            is_create: false,
+            user: t.user,
+            is_buy: t.is_buy,
+            sol: t.sol_amount,
+            tok: t.token_amount,
+            v: t.virtual_sol_reserves,
+            t: t.virtual_token_reserves,
+        };
+        let mut slot0 = vec![S0Trade {
+            index: ci,
+            is_create: true,
+            user: h.user,
+            is_buy: true,
+            sol: h.intx_sol_in,
+            tok: h.intx_tokens_out,
+            v: v0,
+            t: t0,
+        }];
+        slot0.extend([&run[1], &run[2], &run[0], &run[3]].map(s0));
+        assert_eq!(&buf[..n], &slot0[..]);
+        // the signer's outcomes as the cold thread publishes them
+        let row = |intent, lead, ret| rugsnipe_state::rows::OutcomeRow {
+            intent_id: intent,
+            mint: Pubkey::new_unique(),
+            signer: h.user,
+            launch_ms: 0,
+            outcome: "filled".into(),
+            lead,
+            ret,
+            tp_hit: lead,
+            s0_third: Some(2),
+            bundle_wallets: vec![],
+            written_ms: 0,
+        };
+        let store = OutcomeStore::from_rows(&[row(1, true, 0.12), row(2, false, 0.0)]);
+        let snap = op_snapshot(&store);
+        let op = snap.load().get(&h.user).copied().unwrap();
+        assert_eq!(op, store.signer(&h.user).features());
+        assert_ne!(op, OpStats::default().features());
+        let (now, slot, rates) = (1_791_990_000i64, 456_794_475u64, (Some(41), None));
+        let (f, scored) = presend_features(&buf[..n], &h, Some(ci), &op, now, slot, rates);
+        assert!(scored);
+        let cset = [h.creator_arg, h.user, h.fee_payer.unwrap()];
+        let b = bundle_features(&slot0, &cset, None).unwrap();
+        assert_eq!(b.wallets, vec![w1, w2, w3]);
+        assert_eq!(f.x[BUNDLE..BUNDLE + N_BUNDLE], b.x);
+        let j = fx.json_parsed();
+        let want = create_tx_features(
+            &j,
+            Some(ci),
+            &h.creator_arg,
+            &h.user,
+            &create_uri(&j),
+            &m.tip_accounts,
+        );
+        assert_eq!(f.x[CREATE_TX..CREATE_TX + N_CREATE], want);
+        assert_eq!(
+            f.x[FUNDING..FUNDING + N_FUNDING],
+            funding_features(&Funding::default())
+        );
+        assert_eq!(f.x[FUNDING..FUNDING + N_FUNDING], [0.0; N_FUNDING]);
+        assert_eq!(f.x[OPERATOR..OPERATOR + N_OPERATOR], op);
+        assert_eq!(
+            f.x[TIME..TIME + N_TIME],
+            time_features(now, slot, Some(41), None)
+        );
+        assert!((0.0..=1.0).contains(&m.score(&f)));
+        // no create trade: the bundle block is zeros and the vector unscored
+        let mut no_dev = h;
+        no_dev.intx_buys = 0;
+        let n = p.run.collect(create_trade(&no_dev, ci), &mut buf);
+        let (f, scored) = presend_features(&buf[..n], &no_dev, Some(ci), &op, now, slot, rates);
+        assert!(!scored);
+        assert_eq!(f.x[BUNDLE..BUNDLE + N_BUNDLE], [0.0; N_BUNDLE]);
     }
 
     #[test]

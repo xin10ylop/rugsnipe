@@ -103,6 +103,9 @@ pub struct ColdCfg {
     /// assembles each E1 verdict's features and keeps the outcome store.
     pub filter: Option<Arc<crate::filter::Model>>,
     pub filter_mode: rugsnipe_core::config::FilterMode,
+    /// The pre-send entry gate's model and mode (the `presend` rows).
+    pub presend: Option<Arc<crate::filter::Model>>,
+    pub presend_mode: rugsnipe_core::config::PresendMode,
     /// Probe: the real fill lane and the signer of the keeper's burns.
     pub real: Option<RealCold>,
     /// Kill triggers and the persisted latch.
@@ -717,6 +720,9 @@ pub struct ColdParts {
     pub leaders: LeaderSnapshot,
     /// The operator-dump set (shared with the hot loop; seeded from `dumpers`).
     pub dumpers: crate::dumpers::DumperSnapshot,
+    /// The outcome store's operator features per signer (shared with the
+    /// hot loop's pre-send gate; republished when the store changes).
+    pub presend_ops: crate::filter::OpSnapshot,
 }
 
 /// Start the cold thread; it returns when `shared.stop` is set and the
@@ -1276,6 +1282,13 @@ impl Cold {
     /// into the store and `state.db`.
     fn flush_outcomes(&mut self, all: bool) {
         let rows = self.lane.take_due(crate::now_ms(), all);
+        if !rows.is_empty() {
+            // the store changed: the hot loop's pre-send gate reads the new
+            // operator features (once a second at most: every_second)
+            self.p
+                .presend_ops
+                .store(Arc::new(self.lane.store.op_features()));
+        }
         if let Some(l) = &self.p.ledger {
             for r in rows {
                 l.writer().send(Write::Outcome(r));
@@ -1813,6 +1826,35 @@ impl Cold {
                     l.writer().send(Write::Filter(row));
                 }
                 self.sync_filter();
+            }
+            ColdMsg::Presend {
+                intent,
+                mint,
+                scored,
+                score,
+                tertile,
+                skipped,
+                feat,
+            } => {
+                if let Some(l) = &ledger {
+                    l.writer().send(Write::Presend(PresendRow {
+                        intent_id: intent as i64,
+                        mint,
+                        model: self
+                            .p
+                            .cfg
+                            .presend
+                            .as_ref()
+                            .map(|m| m.name.clone())
+                            .unwrap_or_default(),
+                        score: scored.then_some(score),
+                        tertile: scored.then_some(tertile),
+                        mode: self.p.cfg.presend_mode.as_str().into(),
+                        skipped,
+                        features: serde_json::to_string(&feat.x.to_vec()).unwrap_or_default(),
+                        written_ms: crate::now_ms(),
+                    }));
+                }
             }
             ColdMsg::Shadow {
                 intent,

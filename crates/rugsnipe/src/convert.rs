@@ -76,6 +76,7 @@ pub fn hit_from_lite(l: &CreateHitLite) -> CreateHit {
         curve_after,
         launcher: Default::default(),
         logs_truncated: l.has(hf::LOGS_TRUNCATED),
+        tx_shape: Default::default(),
     }
 }
 

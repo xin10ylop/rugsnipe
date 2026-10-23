@@ -59,6 +59,9 @@ pub mod code {
     /// The create's dev, creator or a bundle wallet dumped an earlier
     /// launch (`entry.dumper_skip = "skip"`).
     pub const DUMPER: u8 = 0x52;
+    /// The pre-send entry gate scored the create below `entry.presend_cut`
+    /// (`entry.presend_mode = "skip"`): nothing sent, risk and nonce released.
+    pub const PRESEND: u8 = 0x53;
     /// Metrics only: a paper decision that a real mode would have skipped
     /// (rslog keeps the RiskGate code and the `would_skip` reason).
     pub const PAPER_WOULD_SKIP: u8 = 0x1f;
@@ -102,6 +105,7 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (code::DEV_BUY, "skip_dev_buy"),
     (code::FAR_LEADER, "skip_far_leader"),
     (code::DUMPER, "skip_dumper"),
+    (code::PRESEND, "skip_presend"),
 ];
 
 /// Label of a decision code.

@@ -34,6 +34,8 @@ pub enum Write {
     Shadow(ShadowRow),
     /// Upsert by intent.
     Filter(FilterRow),
+    /// Upsert by intent.
+    Presend(PresendRow),
     /// Upsert by intent (the live outcome store).
     Outcome(OutcomeRow),
     /// Upsert by mint.
@@ -362,6 +364,23 @@ pub fn apply(c: &Connection, w: &Write) -> rusqlite::Result<bool> {
                     r.bw_lead_n,
                     r.bw_lead_ev,
                     r.features
+                ],
+            )?;
+        }
+        Write::Presend(r) => {
+            c.execute(
+                "INSERT OR REPLACE INTO presend(intent_id, mint, model, score, tertile, mode, skipped, features, written_ms)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+                params![
+                    r.intent_id,
+                    r.mint.to_string(),
+                    r.model,
+                    r.score,
+                    r.tertile,
+                    r.mode,
+                    r.skipped as i64,
+                    r.features,
+                    r.written_ms as i64
                 ],
             )?;
         }

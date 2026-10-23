@@ -168,6 +168,18 @@ pub enum ColdMsg {
         tertile: u8,
         skipped: bool,
     },
+    /// The pre-send entry gate's score of a decision at the fire point
+    /// (`entry.presend_mode` log or skip): the `presend` row.
+    Presend {
+        intent: u64,
+        mint: Pubkey,
+        /// The bundle block had the create's own trade (else zeros).
+        scored: bool,
+        score: f64,
+        tertile: u8,
+        skipped: bool,
+        feat: crate::filter::Feat,
+    },
     /// Funding transfer from the feed: update the watchlist (copy-on-write, cold side).
     Funding(FundingEvent),
     /// First dump signal: burn the intent's nonce now (only while `intent`

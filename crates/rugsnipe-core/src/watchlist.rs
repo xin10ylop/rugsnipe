@@ -393,6 +393,7 @@ mod tests {
             curve_after: None,
             launcher: Default::default(),
             logs_truncated: false,
+            tx_shape: Default::default(),
         };
         for s in signers {
             h.signers.push(*s);

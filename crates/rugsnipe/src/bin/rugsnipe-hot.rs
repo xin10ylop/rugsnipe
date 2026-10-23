@@ -972,8 +972,28 @@ fn run(args: &[String]) -> Result<(), String> {
             } else {
                 String::new()
             };
+            let presend = app
+                .hot
+                .presend_desc()
+                .map(|(mode, cut)| {
+                    let t = c.presend_tertiles;
+                    format!(
+                        " | presend {mode} {cut} scored {} skipped {} low/mid/high {}/{}/{}{}",
+                        c.presend_scored,
+                        c.presend_skipped,
+                        t[0],
+                        t[1],
+                        t[2],
+                        if c.presend_unscored > 0 {
+                            format!(" unscored {}", c.presend_unscored)
+                        } else {
+                            String::new()
+                        }
+                    )
+                })
+                .unwrap_or_default();
             eprintln!(
-                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {}{gate} | {kill}{g} | {} | {}",
+                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {}{gate}{presend} | {kill}{g} | {} | {}",
                 t0.elapsed().as_secs(),
                 c.events,
                 c.creates,

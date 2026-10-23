@@ -914,6 +914,19 @@ pub struct EntryCfg {
     /// transaction stream). 2026-10-22: the first 10 stage-B attempts all
     /// hit launches with no bundle wallet and all exited on no_activity.
     pub require_bundle: bool,
+    /// The pre-send entry gate's model (an `entry_filter` export, the same
+    /// format as `filter_model`); empty = no gate. Scored at the fire point
+    /// on what is known before the send: the creation slot's trades of the
+    /// mint seen so far (the bundle run), the create transaction's wire
+    /// bytes, the signer's operator history, unknown funding, the time.
+    pub presend_model: String,
+    /// `off` (default): no gate; `log`: score and record every decision
+    /// that reaches the send, never skip; `skip`: also skip (`skip_presend`,
+    /// nothing sent) a create scoring below `presend_cut`.
+    pub presend_mode: PresendMode,
+    /// The cut `skip` applies: the model's `t1` (bottom tertile) or `t2`
+    /// (default: bottom two tertiles).
+    pub presend_cut: PresendCut,
 }
 impl Default for EntryCfg {
     fn default() -> Self {
@@ -931,6 +944,51 @@ impl Default for EntryCfg {
             filter_model: String::new(),
             filter_mode: FilterMode::Log,
             require_bundle: false,
+            presend_model: String::new(),
+            presend_mode: PresendMode::Off,
+            presend_cut: PresendCut::T2,
+        }
+    }
+}
+
+/// `entry.presend_mode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PresendMode {
+    #[default]
+    Off,
+    /// Score and record, never skip.
+    Log,
+    /// Skip a create scoring below the cut.
+    Skip,
+}
+
+impl PresendMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Log => "log",
+            Self::Skip => "skip",
+        }
+    }
+}
+
+/// `entry.presend_cut`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PresendCut {
+    /// The model's `t1`: skip the bottom tertile.
+    T1,
+    /// The model's `t2`: skip the bottom two tertiles.
+    #[default]
+    T2,
+}
+
+impl PresendCut {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::T1 => "t1",
+            Self::T2 => "t2",
         }
     }
 }
@@ -1396,6 +1454,14 @@ impl Config {
                 &mut r,
                 "entry.leader_regions",
                 "values must be eu, na, asia or other",
+            );
+        }
+        if self.entry.presend_mode != PresendMode::Off && self.entry.presend_model.trim().is_empty()
+        {
+            inv(
+                &mut r,
+                "entry.presend_model",
+                "required when entry.presend_mode is log or skip (the gate needs a model)",
             );
         }
         if !self.entry.leader_regions.is_empty() && self.entry.leader_regions_file.is_empty() {

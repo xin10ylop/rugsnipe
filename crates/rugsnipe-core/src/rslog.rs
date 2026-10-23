@@ -262,6 +262,21 @@ pub enum Rec {
         op_lead_n: u32,
         bw_lead_n: u32,
     },
+    /// The pre-send entry gate (`entry.presend_model`) at the fire point.
+    Presend {
+        intent: u64,
+        mint: Pubkey,
+        score_bits: u64,
+        /// 0 bottom (< t1), 1 middle, 2 top (>= t2).
+        tertile: u8,
+        /// 1 log, 2 skip.
+        mode: u8,
+        /// 1 = t1, 2 = t2.
+        cut: u8,
+        /// The bundle block had the create's own trade (else zeros).
+        scored: u8,
+        skipped: u8,
+    },
 }
 
 /// Outcome of a paper entry (`Shadow.outcome`, `FailedBuy.reason`).
@@ -316,7 +331,7 @@ impl ShadowOutcome {
 }
 
 /// `(kind id, name)` of every record, in id order.
-pub const KINDS: [(u16, &str); 15] = [
+pub const KINDS: [(u16, &str); 16] = [
     (1, "FeedSeen"),
     (2, "CreateHit"),
     (3, "Matched"),
@@ -332,6 +347,7 @@ pub const KINDS: [(u16, &str); 15] = [
     (13, "Shadow"),
     (14, "FailedBuy"),
     (15, "Filter"),
+    (16, "Presend"),
 ];
 
 struct W<'a>(&'a mut Vec<u8>);
@@ -413,6 +429,7 @@ impl Rec {
             Self::Shadow { .. } => 13,
             Self::FailedBuy { .. } => 14,
             Self::Filter { .. } => 15,
+            Self::Presend { .. } => 16,
         }
     }
 
@@ -624,6 +641,25 @@ impl Rec {
                     .u32(*op_lead_n)
                     .u32(*bw_lead_n);
             }
+            Self::Presend {
+                intent,
+                mint,
+                score_bits,
+                tertile,
+                mode,
+                cut,
+                scored,
+                skipped,
+            } => {
+                w.u64(*intent)
+                    .pk(mint)
+                    .u64(*score_bits)
+                    .u8(*tertile)
+                    .u8(*mode)
+                    .u8(*cut)
+                    .u8(*scored)
+                    .u8(*skipped);
+            }
         }
     }
 
@@ -759,6 +795,16 @@ impl Rec {
                 skipped: r.u8()?,
                 op_lead_n: r.u32()?,
                 bw_lead_n: r.u32()?,
+            },
+            16 => Self::Presend {
+                intent: r.u64()?,
+                mint: r.pk()?,
+                score_bits: r.u64()?,
+                tertile: r.u8()?,
+                mode: r.u8()?,
+                cut: r.u8()?,
+                scored: r.u8()?,
+                skipped: r.u8()?,
             },
             _ => return None,
         };
