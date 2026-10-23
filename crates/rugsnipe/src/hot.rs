@@ -7,6 +7,7 @@
 //! 4  class filters: SOL quote, not mayhem, Token-2022, not cashback
 //! 5  watchlist: signer / fee payer = live; creator_arg only = shadow
 //! 6  age <= max_age_slots
+//! 6b presend gate (entry.presend_mode): scored before risk; `skip` below the cut sends nothing
 //! 7  RiskGate.decide (paper: would_skip)
 //! 8  V0 (curve after every in-tx buy) < op.v_max; a real decision after the
 //!    create slot (slot_now > create slot) is refused (`late_slot`)
@@ -1597,6 +1598,15 @@ impl HotLoop {
         if self.slot_now.saturating_sub(slot) > self.cfg.max_age_slots {
             return self.decision(intent, hit, code::STALE, 0, op.size, op.v_max, 0, 0);
         }
+        // 6b: the pre-send entry gate (entry.presend_mode), before the risk
+        // gate so that every create reaching the decision is scored (log)
+        // and a skipped one never reserves risk or a nonce: the create
+        // scored on what is known now (the run seen so far, the create's
+        // wire bytes, the signer's outcomes, the time); `skip` below the
+        // cut sends nothing
+        if self.presend_gate(intent, hit, slot, create_index, rates, parked, now_ms) {
+            return self.decision(intent, hit, code::PRESEND, 0, op.size, op.v_max, 0, 0);
+        }
         // 7: risk
         let (v0, t0_tok) = v0_of(hit);
         // the reserve we buy at: the bundle run's post-trade state when the
@@ -1663,16 +1673,6 @@ impl HotLoop {
         if real && self.slot_now > slot {
             self.risk.release_unfilled();
             return self.decision(intent, hit, code::LATE_SLOT, 0, op.size, op.v_max, 0, 0);
-        }
-        // 8c: the pre-send entry gate (entry.presend_mode): the create scored
-        // on what is known now (the run seen so far, the create's wire
-        // bytes, the signer's outcomes, the time); `skip` below the cut
-        // sends nothing
-        if self.presend_gate(intent, hit, slot, create_index, rates, parked, now_ms) {
-            if real {
-                self.risk.release_unfilled();
-            }
-            return self.decision(intent, hit, code::PRESEND, would, op.size, op.v_max, 0, 0);
         }
         // 9: randomized skip (probe/live only; A/B is off in paper)
         if real && self.cfg.ab_enabled && op.ab_skip_p > 0.0 {
