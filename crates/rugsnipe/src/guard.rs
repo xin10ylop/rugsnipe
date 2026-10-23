@@ -18,7 +18,11 @@
 //! pending after a send and is re-sent every `retry_ms` on a fresh
 //! blockhash (size from the chain balance) until the wallet's token balance
 //! reads 0, then the position is closed in `state.db` (`positions.state =
-//! 'closed'`, an `exits` row); after `max_sell_spend` lamports of bids the
+//! 'closed'`, an `exits` row with the sale's proceeds); a zero balance the
+//! guard did not cause (the hot box's sell landed after it exited) is booked
+//! from the sale found on chain ([`GuardReal::find_sale`], reason
+//! `guard_hot_sold`), and loudly as unknown when none is found; after
+//! `max_sell_spend` lamports of bids the
 //! guard stops retrying (`SellGaveUp`, a critical line). **The lease goes
 //! back to the hot box** when its liveness heartbeat
 //! ([`rugsnipe_state::lease::HOT_HEARTBEAT`]) is fresh again and no sell is
@@ -96,6 +100,21 @@ pub enum GuardAction {
         mint: Pubkey,
         tries: u32,
     },
+    /// The wallet holds none and the guard sent no sell: the sale was found
+    /// on chain (the hot box sent it and exited before its fill) and booked
+    /// at its proceeds (`exits` reason `guard_hot_sold`).
+    ClosedSaleFound {
+        mint: Pubkey,
+        sig: [u8; 64],
+        sol_delta: i64,
+        slot: u64,
+    },
+    /// The wallet holds none, no sale was found on chain and none is booked:
+    /// closed with the proceeds unknown (critical: the risk day counts the
+    /// whole cost as lost until the exit is booked by hand).
+    ClosedProceedsUnknown {
+        mint: Pubkey,
+    },
     /// The sell's bids reached `max_sell_spend` without the balance going
     /// to 0: no more retries (critical: sell by hand).
     SellGaveUp {
@@ -142,12 +161,20 @@ pub struct GuardReal {
     /// risk day is computed from (2026-10-23: a guard sale booked at 0
     /// counted the whole buy as lost and tripped the daily kill).
     pub proceeds: Option<ProceedsFn>,
+    /// The newest sale of a mint by the wallet since a slot (`(sig,
+    /// lamports, slot)`, [`rugsnipe_state::ChainRead::find_owner_sell`]):
+    /// books a sale the guard did not send when the wallet holds none
+    /// (2026-10-23: the hot box was restarted between its sell and the
+    /// fill; the position was closed as a -100% trade).
+    pub find_sale: Option<FindSaleFn>,
 }
 
 /// The wallet's token balance of a mint ([`GuardReal::token_balance`]).
 pub type TokenBalanceFn = Arc<dyn Fn(&Pubkey) -> Option<u64> + Send + Sync>;
 /// A sale's lamport delta and slot from its signature ([`GuardReal::proceeds`]).
 pub type ProceedsFn = Arc<dyn Fn(&[u8; 64]) -> Option<(i64, u64)> + Send + Sync>;
+/// The newest sale of `mint` since `since_slot` ([`GuardReal::find_sale`]).
+pub type FindSaleFn = Arc<dyn Fn(&Pubkey, u64) -> Option<([u8; 64], i64, u64)> + Send + Sync>;
 
 impl core::fmt::Debug for GuardReal {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -224,7 +251,9 @@ impl Guard {
             .map(|r| r.owner))
     }
 
-    /// The chain shows no tokens left: close the position in `state.db`.
+    /// The chain shows no tokens left: close the position in `state.db`,
+    /// with an `exits` row carrying the sale's proceeds when the sale is
+    /// known (ours by its signature, else looked up on chain).
     fn close(
         &mut self,
         c: &rusqlite::Connection,
@@ -232,46 +261,106 @@ impl Guard {
         owner: Pubkey,
     ) -> Result<GuardAction, String> {
         let pd = self.pending.remove(&p.mint);
-        let (tries, spent, sig, reason) = match &pd {
-            Some(d) => (d.tries, d.spent, d.last_sig, d.reason),
-            None => (0, 0, [0; 64], "zero_balance"),
+        let real = match &self.sell {
+            Some(PaperSell { real: Some(r), .. }) => Some(r),
+            _ => None,
+        };
+        // a sale of the mint on chain not booked yet
+        let found = || -> Result<Option<([u8; 64], i64, u64)>, String> {
+            match real
+                .and_then(|r| r.find_sale.as_ref())
+                .and_then(|f| f(&p.mint, p.opened_slot))
+            {
+                Some(x) if !exit_booked(c, &x.0)? => Ok(Some(x)),
+                _ => Ok(None),
+            }
+        };
+        let exit_row = |sig, reason: String, sol_delta, slot, try_no| ExitRow {
+            sig,
+            mint: p.mint,
+            reason,
+            venue: "curve".into(),
+            tokens: p.tokens,
+            sol_delta,
+            slot,
+            owner,
+            try_no,
+        };
+        let (exit, spent, action) = match &pd {
+            Some(d) => {
+                // the proceeds of our sale, from its signature; when they
+                // cannot be read (an earlier try may be the one that
+                // landed), the sale is looked up on chain
+                let mut sig = d.last_sig;
+                let mut got = match real.and_then(|r| r.proceeds.as_ref()) {
+                    Some(f) if sig != [0; 64] => f(&sig),
+                    _ => None,
+                };
+                if got.is_none() {
+                    if let Some((s, delta, slot)) = found()? {
+                        sig = s;
+                        got = Some((delta, slot));
+                    }
+                }
+                let (sol_delta, slot) = got.unwrap_or((0, 0));
+                (
+                    Some(exit_row(
+                        sig,
+                        format!("guard_{}", d.reason),
+                        sol_delta,
+                        slot,
+                        d.tries,
+                    )),
+                    d.spent,
+                    GuardAction::Closed {
+                        mint: p.mint,
+                        tries: d.tries,
+                    },
+                )
+            }
+            // no sell of ours: someone else's (the hot box's) emptied the wallet
+            None => match found()? {
+                Some((sig, sol_delta, slot)) => (
+                    Some(exit_row(sig, "guard_hot_sold".into(), sol_delta, slot, 0)),
+                    0,
+                    GuardAction::ClosedSaleFound {
+                        mint: p.mint,
+                        sig,
+                        sol_delta,
+                        slot,
+                    },
+                ),
+                // already booked (e.g. by the hot box's shutdown)
+                None if mint_has_exit(c, &p.mint)? => (
+                    None,
+                    0,
+                    GuardAction::Closed {
+                        mint: p.mint,
+                        tries: 0,
+                    },
+                ),
+                None => (None, 0, GuardAction::ClosedProceedsUnknown { mint: p.mint }),
+            },
         };
         let row = PositionRow {
             tokens: 0,
             state: PosState::Closed,
             sell_spend: p.sell_spend.saturating_add(spent),
+            closed_slot: exit
+                .as_ref()
+                .map(|e| e.slot)
+                .filter(|s| *s > 0)
+                .or(p.closed_slot),
             ..p.clone()
         };
         let w = rugsnipe_state::store::Write::Position(row);
         rugsnipe_state::store::apply(c, &w).map_err(|e| e.to_string())?;
-        if pd.is_some() {
-            // the sale's proceeds, when the chain can be asked (a sell we
-            // sent has a signature; a zero-balance close without one has
-            // nothing to book)
-            let (sol_delta, slot) = match (&self.sell, sig != [0; 64]) {
-                (Some(PaperSell { real: Some(r), .. }), true) => {
-                    r.proceeds.as_ref().and_then(|f| f(&sig)).unwrap_or((0, 0))
-                }
-                _ => (0, 0),
-            };
-            let e = rugsnipe_state::store::Write::Exit(ExitRow {
-                sig,
-                mint: p.mint,
-                reason: format!("guard_{reason}"),
-                venue: "curve".into(),
-                tokens: p.tokens,
-                sol_delta,
-                slot,
-                owner,
-                try_no: tries,
-            });
+        if let Some(e) = exit {
+            let e = rugsnipe_state::store::Write::Exit(e);
             rugsnipe_state::store::apply(c, &e).map_err(|e| e.to_string())?;
         }
         self.sold.insert(p.mint);
-        Ok(GuardAction::Closed {
-            mint: p.mint,
-            tries,
-        })
+        Ok(action)
     }
 
     /// One iteration. `price(mint)` = current virtual SOL of the curve, if known.
@@ -509,4 +598,26 @@ impl Guard {
         }
         Ok(out)
     }
+}
+
+/// An `exits` row with this signature exists.
+fn exit_booked(c: &rusqlite::Connection, sig: &[u8; 64]) -> Result<bool, String> {
+    c.query_row(
+        "SELECT COUNT(*) FROM exits WHERE sig = ?1",
+        [rugsnipe_state::rows::b58(sig)],
+        |r| r.get::<_, i64>(0),
+    )
+    .map(|n| n > 0)
+    .map_err(|e| e.to_string())
+}
+
+/// An `exits` row of this mint exists.
+fn mint_has_exit(c: &rusqlite::Connection, mint: &Pubkey) -> Result<bool, String> {
+    c.query_row(
+        "SELECT COUNT(*) FROM exits WHERE mint = ?1",
+        [mint.to_string()],
+        |r| r.get::<_, i64>(0),
+    )
+    .map(|n| n > 0)
+    .map_err(|e| e.to_string())
 }

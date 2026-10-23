@@ -140,6 +140,9 @@ pub struct App {
     sender: Option<JoinHandle<u64>>,
     writers: Vec<(String, RslogWriter)>,
     state_path: Option<PathBuf>,
+    /// The chain source of recovery (probe), kept for the shutdown: a sell
+    /// sent before the stop is resolved on chain and booked ([`crate::inflight`]).
+    chain: Option<Arc<dyn ChainRead + Send + Sync>>,
 }
 
 impl core::fmt::Debug for App {
@@ -503,14 +506,14 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     // probe: the chain source for recovery and nonce seeding
     #[allow(unused_mut)]
     let mut real_opts = o.real;
-    let chain: Option<Box<dyn ChainRead + Send + Sync>> = match real_opts.as_mut() {
+    let chain: Option<Arc<dyn ChainRead + Send + Sync>> = match real_opts.as_mut() {
         Some(r) => match r.chain.take() {
-            Some(c) => Some(c),
+            Some(c) => Some(Arc::from(c)),
             None => {
                 #[cfg(feature = "rpc")]
                 {
                     let b = Arc::new(RpcBudget::new(cfg.rpc_budget.keeper.max(1) as f64));
-                    Some(Box::new(rugsnipe_state::chain::RpcChain::new(
+                    Some(Arc::new(rugsnipe_state::chain::RpcChain::new(
                         &r.rpc_url, b,
                     )))
                 }
@@ -909,6 +912,7 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         cold: Some(cold),
         sender: Some(sender),
         writers,
+        chain,
     })
 }
 
@@ -1002,9 +1006,18 @@ impl App {
         (vs, burn)
     }
 
-    /// Stop the threads, flush, and collect the summary.
+    /// Stop the threads, book the sells already sent ([`crate::inflight`],
+    /// at most [`crate::inflight::BookCfg`]'s budget), flush, close the
+    /// ledger, and collect the summary.
     pub fn shutdown(self, feeds: Vec<serde_json::Value>) -> Summary {
         self.shared.stop.store(true, Release);
+        // real positions with a sell out: it may land after the loop stopped
+        // reading its fill (2026-10-23: booked by nobody, the guard closed it
+        // at 0); their signatures are in `sends` once the cold thread is done
+        let inflight = match self.chain {
+            Some(_) => self.hot.inflight_sells(),
+            None => vec![],
+        };
         let (hd, hw, he) = self.hot.histograms();
         let (qd, qw, qe) = (Quantiles::of(hd), Quantiles::of(hw), Quantiles::of(he));
         let counters = self.hot.counters;
@@ -1029,6 +1042,7 @@ impl App {
             sender,
             writers,
             state_path,
+            chain,
             ..
         } = self;
         drop(hot); // drops the fire producer, the hot rslog producer and the cold ring producer
@@ -1048,7 +1062,27 @@ impl App {
         let mut state_rows = vec![];
         let mut state_errors = 0;
         if let Some(s) = store {
-            s.flush();
+            if let (Some(chain), Some(p), false) = (chain, &state_path, inflight.is_empty()) {
+                match rugsnipe_state::store::open_conn(p) {
+                    Ok(c) => {
+                        let l = Ledger::new(s.writer());
+                        for b in crate::inflight::book_inflight_sells(
+                            &c,
+                            &l,
+                            chain,
+                            owner,
+                            &inflight,
+                            crate::inflight::BookCfg::default(),
+                        ) {
+                            eprintln!("{b}");
+                        }
+                    }
+                    Err(e) => eprintln!("shutdown: state.db: {e} (in-flight sells not booked)"),
+                }
+            }
+            if !s.flush() {
+                eprintln!("state.db: the final flush was not confirmed (writer gone): rows may be missing");
+            }
             state_errors = s.stats().errors.load(Relaxed);
             if let Some(p) = &state_path {
                 if let Ok(c) = rugsnipe_state::store::open_conn(p) {

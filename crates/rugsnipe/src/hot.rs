@@ -3201,6 +3201,37 @@ impl HotLoop {
         }
     }
 
+    /// Real positions with sell orders out, for the shutdown's booking
+    /// ([`crate::inflight`]): a sell sent before the stop may land after the
+    /// loop stopped reading its fill.
+    pub fn inflight_sells(&self) -> Vec<crate::inflight::InflightSell> {
+        self.slots
+            .iter()
+            .flatten()
+            .filter(|s| s.real && s.filled)
+            .filter_map(|s| {
+                let p = &s.pos;
+                let orders = || p.pending.iter().flatten().map(|o| o.order);
+                let first = orders().min_by_key(|o| o.order_id)?;
+                let tokens = orders()
+                    .map(|o| o.tokens)
+                    .fold(0u64, u64::saturating_add)
+                    .min(p.tokens);
+                Some(crate::inflight::InflightSell {
+                    mint: p.mint,
+                    reason: first.reason.label(),
+                    venue: match first.venue {
+                        Venue::Curve => "curve",
+                        Venue::PumpSwap => "pumpswap",
+                    },
+                    tokens,
+                    closes: tokens >= p.tokens,
+                    try_no: first.try_no,
+                })
+            })
+            .collect()
+    }
+
     /// Positions still waiting or open (state, tokens) for reports.
     pub fn position_states(&self) -> Vec<(Pubkey, PositionState, bool)> {
         self.slots

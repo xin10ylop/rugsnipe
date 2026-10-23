@@ -15,6 +15,8 @@ use std::thread::JoinHandle;
 
 /// Statements per transaction at most.
 pub const BATCH: usize = 512;
+/// [`StateStore::close`] waits this long at most for the writer thread.
+pub const CLOSE_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// One write for the writer thread.
 #[derive(Debug, Clone)]
@@ -58,6 +60,9 @@ pub enum Write {
     FeedBundle(FeedBundleRow),
     /// Reply once everything before it is committed.
     Barrier(SyncSender<()>),
+    /// [`StateStore::close`]: commit, close the connection, end the writer
+    /// thread, then reply (writes queued after it are refused).
+    Stop(SyncSender<()>),
 }
 
 use pump_codec::Pubkey;
@@ -146,10 +151,26 @@ impl StateStore {
         self.writer.flush()
     }
 
-    /// Flush and return the number of statements written so far. The
-    /// writer thread ends once every [`StateWriter`] clone is dropped.
-    pub fn close(self) -> u64 {
-        self.writer.flush();
+    /// Commit everything queued, end the writer thread and join it (at most
+    /// [`CLOSE_WAIT`]), so no queued row is lost and the connection is closed
+    /// (WAL checkpointed) before the process exits. Returns the number of
+    /// statements written; writes queued by other [`StateWriter`] clones
+    /// after this are refused (`send` returns `false`).
+    pub fn close(mut self) -> u64 {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        if self.writer.send(Write::Stop(tx)) {
+            let _ = rx.recv_timeout(CLOSE_WAIT);
+        }
+        if let Some(h) = self.handle.take() {
+            // the reply comes right before the thread returns
+            let t0 = std::time::Instant::now();
+            while !h.is_finished() && t0.elapsed() < std::time::Duration::from_millis(100) {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            if h.is_finished() {
+                let _ = h.join();
+            }
+        }
         self.writer.stats.written.load(Relaxed)
     }
 
@@ -174,6 +195,7 @@ pub fn open_conn(path: &Path) -> Result<Connection> {
 
 fn writer_loop(mut conn: Connection, rx: Receiver<Write>, stats: Arc<StoreStats>) {
     let mut barriers: Vec<SyncSender<()>> = Vec::new();
+    let mut stop: Option<SyncSender<()>> = None;
     while let Ok(first) = rx.recv() {
         let mut batch = vec![first];
         while batch.len() < BATCH {
@@ -190,9 +212,16 @@ fn writer_loop(mut conn: Connection, rx: Receiver<Write>, stats: Arc<StoreStats>
             }
         };
         for w in batch {
-            if let Write::Barrier(b) = w {
-                barriers.push(b);
-                continue;
+            match w {
+                Write::Barrier(b) => {
+                    barriers.push(b);
+                    continue;
+                }
+                Write::Stop(b) => {
+                    stop = Some(b);
+                    continue;
+                }
+                _ => {}
             }
             match apply(&tx, &w) {
                 Ok(true) => {
@@ -212,6 +241,12 @@ fn writer_loop(mut conn: Connection, rx: Receiver<Write>, stats: Arc<StoreStats>
         stats.batches.fetch_add(1, Relaxed);
         for b in barriers.drain(..) {
             let _ = b.send(());
+        }
+        if let Some(b) = stop.take() {
+            drop(rx);
+            drop(conn);
+            let _ = b.send(());
+            return;
         }
     }
 }
@@ -561,7 +596,7 @@ pub fn apply(c: &Connection, w: &Write) -> rusqlite::Result<bool> {
                 ],
             )?;
         }
-        Write::Barrier(_) => {}
+        Write::Barrier(_) | Write::Stop(_) => {}
     }
     Ok(true)
 }
@@ -619,4 +654,40 @@ pub fn load_outcomes(c: &Connection) -> rusqlite::Result<Vec<OutcomeRow>> {
         });
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `close` commits what every clone queued before it, ends the writer
+    /// thread (the connection is closed: no WAL left behind) and refuses
+    /// later writes, even while another clone is still alive.
+    #[test]
+    fn close_commits_the_queue_and_joins_the_writer() {
+        let dir = std::env::temp_dir().join(format!("rugsnipe-store-close-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let p = dir.join("state.db");
+        let s = StateStore::open(&p).unwrap();
+        let w = s.writer();
+        for i in 0..2_000 {
+            assert!(w.send(Write::Kv(format!("k{i}"), "v".into())));
+        }
+        let t0 = std::time::Instant::now();
+        assert_eq!(s.close(), 2_000);
+        assert!(t0.elapsed() < CLOSE_WAIT, "{:?}", t0.elapsed());
+        assert!(
+            !w.send(Write::Kv("late".into(), "v".into())),
+            "the writer is gone"
+        );
+        assert!(!w.flush());
+        assert!(!dir.join("state.db-wal").exists(), "connection closed");
+        let c = open_conn(&p).unwrap();
+        let n: i64 = c
+            .query_row("SELECT COUNT(*) FROM kv", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 2_000);
+        drop(c);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

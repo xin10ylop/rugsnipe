@@ -19,6 +19,7 @@
 //! | [`convert`] | `CreateHitLite` -> `CreateHit`, feed `TradeLite` -> exit `Trade` |
 //! | [`stats`] | Prometheus counters/gauges (pre-created, so the hot thread only does atomic adds) |
 //! | [`guard`] | `rugsnipe-guard` logic: watch the exits lease, take over when stale with open positions |
+//! | [`inflight`] | shutdown: real sells already sent are resolved on chain and booked before the ledger closes |
 //! | [`alloc_count`] | counting `#[global_allocator]` for the replay's zero-allocation check |
 //!
 //! Thread layout of `rugsnipe-hot`: feed adapter thread(s) (LogsWs, its own
@@ -39,6 +40,7 @@ pub mod filter;
 pub mod firstseen;
 pub mod guard;
 pub mod hot;
+pub mod inflight;
 pub mod keys;
 pub mod leader;
 pub mod msgs;

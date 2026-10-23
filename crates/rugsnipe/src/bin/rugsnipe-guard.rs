@@ -136,6 +136,7 @@ fn real_sell_path(
     );
     let chain = Arc::new(chain);
     let chain_b = chain.clone();
+    let chain_f = chain.clone();
     let token_balance: rugsnipe::guard::TokenBalanceFn = Arc::new(move |mint| {
         use rugsnipe_state::ChainRead;
         let all = chain.token_balances(&owner).ok()?;
@@ -155,6 +156,29 @@ fn real_sell_path(
                 return Some(x);
             }
             std::thread::sleep(std::time::Duration::from_millis(400));
+        }
+        None
+    });
+    // a sale the guard did not send (the hot box's, its fill never booked):
+    // looked up when the wallet holds none; up to 9 reads a try inside the
+    // budget, so the watchdog is fed between tries (WatchdogSec=5)
+    let find_sale: rugsnipe::guard::FindSaleFn = Arc::new(move |mint, since| {
+        use rugsnipe_state::ChainRead;
+        let t0 = Instant::now();
+        for i in 0..3 {
+            match chain_f.find_owner_sell(&owner, mint, since) {
+                Ok(Some(x)) => return Some(x),
+                Ok(None) => {}
+                Err(e) => eprintln!(
+                    "rugsnipe-guard: sale lookup of {mint}: {}",
+                    rugsnipe::keys::redact_text(&e)
+                ),
+            }
+            let _ = sd_notify::notify(&[sd_notify::NotifyState::Watchdog]);
+            if i == 2 || t0.elapsed() >= Duration::from_millis(1_500) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(400));
         }
         None
     });
@@ -185,6 +209,7 @@ fn real_sell_path(
             blockhash,
             token_balance: Some(token_balance),
             proceeds: Some(proceeds),
+            find_sale: Some(find_sale),
         }),
     })
 }
@@ -341,6 +366,18 @@ fn run(args: &[String]) -> Result<(), String> {
                 GuardAction::Closed { mint, tries } => {
                     format!("position {mint} closed: the wallet holds none ({tries} sell tries)")
                 }
+                GuardAction::ClosedSaleFound {
+                    mint,
+                    sig,
+                    sol_delta,
+                    slot,
+                } => format!(
+                    "position {mint} closed: the wallet holds none; its sale {} (slot {slot}) found on chain, booked at {sol_delta} lamports (guard_hot_sold)",
+                    bs58::encode(sig).into_string()
+                ),
+                GuardAction::ClosedProceedsUnknown { mint } => format!(
+                    "CRITICAL: position {mint} closed: the wallet holds none and no sale of it was found on chain: proceeds UNKNOWN, booked as 0 (the risk day counts the whole cost as lost); find the sale and book its exit by hand"
+                ),
                 GuardAction::SellGaveUp { mint, tries, spent } => format!(
                     "CRITICAL: sell of {mint} not confirmed after {tries} tries and {spent} lamports of bids (max_sell_spend): sell it by hand"
                 ),
