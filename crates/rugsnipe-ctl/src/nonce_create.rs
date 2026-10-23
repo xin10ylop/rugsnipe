@@ -111,9 +111,10 @@ pub fn classify(value: &Value, authority: &Pubkey) -> OnChain {
     }
 }
 
-/// `(index, address)` of `start..start+count` in the buy pool of `authority`.
-pub fn pool_rows(authority: &Pubkey, start: usize, count: usize) -> Vec<(usize, Pubkey)> {
-    let all = sysix::pool_addresses(authority, POOL, start + count);
+/// `(index, address)` of `start..start+count` in the `pool` ("buy" or "sell")
+/// of `authority`.
+pub fn pool_rows(authority: &Pubkey, pool: &str, start: usize, count: usize) -> Vec<(usize, Pubkey)> {
+    let all = sysix::pool_addresses(authority, pool, start + count);
     (start..start + count)
         .zip(all[start..].iter().copied())
         .collect()
@@ -401,7 +402,7 @@ fn funds_line(balance: Option<u64>, missing: u64, rent: u64) -> String {
 }
 
 /// Why the run stopped at index `i` (exit 1).
-fn stopped(i: usize, addr: &Pubkey, why: &str, sig: &str, created: u64, existed: u64) -> Out {
+fn stopped(pool: &str, i: usize, addr: &Pubkey, why: &str, sig: &str, created: u64, existed: u64) -> Out {
     let sig = if sig.is_empty() {
         String::new()
     } else {
@@ -410,14 +411,14 @@ fn stopped(i: usize, addr: &Pubkey, why: &str, sig: &str, created: u64, existed:
     Out {
         text: format!(
             "STOPPED at #{i} {addr} ({}): {why}\ncreated {created}, existed {existed}; nothing after #{i} was sent. Fix the cause and re-run the same command: accounts that exist are skipped{sig}\n",
-            sysix::nonce_seed(POOL, i)
+            sysix::nonce_seed(pool, i)
         ),
         code: 1,
     }
 }
 
 /// `rugsnipe-ctl nonce create --help`.
-pub const USAGE: &str = "usage: rugsnipe-ctl nonce create --keypair FILE --rpc-url URL|cred:NAME [--count 32] [--start 0] [--dry-run] [--creds DIR] [--confirm-s 30]
+pub const USAGE: &str = "usage: rugsnipe-ctl nonce create --keypair FILE --rpc-url URL|cred:NAME [--count 32] [--start 0] [--pool buy|sell] [--dry-run] [--creds DIR] [--confirm-s 30]
   Creates the buy nonce accounts rs-buy-<start> .. rs-buy-<start+count-1> of the --keypair wallet (the
   addresses the hot binary uses), signed with --keypair and sent through --rpc-url. Accounts that already
   exist are skipped; the first failure stops the run (exit 1); re-running the same command is safe.
@@ -426,6 +427,7 @@ pub const USAGE: &str = "usage: rugsnipe-ctl nonce create --keypair FILE --rpc-u
     --rpc-url URL    cred:RPC_URL (the RPC_URL line of /etc/rugsnipe/keys/api-keys.toml), or a plain https:// URL without a key
     --count N        how many accounts (default 32)
     --start I        first index (default 0)
+    --pool P         buy (default) or sell: the sell pool backs exits when no fresh blockhash is available
     --dry-run        check only: nothing is signed or sent (without --rpc-url it prints the addresses only)
     --creds DIR      where cred:NAME is looked up (default $CREDENTIALS_DIRECTORY, else /etc/rugsnipe/keys)
     --confirm-s S    seconds to wait for each confirmation (default 30)
@@ -436,13 +438,14 @@ pub const USAGE: &str = "usage: rugsnipe-ctl nonce create --keypair FILE --rpc-u
 ";
 
 /// Options that take a value (`--name VALUE`).
-const VALUE_OPTS: [&str; 6] = [
+const VALUE_OPTS: [&str; 7] = [
     "--keypair",
     "--rpc-url",
     "--count",
     "--start",
     "--confirm-s",
     "--creds",
+    "--pool",
 ];
 
 /// Refuse every argument but the known options, each at most once and each
@@ -519,6 +522,11 @@ pub fn nonce_create(args: &[String], live: &mut dyn Write) -> Result<Out, String
     })?;
     let count: usize = num(args, "--count", 32)?;
     let start: usize = num(args, "--start", 0)?;
+    let pool: &str = match opt(args, "--pool") {
+        None => POOL,
+        Some(p) if p == "buy" || p == "sell" => p,
+        Some(p) => return Err(format!("--pool {p}: must be buy or sell")),
+    };
     let confirm_s: u64 = num(args, "--confirm-s", 30)?;
     let dry = flag(args, "--dry-run");
     if count == 0 || start.saturating_add(count) > MAX_INDEX {
@@ -551,14 +559,14 @@ pub fn nonce_create(args: &[String], live: &mut dyn Write) -> Result<Out, String
     };
     let signer = HotSigner::load_file(Path::new(keypair)).map_err(|e| key_error(keypair, &e))?;
     let authority = signer.pubkey();
-    let rows = pool_rows(&authority, start, count);
+    let rows = pool_rows(&authority, pool, start, count);
     say(
         live,
         &format!(
             "{}nonce create: authority {authority} (keypair {keypair}), accounts {} .. {}, rpc {}\n",
             if dry { "DRY RUN (nothing is signed or sent): " } else { "" },
-            sysix::nonce_seed(POOL, start),
-            sysix::nonce_seed(POOL, start + count - 1),
+            sysix::nonce_seed(pool, start),
+            sysix::nonce_seed(pool, start + count - 1),
             rpc.as_ref().map_or("none (addresses only)", |(_, l)| l.as_str()),
         ),
     );
@@ -659,7 +667,7 @@ pub fn nonce_create(args: &[String], live: &mut dyn Write) -> Result<Out, String
         for (i, a, why) in &bad {
             msg.push_str(&format!(
                 "BAD #{i} {a} ({}): {why}\n",
-                sysix::nonce_seed(POOL, *i)
+                sysix::nonce_seed(pool, *i)
             ));
         }
         msg.push_str(&funds);
@@ -694,7 +702,7 @@ pub fn nonce_create(args: &[String], live: &mut dyn Write) -> Result<Out, String
             say(live, &row(*i, addr, "exists", "-", &lamports.to_string()));
             continue;
         }
-        let stop = |why: String, sig: &str| stopped(*i, addr, &why, sig, created, existed);
+        let stop = |why: String, sig: &str| stopped(pool, *i, addr, &why, sig, created, existed);
         let hash = match r.blockhash() {
             Ok(h) => h,
             Err(e) => {
@@ -702,7 +710,7 @@ pub fn nonce_create(args: &[String], live: &mut dyn Write) -> Result<Out, String
                 return Ok(stop(e, ""));
             }
         };
-        let (tx, sig, a) = sysix::nonce_create_tx(&signer, POOL, *i, rent, &hash)
+        let (tx, sig, a) = sysix::nonce_create_tx(&signer, pool, *i, rent, &hash)
             .map_err(|e| format!("#{i}: cannot build the transaction: {e}"))?;
         debug_assert_eq!(a, *addr);
         let sig58 = bs58::encode(sig).into_string();
@@ -753,8 +761,8 @@ pub fn nonce_create(args: &[String], live: &mut dyn Write) -> Result<Out, String
     Ok(Out {
         text: format!(
             "done: created {created}, existed {existed}, failed 0 ({} .. {}); rent locked by this run {locked} lamports ({:.6} SOL), fees {} lamports\nnext: the --probe-dry of docs/08 section 9 step 5 must print `dry nonce burn ... simulateTransaction err=null`\n",
-            sysix::nonce_seed(POOL, start),
-            sysix::nonce_seed(POOL, start + count - 1),
+            sysix::nonce_seed(pool, start),
+            sysix::nonce_seed(pool, start + count - 1),
             locked as f64 / 1e9,
             created * TX_FEE_LAMPORTS
         ),
@@ -771,7 +779,7 @@ mod tests {
         let auth: Pubkey = "DXatZCLiwrHKsREZ4z3ej8rCdFCuwRTUD24VWtBPFvVX"
             .parse()
             .unwrap();
-        let rows = pool_rows(&auth, 0, 3);
+        let rows = pool_rows(&auth, "buy", 0, 3);
         // the pool the hot binary seeds (rugsnipe::app: pool_addresses(owner, "buy", n))
         let hot = sysix::pool_addresses(&auth, "buy", 3);
         assert_eq!(rows.iter().map(|r| r.1).collect::<Vec<_>>(), hot);
@@ -791,7 +799,7 @@ mod tests {
             assert_eq!(a.to_string(), w, "#{i}");
         }
         // --start keeps the index
-        assert_eq!(pool_rows(&auth, 2, 1), vec![(2, hot[2])]);
+        assert_eq!(pool_rows(&auth, "buy", 2, 1), vec![(2, hot[2])]);
     }
 
     fn acct(owner: &Pubkey, data: &[u8], lamports: u64) -> Value {
