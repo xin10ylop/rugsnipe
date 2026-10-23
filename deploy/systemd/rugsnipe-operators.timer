@@ -1,14 +1,16 @@
-# Daily at 23:50 UTC, so the refreshed operator table (the last 24 h) is loaded by rugsnipe-hot
+# Every 4 hours at :50 (03:50 .. 23:50 UTC): the best wallet picks up new operators within hours (60% of its trades were
+# on the previous day's table signers in sample, 15% the next evening), so the table (the last 24 h) is rebuilt six times a
+# day; the 23:50 run still lands the table rugsnipe-hot loads
 # before the new UTC day (the daily caps reset at 00:00 UTC). Persistent=true runs a missed
 # refresh after a reboot (and so restarts a running rugsnipe-hot then). docs/09 "Keeping the
 # table fresh".
 [Unit]
-Description=rugsnipe operator table refresh at 23:50 UTC
+Description=rugsnipe operator table refresh (every 4 h at :50 UTC)
 Documentation=file:/opt/rugsnipe/src/docs/09-operator-wave.md
 PartOf=rugsnipe.target
 
 [Timer]
-OnCalendar=*-*-* 23:50:00 UTC
+OnCalendar=*-*-* 03,07,11,15,19,23:50:00 UTC
 AccuracySec=1min
 Persistent=true
 Unit=rugsnipe-operators.service

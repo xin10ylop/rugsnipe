@@ -128,7 +128,7 @@ The table is checked (32-byte keys, `hold_slots >= 1`), written to a tmp file, f
 and writes nothing. Test: `python3 analysis/scripts/strategy/test_operators_refresh.py`.
 
 **On the box:** `rugsnipe-operators.timer` (hot role, installed by `deploy/install.sh`) runs
-`rugsnipe-operators.service` daily at 23:50 UTC, so the new day starts on a fresh table. The service runs as root
+`rugsnipe-operators.service` every 4 hours at :50 UTC (03:50 .. 23:50; `--min-n 2 --drop-dumpers`), so a new operator the wallet trades twice is in the table within hours, and the 23:50 run starts the new day on a fresh table. In the 2026-10-23 decode, 60% of the wallet's trades were on the previous day's table signers; the next evening only 15% were, so a daily table decays to a quarter of its volume. The service runs as root
 (reads the 0700 keys, chowns the table), reads `RPC_URL` from `/etc/rugsnipe/keys/api-keys.toml` at run time, writes
 `/etc/rugsnipe/operators.json` (0640 root:rugsnipe), then `systemctl try-restart rugsnipe-hot`: **the hot loop
 loads `entry.operators_file` only at start**, so the restart is what applies it (rugsnipe-guard holds the exits

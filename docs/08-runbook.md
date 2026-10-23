@@ -1068,7 +1068,7 @@ config uses.
 | `/etc/rugsnipe/shadow.toml` | the shadow config (step 5) |
 | `/etc/rugsnipe/rugsnipe.toml` | the service config (probe/live; never overwritten by install.sh; probe A: from `config/probe-a.example.toml`, §9 step 3) |
 | `/etc/rugsnipe/probe-pubkey.txt` | the probe wallet's address (public; §4), read as `$P` in §9 |
-| `/etc/rugsnipe/operators.json` | the operator table (`[entry] operators_file`, docs/09): rebuilt daily at 23:50 UTC by `rugsnipe-operators.timer` (0640 root:rugsnipe), then `try-restart rugsnipe-hot`, which loads it only at start. Run now: `sudo systemctl start rugsnipe-operators.service`; log: `journalctl -u rugsnipe-operators`; preview: `operators_refresh.py --dry-run` |
+| `/etc/rugsnipe/operators.json` | the operator table (`[entry] operators_file`, docs/09): rebuilt every 4 h at :50 UTC (`--min-n 2 --drop-dumpers`) by `rugsnipe-operators.timer` (0640 root:rugsnipe), then `try-restart rugsnipe-hot`, which loads it only at start. Run now: `sudo systemctl start rugsnipe-operators.service`; log: `journalctl -u rugsnipe-operators`; preview: `operators_refresh.py --dry-run` |
 | `/var/lib/rugsnipe/armsets/` | signed ArmSets |
 | `/var/lib/rugsnipe/shadow/{state.db,rslog,summary.json}` | the shadow run's record |
 | `/run/rugsnipe/KILL` | the kill file |

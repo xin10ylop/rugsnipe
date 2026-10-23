@@ -591,6 +591,6 @@ else
   sudo systemctl start rugsnipe.target
   sudo touch /run/rugsnipe/KILL                 # kill latch: buys stop, exits continue
   # operator wave (docs/09): with [entry] operators_file = "/etc/rugsnipe/operators.json",
-  sudo systemctl enable --now rugsnipe-operators.timer   # daily 23:50 UTC refresh, then try-restart rugsnipe-hot
+  sudo systemctl enable --now rugsnipe-operators.timer   # every 4 h at :50 UTC, then try-restart rugsnipe-hot
 EOF
 fi
