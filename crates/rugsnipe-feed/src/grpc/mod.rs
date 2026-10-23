@@ -579,18 +579,32 @@ impl Adapter {
             while let Ok(c) = ctl.try_recv() {
                 self.apply(c);
             }
-            match self.session(&stop, &mut ctl).await {
-                Ok(()) | Err(_) => {}
-            }
+            let ended = self.session(&stop, &mut ctl).await;
             self.health.connected.store(false, Ordering::Relaxed);
             if stop.load(Ordering::Acquire) {
                 break;
             }
             FeedHealth::inc(&self.health.reconnects);
-            if mono_ns().saturating_sub(t_conn) > 60_000_000_000 {
+            let lived_ms = mono_ns().saturating_sub(t_conn) / 1_000_000;
+            if lived_ms > 60_000 {
                 backoff = self.cfg.min_backoff_ms;
             }
-            sleep_or_stop(&stop, jitter(backoff)).await;
+            let wait = jitter(backoff);
+            // the reason goes to the journal: a server that refuses the
+            // stream (Unauthenticated, Unimplemented, a bad url) would
+            // otherwise show only as a climbing reconnect counter
+            eprintln!(
+                "{} feed {}: session ended after {} ms: {} (reconnect in {} ms)",
+                self.health.src.name(),
+                self.cfg.url,
+                lived_ms,
+                match &ended {
+                    Ok(()) => "closed".to_string(),
+                    Err(e) => e.clone(),
+                },
+                wait
+            );
+            sleep_or_stop(&stop, wait).await;
             backoff = (backoff * 2).min(self.cfg.max_backoff_ms);
         }
         // hand over what is still open
