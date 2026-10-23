@@ -1305,9 +1305,20 @@ impl HotLoop {
             Match::None => return self.decision(intent, hit, code::NO_MATCH, 0, 0, 0, 0, 0),
         };
         let arm = self.arm.load();
-        let Some(op) = arm.ops.get(&entry.op_id).copied() else {
+        let Some(mut op) = arm.ops.get(&entry.op_id).copied() else {
             return self.decision(intent, hit, code::BAD_OP, 0, 0, 0, 0, 0);
         };
+        // the operator's spend cap narrows the ArmSet size (2026-10-23: the
+        // size is the one knob the box can turn without a new signed ArmSet;
+        // a buy above the cap used to be skipped as skip_spend_cap)
+        let cap = if self.cfg.mode == Mode::Probe {
+            self.risk.caps().max_probe_lamports
+        } else {
+            self.risk.caps().max_snipe_lamports
+        };
+        if cap > 0 && op.size > cap {
+            op.size = cap;
+        }
         let via_code = match (via, entry.dynamic) {
             (Via::Class, _) => 4,
             (_, true) => 3,

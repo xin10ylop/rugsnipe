@@ -117,7 +117,7 @@ impl ArmState {
             .filter(|o| cap > 0 && o.size > cap)
             .map(|o| {
                 format!(
-                    "ArmSet {} op {} size {} lamports exceeds the effective {name} {cap}                      (the smaller of [risk] and the [probe] stage's): every buy would be                      skipped as skip_spend_cap; raise both caps or sign a smaller ArmSet",
+                    "ArmSet {} op {} size {} lamports exceeds the effective {name} {cap}                      (the smaller of [risk] and the [probe] stage's): the hot loop clamps the buy size to the cap (2026-10-23); raise both caps to buy the ArmSet size",
                     self.ver, o.op_id, o.size
                 )
             })
@@ -428,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn an_armset_above_the_effective_spend_cap_is_refused_in_real_modes() {
+    fn an_armset_above_the_effective_spend_cap_is_warned_about_in_real_modes() {
         let mut a = ArmSet {
             ver: 202,
             run_id: "test".into(),

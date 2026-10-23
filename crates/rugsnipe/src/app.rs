@@ -432,10 +432,10 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         }
         None => ArmState::default(),
     };
-    // an ArmSet no buy could pass the spend cap with is refused, not run
-    let refusals = arm_state.size_cap_refusals(&cfg.effective_risk(), mode);
-    if !refusals.is_empty() {
-        return Err(refusals.join("\n"));
+    // an ArmSet size above the spend cap is clamped to it by the hot loop
+    // (2026-10-23); say so at start
+    for w in arm_state.size_cap_refusals(&cfg.effective_risk(), mode) {
+        eprintln!("warning: {w}");
     }
     let arm = Arc::new(ArcSwap::from_pointee(arm_state));
     // --- risk
