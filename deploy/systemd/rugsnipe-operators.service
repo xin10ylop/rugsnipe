@@ -1,0 +1,55 @@
+# rugsnipe-operators -- hot role (fra1): the daily operator-table refresh (docs/09-operator-wave.md,
+# "Keeping the table fresh"), started at 23:50 UTC by rugsnipe-operators.timer.
+#
+# Rebuilds /etc/rugsnipe/operators.json (0640 root:rugsnipe, written to a tmp file and renamed)
+# from the copied wallet's last 24 h on chain (Helius Enhanced API + getTransactionsForAddress,
+# ~1.2 calls per launch at <= 5 req/s, ~7 min), merged with the previous table; signers whose
+# creator set dumped >= 2 launches within 3 slots drop out. The Helius key is the RPC_URL line
+# of /etc/rugsnipe/keys/api-keys.toml, read at run time and never logged.
+#
+# THE HOT LOOP READS entry.operators_file ONLY AT START: the new table takes effect through the
+# try-restart below (5-20 s; rugsnipe-guard holds the exits meanwhile; nothing is started if
+# rugsnipe-hot is not running). A failed or short pull (< 20 round trips) exits non-zero: the old
+# table stays and nothing is restarted. Point [entry] operators_file at /etc/rugsnipe/operators.json.
+# Run once by hand:  sudo systemctl start rugsnipe-operators.service; journalctl -u rugsnipe-operators
+# Dry run (stdout only):  sudo python3 -I /opt/rugsnipe/src/analysis/scripts/strategy/operators_refresh.py --dry-run
+[Unit]
+Description=rugsnipe operator table refresh (daily, docs/09)
+Documentation=file:/opt/rugsnipe/src/docs/09-operator-wave.md
+Wants=network-online.target
+After=network-online.target time-sync.target
+ConditionPathExists=/etc/rugsnipe/keys/api-keys.toml
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/var/lib/rugsnipe
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -I /opt/rugsnipe/src/analysis/scripts/strategy/operators_refresh.py --api-keys /etc/rugsnipe/keys/api-keys.toml --hours 24 --out /etc/rugsnipe/operators.json --state /var/lib/rugsnipe/state.db --min-n 3 --drop-dumpers --mode 0640 --group rugsnipe
+ExecStartPost=/bin/systemctl try-restart rugsnipe-hot.service
+TimeoutStartSec=20min
+Nice=10
+UMask=0027
+
+# root only to read the 0700 keys and chown the table; everything but /etc/rugsnipe is read-only
+# (state.db is opened read-only and no file is ever created under /var/lib/rugsnipe)
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/etc/rugsnipe
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native

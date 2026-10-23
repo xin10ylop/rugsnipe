@@ -3,7 +3,8 @@
 # docs/07-deploy.md). Idempotent: re-run it after every `git pull`.
 #
 #   sudo deploy/install.sh --role analytics            # ohio1: collector, discover timer
-#   sudo deploy/install.sh --role hot                  # fra1: hot, guard, keeper (+ tune unit)
+#   sudo deploy/install.sh --role hot                  # fra1: hot, guard, keeper (+ tune unit,
+#                                                      #   daily operator-table refresh timer)
 #   deploy/install.sh --role hot --dry-run             # print every action, change nothing
 #
 # Options:
@@ -101,8 +102,9 @@ TARGET_DIR="$PREFIX/target"
 RUST_BINS=(rugsnipe-hot rugsnipe-guard rugsnipe-keeper rugsnipe-ctl rugsnipe-replay rugsnipe-sim)
 
 if [ "$ROLE" = hot ]; then
-  UNITS=(rugsnipe-keeper.service rugsnipe-guard.service rugsnipe-hot.service rugsnipe-tune.service shredstream-proxy.service)
-  ENABLE_UNITS=(rugsnipe-keeper.service rugsnipe-guard.service rugsnipe-hot.service rugsnipe.target)
+  UNITS=(rugsnipe-keeper.service rugsnipe-guard.service rugsnipe-hot.service rugsnipe-tune.service shredstream-proxy.service
+         rugsnipe-operators.service rugsnipe-operators.timer)
+  ENABLE_UNITS=(rugsnipe-keeper.service rugsnipe-guard.service rugsnipe-hot.service rugsnipe-operators.timer rugsnipe.target)
 else
   UNITS=(rugsnipe-collector.service rugsnipe-discover.service rugsnipe-discover.timer)
   ENABLE_UNITS=(rugsnipe-collector.service rugsnipe-discover.timer rugsnipe.target)
@@ -499,6 +501,7 @@ fi
 # ------------------------------------------------------------------------------- 8. systemd units
 render_unit() {  # render_unit NAME -> stdout (service user substituted)
   sed -e "s/^User=rugsnipe\$/User=$SVC_USER/" -e "s/^Group=rugsnipe\$/Group=$SVC_USER/" \
+      -e "s/ --group rugsnipe\$/ --group $SVC_USER/" \
       -e "s#/opt/rugsnipe/#$PREFIX/#g" "$REPO/deploy/systemd/$1"
 }
 for u in rugsnipe.target "${UNITS[@]}"; do
@@ -587,5 +590,7 @@ else
   systemctl list-dependencies rugsnipe.target   # keeper, guard and hot must be listed
   sudo systemctl start rugsnipe.target
   sudo touch /run/rugsnipe/KILL                 # kill latch: buys stop, exits continue
+  # operator wave (docs/09): with [entry] operators_file = "/etc/rugsnipe/operators.json",
+  sudo systemctl enable --now rugsnipe-operators.timer   # daily 23:50 UTC refresh, then try-restart rugsnipe-hot
 EOF
 fi

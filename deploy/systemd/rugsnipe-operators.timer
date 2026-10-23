@@ -1,0 +1,17 @@
+# Daily at 23:50 UTC, so the refreshed operator table (the last 24 h) is loaded by rugsnipe-hot
+# before the new UTC day (the daily caps reset at 00:00 UTC). Persistent=true runs a missed
+# refresh after a reboot (and so restarts a running rugsnipe-hot then). docs/09 "Keeping the
+# table fresh".
+[Unit]
+Description=rugsnipe operator table refresh at 23:50 UTC
+Documentation=file:/opt/rugsnipe/src/docs/09-operator-wave.md
+PartOf=rugsnipe.target
+
+[Timer]
+OnCalendar=*-*-* 23:50:00 UTC
+AccuracySec=1min
+Persistent=true
+Unit=rugsnipe-operators.service
+
+[Install]
+WantedBy=rugsnipe.target timers.target
