@@ -50,6 +50,9 @@ pub mod code {
     /// first buy behind the bundle is someone else's: not sent (docs/04
     /// section 2 scores rank 1 only), no risk or nonce taken.
     pub const NOT_FIRST: u8 = 0x4f;
+    /// The create's own dev buy is not one of `entry.dev_buy_sol` (operator
+    /// template filter); nothing parked, nothing sent.
+    pub const DEV_BUY: u8 = 0x50;
     /// Metrics only: a paper decision that a real mode would have skipped
     /// (rslog keeps the RiskGate code and the `would_skip` reason).
     pub const PAPER_WOULD_SKIP: u8 = 0x1f;
@@ -90,6 +93,7 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (code::LATE_SLOT, "late_slot"),
     (code::NO_BUNDLE, "skip_no_bundle"),
     (code::NOT_FIRST, "skip_not_first"),
+    (code::DEV_BUY, "skip_dev_buy"),
 ];
 
 /// Label of a decision code.

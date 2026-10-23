@@ -139,6 +139,8 @@ b = { max_probe_lamports = 250_000_000, max_probes_per_day = 300, max_open_posit
 kill = { min_landed = 100, min_attempts = 400, max_median_premium = 0.03, landing_attempts = 200 }
 [entry]
 require_bundle = true                              # 2026-10-22: a real buy fires only once another wallet's buy of the mint shows in the create slot (the launch is bundled: the LEAD policy's population, docs/04 section 2), right behind the bundle; a create slot that moves on without one is skipped as skip_no_bundle at no cost. Stage B's first 10 attempts were all unbundled launches (feed_bundle.bundle_wallets = 0) and all exited on no_activity at -2.5%. Needs feeds.grpc bundle_run = true
+dev_buy_sol = [5.0, 2.96, 6.91, 3.85]               # 2026-10-23: operator templates whose launches paid on the population this box lands (no sniper in the create slot): +3.7% in the dry run, both halves positive; the rest -0.95%. [] = any
+dev_buy_tol_sol = 0.005
 bundle_wait_ms = 2                                 # 2026-10-22: the parked create waits this long after the first bundle buy for the rest of the run (the stream's run-complete signal or a trade at create+5 fires it earlier), then the buy is bound at the run's last trade: post-bundle price + max_premium, observed
 # probe-A: stated explicitly (these are the defaults). max_sol_cost = post-bundle price + 2%; bundle_lamports is only the fallback
 # when the run is not observed (require_bundle off). filter = "any" because this build cannot select bundled launches before it

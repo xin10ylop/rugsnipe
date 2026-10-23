@@ -200,6 +200,8 @@ pub struct HotCfg {
     /// `entry.bundle_wait_ms` in ns: how long a parked create waits after
     /// its first bundle buy for the rest of the run before firing anyway.
     pub bundle_wait_ns: u64,
+    /// `entry.dev_buy_sol` as lamport ranges `[lo, hi]` (empty = any).
+    pub dev_buy: Vec<(u64, u64)>,
 }
 
 impl HotCfg {
@@ -244,6 +246,7 @@ impl HotCfg {
             max_premium_bps: (cfg.entry.max_premium * 10_000.0).round().clamp(0.0, 1e6) as u32,
             bundle_lamports: cfg.entry.bundle_lamports,
             bundle_wait_ns: cfg.entry.bundle_wait_ms.saturating_mul(1_000_000),
+            dev_buy: dev_buy_ranges(&cfg.entry.dev_buy_sol, cfg.entry.dev_buy_tol_sol),
             require_bundle: cfg.entry.require_bundle,
         }
     }
@@ -525,6 +528,27 @@ pub fn park_trade(
 }
 
 /// The wait after the first bundle buy is over.
+/// `entry.dev_buy_sol` +- `tol` as lamport ranges.
+pub fn dev_buy_ranges(sol: &[f64], tol: f64) -> Vec<(u64, u64)> {
+    sol.iter()
+        .map(|v| {
+            let lo = ((v - tol).max(0.0) * 1e9).round() as u64;
+            let hi = ((v + tol) * 1e9).round() as u64;
+            (lo, hi)
+        })
+        .collect()
+}
+
+/// The create's dev buy (lamports) is one of the listed amounts (an empty
+/// list admits every create).
+#[inline]
+pub fn dev_buy_ok(ranges: &[(u64, u64)], lamports: u64) -> bool {
+    ranges.is_empty()
+        || ranges
+            .iter()
+            .any(|(lo, hi)| (*lo..=*hi).contains(&lamports))
+}
+
 pub fn park_due(p: &Parked, wait_ns: u64, now_ns: u64) -> bool {
     p.bundle_buys > 0 && now_ns.saturating_sub(p.bundle_ns) >= wait_ns
 }
@@ -1032,6 +1056,11 @@ impl HotLoop {
             || hit.cashback
         {
             return self.decision(intent, hit, code::CLASS, 0, 0, 0, 0, 0);
+        }
+        // 4a: the operator template filter (entry.dev_buy_sol): the create's
+        // own buy must be one of the listed amounts
+        if !dev_buy_ok(&self.cfg.dev_buy, hit.intx_sol_in) {
+            return self.decision(intent, hit, code::DEV_BUY, 0, 0, 0, 0, 0);
         }
         // 4b: the bundle gate (real only): park until another wallet's buy
         // of the mint shows in the create slot and the bundle run is
@@ -2886,6 +2915,25 @@ fn sell_sig(o: SellOrder) -> [u8; 64] {
 
 #[cfg(test)]
 mod bundle_gate_tests {
+    #[test]
+    fn dev_buy_whitelist_matches_within_the_tolerance_only() {
+        let r = dev_buy_ranges(&[5.0, 2.96], 0.005);
+        assert_eq!(
+            r,
+            vec![
+                (4_995_000_000, 5_005_000_000),
+                (2_955_000_000, 2_965_000_000)
+            ]
+        );
+        assert!(dev_buy_ok(&r, 5_000_000_000));
+        assert!(dev_buy_ok(&r, 2_960_000_000));
+        assert!(dev_buy_ok(&r, 5_004_000_000));
+        assert!(!dev_buy_ok(&r, 5_010_000_000));
+        assert!(!dev_buy_ok(&r, 3_000_000_000));
+        assert!(!dev_buy_ok(&r, 0));
+        assert!(dev_buy_ok(&[], 123));
+    }
+
     use super::*;
     use crate::convert::hit_from_lite;
     use pump_codec::constants::TOKEN_2022_PROGRAM_ID;

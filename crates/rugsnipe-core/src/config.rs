@@ -819,6 +819,15 @@ pub struct EntryCfg {
     /// or a trade at create + 5 fires it earlier. 0 fires on the first
     /// bundle buy (the bound then misses the rest of the bundle).
     pub bundle_wait_ms: u64,
+    /// Dev buys (SOL, the create transaction's own buy) a buy may fire on;
+    /// empty = any. The amount is an operator template marker: in the dry
+    /// run (2026-10-23, 2,645 launches, no sniper in the create slot, which
+    /// is the population this box lands) the launches with a dev buy of
+    /// 5.00, 2.96, 6.91 or 3.85 SOL averaged +3.7% under the LEAD policy,
+    /// positive in both halves of the data; the rest averaged -0.95%.
+    pub dev_buy_sol: Vec<f64>,
+    /// Tolerance around each listed dev buy, SOL (default 0.005).
+    pub dev_buy_tol_sol: f64,
     pub filter: EntryFilter,
     /// The frozen P(take-profit) model of the entry filter
     /// (`data/reports/strategy/entry_filter_v1.json`, docs/04 section 2);
@@ -845,6 +854,8 @@ impl Default for EntryCfg {
             max_premium: 0.02,
             bundle_lamports: 4_000_000_000,
             bundle_wait_ms: 2,
+            dev_buy_sol: vec![],
+            dev_buy_tol_sol: 0.005,
             filter: EntryFilter::Any,
             filter_model: String::new(),
             filter_mode: FilterMode::Log,
@@ -1276,6 +1287,21 @@ impl Config {
         }
         if !(self.bid.quantile > 0.0 && self.bid.quantile <= 1.0) {
             inv(&mut r, "bid.quantile", "must be in (0, 1]");
+        }
+        if self
+            .entry
+            .dev_buy_sol
+            .iter()
+            .any(|v| !(*v > 0.0 && *v < 1_000.0))
+        {
+            inv(
+                &mut r,
+                "entry.dev_buy_sol",
+                "every value must be in (0, 1000) SOL",
+            );
+        }
+        if !(self.entry.dev_buy_tol_sol >= 0.0 && self.entry.dev_buy_tol_sol < 1.0) {
+            inv(&mut r, "entry.dev_buy_tol_sol", "must be in [0, 1) SOL");
         }
         if self.bid.lamports > 0 {
             let max_bid = if self.risk.max_bid_lamports > 0 {
