@@ -236,6 +236,16 @@ pub struct ExitPolicy {
     /// Hard exit once the slot reaches `opened_slot + max_hold_slots` (0 = off).
     #[serde(default)]
     pub max_hold_slots: u64,
+    /// Sell everything once the slot reaches the launch's create slot + this
+    /// (`hold_to_create_slots`; `None` = off). Counted from the create, not
+    /// from the landing: the operator-wave rule (docs/09) holds each
+    /// operator's launches to a fixed slot after their create. The hot loop
+    /// overrides it per position from the operator table
+    /// (`entry.operators_file`). The order runs at dump bounds (it sells at
+    /// that slot whatever the price, like the copied wallet's
+    /// `min_sol_output = 0` sells) without being a dump signal.
+    #[serde(default)]
+    pub hold_to_create_slot: Option<u16>,
 }
 
 impl Default for ExitPolicy {
@@ -281,6 +291,11 @@ impl ExitPolicy {
         }
         if self.max_sell_spend_lamports == 0 {
             return Err(PolicyError::new("max_sell_spend_lamports must be set"));
+        }
+        if self.hold_to_create_slot == Some(0) {
+            return Err(PolicyError::new(
+                "hold_to_create_slot must be >= 1 (None = off)",
+            ));
         }
         if self.dump_floor_vsol == 0
             || u64::from(self.dump_slip_bps) >= BPS
@@ -409,6 +424,12 @@ pub struct ExitConfig {
     /// Hard exit at `landing slot + max_hold_slots` (0 = off; docs/04 section 2 uses 5).
     #[serde(default)]
     pub max_hold_slots: u64,
+    /// Sell everything at `create slot + hold_to_create_slots` (0 = off; at
+    /// most 65,535). The default for launches whose create signer is not in
+    /// the operator table (`entry.operators_file`); a listed signer's
+    /// `hold_slots` replaces it per position (docs/09).
+    #[serde(default)]
+    pub hold_to_create_slots: u64,
 }
 
 fn d_window() -> u64 {
@@ -478,6 +499,7 @@ impl Default for ExitConfig {
             fire_on: FireOn::SlotClose,
             insider_sell: InsiderSell::Bundle,
             max_hold_slots: 0,
+            hold_to_create_slots: 0,
         }
     }
 }
@@ -501,6 +523,13 @@ impl ExitConfig {
             });
         }
         let (phantom_bps, phantom_from) = self.phantom_sl.resolve()?;
+        let hold_to_create_slot = match self.hold_to_create_slots {
+            0 => None,
+            h => Some(
+                u16::try_from(h)
+                    .map_err(|_| PolicyError::new("hold_to_create_slots must be <= 65535"))?,
+            ),
+        };
         let p = ExitPolicy {
             tp: TpLadder::new(&levels)?,
             tp_slip_bps: self.tp_slip_bps,
@@ -532,6 +561,7 @@ impl ExitConfig {
             insider_sell: self.insider_sell,
             phantom_from,
             max_hold_slots: self.max_hold_slots,
+            hold_to_create_slot,
         };
         p.validate()?;
         Ok(p)
@@ -581,6 +611,7 @@ impl ExitConfig {
             fire_on: p.fire_on,
             insider_sell: p.insider_sell,
             max_hold_slots: p.max_hold_slots,
+            hold_to_create_slots: p.hold_to_create_slot.map_or(0, u64::from),
         }
     }
 
@@ -607,7 +638,8 @@ impl ExitConfig {
             tp_basis,
             fire_on,
             insider_sell,
-            max_hold_slots
+            max_hold_slots,
+            hold_to_create_slots
         );
         c
     }
@@ -635,6 +667,7 @@ pub struct ExitOverrides {
     pub fire_on: Option<FireOn>,
     pub insider_sell: Option<InsiderSell>,
     pub max_hold_slots: Option<u64>,
+    pub hold_to_create_slots: Option<u64>,
 }
 
 #[cfg(test)]
@@ -727,6 +760,67 @@ mod tests {
     #[test]
     fn missing_spend_cap_is_refused() {
         assert!(ExitConfig::default().to_policy(0).is_err());
+    }
+
+    /// The operator-wave exit: every other rule can be switched off from
+    /// the TOML alone (`tp = []`, `insider_sell = "off"`, `no_activity_ms =
+    /// 0`, `phantom_sl` at 0, `max_hold_slots` 0 or very large, `max_hold_ms`
+    /// 0) next to `hold_to_create_slots`.
+    #[test]
+    fn hold_to_create_with_every_other_rule_off_is_valid() {
+        let toml = r#"
+tp = []
+tp_slip_bps = 2500
+trail = { activate = 0.0, retrace_bps = 0 }
+phantom_sl = { after_ms = 0, drop = 0.0 }
+no_activity_ms = 0
+max_hold_ms = 0
+max_hold_slots = 1_000_000
+bundle_sell_min_lamports = 0
+insider_sell = "off"
+consolidation_pct = 0
+big_buy_lamports = [0, 0]
+sell_retry = { every_slots = 2, max_tries = 15, tip_mult = 2.0 }
+hold_to_create_slots = 6
+"#;
+        let c: ExitConfig = toml::from_str(toml).unwrap();
+        let p = c.to_policy(20_000_000).unwrap();
+        assert!(p.tp.is_empty());
+        assert_eq!(p.insider_sell, InsiderSell::Off);
+        assert_eq!((p.no_activity_ms, p.max_hold_ms, p.phantom_bps), (0, 0, 0));
+        assert_eq!(p.max_hold_slots, 1_000_000);
+        assert_eq!(p.hold_to_create_slot, Some(6));
+        // the bps form of the stop, and max_hold_slots = 0, are accepted too
+        let c2: ExitConfig = toml::from_str(
+            &toml
+                .replace("drop = 0.0", "bps = 0")
+                .replace("max_hold_slots = 1_000_000", "max_hold_slots = 0"),
+        )
+        .unwrap();
+        assert_eq!(c2.to_policy(20_000_000).unwrap().phantom_bps, 0);
+        // 0 = off; the float form round-trips; the u16 range is enforced
+        let off: ExitConfig =
+            toml::from_str(&toml.replace("hold_to_create_slots = 6", "")).unwrap();
+        assert_eq!(off.to_policy(20_000_000).unwrap().hold_to_create_slot, None);
+        assert_eq!(
+            ExitConfig::from_policy(&p).to_policy(20_000_000).unwrap(),
+            p
+        );
+        let big = ExitConfig {
+            hold_to_create_slots: 70_000,
+            ..c.clone()
+        };
+        assert!(big.to_policy(20_000_000).is_err());
+        let o = ExitOverrides {
+            hold_to_create_slots: Some(10),
+            ..Default::default()
+        };
+        assert_eq!(p.with_overrides(&o).unwrap().hold_to_create_slot, Some(10));
+        // an old policy_json without the field reads as off
+        let mut js: serde_json::Value = serde_json::to_value(p).unwrap();
+        js.as_object_mut().unwrap().remove("hold_to_create_slot");
+        let back: ExitPolicy = serde_json::from_value(js).unwrap();
+        assert_eq!(back.hold_to_create_slot, None);
     }
 
     #[test]

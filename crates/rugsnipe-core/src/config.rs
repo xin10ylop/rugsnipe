@@ -927,6 +927,23 @@ pub struct EntryCfg {
     /// The cut `skip` applies: the model's `t1` (bottom tertile) or `t2`
     /// (default: bottom two tertiles).
     pub presend_cut: PresendCut,
+    /// The operator table (docs/09, `data/operators/*.json` from
+    /// `analysis/scripts/strategy/operators_from_rt.py`): a JSON object keyed
+    /// by the create transaction's signer (base58), each value
+    /// `{hold_slots, n, wins, pnl_sol, dev_sol, bundle_wallets}`. Loaded once
+    /// at startup; a listed signer's launches exit at `create + hold_slots`
+    /// (overriding `[exit.default] hold_to_create_slots`). `""` = no table.
+    pub operators_file: String,
+    /// Fire only on creates whose signer is in `operators_file`; any other
+    /// create is skipped as `skip_not_operator` (nothing parked or sent).
+    pub operators_only: bool,
+    /// Distinct bundle wallets a parked create may fire with (`[3]`, `[2,
+    /// 3, 4]`); empty = any. Counted at the fire point from the park: the
+    /// run's buyers outside the creator set (signer, creator, fee payer,
+    /// the create transaction's buyers), at most 5. Needs `require_bundle`
+    /// (the count comes from the parked run); a create outside the list is
+    /// skipped as `skip_bundle_shape`.
+    pub bundle_wallets: Vec<u32>,
 }
 impl Default for EntryCfg {
     fn default() -> Self {
@@ -947,6 +964,9 @@ impl Default for EntryCfg {
             presend_model: String::new(),
             presend_mode: PresendMode::Off,
             presend_cut: PresendCut::T2,
+            operators_file: String::new(),
+            operators_only: false,
+            bundle_wallets: vec![],
         }
     }
 }
@@ -1564,8 +1584,24 @@ impl Config {
         if !(0.0..1.0).contains(&self.ab.skip_p) {
             inv(&mut r, "ab.skip_p", "must be in [0, 1)");
         }
+        // 0 is valid: min_tokens_out is then the exact post-bundle quote, so
+        // any buy ahead of ours fails it on chain (docs/09)
         if !(0.0..1.0).contains(&self.entry.max_premium) {
             inv(&mut r, "entry.max_premium", "must be in [0, 1)");
+        }
+        if self.entry.operators_only && self.entry.operators_file.is_empty() {
+            inv(
+                &mut r,
+                "entry.operators_only",
+                "needs entry.operators_file (the operator table)",
+            );
+        }
+        if !self.entry.bundle_wallets.is_empty() && !self.entry.require_bundle {
+            inv(
+                &mut r,
+                "entry.bundle_wallets",
+                "needs entry.require_bundle = true (the count comes from the parked bundle run)",
+            );
         }
         if self.entry.bundle_wait_us > 200_000 {
             inv(

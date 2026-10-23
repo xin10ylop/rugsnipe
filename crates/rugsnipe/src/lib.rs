@@ -44,6 +44,7 @@ pub mod inflight;
 pub mod keys;
 pub mod leader;
 pub mod msgs;
+pub mod operators;
 pub mod real;
 pub mod sender;
 pub mod setup;

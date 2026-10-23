@@ -926,6 +926,33 @@ mod tests {
         );
     }
 
+    /// `entry.max_premium = 0` with `paper.entry_premium = 0` (docs/09): the
+    /// first buy behind the bundle fills (0 is not above 0), any third-party
+    /// buy ahead of us is a `premium` failure, as on chain.
+    #[test]
+    fn zero_premium_fills_first_behind_the_bundle_only() {
+        let (dev, b1, sn) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let mut z = cfg(EntryFilter::Any);
+        z.entry_premium_bps = 0;
+        z.max_premium_bps = 0;
+        let cset: HashSet<Pubkey> = [dev].into_iter().collect();
+        let mut b = B::new();
+        b.tx("create", 100, dev, &[2 * SOL]);
+        b.tx("b1", 101, b1, &[SOL]);
+        let s = analyze_slot0("create", &b.txs, 1_000, &cset, &HashSet::new()).unwrap();
+        assert_eq!(verdict(&z, &s), (ShadowOutcome::Filled, 0));
+        // a known sniper lands between the bundle and us
+        b.tx("sn", 102, sn, &[SOL / 100]);
+        let snipers: HashSet<Pubkey> = [sn].into_iter().collect();
+        let s = analyze_slot0("create", &b.txs, 1_000, &cset, &snipers).unwrap();
+        assert!(s.measured_premium_bps > 0, "{}", s.measured_premium_bps);
+        assert_eq!(verdict(&z, &s).0, ShadowOutcome::Premium);
+    }
+
     #[test]
     fn index_beyond_create_plus_five_or_a_sell_ends_nothing_but_the_window() {
         let (dev, a, c) = (

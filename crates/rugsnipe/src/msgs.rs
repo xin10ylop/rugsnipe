@@ -320,6 +320,7 @@ pub fn reason_code(r: ExitReason) -> u8 {
         ExitReason::PhantomSl => 6,
         ExitReason::NoActivity => 7,
         ExitReason::MaxHold => 8,
+        ExitReason::HoldTo => 9,
         ExitReason::TakeProfit(i) => 0x10 + i.min(15),
     }
 }
@@ -335,5 +336,6 @@ pub fn reason_index(r: ExitReason) -> usize {
         ExitReason::PhantomSl => 5,
         ExitReason::NoActivity => 6,
         ExitReason::MaxHold => 7,
+        ExitReason::HoldTo => 8,
     }
 }

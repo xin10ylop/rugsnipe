@@ -151,7 +151,7 @@ bundle_wait_ms = 2                                 # 2026-10-22: the parked crea
 # probe-A: stated explicitly (these are the defaults). max_sol_cost = post-bundle price + 2%; bundle_lamports is only the fallback
 # when the run is not observed (require_bundle off). filter = "any" because this build cannot select bundled launches before it
 # sends (M4): the in-class read is afterwards
-max_premium = 0.02
+max_premium = 0.02                                 # 0.0 is valid (the operator wave, docs/09): min_tokens_out is then the exact quote at the run's last trade (the post-bundle state before our own buy), so any buy ahead of ours fails the buy on chain at base + priority fee (the tip reverts); our own impact is in the quote, never counted as premium. Paper: set paper.entry_premium = 0 with it, or every E1 attempt reads as a premium failure
 bundle_lamports = 4_000_000_000
 filter = "any"
 filter_model = ""
@@ -163,6 +163,10 @@ filter_mode = "log"
 # presend_model = "/etc/rugsnipe/entry_filter_v2.json"
 # presend_mode = "log"                             # "off" | "log" | "skip"
 # presend_cut = "t2"                               # skip below the model's t1 (bottom tertile) or t2 (bottom two)
+# The operator wave (docs/09-operator-wave.md; every key off by default): the decoded rule set of the best wallet of 2026-10-23.
+# operators_file = "/var/lib/rugsnipe/data/operators/ahw-2026-10-23.json"   # the operator table: create signer (the create tx's fee payer) -> hold_slots (+ n, wins, pnl_sol, dev_sol, bundle_wallets); "" = none. Loaded once at start (refused if broken); a listed signer's position exits at create + hold_slots. Built by analysis/scripts/strategy/operators_from_rt.py
+# operators_only = true                            # false (default): every create, a listed signer gets its hold; true: skip any other create as skip_not_operator (nothing parked, nothing sent). Needs operators_file
+# bundle_wallets = [3]                             # [] (default) = any; else the parked run's distinct bundle wallets outside the creator set (signer, creator, fee payer, the create tx's buyers; at most 5 counted) must be listed, or skip_bundle_shape at no cost. Needs require_bundle = true. 69% of the copied trades had exactly 3
 # probe-A: the LEAD exits of config/paper-lead.example.toml, NOT the 2x/3x example exits: the shadow being compared
 # with traded these, and with one position slot a 30-minute hold would block every attempt for minutes.
 [exit.default]                                     # docs/04 section 2, first of:
@@ -180,6 +184,7 @@ trail = { activate = 0.0, retrace_bps = 0 }        # off
 consolidation_pct = 0                              # off (needs a paid feed)
 big_buy_lamports = [0, 0]                          # off (not in the frozen policy)
 sell_retry = { every_slots = 2, max_tries = 15, tip_mult = 2.0 }
+# hold_to_create_slots = 6                         # the operator wave's exit (docs/09): sell 100% at create slot + N (not landing + N), at dump bounds, whatever the price; 0 (default) = off. The value is the hold of a signer NOT in entry.operators_file (6 or 10 at even odds in the sample); a listed signer's hold_slots replaces it per position. Coexists with the rules above (first trigger wins); the wave runs with them off: tp = [], insider_sell = "off", no_activity_ms = 0, phantom_sl = { after_ms = 0, drop = 0.0 }, max_hold_slots = 0
 # 2026-10-22 (night): the sell bid equals the buy bid. The shipped defaults (50,000 normal / 200,000 dump) put our sells at the
 # back of every priority-ordered leader's queue: 20 of 43 stage-B positions closed 3 to 8 slots after the policy's slot+5, and
 # one of them sold one slot after a 9.7 SOL dump (-44% instead of -3%). The dry run assumes the sell lands one slot after its

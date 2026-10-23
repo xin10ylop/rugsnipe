@@ -912,3 +912,55 @@ fn grpc_feed_keys_are_validated() {
     c.obs.alert.commands = true;
     assert!(!c.validate(&ValidateEnv::default()).ok());
 }
+
+/// The operator-wave keys (docs/09): a zero premium is valid, the operator
+/// table and the bundle-shape filter parse from TOML with their defaults,
+/// and each refuses the combination it cannot serve.
+#[test]
+fn operator_wave_entry_keys_parse_and_validate() {
+    let d = Config::default();
+    assert_eq!(d.entry.operators_file, "");
+    assert!(!d.entry.operators_only);
+    assert!(d.entry.bundle_wallets.is_empty());
+    let mut c = example();
+    c.entry.max_premium = 0.0;
+    assert!(
+        c.validate(&ValidateEnv::default()).ok(),
+        "max_premium = 0 is valid"
+    );
+    let p = armable(c.clone(), Mode::Probe);
+    let v = p.validate(&good_env(&p));
+    assert!(
+        !format!("{:?}", v.refusals).contains("max_premium"),
+        "{:?}",
+        v.refusals
+    );
+    // operators_only needs the table; bundle_wallets needs the park
+    c.entry.operators_only = true;
+    c.entry.bundle_wallets = vec![3];
+    c.entry.require_bundle = false;
+    let s = format!("{:?}", c.validate(&ValidateEnv::default()).refusals);
+    assert!(s.contains("entry.operators_only"), "{s}");
+    assert!(s.contains("entry.bundle_wallets"), "{s}");
+    c.entry.operators_file = "/var/lib/rugsnipe/data/operators/ahw-2026-10-23.json".into();
+    c.entry.require_bundle = true;
+    c.feeds.grpc.bundle_run = true;
+    let v = c.validate(&ValidateEnv::default());
+    assert!(v.ok(), "{:?}", v.refusals);
+    // the TOML form
+    let t = r#"
+[entry]
+max_premium = 0.0
+require_bundle = true
+operators_file = "/etc/rugsnipe/operators.json"
+operators_only = true
+bundle_wallets = [2, 3, 4]
+[feeds]
+grpc = { enabled = false, url = "", x_token = "", stale_ms = 4_000, bundle_run = true }
+"#;
+    let c = Config::from_toml_str(t).unwrap();
+    assert_eq!(c.entry.max_premium, 0.0);
+    assert_eq!(c.entry.operators_file, "/etc/rugsnipe/operators.json");
+    assert!(c.entry.operators_only);
+    assert_eq!(c.entry.bundle_wallets, vec![2, 3, 4]);
+}

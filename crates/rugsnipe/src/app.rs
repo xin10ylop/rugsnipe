@@ -494,6 +494,27 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         }
         Some(Arc::new(m))
     };
+    // --- the operator table (entry.operators_file, docs/09): loaded once, refused if broken
+    let operators = if cfg.entry.operators_file.is_empty() {
+        if cfg.entry.operators_only {
+            return Err("entry.operators_only needs entry.operators_file".into());
+        }
+        None
+    } else {
+        let t =
+            crate::operators::OperatorTable::load(std::path::Path::new(&cfg.entry.operators_file))?;
+        eprintln!(
+            "operators: {} signers from {}{}",
+            t.len(),
+            cfg.entry.operators_file,
+            if cfg.entry.operators_only {
+                " (operators_only)"
+            } else {
+                ""
+            }
+        );
+        Some(Arc::new(t))
+    };
     // --- state.db + recovery (before READY)
     let mut outcomes = vec![];
     let mut restored_latch = None;
@@ -849,6 +870,7 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     })
     .map_err(|e| e.to_string())?;
     let mut hot_cfg = HotCfg::from_config(&cfg, policy);
+    hot_cfg.operators = operators;
     hot_cfg.fill_timeout_slots = o.fill_timeout_slots;
     hot_cfg.fill_lane = fill_lane;
     hot_cfg.filter = filter;

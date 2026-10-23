@@ -1,0 +1,1226 @@
+{
+ "FqM4a3ZaWF2WG63QU5w7HrqHquvX12VnZKRoDvMyyD5j": {
+  "hold_slots": 10,
+  "n": 48,
+  "wins": 23,
+  "pnl_sol": 0.927203,
+  "dev_sol": 4.0296,
+  "bundle_wallets": 3
+ },
+ "8ZN71XTdVo8yRovnGLmNgW3Tgniw6A4J3JGLvPD686FP": {
+  "hold_slots": 10,
+  "n": 29,
+  "wins": 12,
+  "pnl_sol": 2.534071,
+  "dev_sol": 16.9883,
+  "bundle_wallets": 3
+ },
+ "5jo9YaBkaE4W4GFeQvSqnwwneQ7w5ktG4BXwud1J9b9M": {
+  "hold_slots": 10,
+  "n": 24,
+  "wins": 12,
+  "pnl_sol": 0.37206,
+  "dev_sol": 4.0296,
+  "bundle_wallets": 3
+ },
+ "ENskGQev2bXPjaCYPV9bUcPLv3635Y18BWzLN95x4soC": {
+  "hold_slots": 6,
+  "n": 19,
+  "wins": 11,
+  "pnl_sol": 1.653949,
+  "dev_sol": 7.2,
+  "bundle_wallets": 3
+ },
+ "7vepJFBcB97svTKoDVCnciWeE7UHS4Zt9Qxvhkouu9eo": {
+  "hold_slots": 10,
+  "n": 19,
+  "wins": 12,
+  "pnl_sol": 0.289503,
+  "dev_sol": 4.0296,
+  "bundle_wallets": 3
+ },
+ "xxrr85qsW5No1cvn9vk4kzTiz2y1t7jMN8pf3Xo47f7": {
+  "hold_slots": 6,
+  "n": 17,
+  "wins": 5,
+  "pnl_sol": 0.155277,
+  "dev_sol": 11.8519,
+  "bundle_wallets": 3
+ },
+ "CyHxAoTujrw2afv8vzYUptxyko6Nzfo5rqHWZogLwpQw": {
+  "hold_slots": 6,
+  "n": 10,
+  "wins": 6,
+  "pnl_sol": 0.497146,
+  "dev_sol": 12.3457,
+  "bundle_wallets": 3
+ },
+ "AufH68UFBGSVVRL9D7u5W6NySCrukL4fWfSRTxDcJC6u": {
+  "hold_slots": 6,
+  "n": 8,
+  "wins": 5,
+  "pnl_sol": 0.202809,
+  "dev_sol": 7.5,
+  "bundle_wallets": 3
+ },
+ "Db9dgy5FHTCGKKEzBPmTnbJDrHnP8rjTf9UDsW52sBYv": {
+  "hold_slots": 3,
+  "n": 8,
+  "wins": 5,
+  "pnl_sol": 0.126631,
+  "dev_sol": 10.1613,
+  "bundle_wallets": 3
+ },
+ "J5gXAFL5BdeXJQzLxHzWUxSPivJKA3GRp74orsAm4kkU": {
+  "hold_slots": 10,
+  "n": 7,
+  "wins": 6,
+  "pnl_sol": 0.325949,
+  "dev_sol": 4.0296,
+  "bundle_wallets": 3
+ },
+ "FFdBLYqL9rs5fUT38ArE8GV2L3BziEgG5LJUu6sshfkF": {
+  "hold_slots": 6,
+  "n": 7,
+  "wins": 0,
+  "pnl_sol": -0.09353,
+  "dev_sol": 11.7471,
+  "bundle_wallets": 2
+ },
+ "JDQKDrc1TQgBRvdFh56tkta5sYcDj1SoP52Eiu64rSrT": {
+  "hold_slots": 6,
+  "n": 6,
+  "wins": 1,
+  "pnl_sol": 0.296634,
+  "dev_sol": 11.0,
+  "bundle_wallets": 3
+ },
+ "G3eWaBWuboTjBARo2otA6o3GEg9LFkd1Pf7N3yw8sSz1": {
+  "hold_slots": 6,
+  "n": 6,
+  "wins": 1,
+  "pnl_sol": -0.129104,
+  "dev_sol": 6.8642,
+  "bundle_wallets": 0
+ },
+ "7naFFwuEJWeWwWYQUkgAWHsxYKg3KctEuUj42JdAMidP": {
+  "hold_slots": 6,
+  "n": 5,
+  "wins": 4,
+  "pnl_sol": 2.444798,
+  "dev_sol": 12.5,
+  "bundle_wallets": 3
+ },
+ "DqeVuNmymZEqzNQmFUvMGAL6xaB49TN7yCmx3h3FpYaK": {
+  "hold_slots": 10,
+  "n": 5,
+  "wins": 3,
+  "pnl_sol": 0.471549,
+  "dev_sol": 8.96,
+  "bundle_wallets": 3
+ },
+ "8NJ7Ujpji8uMF2675mqaTSEm2DCbfJA7fiRKtiaqkaLN": {
+  "hold_slots": 6,
+  "n": 5,
+  "wins": 4,
+  "pnl_sol": 0.338046,
+  "dev_sol": 5.8,
+  "bundle_wallets": 2
+ },
+ "5RQ1UWATaMjjXC34BW6UusEUdEoCuNRECBW8nnHPiCGH": {
+  "hold_slots": 10,
+  "n": 5,
+  "wins": 3,
+  "pnl_sol": 0.324853,
+  "dev_sol": 6.4,
+  "bundle_wallets": 3
+ },
+ "EUA3BRvTAWPKEcxhm7tCEppuNoevSBMCfKLaXAiAPNKA": {
+  "hold_slots": 10,
+  "n": 5,
+  "wins": 5,
+  "pnl_sol": 0.313918,
+  "dev_sol": 8.66,
+  "bundle_wallets": 3
+ },
+ "95ZCf3jKMHeFYvPXVZW3Ek6AEPDyjebosqnc7eNioVMo": {
+  "hold_slots": 6,
+  "n": 5,
+  "wins": 3,
+  "pnl_sol": 0.310046,
+  "dev_sol": 9.9,
+  "bundle_wallets": 3
+ },
+ "D9gQ6RhKEpnobPBUdWY5bPQt2p3zGk3iVz6ChpUi2ArA": {
+  "hold_slots": 10,
+  "n": 5,
+  "wins": 3,
+  "pnl_sol": 0.276922,
+  "dev_sol": 8.2074,
+  "bundle_wallets": 3
+ },
+ "9rDMVCH7mQ9N2PkyHw8KT8wraMhF8tyMz9R631yyL1df": {
+  "hold_slots": 10,
+  "n": 5,
+  "wins": 3,
+  "pnl_sol": 0.106656,
+  "dev_sol": 7.34,
+  "bundle_wallets": 3
+ },
+ "grok1r9rhYXqniD79L3eeBB6bBLd8ytGrhDRa6kgRNt": {
+  "hold_slots": 6,
+  "n": 5,
+  "wins": 3,
+  "pnl_sol": 0.02742,
+  "dev_sol": 11.8519,
+  "bundle_wallets": 3
+ },
+ "9ncm3MfxC3b2HYxP8NrijRZSeE36vFfxgJvGRd16Buwi": {
+  "hold_slots": 6,
+  "n": 4,
+  "wins": 3,
+  "pnl_sol": 0.134049,
+  "dev_sol": 8.7901,
+  "bundle_wallets": 2
+ },
+ "CHTQJThdDKQvRsdYv6Aubi7kbhUEKzUzumUncv2XoKL1": {
+  "hold_slots": 10,
+  "n": 4,
+  "wins": 2,
+  "pnl_sol": 0.025398,
+  "dev_sol": 4.0296,
+  "bundle_wallets": 3
+ },
+ "HynmnmoVhCfT8b7BK1U22Fxzxn1xnNzudbFhRnMvdAVj": {
+  "hold_slots": 6,
+  "n": 4,
+  "wins": 1,
+  "pnl_sol": -0.028466,
+  "dev_sol": 7.95,
+  "bundle_wallets": 3
+ },
+ "8YcbyX92UHTU23HZv3ccP9o13qibErQkKaUjoxqxd7SJ": {
+  "hold_slots": 6,
+  "n": 3,
+  "wins": 3,
+  "pnl_sol": 2.064196,
+  "dev_sol": 6.0,
+  "bundle_wallets": 2
+ },
+ "CAbU87nMNh3LDvLkWaScnfYd4kyA9CxoY13UybkCz7HB": {
+  "hold_slots": 6,
+  "n": 3,
+  "wins": 3,
+  "pnl_sol": 0.255485,
+  "dev_sol": 4.4247,
+  "bundle_wallets": 3
+ },
+ "29yFzeBZgxf5zqrAkKXwgZtQehRf4pL8WbV2nRJikbw8": {
+  "hold_slots": 6,
+  "n": 3,
+  "wins": 2,
+  "pnl_sol": 0.043494,
+  "dev_sol": 8.02,
+  "bundle_wallets": 2
+ },
+ "BADxcCczKSRuKNn5oMsrGrXepo23bwHgzgGuTeZYw6RQ": {
+  "hold_slots": 6,
+  "n": 3,
+  "wins": 1,
+  "pnl_sol": 0.025113,
+  "dev_sol": 3.5,
+  "bundle_wallets": 2
+ },
+ "CugxmV7YKY7zt389Yvd4xiiYGWfuE6n21zUKx5UKfsHy": {
+  "hold_slots": 10,
+  "n": 3,
+  "wins": 1,
+  "pnl_sol": 0.019849,
+  "dev_sol": 10.2215,
+  "bundle_wallets": 0
+ },
+ "3gJVrzZP1c3263CMZ5or66weywPXNaDXhKTCrvm666jQ": {
+  "hold_slots": 6,
+  "n": 3,
+  "wins": 1,
+  "pnl_sol": -0.008184,
+  "dev_sol": 11.6872,
+  "bundle_wallets": 3
+ },
+ "G7NvZKjoVqBDWciSYtWWgUPB7DA1iJavdvH5jty2FAmM": {
+  "hold_slots": 6,
+  "n": 3,
+  "wins": 0,
+  "pnl_sol": -0.023795,
+  "dev_sol": 5.0,
+  "bundle_wallets": 0
+ },
+ "VAMP1iq1fN6ia2RZauWREdmGHrYhfJvhbvNvoG3MHbu": {
+  "hold_slots": 10,
+  "n": 3,
+  "wins": 0,
+  "pnl_sol": -0.706119,
+  "dev_sol": 7.0,
+  "bundle_wallets": 4
+ },
+ "4Lm2uqHgauVS1gzzNCd1F4FeGNwzUp6dXp5uqHxmrnDX": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 2,
+  "pnl_sol": 0.628484,
+  "dev_sol": 8.5,
+  "bundle_wallets": 0
+ },
+ "F5XvCe4233m6mHRbkkq2ZsFvqrPAnRrDBExeQy2fwagQ": {
+  "hold_slots": 1,
+  "n": 2,
+  "wins": 2,
+  "pnl_sol": 0.316179,
+  "dev_sol": 7.2,
+  "bundle_wallets": 6
+ },
+ "5MTjkAZMe1ur64ADTgnaYFN1ByTapu2RqcKYUdQNaE2E": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 1,
+  "pnl_sol": 0.241435,
+  "dev_sol": 5.2,
+  "bundle_wallets": 2
+ },
+ "DhQgrgabU9FuiEHZc2xVZ8X8s26mBcUs1ME8cytYGtvc": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 2,
+  "pnl_sol": 0.224098,
+  "dev_sol": 8.5,
+  "bundle_wallets": 3
+ },
+ "JBuzPMEoXgPQTzcavYzMKxcuJKmGpeToBuGYTiJ6vY3y": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 1,
+  "pnl_sol": 0.216708,
+  "dev_sol": 5.88,
+  "bundle_wallets": 3
+ },
+ "DRXPafDunsHAMoo6hqyak9J5LfqT1MKBQEp5iUJMFvb7": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 1,
+  "pnl_sol": 0.145865,
+  "dev_sol": 11.24,
+  "bundle_wallets": 3
+ },
+ "FT1ygzSaXKZtPqzrmke9XPy3hJzbboBpQke7omRN8RW4": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 2,
+  "pnl_sol": 0.129949,
+  "dev_sol": 15.4684,
+  "bundle_wallets": 3
+ },
+ "7gTjFWmQCvvTK2MSKAv1C1doeMYjvNwrB5np77z7uGJ4": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 2,
+  "pnl_sol": 0.111404,
+  "dev_sol": 4.3513,
+  "bundle_wallets": 3
+ },
+ "BSRVNXtJCheRxG1DVhh9H86w7qfCcB1bySJ8hj6voebp": {
+  "hold_slots": 10,
+  "n": 2,
+  "wins": 2,
+  "pnl_sol": 0.090521,
+  "dev_sol": 11.1571,
+  "bundle_wallets": 0
+ },
+ "4zyH4wYrrY1HzAyBLAZqbyWfQaVMxdMZemHDfduu1GCo": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 1,
+  "pnl_sol": 0.085045,
+  "dev_sol": 5.03,
+  "bundle_wallets": 3
+ },
+ "36A6mEN5rYJdVTb6fMqVvG6ez8g2mTYdr1omWcQ1kDKG": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 2,
+  "pnl_sol": 0.039662,
+  "dev_sol": 6.3012,
+  "bundle_wallets": 3
+ },
+ "GqpjYV88bTzxYxHEskudyWZ9T5kxtBpehXdkQS2KKJiM": {
+  "hold_slots": 10,
+  "n": 2,
+  "wins": 2,
+  "pnl_sol": 0.015191,
+  "dev_sol": 11.1465,
+  "bundle_wallets": 0
+ },
+ "FF3dsqNCpT8gxFGHPzcswEU5GFvERZXMbYTHPQ6iiQro": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 1,
+  "pnl_sol": 0.002634,
+  "dev_sol": 9.15,
+  "bundle_wallets": 3
+ },
+ "6Q2QPD6DP3q9sYJbZ9qjpdZDLvjTHqzG2MNJhhVKkGFX": {
+  "hold_slots": 10,
+  "n": 2,
+  "wins": 0,
+  "pnl_sol": -0.031011,
+  "dev_sol": 2.0247,
+  "bundle_wallets": 0
+ },
+ "28U7RcqyuF7oHzQhhF7x7NwHD1ySgMALHhKpedHnyx28": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 0,
+  "pnl_sol": -0.041506,
+  "dev_sol": 7.503,
+  "bundle_wallets": 1
+ },
+ "3F8m5wT8umEvfjwwdKq1YEuR39U1U1tPUj4Kcq6YhBQs": {
+  "hold_slots": 10,
+  "n": 2,
+  "wins": 0,
+  "pnl_sol": -0.100798,
+  "dev_sol": 9.7024,
+  "bundle_wallets": 0
+ },
+ "3c3ejG5Ak7JyogDpwLYh3g2y8xiGRZe4nAEhNdWBe8zR": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 0,
+  "pnl_sol": -0.127909,
+  "dev_sol": 0.0109,
+  "bundle_wallets": 0
+ },
+ "AHgCuUFmnmVVenAeyREHb4DGht5HvyTBwJoYXx9qBCrv": {
+  "hold_slots": 3,
+  "n": 2,
+  "wins": 1,
+  "pnl_sol": -0.345745,
+  "dev_sol": 9.1537,
+  "bundle_wallets": 3
+ },
+ "78N177fzNJpp8pG49xDv1efYcTMSzo9tPTKEA9mAVkh2": {
+  "hold_slots": 10,
+  "n": 2,
+  "wins": 0,
+  "pnl_sol": -0.529057,
+  "dev_sol": 8.8,
+  "bundle_wallets": 3
+ },
+ "CmwFWFQsK2tuNpz3HAbjoxDVSf5miY5vbP425UTRg5Rd": {
+  "hold_slots": 10,
+  "n": 2,
+  "wins": 0,
+  "pnl_sol": -0.588498,
+  "dev_sol": 9.8272,
+  "bundle_wallets": 3
+ },
+ "FDfyqqenHVySjjyo4etCgBzxZNfUXUMaZo8ifKpDJGUf": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 0,
+  "pnl_sol": -0.724148,
+  "dev_sol": 6.4,
+  "bundle_wallets": 3
+ },
+ "FRaqshyqNTfs1sxnadDZxp6ZQ3vZAvzM6oe97oamp5sa": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 1.455172,
+  "dev_sol": 12.7358,
+  "bundle_wallets": 6
+ },
+ "JAGDmGXMcoAFcjaNafUpa9Vt3kNYJEk2rzTzCjJKVe1Y": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.944088,
+  "dev_sol": 4.9383,
+  "bundle_wallets": 0
+ },
+ "GaX4ENUvW2PSRTGJomjYHSaBV8sHoH6np2ZXWt4kWifA": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.774761,
+  "dev_sol": 9.0667,
+  "bundle_wallets": 4
+ },
+ "5Xc5ydeK1UWWVm9GTDiv6cNSme6CQ8zSM2WYavghHqEz": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.604968,
+  "dev_sol": 9.0,
+  "bundle_wallets": 2
+ },
+ "9ptwuMsZ6REvuwS3B6SRPSyiiP17FWQKqwU3nWyUAQ4p": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.383696,
+  "dev_sol": 19.7659,
+  "bundle_wallets": 4
+ },
+ "8GUxMqqMb1FsHq97RZaJwyrvXo3PZPNff6h3pmJ1Qq35": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.373798,
+  "dev_sol": 0.5698,
+  "bundle_wallets": 0
+ },
+ "CU86yy9jAjzgmQzWxFr3ANdL3sUxhCvhAZHyLggJwhbi": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.304109,
+  "dev_sol": 4.7047,
+  "bundle_wallets": 3
+ },
+ "EPfFmMQ5Bo29XwspKA6M2aZCrqMRaQKJPXNsPzSzeckn": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.276144,
+  "dev_sol": 6.11,
+  "bundle_wallets": 3
+ },
+ "282vbo94yMvrYs4Hb4UXAeiLdDStCo32an67Mpz41N9q": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.259009,
+  "dev_sol": 8.909,
+  "bundle_wallets": 3
+ },
+ "JAgi4Zchg3BzFs4tYu8xAhGRWJA5wE6WPUPKUzpixeBd": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.258205,
+  "dev_sol": 0.5698,
+  "bundle_wallets": 0
+ },
+ "timeworn2X1EwMLSzeVhdVTbVSzSCKuibKd2kQ2Lsyn": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.200348,
+  "dev_sol": 9.0202,
+  "bundle_wallets": 2
+ },
+ "BrXouFJqMceamoTP6NUL9e51dSqhsKLDbZ6TfAYRR5AW": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.191071,
+  "dev_sol": 6.9083,
+  "bundle_wallets": 5
+ },
+ "2bCfY7eCTQdDgfR7a4jaCRqBkVXvszi8xQJhu2bn7WZw": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.186231,
+  "dev_sol": 19.7659,
+  "bundle_wallets": 4
+ },
+ "2ixBH5CKHUxmSznyHWQDMGpAKCqj6ThGdLGwL99Xm3kw": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.179246,
+  "dev_sol": 10.4286,
+  "bundle_wallets": 3
+ },
+ "AqsW2qxwaKKntSVKQKYBiyBjjR6UURGkWXzECTvQk116": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.096519,
+  "dev_sol": 9.27,
+  "bundle_wallets": 3
+ },
+ "5heUm58pE5wefTrgTQzeycT4fVqpxWjkqGLduWg2AvS": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.09582,
+  "dev_sol": 9.7166,
+  "bundle_wallets": 6
+ },
+ "Hn5cVFLioFbyCD4NkVYrZe14aKMecS5xs962RTaayvYz": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.083376,
+  "dev_sol": 3.7531,
+  "bundle_wallets": 1
+ },
+ "CWvHLuVPUfcNeDEg1xsCJFVE2kvKNF5nUmBHXWUaQ5b3": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.068826,
+  "dev_sol": 20.6114,
+  "bundle_wallets": 4
+ },
+ "4fRjextraAV7e9VC26jaR672YYL51gkk4Wz2s3sm5yAW": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.067088,
+  "dev_sol": 20.6114,
+  "bundle_wallets": 4
+ },
+ "866SrsMfwKsErATZDCLAPbxH3NuqjKn7zQ1xXMqixoz1": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.058228,
+  "dev_sol": 9.4,
+  "bundle_wallets": 4
+ },
+ "9CvHv2qRM5D6RxUUFkQh57fKwVv6dQ71gUk5dtMTtc8u": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.056438,
+  "dev_sol": 4.4,
+  "bundle_wallets": 2
+ },
+ "6WgPr9HSvx9G366VcoLH89HjfrDFjjRq7enVWbc6P9nt": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.053425,
+  "dev_sol": 9.2547,
+  "bundle_wallets": 3
+ },
+ "9AdaoG8JuVyB8aniRfUtJ9BJHKuv6uaW7nsAp9sqvkqc": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.041585,
+  "dev_sol": 27.0084,
+  "bundle_wallets": 4
+ },
+ "AteVxMozrDXaFUK2Hkw7TZZ2CKotUeutJpiaB8vMfrz1": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.034972,
+  "dev_sol": 0.4938,
+  "bundle_wallets": 0
+ },
+ "FMQDavyiRQJnd9hsLHNMa5yHefneoExNQ6SHFMR62z8W": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.032019,
+  "dev_sol": 9.7373,
+  "bundle_wallets": 3
+ },
+ "B8JMDNsTNnRa5QfiodHgqxfES4yfK2D2iNAdNhARvnVU": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.03084,
+  "dev_sol": 8.2835,
+  "bundle_wallets": 2
+ },
+ "2GBkFfJwjMkFTNvng4eUKgGi2reR7MxcPVWye8ai8pvU": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.026382,
+  "dev_sol": 7.7037,
+  "bundle_wallets": 4
+ },
+ "Aqje5DsN4u2PHmQxGF9PKfpsDGwQRCBhWeLKHCFhSMXk": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.02532,
+  "dev_sol": 5.42,
+  "bundle_wallets": 3
+ },
+ "8R1Ah5PmtXyJ7zfSspjt5jWj8Htw9twGuHQuvYid8LTg": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.025222,
+  "dev_sol": 1.0,
+  "bundle_wallets": 0
+ },
+ "2k1JxaZ4kswMSJ2n1zsv3qLvKSFTTDr6JWLyMcgQj7Gm": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.0219,
+  "dev_sol": 19.7659,
+  "bundle_wallets": 4
+ },
+ "APKu4G7zWN9kAXzPX57cC8U3v41tF5wcUdc8BPKyAR76": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.019091,
+  "dev_sol": 4.8,
+  "bundle_wallets": 3
+ },
+ "DWHEZ8JnfGtud25Gjhn3MndpTMshNEd12WMu2ciCa7ri": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.018736,
+  "dev_sol": 6.75,
+  "bundle_wallets": 2
+ },
+ "B4tWmhfCBLvRYugPcu6bgP36DVweLc457pywc1a3QJju": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.012595,
+  "dev_sol": 2.0,
+  "bundle_wallets": 0
+ },
+ "Fzz2amRoCCpEvxtwdurs8qLVLSdrd3dcraJVpNjE4rp4": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.012587,
+  "dev_sol": 9.6229,
+  "bundle_wallets": 3
+ },
+ "GGZVnx3DHYiZN4QszaGCLD6CVeRaWLQNCJvHXf5yausE": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.010798,
+  "dev_sol": 11.2,
+  "bundle_wallets": 3
+ },
+ "FTuqW6J148wdknkPvm2EVSJ1EFt4aDhjAYzv6rdjuCRi": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.005019,
+  "dev_sol": 11.0,
+  "bundle_wallets": 1
+ },
+ "6aoG8GtiScsisQC7unezAvzxAEbokvDb84has4nzKBM9": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.004218,
+  "dev_sol": 0.9854,
+  "bundle_wallets": 0
+ },
+ "DUYWrR5H7jr6C9bQmjHNPRSNyvB3SzeodbcVPK5aCJSK": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.003997,
+  "dev_sol": 19.7659,
+  "bundle_wallets": 4
+ },
+ "8XyzHoce2PLzWdRfaSAMnQaSU19jrSAfbLxYSbGHu1Lf": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.002609,
+  "dev_sol": 19.7659,
+  "bundle_wallets": 4
+ },
+ "EsK7afGCMW216dZgjba29h8BjDWbzUqnzY7c8S7rQrhr": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 1,
+  "pnl_sol": 0.001974,
+  "dev_sol": 0.0,
+  "bundle_wallets": 0
+ },
+ "9KVnnuRkLXiaCWJCHJXivR49oYyiTQFw6yggXAVLCbqm": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.001116,
+  "dev_sol": 19.7659,
+  "bundle_wallets": 4
+ },
+ "EazJVJBwStmxeEx478Q1EAVHZrZbSgXN7N4m3MSBET8a": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.002548,
+  "dev_sol": 5.47,
+  "bundle_wallets": 3
+ },
+ "GcANHWuZiBb9cmWhXSBk5j4NrX89AJVNjVzSHAF2umM": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.003134,
+  "dev_sol": 15.1473,
+  "bundle_wallets": 3
+ },
+ "GjGXyrPd1VjHFHQ18BMv8jC4d8HJSbvYQETcH3GRJj2p": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.005109,
+  "dev_sol": 4.9228,
+  "bundle_wallets": 0
+ },
+ "3qxhupDhZGn3MxPCiacdwfmTUbHEzzNYCF5VRH4xfbHg": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.005572,
+  "dev_sol": 27.09,
+  "bundle_wallets": 16
+ },
+ "35bCuPhRwufUt7UWoxT8WJxAv8e3JsC1Xq5wG7fvdDNV": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.00661,
+  "dev_sol": 7.584,
+  "bundle_wallets": 3
+ },
+ "5zRLtaZUfKbQWuCXqHx4g6Ny6RKQhja4ytub19pLEPkS": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.008008,
+  "dev_sol": 8.5,
+  "bundle_wallets": 2
+ },
+ "8guevKFkSt3ianPBCUbFQYTC1bFPQS1HTe5f4CZpdn5Y": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.008442,
+  "dev_sol": 18.1886,
+  "bundle_wallets": 2
+ },
+ "5o3EocuCxBCrDQqYgbDfbLixajw856t9oKYag7iMyJgE": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.011063,
+  "dev_sol": 3.0,
+  "bundle_wallets": 0
+ },
+ "AcU7BK4Ec6WLx9nxXA4Dtx6E6S2MqCwratn1WjxsX3ae": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.011708,
+  "dev_sol": 1.75,
+  "bundle_wallets": 0
+ },
+ "arBG6ShTDUTzJUzvMhYmTU6HFQmfsWJchoYoVjPoSmV": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.012219,
+  "dev_sol": 27.1605,
+  "bundle_wallets": 0
+ },
+ "7vafvWafQxv4nh3o2RMNkZybw3FGMUCYX5cq2WevCTAz": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.012887,
+  "dev_sol": 0.2822,
+  "bundle_wallets": 0
+ },
+ "9jwfZT1V4rvG8ZRdfR8gQfu9yYKSmZeejBEhmpPgYtPv": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.012887,
+  "dev_sol": 6.9136,
+  "bundle_wallets": 0
+ },
+ "CDvWaQSFFEFKh26eyxxN93uguJc15iqnCqpc9DUpAaxH": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.012887,
+  "dev_sol": 12.3345,
+  "bundle_wallets": 6
+ },
+ "AQYyELJQDFiGubZsSwSbxLNrxYgFD2kD5RwgnVnpoj3Z": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.013337,
+  "dev_sol": 11.0869,
+  "bundle_wallets": 0
+ },
+ "5ZdusGZMC14SP6eh2XWdoeZDm3612psfxUsKS11DCqkG": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.013552,
+  "dev_sol": 2.167,
+  "bundle_wallets": 0
+ },
+ "5c7euxPjXMRBD1wCGS52mDm2pMSrHNZaDcHt4U6ffJao": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.015031,
+  "dev_sol": 0.0001,
+  "bundle_wallets": 0
+ },
+ "3QsxCXwQkCBSTriHRXQfYMq3M74TVXL41yUTL9akK7Yd": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.015235,
+  "dev_sol": 0.9877,
+  "bundle_wallets": 0
+ },
+ "G2183s761D6BH9LNTgaWebgM2Gxb6SCvxwxLVLGW7usP": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.018125,
+  "dev_sol": 0.7814,
+  "bundle_wallets": 0
+ },
+ "7Y2zQajGHyStMrgjBMyCjjwnrXm1eExLZBzttQTEzv24": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.018775,
+  "dev_sol": 7.6,
+  "bundle_wallets": 3
+ },
+ "GVczPwnN39gEApcNzra4j2fyk2Tzep4vd4qecUuqS6qb": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.018775,
+  "dev_sol": 8.4,
+  "bundle_wallets": 3
+ },
+ "4mqFYpQ3wrgFhzcW7qtanp7UMEmmpqQ5qjBSs5rkTas4": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.019925,
+  "dev_sol": 1.9753,
+  "bundle_wallets": 0
+ },
+ "D5shRqViANmXh16KjUDyyxHJgvq9EhAhxdEzqQx578j4": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.021527,
+  "dev_sol": 12.0,
+  "bundle_wallets": 3
+ },
+ "D8b7Sqv9oAQLMTtDVGkykzuJs3dhdjUuqkUkrX7vjXXS": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.021775,
+  "dev_sol": 8.6,
+  "bundle_wallets": 2
+ },
+ "5qEPqkKqkYXrBBYw3dABwJHX7t1ohP1DZeAVa9jtqb8u": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.022725,
+  "dev_sol": 10.5927,
+  "bundle_wallets": 2
+ },
+ "9VyVsXTwY4R2BP6UQ75Qn5RFPLH42JpJaaHh7C8CqbBB": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.022725,
+  "dev_sol": 0.8622,
+  "bundle_wallets": 0
+ },
+ "DLWcfYpEwNpgKWhWVBBZxsVJPLLKtmqK8VsfZneEoa9Y": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.022763,
+  "dev_sol": 10.8911,
+  "bundle_wallets": 5
+ },
+ "AbvGxLjF2KzftqqxXhi1mH4b31NeditUdM1zdVyKSKZs": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.023834,
+  "dev_sol": 0.9877,
+  "bundle_wallets": 0
+ },
+ "6kzwdd1esqrjGsvk4Go8UyZzzDrYgfHerbVV9Q4jt9Fk": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.024009,
+  "dev_sol": 0.5698,
+  "bundle_wallets": 0
+ },
+ "9mB1kqCLfb4CvG8sWihkJBhZ7WREKQ9VdjFGvDmwJBgy": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.025165,
+  "dev_sol": 7.5,
+  "bundle_wallets": 4
+ },
+ "3HYJ2juXWMRRJ89FKX2ATfmud9Ys3FWdGAE7171jC8b2": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.025388,
+  "dev_sol": 15.0,
+  "bundle_wallets": 4
+ },
+ "Afa1rzLFwduG1qBw9Kx8QWddUsUDLFXpcmpbRLiTTqpv": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.025559,
+  "dev_sol": 4.9383,
+  "bundle_wallets": 0
+ },
+ "BohadSWDkPbq7qmHrFq8FhoeaoCa9DTEfLSfX7aC2DrF": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.025895,
+  "dev_sol": 6.9136,
+  "bundle_wallets": 4
+ },
+ "HxvcKwnfrZjAHb5rN8Snjy4RDWGEwLWi18sLtNvPw5g1": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.027663,
+  "dev_sol": 0.9877,
+  "bundle_wallets": 0
+ },
+ "7ejoyL1FmREqijuBmUF9AkhgSAU3tSVNfMMoMF6drp5E": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.028933,
+  "dev_sol": 11.5958,
+  "bundle_wallets": 0
+ },
+ "5dCVSCoApPYxBCPpwkDRCbrmQfdkT4wzXpJS4pkYsFCP": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.029196,
+  "dev_sol": 27.6543,
+  "bundle_wallets": 0
+ },
+ "LecotqwpTH4CFaoQ6tjpi1EgemHzmPhzKcorJuwxrBs": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.030932,
+  "dev_sol": 7.0,
+  "bundle_wallets": 2
+ },
+ "4Swe7mXkRyUkWDopexdSuwpMerB9QDozR6393XcyxfVt": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.031582,
+  "dev_sol": 5.75,
+  "bundle_wallets": 2
+ },
+ "CKadKn6eQka9NaUQXbBNy37PfvELFa5jKzuPC351HEs7": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.033713,
+  "dev_sol": 8.42,
+  "bundle_wallets": 4
+ },
+ "twamXGa9GVEnhEurqZD9w8g6zdSa8sVRBxR8s8DR9hj": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.036382,
+  "dev_sol": 10.5,
+  "bundle_wallets": 4
+ },
+ "3ep8j4RVF5uPAkn4mgsMsL3an1CoSWYuWFhJPLWeSoup": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.042516,
+  "dev_sol": 0.0988,
+  "bundle_wallets": 0
+ },
+ "BEFAExq5XGp7Jqu9o7B4eDBGYW2eqty8Nt7Kb1uNN8BW": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.047986,
+  "dev_sol": 11.93,
+  "bundle_wallets": 3
+ },
+ "8PQxd6VmfGPMyg8WPnfkT9jUTmtE7UsnDmvBKXeAVP9z": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.048378,
+  "dev_sol": 8.0,
+  "bundle_wallets": 7
+ },
+ "HkvkcAe8BiPRM4ukSc7KiEYMxfa2uVSm6MeQCjBeczks": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.048757,
+  "dev_sol": 4.9304,
+  "bundle_wallets": 3
+ },
+ "BvBTX4vdPRh6Z3hUZHcnc9edDQyp5hM4jUkbeCxhD9kj": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.050861,
+  "dev_sol": 8.15,
+  "bundle_wallets": 3
+ },
+ "CCCv74RX9YZ5J8efRfZXxxQmCemmL5TKkXaetF9eydyQ": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.052396,
+  "dev_sol": 10.4253,
+  "bundle_wallets": 10
+ },
+ "37uM1rp8TK7eVURVRnjtaxGkdJyXjgA9uz83DjApcHvq": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.06322,
+  "dev_sol": 10.0,
+  "bundle_wallets": 4
+ },
+ "5rcveWhxymbE5hT2AThqP5rgASxBGPrvYkD2qM7JueTn": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.06322,
+  "dev_sol": 0.002,
+  "bundle_wallets": 0
+ },
+ "H922ncwDRYrWYUScgafXwGCx9ZEPPogefSPtnhXzhE5N": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.063954,
+  "dev_sol": 3.7775,
+  "bundle_wallets": 1
+ },
+ "36X7abKn6GbhhTYfU61sGC3whuB2hjQ2evhsZTYxDhJW": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.068323,
+  "dev_sol": 0.7156,
+  "bundle_wallets": 0
+ },
+ "FaBGrHWjcJ8vKnbgUtsdpZjvF7YAAajtQTWmmEHiKtQr": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.094605,
+  "dev_sol": 6.9432,
+  "bundle_wallets": 2
+ },
+ "4azHksf2V4uhLdVMkjx6MHwhA8syAQ8ffGg74ChENCH1": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.105233,
+  "dev_sol": 6.67,
+  "bundle_wallets": 3
+ },
+ "8KiEjU7G1G4XraNwms7KRvNPsK6j8tBf9NW3KNn25kxX": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.112771,
+  "dev_sol": 9.0,
+  "bundle_wallets": 3
+ },
+ "HkRiUVSaJadxYjgbzodgYQ1ebZarmWCPvQNVDvyXvqnP": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.123511,
+  "dev_sol": 6.9435,
+  "bundle_wallets": 3
+ },
+ "8FWFVRAHmDqHKvwy2XqCDrkJR18e6PHiJGSMQGtspQEW": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.133412,
+  "dev_sol": 9.6182,
+  "bundle_wallets": 3
+ },
+ "7NKy53RJ233c71UrpWdFCjL7L1qDfdrg6uW65KJCGwoE": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.180067,
+  "dev_sol": 9.9273,
+  "bundle_wallets": 6
+ },
+ "88s746pNJv2nyympUExG3eUDAvGnfinAEe73kSQvHpfi": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.26051,
+  "dev_sol": 4.7047,
+  "bundle_wallets": 3
+ },
+ "CEsfr4hbzWymewUvLoBYe9wcgDBVDNoxeunVPRZkoNfa": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.268907,
+  "dev_sol": 9.7006,
+  "bundle_wallets": 6
+ },
+ "DzrMfe3cJAjFLAfu2KZdSgRKFpPFBQMQ4mS1D5dYDGNu": {
+  "hold_slots": 6,
+  "n": 1,
+  "wins": 0,
+  "pnl_sol": -0.282882,
+  "dev_sol": 19.7659,
+  "bundle_wallets": 4
+ }
+}

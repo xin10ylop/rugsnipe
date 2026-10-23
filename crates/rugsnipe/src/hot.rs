@@ -51,7 +51,8 @@ use crate::convert::{hit_from_lite, trade_from_lite, v0_of};
 use crate::filter::{presend_features, CreateRate, Feat, Model, OpStats, S0Trade};
 use crate::leader::{ClientClass, LeaderSnapshot, UNKNOWN as LEADER_UNKNOWN};
 use crate::msgs::{reason_code, reason_index, ColdMsg, FireJob, HotIn, ShadowInfo};
-use crate::setup::{min_tokens_out, op_armed, ArmState, Templates};
+use crate::operators::{bundle_shape_ok, bundle_wallet_count, create_signer, OpRule, Operators};
+use crate::setup::{min_tokens_out, min_tokens_out_at, op_armed, ArmState, Templates};
 use crate::stats::{code, HotStats};
 use arc_swap::ArcSwap;
 use hdrhistogram::Histogram;
@@ -217,6 +218,16 @@ pub struct HotCfg {
     pub presend_mode: PresendMode,
     pub presend_cut: PresendCut,
     pub presend_ops: crate::filter::OpSnapshot,
+    /// The operator table (`entry.operators_file`, loaded at startup;
+    /// `None`: no table): a listed create signer's positions exit at
+    /// `create + hold_slots` (docs/09).
+    pub operators: Option<Operators>,
+    /// `entry.operators_only`: skip (`skip_not_operator`) a create whose
+    /// signer is not in the table.
+    pub operators_only: bool,
+    /// `entry.bundle_wallets`: the parked run's distinct bundle wallets a
+    /// fire needs (empty = any; `skip_bundle_shape`).
+    pub bundle_wallets: Vec<u32>,
 }
 
 impl HotCfg {
@@ -273,7 +284,29 @@ impl HotCfg {
             presend_mode: cfg.entry.presend_mode,
             presend_cut: cfg.entry.presend_cut,
             presend_ops: Arc::new(ArcSwap::from_pointee(Default::default())),
+            operators: None,
+            operators_only: cfg.entry.operators_only,
+            bundle_wallets: cfg.entry.bundle_wallets.clone(),
         }
+    }
+
+    /// The operator table's rule for a create's signer ([`create_signer`]:
+    /// the fee payer, else the create's user); allocation-free.
+    #[inline]
+    pub fn operator_rule(&self, hit: &CreateHit) -> Option<OpRule> {
+        self.operators.as_deref()?.get(&create_signer(hit)).copied()
+    }
+
+    /// The exit policy of a position on `hit`: the configured one, with the
+    /// operator table's `hold_slots` as its `hold_to_create_slot` when the
+    /// create's signer is listed (docs/09).
+    #[inline]
+    pub fn policy_for(&self, rule: Option<OpRule>) -> ExitPolicy {
+        let mut p = self.policy;
+        if let Some(r) = rule {
+            p.hold_to_create_slot = Some(r.hold_slots);
+        }
+        p
     }
 
     /// The virtual SOL reserve the real buy's `min_tokens_out` is computed
@@ -1295,6 +1328,11 @@ impl HotLoop {
         if !dev_buy_ok(&self.cfg.dev_buy, hit.intx_sol_in) {
             return self.decision(intent, hit, code::DEV_BUY, 0, 0, 0, 0, 0);
         }
+        // 4a'': the operator table (entry.operators_only): only the launches
+        // of a listed create signer go on (nothing parked otherwise)
+        if self.cfg.operators_only && self.cfg.operator_rule(hit).is_none() {
+            return self.decision(intent, hit, code::NOT_OPERATOR, 0, 0, 0, 0, 0);
+        }
         // 4a': the leader filter (entry.leader_regions): a create whose slot
         // leader the box cannot reach in time is skipped, nothing sent
         if let Some(allowed) = self.cfg.leader_allowed {
@@ -1510,6 +1548,13 @@ impl HotLoop {
         create_index: u32,
     ) {
         let pb = parked.and_then(|p| p.pb);
+        // 4c: the bundle shape (entry.bundle_wallets) at the fire point: the
+        // park's distinct bundle wallets outside the creator set
+        if let Some(p) = parked {
+            if !bundle_shape_ok(&self.cfg.bundle_wallets, bundle_wallet_count(p)) {
+                return self.decision(intent, hit, code::BUNDLE_SHAPE, 0, 0, 0, 0, 0);
+            }
+        }
         // 5: watchlist
         let now_ms = crate::now_ms();
         let now_unix = now_ms / 1_000;
@@ -1749,7 +1794,15 @@ impl HotLoop {
             Some((v, _)) => self.cfg.v_cap_at(v, op.v_max),
             None => self.cfg.v_cap(v0, op.v_max),
         };
-        let min_out = min_tokens_out(spend, v_cap, hit.creator_arg, self.cfg.fees);
+        let min_out = match pb {
+            // a zero premium binds at the exact post-bundle state the park
+            // observed (the quote before our own trade): any buy ahead of
+            // ours fails the buy on chain, cheaply (docs/09)
+            Some((v, t)) if self.cfg.max_premium_bps == 0 => {
+                min_tokens_out_at(spend, v, t, hit.creator_arg, self.cfg.fees)
+            }
+            _ => min_tokens_out(spend, v_cap, hit.creator_arg, self.cfg.fees),
+        };
         let min_out_e2 = min_tokens_out(spend, op.v_max, hit.creator_arg, self.cfg.fees);
         // 12: patch (keys and the per-mint CU limit were resolved before the claim)
         // per-class bid: the tip (after the buy, reverts on failure) carries
@@ -1953,16 +2006,30 @@ impl HotLoop {
                 bundle.insert(*w);
             }
         }
+        // the exit: the operator table's hold for a listed signer (docs/09),
+        // counted from the create slot
+        let rule = self.cfg.operator_rule(hit);
         let pos = Position::pending(
             hit.mint,
             self.owner,
             intent,
-            self.cfg.policy,
+            self.cfg.policy_for(rule),
             bundle,
             hit.creator_arg,
             self.cfg.fees,
             pump_codec::curve::TOKEN_TOTAL_SUPPLY,
-        );
+        )
+        .with_create_slot(slot);
+        if let Some(r) = rule {
+            let k8 = key8(&hit.mint);
+            journal(format_args!(
+                "operator {} hold_to create+{} (n {}, bundle_wallets {})",
+                std::str::from_utf8(&k8).unwrap_or("?"),
+                r.hold_slots,
+                r.n,
+                r.bundle_wallets
+            ));
+        }
         self.slots[free] = Some(Slot {
             pos,
             intent,
@@ -3232,6 +3299,16 @@ impl HotLoop {
             .collect()
     }
 
+    /// The position held or pending on `mint` (reports and tests; not on
+    /// the hot path).
+    pub fn position_of(&self, mint: &Pubkey) -> Option<Position> {
+        self.slots
+            .iter()
+            .flatten()
+            .find(|s| s.pos.mint == *mint)
+            .map(|s| s.pos)
+    }
+
     /// Positions still waiting or open (state, tokens) for reports.
     pub fn position_states(&self) -> Vec<(Pubkey, PositionState, bool)> {
         self.slots
@@ -3949,5 +4026,37 @@ mod bundle_gate_tests {
             ParkStep::Fire
         );
         assert_eq!(p.pb, Some((33_000_000_000, 1)));
+    }
+
+    /// `entry.bundle_wallets` counts the park's buyers outside the creator
+    /// set (rt.json's `n_bw`): a buyer that is also a buyer or signer of the
+    /// create transaction, or its fee payer, is not a bundle wallet.
+    #[test]
+    fn bundle_wallets_are_counted_outside_the_creator_set() {
+        use crate::operators::{bundle_shape_ok, bundle_wallet_count};
+        let (dev, cre, cobuyer) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let mut h = hit(dev, cre);
+        h.intx_buyers.push(cobuyer);
+        let mut p = parked(&h, 10);
+        let owner = Pubkey::new_unique();
+        let (w1, w2) = (Pubkey::new_unique(), Pubkey::new_unique());
+        for (k, u) in [w1, w2, cobuyer, w1].iter().enumerate() {
+            let t = trade(h.mint, *u, true, 100, 11 + k as u32);
+            park_trade(&mut p, &t, &owner, 1_000_000, 0);
+        }
+        // the park keeps distinct buyers (dev and creator never trigger)
+        assert_eq!(p.n_wallets, 3);
+        assert_eq!(
+            bundle_wallet_count(&p),
+            2,
+            "the create tx's co-buyer is creator set"
+        );
+        assert!(bundle_shape_ok(&[2, 3, 4], 2));
+        assert!(!bundle_shape_ok(&[3], 2));
+        assert!(bundle_shape_ok(&[], 0), "empty = any");
     }
 }

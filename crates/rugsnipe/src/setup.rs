@@ -329,6 +329,27 @@ pub fn min_tokens_out(spend: u64, v_max: u64, creator: Pubkey, fees: FeeBps) -> 
     .unwrap_or(u64::MAX)
 }
 
+/// `min_tokens_out` for spending `spend` on the curve state `(v, t)` as it
+/// is (the observed post-bundle reserves): the exact quote, so the buy
+/// fails on chain if any trade ahead of it moved the price up
+/// (`entry.max_premium = 0`, docs/09). `u64::MAX` if nothing can be bought.
+pub fn min_tokens_out_at(spend: u64, v: u64, t: u64, creator: Pubkey, fees: FeeBps) -> u64 {
+    if v == 0 || t == 0 {
+        return u64::MAX;
+    }
+    CurveState {
+        virtual_sol: v,
+        virtual_token: t,
+        real_sol: 0,
+        real_token: u64::MAX,
+        complete: false,
+        creator,
+    }
+    .quote_buy_exact_sol_in(spend, fees)
+    .map(|q| q.tokens)
+    .unwrap_or(u64::MAX)
+}
+
 /// Paper runs without a config: fill every zero cap with the docs/06
 /// section 6 example values so paper decisions report realistic
 /// `would_skip`s (real modes never get here: validation refuses zero caps).

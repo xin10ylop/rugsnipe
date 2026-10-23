@@ -62,6 +62,14 @@ pub mod code {
     /// The pre-send entry gate scored the create below `entry.presend_cut`
     /// (`entry.presend_mode = "skip"`): nothing sent, risk and nonce released.
     pub const PRESEND: u8 = 0x53;
+    /// `entry.operators_only`: the create's signer (the fee payer, the
+    /// first signer of the create transaction) is not in the operator table
+    /// (`entry.operators_file`); nothing parked, nothing sent.
+    pub const NOT_OPERATOR: u8 = 0x54;
+    /// `entry.bundle_wallets`: the parked bundle run's distinct buyers
+    /// outside the creator set are not one of the listed counts; nothing
+    /// sent, no risk or nonce taken.
+    pub const BUNDLE_SHAPE: u8 = 0x55;
     /// Metrics only: a paper decision that a real mode would have skipped
     /// (rslog keeps the RiskGate code and the `would_skip` reason).
     pub const PAPER_WOULD_SKIP: u8 = 0x1f;
@@ -106,6 +114,8 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (code::FAR_LEADER, "skip_far_leader"),
     (code::DUMPER, "skip_dumper"),
     (code::PRESEND, "skip_presend"),
+    (code::NOT_OPERATOR, "skip_not_operator"),
+    (code::BUNDLE_SHAPE, "skip_bundle_shape"),
 ];
 
 /// Label of a decision code.
@@ -118,7 +128,7 @@ pub fn decision_label(c: u8) -> &'static str {
 }
 
 /// Exit reason labels (index = [`crate::msgs::reason_index`]).
-pub const EXIT_REASONS: [&str; 8] = [
+pub const EXIT_REASONS: [&str; 9] = [
     "bundle_sell",
     "consolidation",
     "big_buy",
@@ -127,6 +137,7 @@ pub const EXIT_REASONS: [&str; 8] = [
     "phantom_sl",
     "no_activity",
     "max_hold",
+    "hold_to",
 ];
 
 /// Every metric of the hot box.
@@ -147,7 +158,7 @@ pub struct HotStats {
     pub fills_late: Counter,
     pub unfilled: Counter,
     pub positions_open: Gauge,
-    pub exits: [Counter; 8],
+    pub exits: [Counter; 9],
     pub sells: Counter,
     pub sell_fills: Counter,
     pub sells_not_owner: Counter,
