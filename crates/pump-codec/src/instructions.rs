@@ -411,7 +411,11 @@ pub fn parse_pump_instruction<'a, A: AccountLookup + ?Sized>(
                 bonding_curve: a(2),
                 associated_bonding_curve: a(3),
                 user: a(5),
-                token_program: a(7),
+                // the IDL fixes create_v2's token program to Token-2022: a
+                // v0 create that loads it from a lookup table (most of them)
+                // still resolves without the loaded addresses (pre-execution
+                // bytes: the shredstream entries, a deshred copy without them)
+                token_program: a(7).or(Some(c::TOKEN_2022_PROGRAM_ID)),
                 quote_mint,
                 quote_tail_len: tail,
                 is_sol_quote,

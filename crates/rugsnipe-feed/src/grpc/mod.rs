@@ -388,26 +388,54 @@ pub struct ShredEntry {
 /// Walk the transactions of a serialized `Vec<Entry>` in order: `f` gets
 /// each transaction's wire bytes. Returns the count, or an error on a
 /// malformed buffer (what was walked before it stays delivered).
+///
+/// The buffer is walked to its last byte: a proxy may put several completed
+/// data sets of the slot in one message, back to back, each one an entry
+/// batch (`u64 count != 0`, then the entries) or an Alpenglow block marker
+/// (`u64 0`, `u16 version`, `u8 variant`, `u16 len`, `len` bytes; skipped);
+/// a trailing `u64 0` alone is an empty batch (or the abort batch). Bytes the
+/// walk cannot account for are an error, never silently ignored.
 pub fn for_each_entry_tx(bytes: &[u8], mut f: impl FnMut(&[u8])) -> Result<usize, &'static str> {
     fn u64_at(b: &[u8], p: usize) -> Result<u64, &'static str> {
-        let s = b.get(p..p + 8).ok_or("truncated length")?;
+        let s = b.get(p..p.saturating_add(8)).ok_or("truncated length")?;
         Ok(u64::from_le_bytes(s.try_into().unwrap_or([0; 8])))
     }
     let mut p = 0usize;
-    let n_entries = u64_at(bytes, p)?;
-    p += 8;
     let mut n = 0usize;
-    for _ in 0..n_entries {
-        // num_hashes: u64, hash: [u8; 32], transactions: Vec<_>
-        p += 8 + 32;
-        let n_tx = u64_at(bytes, p)?;
+    loop {
+        let n_entries = u64_at(bytes, p)?;
         p += 8;
-        for _ in 0..n_tx {
-            let rest = bytes.get(p..).ok_or("truncated transaction")?;
-            let (_, len) = TxView::parse_prefix(rest).map_err(|_| "bad transaction")?;
-            f(&rest[..len]);
-            p += len;
-            n += 1;
+        if n_entries == 0 {
+            if p == bytes.len() {
+                break;
+            }
+            // a block marker: version 1, variant, u16 length, body
+            let h = bytes.get(p..p + 5).ok_or("truncated marker")?;
+            if h[..2] != [1, 0] {
+                return Err("unknown block component");
+            }
+            let len = u16::from_le_bytes([h[3], h[4]]) as usize;
+            p += 5 + len;
+            if p > bytes.len() {
+                return Err("truncated marker");
+            }
+        } else {
+            for _ in 0..n_entries {
+                // num_hashes: u64, hash: [u8; 32], transactions: Vec<_>
+                p = p.saturating_add(8 + 32);
+                let n_tx = u64_at(bytes, p)?;
+                p += 8;
+                for _ in 0..n_tx {
+                    let rest = bytes.get(p..).ok_or("truncated transaction")?;
+                    let (_, len) = TxView::parse_prefix(rest).map_err(|_| "bad transaction")?;
+                    f(&rest[..len]);
+                    p += len;
+                    n += 1;
+                }
+            }
+        }
+        if p == bytes.len() {
+            break;
         }
     }
     Ok(n)
@@ -561,8 +589,10 @@ struct Adapter {
     meta_buf: Vec<u8>,
     last_pos: (u64, u32),
     recent: HashMap<Pubkey, u64>,
-    /// Deshred: (slot, next arrival index) of the current slot.
-    seq: (u64, u32),
+    /// Pre-execution: (slot, next arrival index) of the last slots. A shred
+    /// feed interleaves them (the end of slot N completes while N+1
+    /// starts): one counter per slot, never reset by the other slot.
+    seq: [(u64, u32); 8],
     /// Deshred: our simulated curve per create of the last slots, advanced by
     /// every pre-execution buy we quote.
     pre: HashMap<Pubkey, CurveState>,
@@ -598,7 +628,7 @@ impl Adapter {
             meta_buf: Vec::with_capacity(16 * 1024),
             last_pos: (0, 0),
             recent: HashMap::new(),
-            seq: (0, 0),
+            seq: [(0, 0); 8],
             pre: HashMap::new(),
             recent_slot: 0,
             pending_miss: None,
@@ -1079,15 +1109,19 @@ impl Adapter {
     /// only, the entries stream is filtered to them here).
     fn next_index(&mut self, slot: u64) -> u32 {
         self.bump_slot(slot);
-        if slot != self.seq.0 {
-            if slot < self.seq.0 {
-                self.stats.reordered.fetch_add(1, Ordering::Relaxed);
-            }
-            self.seq = (slot, 0);
+        if let Some(s) = self.seq.iter_mut().find(|s| s.0 == slot) {
+            let index = s.1;
+            s.1 = s.1.saturating_add(1);
+            return index;
         }
-        let index = self.seq.1;
-        self.seq.1 = self.seq.1.saturating_add(1);
-        index
+        if self.seq.iter().any(|s| s.0 > slot) {
+            self.stats.reordered.fetch_add(1, Ordering::Relaxed);
+        }
+        // a new slot replaces the oldest one
+        if let Some(s) = self.seq.iter_mut().min_by_key(|s| s.0) {
+            *s = (slot, 1);
+        }
+        0
     }
 
     /// One `Entry` message of the shredstream proxy: every transaction of

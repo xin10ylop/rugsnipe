@@ -169,3 +169,133 @@ fn a_create_in_an_entry_reaches_the_hot_ring_before_execution() {
     });
     drop(g);
 }
+
+fn raw_of(v: &Value) -> Vec<u8> {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD
+        .decode(v["result"]["transaction"][0].as_str().unwrap())
+        .unwrap()
+}
+
+/// One entry batch (`Vec<Entry>`, one entry) of these wire transactions.
+fn batch(txs: &[&[u8]]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&1u64.to_le_bytes());
+    out.extend_from_slice(&7u64.to_le_bytes());
+    out.extend_from_slice(&[0u8; 32]);
+    out.extend_from_slice(&(txs.len() as u64).to_le_bytes());
+    for t in txs {
+        out.extend_from_slice(t);
+    }
+    out
+}
+
+/// The mint of a create transaction, as the adapter decodes it.
+fn mint_of(raw: &[u8]) -> pump_codec::Pubkey {
+    match rugsnipe_feed::grpc::classify_create(raw, &[]) {
+        rugsnipe_feed::grpc::CreateCheck::Hit(m) => m,
+        other => panic!("not a create hit without loaded addresses: {other:?}"),
+    }
+}
+
+/// A top-level pump buy rewritten to buy `mint` (its static mint key
+/// replaced; signatures are not checked before execution).
+fn buy_of(fixture_name: &str, mint: pump_codec::Pubkey) -> Vec<u8> {
+    let mut raw = raw_of(&fixture(fixture_name));
+    let view = pump_codec::tx::TxView::parse(&raw).unwrap();
+    let buys = pump_codec::create_hit::pump_buys(&view, None, &[]).unwrap();
+    let old = buys[0].mint.expect("a top-level buy with a static mint");
+    let at = raw
+        .windows(32)
+        .position(|w| w == old.as_ref())
+        .expect("the mint key");
+    raw[at..at + 32].copy_from_slice(mint.as_ref());
+    raw
+}
+
+#[test]
+fn mixed_v0_v1_creates_and_buys_in_entries_reach_the_hot_ring() {
+    let srv = MockServer::start(None);
+    let mut g = Grpc::spawn(GrpcConfig {
+        src: FeedSrc::ShredStream,
+        url: srv.url(),
+        x_token: None,
+        stale_ms: 5_000,
+        bundle_run: true,
+        entries: true,
+        ..Default::default()
+    })
+    .unwrap();
+    let h = g.handle();
+    wait("the entries subscription", 10, || {
+        srv.shredstream.entries_connected()
+    });
+    // v0 without lookups, v0 with the create's constant accounts (token
+    // program, global, event authority...) in a lookup table, v1
+    let c_v0 = raw_of(&fixture("v0_create_v2_buy_v3"));
+    let c_alt = raw_of(&fixture("fresh_v0alt_create_v2_buy_v3"));
+    let c_v1 = raw_of(&fixture("v1_create_v2_buy_b"));
+    let (m_v0, m_alt, m_v1) = (mint_of(&c_v0), mint_of(&c_alt), mint_of(&c_v1));
+    // buys of those mints in the same slot: a legacy and a v1 transaction
+    let b_legacy = buy_of("legacy_buy18", m_v1);
+    let b_v1 = buy_of("v1_buy_exact_quote_in_v3", m_v0);
+    let b_alt = buy_of("legacy_buy_exact_sol_in", m_alt);
+    let other = raw_of(&fixture("fresh_v0alt_inner_sell_v2"));
+    let slot = 460_576_752u64;
+    // message 1: the creates; then the next slot starts (interleaved, as a
+    // shred feed delivers); message 3: two completed data sets of slot `slot`
+    // in one message (an Alpenglow marker between them): the buys
+    let mut m3 = batch(&[&other, &b_legacy]);
+    m3.extend_from_slice(&0u64.to_le_bytes());
+    m3.extend_from_slice(&[1, 0, 1, 41, 0, 1]);
+    m3.extend_from_slice(&(slot - 1).to_le_bytes());
+    m3.extend_from_slice(&[0xab; 32]);
+    m3.extend_from_slice(&batch(&[&b_v1, &b_alt]));
+    let msgs = [
+        (slot, batch(&[&c_v0, &c_alt, &c_v1])),
+        (slot + 1, batch(&[&raw_of(&fixture("legacy_sell16"))])),
+        (slot, m3),
+    ];
+    for (s, entries) in msgs {
+        let before = h.stats().slot_updates.load(Relaxed);
+        assert!(srv.shredstream.push_entry(ShredEntry { slot: s, entries }));
+        wait("the entry message", 10, || {
+            h.stats().slot_updates.load(Relaxed) > before
+        });
+    }
+    let mut buf = FeedBuf::with_capacity(256, 1 << 20);
+    let (mut wires, mut trades) = (Vec::new(), Vec::new());
+    wait("three creates and three buys", 10, || {
+        buf.clear();
+        g.poll(&mut buf);
+        for e in buf.events() {
+            match e.payload {
+                Payload::Wire(w) => {
+                    wires.push(WireMeta::parse(buf.wire_meta(w)).unwrap().tx_index)
+                }
+                Payload::Trade(t) => trades.push(t),
+                _ => {}
+            }
+        }
+        wires.len() >= 3 && trades.len() >= 3
+    });
+    assert_eq!(h.stats().convert_errors.load(Relaxed), 0, "every message walked");
+    assert_eq!(h.health().decode_miss.load(Relaxed), 0, "no create left unresolved");
+    assert_eq!(h.health().creates.load(Relaxed), 3);
+    assert_eq!(h.stats().wire_events.load(Relaxed), 3, "creates->wire");
+    assert_eq!(h.stats().trade_events.load(Relaxed), 3, "trades");
+    // the router sell reaches pump through a lookup table only: not seen
+    assert_eq!(h.stats().transactions.load(Relaxed), 7, "pump_tx");
+    assert_eq!(wires, [Some(0), Some(1), Some(2)]);
+    let by_mint = |m| trades.iter().find(|t| t.mint == m).copied().unwrap();
+    // the slot's arrival index continues across the interleaved slot
+    // (creates 0..2, then the buys; the next slot counts its own)
+    assert_eq!(by_mint(m_v1).index, 3);
+    assert_eq!(by_mint(m_v0).index, 4);
+    assert_eq!(by_mint(m_alt).index, 5);
+    for t in &trades {
+        assert_eq!(t.slot, slot);
+        assert!(t.is_buy && t.sol_amount > 0 && t.token_amount > 0, "{t:?}");
+    }
+    drop(g);
+}
