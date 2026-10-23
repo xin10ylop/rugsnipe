@@ -932,6 +932,15 @@ impl Adapter {
                         if self.recent.get(&mint) != Some(&slot) {
                             continue;
                         }
+                        // our own buy is never quoted here: the hot loop
+                        // opens a position on our executed TradeEvent (the
+                        // post-execution feed or the fill lane); a copy from
+                        // before execution would mark the fill before the
+                        // chain ran it, and its signature would make the
+                        // executed copy the mux's duplicate
+                        if b.user.is_some() && b.user == self.cfg.wallet {
+                            continue;
+                        }
                         let Some(curve) = self.pre.get_mut(&mint) else {
                             continue;
                         };
