@@ -432,6 +432,11 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         }
         None => ArmState::default(),
     };
+    // an ArmSet no buy could pass the spend cap with is refused, not run
+    let refusals = arm_state.size_cap_refusals(&cfg.effective_risk(), mode);
+    if !refusals.is_empty() {
+        return Err(refusals.join("\n"));
+    }
     let arm = Arc::new(ArcSwap::from_pointee(arm_state));
     // --- risk
     // probe: the selected [probe] stage narrows the [risk] caps

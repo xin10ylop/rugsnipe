@@ -91,6 +91,39 @@ impl ArmState {
         }
     }
 
+    /// Operators whose size no real buy could pass: in probe mode the
+    /// effective `max_probe_lamports` (the `[risk]` cap narrowed by the
+    /// stage's), in live `max_snipe_lamports`. Such an ArmSet makes the
+    /// box skip every launch as `skip_spend_cap` while looking healthy
+    /// (2026-10-22: 25 minutes at 0.5 SOL with the `[risk]` cap left at
+    /// 0.25), so the start refuses it. Paper is not checked.
+    pub fn size_cap_refusals(
+        &self,
+        eff: &rugsnipe_core::config::RiskCfg,
+        mode: Mode,
+    ) -> Vec<String> {
+        let (cap, name) = match mode {
+            Mode::Probe => (eff.max_probe_lamports, "max_probe_lamports"),
+            Mode::Live => (eff.max_snipe_lamports, "max_snipe_lamports"),
+            Mode::Paper => return vec![],
+        };
+        let active = |s: OpState| match mode {
+            Mode::Probe => s.may_probe(),
+            _ => s == OpState::Armed,
+        };
+        let mut ops: Vec<&OpInfo> = self.ops.values().filter(|o| active(o.state)).collect();
+        ops.sort_by_key(|o| o.op_id);
+        ops.iter()
+            .filter(|o| cap > 0 && o.size > cap)
+            .map(|o| {
+                format!(
+                    "ArmSet {} op {} size {} lamports exceeds the effective {name} {cap}                      (the smaller of [risk] and the [probe] stage's): every buy would be                      skipped as skip_spend_cap; raise both caps or sign a smaller ArmSet",
+                    self.ver, o.op_id, o.size
+                )
+            })
+            .collect()
+    }
+
     pub fn gate(&self) -> ArmSetGate {
         if self.verified {
             ArmSetGate::Verified {
@@ -392,5 +425,61 @@ mod tests {
         assert!(templates(&live, signer.pubkey(), &pool).is_err());
         // two throwaway signers differ
         assert_ne!(throwaway_signer().unwrap().pubkey(), signer.pubkey());
+    }
+
+    #[test]
+    fn an_armset_above_the_effective_spend_cap_is_refused_in_real_modes() {
+        let mut a = ArmSet {
+            ver: 202,
+            run_id: "test".into(),
+            code_sha: String::new(),
+            prereg_sha: String::new(),
+            created_at: 0,
+            valid_until: None,
+            regime: "test".into(),
+            min_hot_version: String::new(),
+            gate_passed: false,
+            probe_allowed: true,
+            probe_stage: None,
+            shared_fee_payers: vec![],
+            operators: vec![rugsnipe_core::armset::OpEntry {
+                op_id: 1,
+                state: OpState::Probe,
+                size_lamports: 500_000_000,
+                v_max_lamports: 115_000_000_000,
+                ev_cap_lamports: 0,
+                ab_skip_p: 0.0,
+                family: None,
+                exit: None,
+                stats: None,
+            }],
+            watch: vec![],
+            funding_rules: vec![],
+            match_all: None,
+        };
+        let st = ArmState::from_armset(&a, true, "sha");
+        let mut eff = rugsnipe_core::config::RiskCfg::default();
+        eff.max_probe_lamports = 250_000_000; // [risk] left at the 0.25 stage
+        eff.max_snipe_lamports = 500_000_000;
+        let r = st.size_cap_refusals(&eff, Mode::Probe);
+        assert_eq!(r.len(), 1, "{r:?}");
+        assert!(
+            r[0].contains("op 1 size 500000000") && r[0].contains("max_probe_lamports 250000000"),
+            "{}",
+            r[0]
+        );
+        // live looks at the snipe cap; paper never refuses; a cap of 0 is unset
+        assert!(st.size_cap_refusals(&eff, Mode::Live).is_empty());
+        assert!(st.size_cap_refusals(&eff, Mode::Paper).is_empty());
+        eff.max_probe_lamports = 0;
+        assert!(st.size_cap_refusals(&eff, Mode::Probe).is_empty());
+        eff.max_probe_lamports = 500_000_000;
+        assert!(st.size_cap_refusals(&eff, Mode::Probe).is_empty());
+        // a suspended operator is not checked
+        a.operators[0].state = OpState::Suspended;
+        eff.max_probe_lamports = 250_000_000;
+        assert!(ArmState::from_armset(&a, true, "sha")
+            .size_cap_refusals(&eff, Mode::Probe)
+            .is_empty());
     }
 }
