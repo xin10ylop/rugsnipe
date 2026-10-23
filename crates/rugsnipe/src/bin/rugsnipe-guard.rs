@@ -134,6 +134,8 @@ fn real_sell_path(
                 .unwrap_or(rugsnipe_state::RpcBudget::new(4.0)),
         ),
     );
+    let chain = Arc::new(chain);
+    let chain_b = chain.clone();
     let token_balance: rugsnipe::guard::TokenBalanceFn = Arc::new(move |mint| {
         use rugsnipe_state::ChainRead;
         let all = chain.token_balances(&owner).ok()?;
@@ -143,6 +145,18 @@ fn real_sell_path(
                 .map(|b| b.amount)
                 .sum(),
         )
+    });
+    // the proceeds of a sale we sent, from its signature (a few tries: the
+    // zero balance can show a moment before the transaction is served)
+    let proceeds: rugsnipe::guard::ProceedsFn = Arc::new(move |sig| {
+        use rugsnipe_state::ChainRead;
+        for _ in 0..3 {
+            if let Ok(Some(x)) = chain_b.tx_sol_delta(sig, &owner) {
+                return Some(x);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(400));
+        }
+        None
     });
     let blockhash = Arc::new(move || {
         let v = client
@@ -170,6 +184,7 @@ fn real_sell_path(
             senders,
             blockhash,
             token_balance: Some(token_balance),
+            proceeds: Some(proceeds),
         }),
     })
 }

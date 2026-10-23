@@ -137,10 +137,17 @@ pub struct GuardReal {
     /// unknown). Without it a sell can never be confirmed: it is retried
     /// until `max_sell_spend`.
     pub token_balance: Option<TokenBalanceFn>,
+    /// What our sell did to the wallet, fee included (`(lamports, slot)`),
+    /// from its signature: the exit row then carries the proceeds the
+    /// risk day is computed from (2026-10-23: a guard sale booked at 0
+    /// counted the whole buy as lost and tripped the daily kill).
+    pub proceeds: Option<ProceedsFn>,
 }
 
 /// The wallet's token balance of a mint ([`GuardReal::token_balance`]).
 pub type TokenBalanceFn = Arc<dyn Fn(&Pubkey) -> Option<u64> + Send + Sync>;
+/// A sale's lamport delta and slot from its signature ([`GuardReal::proceeds`]).
+pub type ProceedsFn = Arc<dyn Fn(&[u8; 64]) -> Option<(i64, u64)> + Send + Sync>;
 
 impl core::fmt::Debug for GuardReal {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -238,14 +245,23 @@ impl Guard {
         let w = rugsnipe_state::store::Write::Position(row);
         rugsnipe_state::store::apply(c, &w).map_err(|e| e.to_string())?;
         if pd.is_some() {
+            // the sale's proceeds, when the chain can be asked (a sell we
+            // sent has a signature; a zero-balance close without one has
+            // nothing to book)
+            let (sol_delta, slot) = match (&self.sell, sig != [0; 64]) {
+                (Some(PaperSell { real: Some(r), .. }), true) => {
+                    r.proceeds.as_ref().and_then(|f| f(&sig)).unwrap_or((0, 0))
+                }
+                _ => (0, 0),
+            };
             let e = rugsnipe_state::store::Write::Exit(ExitRow {
                 sig,
                 mint: p.mint,
                 reason: format!("guard_{reason}"),
                 venue: "curve".into(),
                 tokens: p.tokens,
-                sol_delta: 0,
-                slot: 0,
+                sol_delta,
+                slot,
                 owner,
                 try_no: tries,
             });

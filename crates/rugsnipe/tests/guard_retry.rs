@@ -255,6 +255,7 @@ fn hot_sigkilled_guard_retries_a_dropped_sell_until_the_position_closes() {
                 // a fresh blockhash per call
                 blockhash: Arc::new(move || Some([hn.fetch_add(1, AcqRel) + 1; 32])),
                 token_balance: Some(Arc::new(move |m| bal.lock().unwrap().get(m).copied())),
+                proceeds: None,
             }),
         }),
     );

@@ -26,6 +26,34 @@ pub trait ChainRead {
     fn balance(&self, _key: &Pubkey) -> Result<u64, String> {
         Err("balance: not supported by this chain source".into())
     }
+    /// What a confirmed transaction did to `owner`'s lamports, fee
+    /// included (`Some((delta, slot))`; `None` = not found or not yet
+    /// confirmed). The guard books its own sale's proceeds with it.
+    fn tx_sol_delta(&self, _sig: &[u8; 64], _owner: &Pubkey) -> Result<Option<(i64, u64)>, String> {
+        Err("tx_sol_delta: not supported by this chain source".into())
+    }
+}
+
+/// Parse a `getTransaction` (json encoding) `result` into `owner`'s
+/// lamport delta and the slot; `None` when the transaction is not there.
+pub fn parse_tx_sol_delta(result: &Value, owner: &Pubkey) -> Option<(i64, u64)> {
+    if result.is_null() {
+        return None;
+    }
+    let keys = result
+        .get("transaction")?
+        .get("message")?
+        .get("accountKeys")?
+        .as_array()?;
+    let want = owner.to_string();
+    let i = keys
+        .iter()
+        .position(|k| k.as_str() == Some(want.as_str()))?;
+    let meta = result.get("meta")?;
+    let pre = meta.get("preBalances")?.as_array()?.get(i)?.as_i64()?;
+    let post = meta.get("postBalances")?.as_array()?.get(i)?.as_i64()?;
+    let slot = result.get("slot")?.as_u64()?;
+    Some((post - pre, slot))
 }
 
 /// Parse a `getTokenAccountsByOwner` (jsonParsed) `result`.
@@ -143,6 +171,18 @@ mod rpc_chain {
             .and_then(|v| v.as_u64())
             .ok_or_else(|| "getBalance: no value".into())
         }
+        fn tx_sol_delta(
+            &self,
+            sig: &[u8; 64],
+            owner: &Pubkey,
+        ) -> Result<Option<(i64, u64)>, String> {
+            let r = self.call(
+                "getTransaction",
+                json!([bs58::encode(sig).into_string(), {"encoding": "json", "commitment": "confirmed",
+                       "maxSupportedTransactionVersion": 1}]),
+            )?;
+            Ok(parse_tx_sol_delta(&r, owner))
+        }
 
         fn accounts(&self, keys: &[Pubkey]) -> Result<Vec<Option<Vec<u8>>>, String> {
             let mut out = Vec::with_capacity(keys.len());
@@ -189,5 +229,22 @@ mod tests {
             vec![None, Some(vec![1, 2, 3])]
         );
         assert!(parse_multiple_accounts(&r, 3).is_err());
+    }
+
+    #[test]
+    fn a_sale_is_booked_as_the_owners_lamport_delta_fee_included() {
+        let owner = Pubkey::new_from_array([7; 32]);
+        let r = serde_json::json!({
+            "slot": 460485864u64,
+            "transaction": {"message": {"accountKeys": ["11111111111111111111111111111111", owner.to_string()]}},
+            "meta": {"fee": 5000, "preBalances": [1, 2_500_000_000u64], "postBalances": [1, 2_708_000_000u64]}
+        });
+        assert_eq!(
+            parse_tx_sol_delta(&r, &owner),
+            Some((208_000_000, 460485864))
+        );
+        assert_eq!(parse_tx_sol_delta(&serde_json::Value::Null, &owner), None);
+        let other = Pubkey::new_from_array([9; 32]);
+        assert_eq!(parse_tx_sol_delta(&r, &other), None);
     }
 }

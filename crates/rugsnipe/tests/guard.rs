@@ -237,6 +237,7 @@ fn guard_real_sell_goes_through_the_real_senders_on_a_recent_blockhash() {
                 senders,
                 blockhash: Arc::new(move || *h2.lock().unwrap()),
                 token_balance: None,
+                proceeds: None,
             }),
         }),
     );
