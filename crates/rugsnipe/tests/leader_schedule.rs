@@ -11,7 +11,7 @@ mod common;
 
 use common::*;
 use pump_codec::Pubkey;
-use rugsnipe::leader::{parse_cluster_nodes, ClientClass, LeaderMap};
+use rugsnipe::leader::{parse_cluster_nodes, ClientClass, LeaderMap, Region, RegionMap};
 use rugsnipe_feed::{FeedBuf, Payload};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -231,5 +231,85 @@ fn a_leader_change_next_slot_gets_its_own_variant() {
     assert!(rows[0].2 > 0 && rows[0].1 == 10_000, "{rows:?}");
     assert_eq!((rows[1].0, rows[1].3.as_str()), (1, "bam"));
     assert!(rows[1].2 == 0 && rows[1].1 > 10_000, "{rows:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn regions_attach_per_leader_and_unknown_identities_stay_unknown() {
+    let (jito, bam) = (Pubkey::new_unique(), Pubkey::new_unique());
+    let mut m = synthetic(jito, bam);
+    assert_eq!(m.region_at(1_000), Some(Region::Unknown));
+    let mut map = RegionMap::new();
+    map.insert(jito, Region::Na);
+    map.insert(bam, Region::Eu);
+    m.set_regions(&map);
+    assert_eq!(m.region_at(1_000), Some(Region::Na));
+    assert_eq!(m.region_at(1_001), Some(Region::Na));
+    assert_eq!(m.region_at(1_002), Some(Region::Eu));
+    assert_eq!(m.region_at(999), None, "before the epoch");
+    // a refresh of the classes keeps the regions
+    let cn = json!([{"pubkey": jito.to_string(), "clientId": "AgaveBam"}]);
+    m.set_nodes(&parse_cluster_nodes(&cn), 2);
+    assert_eq!(m.region_at(1_002), Some(Region::Eu));
+    assert_eq!(Region::parse("asia"), Some(Region::Asia));
+    assert_eq!(Region::parse("mars"), None);
+    assert_eq!(rugsnipe::hot::leader_mask(&[]), None);
+    let mask = rugsnipe::hot::leader_mask(&["eu".into()]).unwrap();
+    assert!(mask[Region::Eu as usize] && mask[Region::Unknown as usize]);
+    assert!(!mask[Region::Na as usize] && !mask[Region::Asia as usize]);
+}
+
+#[test]
+fn the_hot_loop_skips_a_create_whose_slot_leader_is_out_of_region() {
+    let dir = tmpdir("leader-region");
+    let dev = Pubkey::new_unique();
+    let mut cfg = paper_cfg(&dir);
+    cfg.entry.leader_regions = vec!["eu".into()];
+    let mut app = build(cfg, armset(&[dev], &[]), &dir, 300, false);
+    let (na, eu) = (Pubkey::new_unique(), Pubkey::new_unique());
+    let mut m = synthetic(na, eu);
+    let mut map = RegionMap::new();
+    map.insert(na, Region::Na);
+    map.insert(eu, Region::Eu);
+    m.set_regions(&map);
+    app.leaders.store(Arc::new(m));
+    // slot 1,000: the North American leader -> skipped; slot 1,002: Europe -> an intent
+    let (h1, _) = create(Pubkey::new_unique(), dev, 1_000, 1, 500_000_000);
+    let (h2, _) = create(Pubkey::new_unique(), dev, 1_002, 2, 500_000_000);
+    let mut feed = VecFeed::new(vec![
+        ev(1_000, Payload::Hit(h1)),
+        ev(1_002, Payload::Hit(h2)),
+    ]);
+    let mut buf = FeedBuf::with_capacity(64, 1 << 16);
+    let t0 = Instant::now();
+    while app.hot.counters.intents < 1 {
+        app.hot.step(&mut feed, &mut buf);
+        assert!(
+            t0.elapsed() < Duration::from_secs(10),
+            "{:?}",
+            app.hot.counters
+        );
+    }
+    for _ in 0..20 {
+        app.hot.step(&mut feed, &mut buf);
+    }
+    assert_eq!(app.hot.counters.intents, 1, "{:?}", app.hot.counters);
+    let skipped = app
+        .stats
+        .decision_counts()
+        .into_iter()
+        .find(|(k, _)| *k == "skip_far_leader")
+        .map(|(_, n)| n);
+    assert_eq!(skipped, Some(1));
+    app.shutdown(vec![]);
+    let c = rusqlite::Connection::open(dir.join("state.db")).unwrap();
+    let n: i64 = c
+        .query_row(
+            "SELECT count(*) FROM intents WHERE mint = ?1",
+            [h2.mint.to_string()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(n, 1);
     let _ = std::fs::remove_dir_all(&dir);
 }

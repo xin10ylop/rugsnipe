@@ -161,6 +161,25 @@ fn armset_states_and_missing_credentials() {
 }
 
 #[test]
+fn leader_regions_need_known_names_and_a_table() {
+    let mut c = example();
+    c.entry.leader_regions = vec!["eu".into(), "mars".into()];
+    c.entry.leader_regions_file = String::new();
+    let v = c.validate(&ValidateEnv::default());
+    let s = format!("{:?}", v.refusals);
+    assert!(
+        s.contains("entry.leader_regions\"")
+            || s.contains("entry.leader_regions,")
+            || s.contains("leader_regions"),
+        "{s}"
+    );
+    assert!(s.contains("leader_regions_file"), "{s}");
+    c.entry.leader_regions = vec!["eu".into()];
+    c.entry.leader_regions_file = "/var/lib/rugsnipe/data/leader_regions.json".into();
+    assert!(c.validate(&ValidateEnv::default()).ok());
+}
+
+#[test]
 fn invalid_in_every_mode() {
     let mut c = example();
     c.risk.kill_file = " ".into();

@@ -828,6 +828,14 @@ pub struct EntryCfg {
     pub dev_buy_sol: Vec<f64>,
     /// Tolerance around each listed dev buy, SOL (default 0.005).
     pub dev_buy_tol_sol: f64,
+    /// Regions of the create slot's leader a buy may fire at (`eu`, `na`,
+    /// `asia`, `other`); empty = any. A leader not in the table counts as
+    /// reachable. 2026-10-23: from Frankfurt the buy landed in the create slot
+    /// 62% of the time with a European leader, 33% North America, 9% Asia.
+    pub leader_regions: Vec<String>,
+    /// The validator region table (`data/leader_regions.json`, installed to
+    /// `/var/lib/rugsnipe/data/`); required when `leader_regions` is set.
+    pub leader_regions_file: String,
     pub filter: EntryFilter,
     /// The frozen P(take-profit) model of the entry filter
     /// (`data/reports/strategy/entry_filter_v1.json`, docs/04 section 2);
@@ -856,6 +864,8 @@ impl Default for EntryCfg {
             bundle_wait_ms: 2,
             dev_buy_sol: vec![],
             dev_buy_tol_sol: 0.005,
+            leader_regions: vec![],
+            leader_regions_file: String::new(),
             filter: EntryFilter::Any,
             filter_model: String::new(),
             filter_mode: FilterMode::Log,
@@ -1302,6 +1312,25 @@ impl Config {
         }
         if !(self.entry.dev_buy_tol_sol >= 0.0 && self.entry.dev_buy_tol_sol < 1.0) {
             inv(&mut r, "entry.dev_buy_tol_sol", "must be in [0, 1) SOL");
+        }
+        if self
+            .entry
+            .leader_regions
+            .iter()
+            .any(|x| !matches!(x.as_str(), "eu" | "na" | "asia" | "other"))
+        {
+            inv(
+                &mut r,
+                "entry.leader_regions",
+                "values must be eu, na, asia or other",
+            );
+        }
+        if !self.entry.leader_regions.is_empty() && self.entry.leader_regions_file.is_empty() {
+            inv(
+                &mut r,
+                "entry.leader_regions_file",
+                "required when entry.leader_regions is set (data/leader_regions.json)",
+            );
         }
         if self.bid.lamports > 0 {
             let max_bid = if self.risk.max_bid_lamports > 0 {

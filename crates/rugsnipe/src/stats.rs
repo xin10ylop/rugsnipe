@@ -53,6 +53,9 @@ pub mod code {
     /// The create's own dev buy is not one of `entry.dev_buy_sol` (operator
     /// template filter); nothing parked, nothing sent.
     pub const DEV_BUY: u8 = 0x50;
+    /// The create slot's leader is outside `entry.leader_regions` (the box
+    /// would land a slot late); nothing parked, nothing sent.
+    pub const FAR_LEADER: u8 = 0x51;
     /// Metrics only: a paper decision that a real mode would have skipped
     /// (rslog keeps the RiskGate code and the `would_skip` reason).
     pub const PAPER_WOULD_SKIP: u8 = 0x1f;
@@ -94,6 +97,7 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (code::NO_BUNDLE, "skip_no_bundle"),
     (code::NOT_FIRST, "skip_not_first"),
     (code::DEV_BUY, "skip_dev_buy"),
+    (code::FAR_LEADER, "skip_far_leader"),
 ];
 
 /// Label of a decision code.

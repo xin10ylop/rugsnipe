@@ -716,6 +716,14 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     if let Some(f) = o.trigger_tuning {
         f(&mut triggers);
     }
+    // the validator region table (entry.leader_regions_file) for the leader filter
+    let regions: Arc<crate::leader::RegionMap> = if cfg.entry.leader_regions_file.is_empty() {
+        Arc::new(Default::default())
+    } else {
+        Arc::new(crate::leader::load_regions(std::path::Path::new(
+            &cfg.entry.leader_regions_file,
+        ))?)
+    };
     let leader_lane = o.leader_rpc.clone().map(|url| crate::leader::LeaderCfg {
         rpc_url: url,
         budget: if mode.is_real() {
@@ -725,6 +733,7 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         },
         nodes_every_s: 180,
         epoch_every_s: 60,
+        regions: regions.clone(),
     });
     let cold_cfg = ColdCfg {
         box_id: cfg.box_.id.clone(),

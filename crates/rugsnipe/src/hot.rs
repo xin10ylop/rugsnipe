@@ -202,6 +202,9 @@ pub struct HotCfg {
     pub bundle_wait_ns: u64,
     /// `entry.dev_buy_sol` as lamport ranges `[lo, hi]` (empty = any).
     pub dev_buy: Vec<(u64, u64)>,
+    /// `entry.leader_regions` as a mask by [`crate::leader::Region`]
+    /// (`None` = any leader; an unknown region is always allowed).
+    pub leader_allowed: Option<[bool; crate::leader::Region::COUNT]>,
 }
 
 impl HotCfg {
@@ -247,6 +250,7 @@ impl HotCfg {
             bundle_lamports: cfg.entry.bundle_lamports,
             bundle_wait_ns: cfg.entry.bundle_wait_ms.saturating_mul(1_000_000),
             dev_buy: dev_buy_ranges(&cfg.entry.dev_buy_sol, cfg.entry.dev_buy_tol_sol),
+            leader_allowed: leader_mask(&cfg.entry.leader_regions),
             require_bundle: cfg.entry.require_bundle,
         }
     }
@@ -537,6 +541,22 @@ pub fn dev_buy_ranges(sol: &[f64], tol: f64) -> Vec<(u64, u64)> {
             (lo, hi)
         })
         .collect()
+}
+
+/// `entry.leader_regions` as an allow mask by region (`None` when empty);
+/// an unknown region is always allowed.
+pub fn leader_mask(regions: &[String]) -> Option<[bool; crate::leader::Region::COUNT]> {
+    if regions.is_empty() {
+        return None;
+    }
+    let mut m = [false; crate::leader::Region::COUNT];
+    for r in regions {
+        if let Some(reg) = crate::leader::Region::parse(r) {
+            m[reg as usize] = true;
+        }
+    }
+    m[crate::leader::Region::Unknown as usize] = true;
+    Some(m)
 }
 
 /// The create's dev buy (lamports) is one of the listed amounts (an empty
@@ -1061,6 +1081,15 @@ impl HotLoop {
         // own buy must be one of the listed amounts
         if !dev_buy_ok(&self.cfg.dev_buy, hit.intx_sol_in) {
             return self.decision(intent, hit, code::DEV_BUY, 0, 0, 0, 0, 0);
+        }
+        // 4a': the leader filter (entry.leader_regions): a create whose slot
+        // leader the box cannot reach in time is skipped, nothing sent
+        if let Some(allowed) = self.cfg.leader_allowed {
+            if let Some(r) = self.leaders.load().region_at(slot) {
+                if !allowed[r as usize] {
+                    return self.decision(intent, hit, code::FAR_LEADER, 0, 0, 0, 0, 0);
+                }
+            }
         }
         // 4b: the bundle gate (real only): park until another wallet's buy
         // of the mint shows in the create slot and the bundle run is
