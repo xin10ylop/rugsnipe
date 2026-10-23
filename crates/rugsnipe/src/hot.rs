@@ -81,7 +81,7 @@ use rugsnipe_feed::{Feed, FeedBuf, FeedEvent, FeedSrc, FeedStatus, Fired, FiredS
 use rugsnipe_tx::nonce::NoncePool;
 use rugsnipe_tx::senders::{Sender as _, SenderId, SenderSet, Variant, VariantKind};
 use rugsnipe_tx::signer::HotSigner;
-use rugsnipe_tx::template::{MintKeys, Patch};
+use rugsnipe_tx::template::{MintKeys, Patch, Template};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::*};
 use std::sync::Arc;
 
@@ -97,6 +97,14 @@ pub const LIVE_CLASS: u8 = 0;
 pub const FREE_CLASS: u8 = 1;
 /// Lifetime of paper sells (final sells use a blockhash; paper never sends).
 const PAPER_BLOCKHASH: [u8; 32] = [0x11; 32];
+/// Lifetime of a real sell handed to the sender thread with none: the
+/// sender resolves a recent blockhash before signing (an all-zero
+/// blockhash is never valid on chain).
+pub const NO_LIFETIME: [u8; 32] = [0; 32];
+/// A real position whose sells could not be sent for this long is handed
+/// to the guard (journal line + `guard_handoff:<mint>` row); the hot loop
+/// keeps retrying every slot.
+pub const HANDOFF_MS: u64 = 5_000;
 /// Slot-clock origin of replayed E1 positions (ms; only differences matter).
 const E1_MS_BASE: u64 = 1_000_000_000_000;
 
@@ -113,6 +121,15 @@ pub struct Shared {
     /// Recent blockhash and the slot it was read at (real sells; the cold
     /// lane refreshes it every few seconds). `None` = no real sell possible.
     pub blockhash: std::sync::Mutex<Option<([u8; 32], u64)>>,
+    /// The sell nonce pool (probe/live: `tx.sell_nonce_pool` accounts of
+    /// the wallet, seeded at start; unset in paper). The hot loop claims
+    /// from it when no blockhash is fresh; the cold thread watches / burns.
+    pub sell_nonces: std::sync::OnceLock<Arc<NoncePool>>,
+    /// How long no fresh blockhash has been available (ms; 0 = fresh now).
+    pub blockhash_age_ms: AtomicU64,
+    /// Buys paused: no fresh blockhash for more than
+    /// `risk.max_blockhash_age_ms` and no free sell nonce.
+    pub sell_blocked: AtomicBool,
 }
 
 impl Default for Shared {
@@ -123,6 +140,9 @@ impl Default for Shared {
             exits_owned: AtomicBool::new(true),
             stop: AtomicBool::new(false),
             blockhash: std::sync::Mutex::new(None),
+            sell_nonces: std::sync::OnceLock::new(),
+            blockhash_age_ms: AtomicU64::new(0),
+            sell_blocked: AtomicBool::new(false),
         }
     }
 }
@@ -138,6 +158,10 @@ impl Shared {
         let g = self.blockhash.lock().unwrap_or_else(|e| e.into_inner());
         g.filter(|(_, at)| now == 0 || now.saturating_sub(*at) <= 60)
             .map(|(h, _)| h)
+    }
+    /// Free sell nonces with a known value.
+    pub fn free_sell_nonces(&self) -> usize {
+        self.sell_nonces.get().map_or(0, |p| p.free_count())
     }
 }
 
@@ -194,6 +218,12 @@ pub struct HotCfg {
     /// `entry.max_premium` in basis points: the fill cap over the expected
     /// post-bundle price that the on-chain bound enforces.
     pub max_premium_bps: u32,
+    /// `risk.max_blockhash_age_ms`: buys pause while no fresh blockhash has
+    /// been available for longer than this and the sell nonce pool is empty.
+    pub max_blockhash_age_ms: u64,
+    /// The sender thread resolves a blockhash for a real sell handed over
+    /// without one ([`crate::sender::BlockhashResolver`]).
+    pub sell_resolver: bool,
     /// `entry.require_bundle`: real buys fire only on another wallet's buy
     /// of the mint in the create slot (see [`Parked`]).
     pub require_bundle: bool,
@@ -270,6 +300,8 @@ impl HotCfg {
             probe_stage: cfg.probe.stage,
             post_exec_feed: false,
             max_premium_bps: (cfg.entry.max_premium * 10_000.0).round().clamp(0.0, 1e6) as u32,
+            max_blockhash_age_ms: cfg.risk.max_blockhash_age_ms,
+            sell_resolver: false,
             bundle_lamports: cfg.entry.bundle_lamports,
             bundle_wait_ns: if cfg.entry.bundle_wait_us > 0 {
                 cfg.entry.bundle_wait_us.saturating_mul(1_000)
@@ -458,6 +490,30 @@ struct Slot {
     /// feed and the real fill lane can both report one).
     own_sigs: [[u8; 64]; OWN_SIGS],
     own_n: usize,
+    /// Real sells: the sell-pool nonce this position's sells ride when no
+    /// blockhash is fresh (every retry reuses it, so at most one lands).
+    sell_claim: Option<rugsnipe_tx::nonce::Claim>,
+    /// A sell with the claimed nonce went to the sender (else the claim is
+    /// given back unsent at the close).
+    sell_claim_sent: bool,
+    /// Wall clock (ms) since which no sell of this position could be sent
+    /// (0 = the last one went out).
+    unsold_since_ms: u64,
+    /// Handed to the guard ([`HANDOFF_MS`]).
+    handed_off: bool,
+}
+
+/// What the store knew about a position the wallet still holds at start
+/// (recovery): kept, only the token amount comes from the wallet.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Known {
+    pub cost: u64,
+    pub opened_slot: u64,
+    pub v_fill: u64,
+    pub peak_v: u64,
+    pub bundle: BundleSet,
+    /// The row came from one of our intents (not an orphan balance).
+    pub from_intent: bool,
 }
 
 /// Own-trade signatures remembered per position.
@@ -800,6 +856,12 @@ pub struct LoopCounters {
     pub real_dropped: u64,
     pub own_trades: u64,
     pub sells_no_blockhash: u64,
+    /// Real sells sent on a sell-pool nonce / handed to the sender without
+    /// a lifetime (it resolves a blockhash) / not sent by the sender (no
+    /// blockhash within its budget).
+    pub sells_on_nonce: u64,
+    pub sells_resolve: u64,
+    pub sells_unsent: u64,
     /// The pre-send entry gate: decisions scored (bundle block present) /
     /// unscored, skipped (`skip` mode), and the scored ones per tertile
     /// (low, mid, high).
@@ -875,6 +937,12 @@ pub struct HotLoop {
     /// Scratch for the ALT-loaded addresses of a wire event (no allocation).
     loaded: Box<[Pubkey]>,
     last_mark_ns: u64,
+    /// Final / partial sell templates per sell-pool nonce (index = nonce).
+    sell_tmpls: Vec<(Template, Template)>,
+    /// Wall clock (ms) of the last tick that saw a fresh blockhash.
+    bh_fresh_ms: u64,
+    /// Buys paused for want of any sell lifetime (see [`HotCfg::max_blockhash_age_ms`]).
+    sell_blocked: bool,
 }
 
 impl core::fmt::Debug for HotLoop {
@@ -936,6 +1004,9 @@ impl HotLoop {
             dumpers: p.dumpers,
             loaded: vec![Pubkey::default(); MAX_LOADED].into_boxed_slice(),
             last_mark_ns: 0,
+            sell_tmpls: Vec::new(),
+            bh_fresh_ms: 0,
+            sell_blocked: false,
         }
     }
 
@@ -955,6 +1026,48 @@ impl HotLoop {
     /// `(decision, wire, event)` latency histograms (ns).
     pub fn histograms(&self) -> (&Histogram<u64>, &Histogram<u64>, &Histogram<u64>) {
         (&self.hist_decision, &self.hist_wire, &self.hist_event)
+    }
+
+    /// Sell templates riding the sell-pool nonces (`(final, partial)` per
+    /// nonce of [`Shared::sell_nonces`], same order); without them a stale
+    /// blockhash falls through to the sender's resolver.
+    pub fn set_sell_nonce_templates(&mut self, t: Vec<(Template, Template)>) {
+        self.sell_tmpls = t;
+    }
+
+    /// Buys are paused for want of any sell lifetime.
+    pub fn sell_blocked(&self) -> bool {
+        self.sell_blocked
+    }
+
+    /// Real modes, every tick: how long no blockhash has been fresh, and
+    /// the buy pause (no fresh blockhash for more than
+    /// `risk.max_blockhash_age_ms` AND no free sell nonce: a position bought
+    /// now could not be sold). Transient: it clears on the next fresh
+    /// blockhash or a freed sell nonce; one journal line when it starts and
+    /// one when it ends; never the kill latch.
+    fn blockhash_watch(&mut self, now_ms: u64) {
+        if self.shared.fresh_blockhash().is_some() || self.bh_fresh_ms == 0 {
+            self.bh_fresh_ms = now_ms;
+        }
+        let age = now_ms.saturating_sub(self.bh_fresh_ms);
+        self.shared.blockhash_age_ms.store(age, Relaxed);
+        let free = self.shared.free_sell_nonces();
+        let blocked = age > self.cfg.max_blockhash_age_ms && free == 0;
+        if blocked != self.sell_blocked {
+            self.sell_blocked = blocked;
+            self.shared.sell_blocked.store(blocked, Relaxed);
+            if blocked {
+                journal(format_args!(
+                    "buys paused (skip_no_blockhash): no fresh blockhash for {age} ms (> {}) and no free sell nonce",
+                    self.cfg.max_blockhash_age_ms
+                ));
+            } else {
+                journal(format_args!(
+                    "buys resumed: blockhash age {age} ms, free sell nonces {free}"
+                ));
+            }
+        }
     }
 
     pub fn reset_histograms(&mut self) {
@@ -1730,6 +1843,12 @@ impl HotLoop {
                 return self.decision(intent, hit, code::SKIP_AB, 0, op.size, op.v_max, 0, 0);
             }
         }
+        // 9b: no way to sell what this buy would hold (no fresh blockhash
+        // for more than risk.max_blockhash_age_ms, no free sell nonce)
+        if real && self.sell_blocked {
+            self.risk.release_unfilled();
+            return self.decision(intent, hit, code::NO_BLOCKHASH, 0, op.size, op.v_max, 0, 0);
+        }
         // a position slot must exist before any nonce is claimed
         let Some(free) = self.slots.iter().position(|s| s.is_none()) else {
             if real {
@@ -2055,6 +2174,10 @@ impl HotLoop {
             feat: None,
             own_sigs: [[0u8; 64]; OWN_SIGS],
             own_n: 0,
+            sell_claim: None,
+            sell_claim_sent: false,
+            unsold_since_ms: 0,
+            handed_off: false,
         });
         self.stats.positions_open.set(self.positions() as i64);
     }
@@ -2219,6 +2342,29 @@ impl HotLoop {
                 cost,
                 dropped,
             } => self.real_failed(intent, cost, dropped),
+            HotIn::SellUnsent { intent, idx } => {
+                let Some(i) = self.find_intent(intent) else {
+                    return;
+                };
+                self.counters.sells_unsent += 1;
+                // the pending order whose attempt this was (try number in the variant index)
+                let try_no = u32::from(idx & 0x7f);
+                let order = self.slots[i].as_ref().and_then(|s| {
+                    s.pos
+                        .pending
+                        .iter()
+                        .flatten()
+                        .find(|p| p.order.try_no.min(127) == try_no && !p.unsent)
+                        .map(|p| p.order.order_id)
+                });
+                if let Some(order_id) = order {
+                    let now = Now {
+                        ms: crate::now_ms(),
+                        slot: self.slot_now,
+                    };
+                    self.sell_unsent(i, order_id, now);
+                }
+            }
             HotIn::RealBalance {
                 mint,
                 tokens,
@@ -2370,6 +2516,50 @@ impl HotLoop {
     /// the curve keys derived from the mint, and its balance is polled.
     /// `false` when no position slot is free.
     pub fn adopt(&mut self, mint: Pubkey, tokens: u64, intent: u64) -> bool {
+        self.adopt_known(mint, tokens, intent, None)
+    }
+
+    /// [`HotLoop::adopt`] with what the store knew about the position
+    /// (recovery's open row for the mint): its cost, opened slot, fill price,
+    /// peak and bundle are kept and only the token amount comes from the
+    /// wallet (2026-10-23: two 0.5 SOL positions came back as cost 0 /
+    /// opened_slot 0 and the guard's proceeds counted as pure profit).
+    pub fn adopt_known(
+        &mut self,
+        mint: Pubkey,
+        tokens: u64,
+        intent: u64,
+        known: Option<Known>,
+    ) -> bool {
+        if !self.adopt_inner(mint, tokens, intent) {
+            return false;
+        }
+        let (Some(k), Some(i)) = (known, self.find_mint(&mint)) else {
+            return true;
+        };
+        let Some(s) = self.slots[i].as_mut() else {
+            return true;
+        };
+        let p = &mut s.pos;
+        p.cost = k.cost;
+        if k.opened_slot > 0 {
+            p.opened_slot = k.opened_slot;
+        }
+        if k.v_fill > 0 {
+            p.v_fill = k.v_fill;
+            p.t_fill = (pump_codec::curve::K_INITIAL / k.v_fill as u128) as u64;
+        }
+        p.peak_v = p.peak_v.max(k.peak_v).max(p.v_fill);
+        p.bundle = k.bundle;
+        if k.from_intent {
+            p.origin = Some(rugsnipe_exit::Origin::Intent);
+        }
+        let snap = *p;
+        self.send_cold(ColdMsg::Position(snap));
+        true
+    }
+
+    fn adopt_inner(&mut self, mint: Pubkey, tokens: u64, intent: u64) -> bool {
         if tokens == 0 || self.find_mint(&mint).is_some() {
             return true;
         }
@@ -2427,6 +2617,10 @@ impl HotLoop {
             feat: None,
             own_sigs: [[0u8; 64]; OWN_SIGS],
             own_n: 0,
+            sell_claim: None,
+            sell_claim_sent: false,
+            unsold_since_ms: 0,
+            handed_off: false,
         });
         let now = Now {
             ms: crate::now_ms(),
@@ -2881,6 +3075,9 @@ impl HotLoop {
             ms: crate::now_ms(),
             slot: self.slot_now,
         };
+        if self.cfg.mode.is_real() {
+            self.blockhash_watch(now.ms);
+        }
         for i in 0..MAX_POS {
             let Some(s) = self.slots[i].as_ref() else {
                 continue;
@@ -3129,6 +3326,7 @@ impl HotLoop {
                 if real {
                     self.risk.on_position_closed(op_slot, pnl, now.ms / 1_000);
                 }
+                self.sell_nonce_done(i);
                 self.slots[i] = None;
                 self.stats.positions_open.set(self.positions() as i64);
             }
@@ -3146,10 +3344,124 @@ impl HotLoop {
         }
     }
 
+    /// The lifetime of a real curve sell when the lane's blockhash is not
+    /// fresh: the position's sell-pool nonce (claimed on first need, kept for
+    /// every retry so at most one of them lands). `None`: no free nonce or
+    /// no nonce templates. Lock-free, no allocation.
+    fn sell_nonce(&mut self, i: usize) -> Option<(usize, [u8; 32])> {
+        let pool = self.shared.sell_nonces.get()?.clone();
+        if pool.is_empty() || self.sell_tmpls.len() < pool.len() {
+            return None;
+        }
+        let s = self.slots[i].as_mut()?;
+        if let Some(c) = s.sell_claim {
+            if pool.holds(&c, s.intent) {
+                return Some((c.idx, c.value));
+            }
+            // advanced (a sell on it landed, or the keeper burned it)
+            s.sell_claim = None;
+            s.sell_claim_sent = false;
+        }
+        let c = pool.try_claim_any(s.intent, self.slot_now).ok()?;
+        s.sell_claim = Some(c);
+        s.sell_claim_sent = false;
+        let intent = s.intent;
+        let k8 = key8(&s.pos.mint);
+        journal(format_args!(
+            "sell {} rides sell nonce {} (no fresh blockhash)",
+            std::str::from_utf8(&k8).unwrap_or("?"),
+            c.idx
+        ));
+        self.send_cold(ColdMsg::SellNonce {
+            idx: c.idx as u16,
+            intent,
+            on: true,
+        });
+        Some((c.idx, c.value))
+    }
+
+    /// The position is done with its sell-pool nonce (closed, or handed
+    /// over): an unsent claim is given back, a sent one goes to the keeper
+    /// (burned unless its sell already advanced it).
+    fn sell_nonce_done(&mut self, i: usize) {
+        let Some(s) = self.slots[i].as_mut() else {
+            return;
+        };
+        let Some(c) = s.sell_claim.take() else {
+            return;
+        };
+        let (sent, intent) = (s.sell_claim_sent, s.intent);
+        if !sent {
+            if let Some(p) = self.shared.sell_nonces.get() {
+                p.release_unsent(&c);
+            }
+        }
+        self.send_cold(ColdMsg::SellNonce {
+            idx: c.idx as u16,
+            intent,
+            on: false,
+        });
+    }
+
+    /// A sell of position `i` could not go out: the exit engine takes the
+    /// attempt back (retried next slot, no try used), and after
+    /// [`HANDOFF_MS`] without a sell the position is handed to the guard.
+    fn sell_unsent(&mut self, i: usize, order_id: u32, now: Now) {
+        let Some(s) = self.slots[i].as_mut() else {
+            return;
+        };
+        rugsnipe_exit::unsent(&mut s.pos, order_id, now.slot);
+        if s.unsold_since_ms == 0 {
+            s.unsold_since_ms = now.ms.max(1);
+            return;
+        }
+        let unsold_ms = now.ms.saturating_sub(s.unsold_since_ms);
+        if unsold_ms < HANDOFF_MS || s.handed_off {
+            return;
+        }
+        s.handed_off = true;
+        let (mint, intent) = (s.pos.mint, s.intent);
+        let k8 = key8(&mint);
+        journal(format_args!(
+            "handoff {} to guard: no sell sent for {unsold_ms} ms (no fresh blockhash, no sell nonce, no resolved blockhash); retrying every slot",
+            std::str::from_utf8(&k8).unwrap_or("?")
+        ));
+        self.send_cold(ColdMsg::GuardHandoff {
+            mint,
+            intent,
+            unsold_ms,
+        });
+    }
+
     fn sell(&mut self, i: usize, order: SellOrder, now: Now) {
         self.counters.sells += 1;
         self.stats.sells.inc();
         let owned = self.shared.exits_owned.load(Acquire);
+        // a real curve sell's lifetime, first choice first (2026-10-23: the
+        // lane's blockhash went stale and two positions sat unsold for 17
+        // minutes): 1. the lane's fresh blockhash; 2. a sell-pool durable
+        // nonce (this position's claim); 3. none here: the job goes to the
+        // sender thread marked NO_LIFETIME and the sender fetches a recent
+        // blockhash (300 ms budget, off the hot thread) before signing;
+        // 4. no resolver either: not sent, the attempt is taken back
+        // (rugsnipe_exit::unsent) and retried on the next slot.
+        let real_sell = self.cfg.mode.is_real()
+            && self.slots[i]
+                .as_ref()
+                .is_some_and(|s| s.real && order.venue == Venue::Curve);
+        let mut nonce_k: Option<usize> = None;
+        let lifetime = if !real_sell {
+            Some(PAPER_BLOCKHASH)
+        } else if let Some(h) = self.shared.fresh_blockhash() {
+            Some(h)
+        } else if let Some((k, v)) = owned.then(|| self.sell_nonce(i)).flatten() {
+            nonce_k = Some(k);
+            Some(v)
+        } else if self.cfg.sell_resolver {
+            Some(NO_LIFETIME)
+        } else {
+            None
+        };
         let Some(s) = self.slots[i].as_mut() else {
             return;
         };
@@ -3171,13 +3483,7 @@ impl HotLoop {
         // reaches a real sender
         let paper = !(self.cfg.mode.is_real() && s.real);
         let mut sig = [0u8; 64];
-        // a real sell needs a recent blockhash (final sells close the
-        // account; the sell nonce pool is not built yet)
-        let lifetime = if paper {
-            Some(PAPER_BLOCKHASH)
-        } else {
-            self.shared.fresh_blockhash()
-        };
+        let mut unsent = false;
         if !owned {
             self.stats.sells_not_owner.inc();
         } else if lifetime.is_none() && order.venue == Venue::Curve {
@@ -3186,12 +3492,19 @@ impl HotLoop {
                 kind: 0x43,
                 value: order.order_id as i64,
             });
+            unsent = true;
         } else if order.venue == Venue::Curve {
             let lifetime = lifetime.unwrap_or(PAPER_BLOCKHASH);
-            let t = if order.close_account {
-                &mut self.tmpl.sell_final
-            } else {
-                &mut self.tmpl.sell_partial
+            if !paper && lifetime == NO_LIFETIME {
+                self.counters.sells_resolve += 1;
+            } else if !paper {
+                s.unsold_since_ms = 0;
+            }
+            let t = match (nonce_k, order.close_account) {
+                (Some(k), true) => &mut self.sell_tmpls[k].0,
+                (Some(k), false) => &mut self.sell_tmpls[k].1,
+                (None, true) => &mut self.tmpl.sell_final,
+                (None, false) => &mut self.tmpl.sell_partial,
             };
             // the sell bid goes through the bid policy: priority floor + tip on
             // a tip-ordered class, the bid as the priority fee elsewhere; never
@@ -3240,8 +3553,16 @@ impl HotLoop {
                 };
                 if self.fire.push(job).is_err() {
                     self.counters.ring_full += 1;
+                    unsent = true;
+                } else if nonce_k.is_some() {
+                    s.sell_claim_sent = true;
+                    self.counters.sells_on_nonce += 1;
                 }
             }
+        }
+        if unsent {
+            self.sell_unsent(i, order.order_id, now);
+            return;
         }
         self.rslog.push(Rec::ExitFired {
             intent: s.intent,

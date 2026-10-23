@@ -66,10 +66,15 @@ pub fn decide_into(pos: &mut Position, ev: &ExitEvent, now: Now, out: &mut Vec<E
         pos.cur_slot = slot;
     }
 
-    // 2. retries due
+    // 2. retries due (an attempt that never left the box: every slot)
     for i in 0..pos.pending.len() {
         let Some(p) = pos.pending[i] else { continue };
-        if !p.exhausted && slot >= p.sent_slot.saturating_add(pos.policy.retry_every_slots) {
+        let due = if p.unsent {
+            slot > p.sent_slot
+        } else {
+            slot >= p.sent_slot.saturating_add(pos.policy.retry_every_slots)
+        };
+        if !p.exhausted && due {
             reissue(pos, i, slot, None, out);
         }
     }
@@ -602,9 +607,36 @@ fn new_order(
         t_trigger: pos.cur_t,
         sent_slot: send_slot,
         exhausted: false,
+        unsent: false,
     });
     pos.state = PositionState::Exiting;
     out.push(ExitAction::Sell(order));
+}
+
+/// The caller could not send attempt `order_id` (2026-10-23: no fresh
+/// blockhash for 17 minutes; the three unsent tries charged 3.4M + 6.8M +
+/// 9.8M of tips against the 20M `max_sell_spend`, the order went
+/// `exhausted` and the position was never sold): the attempt is taken back.
+/// Its tip goes back to the sell-spend cap, it uses no try, and the same
+/// order is re-issued on the next slot (not `every_slots` later) for as long
+/// as the position is open. Returns `false` if no such order is pending.
+pub fn unsent(pos: &mut Position, order_id: u32, slot: u64) -> bool {
+    let Some(i) = pos
+        .pending
+        .iter()
+        .position(|p| p.is_some_and(|p| p.order.order_id == order_id))
+    else {
+        return false;
+    };
+    let Some(mut p) = pos.pending[i] else {
+        return false;
+    };
+    pos.sell_spend = pos.sell_spend.saturating_sub(p.order.tip_lamports);
+    p.unsent = true;
+    p.exhausted = false;
+    p.sent_slot = slot;
+    pos.pending[i] = Some(p);
+    true
 }
 
 /// Re-send the order in `pending[i]` (retry, escalation, venue change).
@@ -617,6 +649,26 @@ fn reissue(
 ) {
     let Some(mut p) = pos.pending[i] else { return };
     let pol = pos.policy;
+    if p.unsent {
+        // the last attempt never left the box (refunded by `unsent`): the
+        // same order again, same try number and tip, no escalation
+        let others = pos.inflight_tokens().saturating_sub(p.order.tokens);
+        let tokens = p.order.tokens.min(pos.tokens.saturating_sub(others));
+        if tokens == 0 {
+            pos.pending[i] = None;
+            return;
+        }
+        let tip = p.order.tip_lamports.min(remaining_spend(pos));
+        pos.sell_spend = pos.sell_spend.saturating_add(tip);
+        p.order.tokens = tokens;
+        p.order.tip_lamports = tip;
+        p.order.venue = pos.venue;
+        p.unsent = false;
+        p.sent_slot = slot;
+        pos.pending[i] = Some(p);
+        out.push(ExitAction::Sell(p.order));
+        return;
+    }
     let spend_left = remaining_spend(pos);
     if p.order.try_no >= pol.retry_max_tries || spend_left == 0 {
         p.exhausted = true;

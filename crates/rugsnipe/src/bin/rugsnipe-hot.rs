@@ -886,10 +886,14 @@ fn run(args: &[String]) -> Result<(), String> {
                     .collect();
                 let probe = if mode.is_real() {
                     let p = &r.probe;
+                    let sh = &app.shared;
                     format!(
-                        " | probe attempts {} landed {} failed {} dropped {} fail_cost {} wallet {}",
+                        " | probe attempts {} landed {} failed {} dropped {} fail_cost {} wallet {} | blockhash age {} ms sell_nonces {}{}",
                         p.attempts, p.landed, p.landed_failed, p.dropped, p.failed_cost_lamports,
-                        p.wallet_lamports
+                        p.wallet_lamports,
+                        sh.blockhash_age_ms.load(Relaxed),
+                        sh.free_sell_nonces(),
+                        if sh.sell_blocked.load(Relaxed) { " BUYS PAUSED (skip_no_blockhash)" } else { "" }
                     )
                 } else {
                     String::new()

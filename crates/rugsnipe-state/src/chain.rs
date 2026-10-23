@@ -46,6 +46,23 @@ pub trait ChainRead {
     ) -> Result<Option<([u8; 64], i64, u64)>, String> {
         Err("find_owner_sell: not supported by this chain source".into())
     }
+    /// A recent blockhash (`getLatestBlockhash`, confirmed) and the slot it
+    /// was read at: the sender thread's fallback when the real lane's
+    /// cached blockhash is stale ([`parse_latest_blockhash`]).
+    fn latest_blockhash(&self) -> Result<([u8; 32], u64), String> {
+        Err("latest_blockhash: not supported by this chain source".into())
+    }
+}
+
+/// Parse a `getLatestBlockhash` `result`: `(hash, context slot)`.
+pub fn parse_latest_blockhash(result: &Value) -> Option<([u8; 32], u64)> {
+    let hash = bs58::decode(result["value"]["blockhash"].as_str()?)
+        .into_vec()
+        .ok()?;
+    Some((
+        <[u8; 32]>::try_from(hash).ok()?,
+        result["context"]["slot"].as_u64().unwrap_or(0),
+    ))
 }
 
 /// [`ChainRead::find_owner_sell`]: signatures of the owner read (newest first).
@@ -289,6 +306,11 @@ mod rpc_chain {
                 json!([owner.to_string(), {"limit": SELL_LOOKUP_SIGS, "commitment": "confirmed"}]),
             )?;
             find_sell_in(&sigs, owner, mint, since_slot, |sig| self.get_tx(sig))
+        }
+
+        fn latest_blockhash(&self) -> Result<([u8; 32], u64), String> {
+            let r = self.call("getLatestBlockhash", json!([{"commitment": "confirmed"}]))?;
+            parse_latest_blockhash(&r).ok_or_else(|| "getLatestBlockhash: no blockhash".into())
         }
 
         fn accounts(&self, keys: &[Pubkey]) -> Result<Vec<Option<Vec<u8>>>, String> {

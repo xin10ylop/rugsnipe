@@ -1789,6 +1789,63 @@ impl Cold {
                     }
                 }
             }
+            ColdMsg::SellNonce { idx, intent, on } => {
+                let Some(pool) = self.p.shared.sell_nonces.get().cloned() else {
+                    return;
+                };
+                let i = idx as usize;
+                if i >= pool.len() {
+                    return;
+                }
+                let lane_idx = crate::real::SELL_NONCE_BIT | idx;
+                if on {
+                    // the lane reports the advance (our sell landed) or the burn
+                    self.lane(crate::real::LaneCmd::WatchNonce {
+                        idx: lane_idx,
+                        account: pool.account(i),
+                        value: pool.value(i),
+                    });
+                } else if pool.packed(i).state == NonceState::InFlight && pool.intent(i) == intent {
+                    // the position is done; a sell still riding it is dead after the burn
+                    if let Some(r) = &self.p.cfg.real {
+                        self.lane(crate::real::LaneCmd::Burn {
+                            idx: lane_idx,
+                            account: pool.account(i),
+                            value: pool.value(i),
+                            signer: r.signer.clone(),
+                        });
+                    }
+                }
+                self.write_sell_nonce_row(i);
+            }
+            ColdMsg::SellUnsent { intent, idx } => {
+                lock(&self.p.report).probe.error(format!(
+                    "sell of intent {intent} not sent: no blockhash within the sender's budget"
+                ));
+                self.to_hot_q.push_back(HotIn::SellUnsent { intent, idx });
+            }
+            ColdMsg::GuardHandoff {
+                mint,
+                intent,
+                unsold_ms,
+            } => {
+                let detail = format!(
+                    "no sell of {mint} (intent {intent}) could be sent for {unsold_ms} ms (no fresh blockhash, no sell nonce)"
+                );
+                eprintln!("guard handoff: {detail}");
+                lock(&self.p.report)
+                    .probe
+                    .error(format!("guard handoff: {detail}"));
+                self.alerts.send(format!("CRITICAL: hot cannot sell {mint}: handed to the guard ({unsold_ms} ms without a sell lifetime)"));
+                if let Some(l) = &ledger {
+                    l.kv(
+                        &format!("guard_handoff:{mint}"),
+                        serde_json::json!({"intent": intent, "unsold_ms": unsold_ms, "unix_ms": crate::now_ms()})
+                            .to_string(),
+                    );
+                    l.flush();
+                }
+            }
             ColdMsg::BurnNonce { idx, intent } => {
                 let i = idx as usize;
                 if i < self.p.nonces.len()
@@ -2090,6 +2147,16 @@ impl Cold {
                     exists,
                 });
             }
+            E::Nonce { idx, value, slot } if idx & crate::real::SELL_NONCE_BIT != 0 => {
+                // a sell-pool nonce advanced (our sell landed, or the burn)
+                let i = (idx & !crate::real::SELL_NONCE_BIT) as usize;
+                if let Some(pool) = self.p.shared.sell_nonces.get().cloned() {
+                    if i < pool.len() {
+                        pool.on_value(i, value, slot);
+                        self.write_sell_nonce_row(i);
+                    }
+                }
+            }
             E::Nonce { idx, value, slot } => {
                 let i = idx as usize;
                 if i < self.p.nonces.len() {
@@ -2350,6 +2417,28 @@ impl Cold {
         l.nonce(NonceRow {
             pubkey: pool.account(i),
             pool: "buy",
+            idx: i as u16,
+            value: pool.value(i),
+            last_change_slot: known.then_some(pk.last_change_slot),
+            state: NonceRowState::from_pool(pk.state),
+            intent_id: (pk.state == NonceState::InFlight).then(|| pool.intent(i) as i64),
+            since_slot: None,
+        });
+    }
+
+    /// The `nonces` row (pool `sell`) of sell-pool nonce `i`.
+    fn write_sell_nonce_row(&self, i: usize) {
+        let (Some(l), Some(pool)) = (&self.p.ledger, self.p.shared.sell_nonces.get()) else {
+            return;
+        };
+        if i >= pool.len() {
+            return;
+        }
+        let pk = pool.packed(i);
+        let known = pk.last_change_slot != rugsnipe_tx::nonce::UNKNOWN_SLOT;
+        l.nonce(NonceRow {
+            pubkey: pool.account(i),
+            pool: "sell",
             idx: i as u16,
             value: pool.value(i),
             last_change_slot: known.then_some(pk.last_change_slot),

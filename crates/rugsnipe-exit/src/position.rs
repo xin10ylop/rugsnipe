@@ -115,6 +115,12 @@ pub struct PendingSell {
     pub sent_slot: u64,
     /// No more retries (max tries or spend cap reached); alert raised.
     pub exhausted: bool,
+    /// The last attempt never left the box (no transaction lifetime: no
+    /// fresh blockhash, no free sell nonce; [`crate::decide::unsent`]): it
+    /// cost nothing and used no try, and the same order is due again on the
+    /// next slot, for as long as the position is open.
+    #[serde(default)]
+    pub unsent: bool,
 }
 
 /// A remembered transfer (consolidation window).

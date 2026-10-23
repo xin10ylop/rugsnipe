@@ -113,6 +113,10 @@ impl core::fmt::Debug for RealOpts {
     }
 }
 
+/// The sender's budget for fetching a blockhash for a real sell that has
+/// none (no fresh lane blockhash, no free sell nonce).
+pub const SELL_BLOCKHASH_BUDGET_MS: u64 = 300;
+
 /// A running process minus the hot loop.
 pub struct App {
     pub hot: HotLoop,
@@ -459,6 +463,18 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         NoncePool::new(owner, &rugsnipe_tx::sysix::pool_addresses(&owner, "buy", n))
     });
     let templates = setup::templates(&cfg, owner, &nonces)?;
+    // the sell nonce pool (probe/live; `rugsnipe-ctl nonce-init --pool sell`):
+    // real sells ride it when no blockhash is fresh; unknown until seeded
+    let sell_nonces = (mode.is_real() && cfg.tx.sell_nonce_pool > 0).then(|| {
+        Arc::new(NoncePool::new(
+            owner,
+            &rugsnipe_tx::sysix::pool_addresses(&owner, "sell", cfg.tx.sell_nonce_pool as usize),
+        ))
+    });
+    let sell_templates = match &sell_nonces {
+        Some(p) => setup::sell_nonce_templates(&cfg, owner, p)?,
+        None => vec![],
+    };
     let policy = setup::exit_policy(&cfg)?;
     // --- entry filter (docs/04 section 2): loaded once, refused if broken
     let filter = if cfg.entry.filter_model.is_empty() {
@@ -549,8 +565,12 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         None => None,
     };
     let nonce_accounts: Vec<(Pubkey, &'static str, u16)> = if mode.is_real() {
+        let sell = sell_nonces
+            .iter()
+            .flat_map(|p| (0..p.len()).map(move |i| (p.account(i), "sell", i as u16)));
         (0..nonces.len())
             .map(|i| (nonces.account(i), "buy", i as u16))
+            .chain(sell)
             .collect()
     } else {
         vec![]
@@ -575,6 +595,10 @@ pub fn build(o: AppOpts) -> Result<App, String> {
             .map_err(|e| format!("recovery: {e}"))?;
             if mode.is_real() {
                 seed_nonces(&nonces, &rep);
+                if let Some(p) = &sell_nonces {
+                    seed_pool(p, &rep, "sell");
+                    eprintln!("sell nonce pool: {} of {} usable", p.free_count(), p.len());
+                }
                 match chain.as_deref().map(|c| c.balance(&owner)) {
                     Some(Ok(b)) => risk.set_hot_balance(b),
                     Some(Err(e)) => eprintln!("wallet balance: {e} (the real lane retries)"),
@@ -687,9 +711,38 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     stats.mode.set(mode.as_u8() as i64);
     let registry = Arc::new(registry);
     let shared = Arc::new(Shared::default());
+    if let Some(p) = &sell_nonces {
+        let _ = shared.sell_nonces.set(p.clone());
+    }
+    // the sender's fallback for a real sell with no fresh blockhash and no
+    // free sell nonce: a bounded (300 ms) getLatestBlockhash through the
+    // chain handle, on its own thread (never on the hot thread)
+    let resolver = match (&chain, mode.is_real()) {
+        (Some(c), true) => {
+            let c = c.clone();
+            let fetch: crate::sender::FetchBlockhash =
+                Arc::new(move || match c.latest_blockhash() {
+                    Ok(x) => Some(x),
+                    Err(e) => {
+                        eprintln!("sell blockhash fallback: {}", crate::keys::redact_text(&e));
+                        None
+                    }
+                });
+            Some(
+                crate::sender::BlockhashResolver::spawn(
+                    shared.clone(),
+                    fetch,
+                    std::time::Duration::from_millis(SELL_BLOCKHASH_BUDGET_MS),
+                )
+                .map_err(|e| e.to_string())?,
+            )
+        }
+        _ => None,
+    };
+    let has_resolver = resolver.is_some();
     let report = Arc::new(Mutex::new(ColdReport::default()));
     // --- threads
-    let sender = crate::sender::spawn(
+    let sender = crate::sender::spawn_with(
         fire_rx,
         senders.clone(),
         signer.clone(),
@@ -697,6 +750,7 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         send_cold_tx,
         stats.clone(),
         Arc::new(AtomicBool::new(false)),
+        resolver,
     )
     .map_err(|e| e.to_string())?;
     let fired = Arc::new(FiredSet::with_capacity(1 << 16));
@@ -877,6 +931,7 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     hot_cfg.presend = presend;
     hot_cfg.presend_ops = presend_ops;
     hot_cfg.post_exec_feed = has_post_exec && mode.is_real();
+    hot_cfg.sell_resolver = has_resolver;
     let mut hot = HotLoop::new(HotParts {
         cfg: hot_cfg,
         watch: watch.clone(),
@@ -899,8 +954,21 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     // probe: every token balance recovery found gets an exit owner (I2/I6)
     if mode.is_real() {
         if let Some(rep) = &recovery {
+            hot.set_sell_nonce_templates(sell_templates);
             for p in &rep.open_positions {
-                if !hot.adopt(p.mint, p.tokens, p.intent_id as u64) {
+                // the store's cost / opened slot / bundle stay; the wallet
+                // only reconciles the token amount
+                // (a balance recovery just found has no row: nothing known)
+                let fresh_orphan = rep.orphans.iter().any(|o| o.mint == p.mint);
+                let known = (!fresh_orphan).then(|| crate::hot::Known {
+                    cost: p.cost,
+                    opened_slot: p.opened_slot,
+                    v_fill: p.v_fill,
+                    peak_v: p.peak_v,
+                    bundle: serde_json::from_str(&p.bundle_json).unwrap_or_default(),
+                    from_intent: p.origin == rugsnipe_state::rows::Origin::Intent,
+                });
+                if !hot.adopt_known(p.mint, p.tokens, p.intent_id as u64, known) {
                     eprintln!(
                         "recovery: no position slot for {} ({} tokens)",
                         p.mint, p.tokens
@@ -944,10 +1012,15 @@ pub fn build(o: AppOpts) -> Result<App, String> {
 /// in flight with an unchanged value is in flight again (its old variants
 /// may still land), so the keeper burns it first.
 pub fn seed_nonces(pool: &NoncePool, rep: &RecoveryReport) {
+    seed_pool(pool, rep, "buy")
+}
+
+/// [`seed_nonces`] for the rows of pool `name` (`buy` / `sell`).
+pub fn seed_pool(pool: &NoncePool, rep: &RecoveryReport, name: &str) {
     let slot = rep.slot.unwrap_or(0);
     for r in &rep.nonces {
         let i = r.idx as usize;
-        if r.pool != "buy" || i >= pool.len() || pool.account(i) != r.pubkey {
+        if r.pool != name || i >= pool.len() || pool.account(i) != r.pubkey {
             continue;
         }
         match r.state {

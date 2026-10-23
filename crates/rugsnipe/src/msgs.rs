@@ -10,6 +10,27 @@ use rugsnipe_tx::template::Template;
 /// Hot (or sender) thread -> cold thread.
 #[derive(Debug, Clone, Copy)]
 pub enum ColdMsg {
+    /// A real sell rides sell-pool nonce `idx` (`on`: claimed, the lane
+    /// watches its value; `!on`: the position is done with it, the keeper
+    /// burns it if it is still in flight).
+    SellNonce {
+        idx: u16,
+        intent: u64,
+        on: bool,
+    },
+    /// Sender thread: a real sell handed over without a lifetime found no
+    /// blockhash inside its budget and was not sent (variant `idx`).
+    SellUnsent {
+        intent: u64,
+        idx: u8,
+    },
+    /// The hot loop could not send a sell of `mint` for `unsold_ms`: the
+    /// position is handed to the guard (`guard_handoff:<mint>` in `kv`).
+    GuardHandoff {
+        mint: Pubkey,
+        intent: u64,
+        unsold_ms: u64,
+    },
     /// A trade of a mint the hot loop neither holds nor parks (the feed
     /// streams the first slots of every bundled launch): the operator-dump
     /// tracker's input.
@@ -266,6 +287,9 @@ pub enum HotIn {
     /// Real: one of our own trades on a held mint (a sell, or a buy variant
     /// that beat the burn), from the landed transaction's TradeEvent.
     RealTrade { sig: [u8; 64], trade: Trade },
+    /// Real: a sell handed to the sender without a lifetime was not sent
+    /// (no blockhash within the sender's budget): the attempt is taken back.
+    SellUnsent { intent: u64, idx: u8 },
     /// Real: the chain token balance of a held mint.
     RealBalance {
         mint: Pubkey,

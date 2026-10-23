@@ -154,6 +154,11 @@ pub struct RiskCfg {
     pub kill_clock_offset_ms: f64,
     /// how far the gRPC feed's slot may trail `getSlot`.
     pub max_slot_drift: u64,
+    /// Real modes: new buys pause (decision `skip_no_blockhash`) while no
+    /// fresh blockhash has been available for longer than this AND the sell
+    /// nonce pool has no free nonce, i.e. while a position could not be
+    /// sold; transient, clears on the next fresh blockhash (never latched).
+    pub max_blockhash_age_ms: u64,
 }
 impl Default for RiskCfg {
     /// Every cap 0 = missing (probe/live refused); paper works.
@@ -183,6 +188,7 @@ impl Default for RiskCfg {
             max_disk_used_pct: 90.0,
             kill_clock_offset_ms: 50.0,
             max_slot_drift: 8,
+            max_blockhash_age_ms: 5_000,
         }
     }
 }

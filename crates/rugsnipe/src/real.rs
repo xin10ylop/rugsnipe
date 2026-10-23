@@ -54,6 +54,9 @@ pub const SLOW_MS: u64 = 2_000;
 /// A sell signature unseen this many slots after its send is given up
 /// (its blockhash has expired).
 pub const SELL_GIVE_UP_SLOTS: u64 = 160;
+/// Lane nonce indexes with this bit set are sell-pool nonces (watched and
+/// burned like buy nonces; the cold thread routes their events).
+pub const SELL_NONCE_BIT: u16 = 0x8000;
 /// Slot-analysis fetch cap (transactions per landing).
 pub const MAX_TX: usize = 40;
 

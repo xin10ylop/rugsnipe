@@ -92,7 +92,7 @@ pub mod position;
 pub mod tape;
 pub mod types;
 
-pub use decide::{decide, decide_into};
+pub use decide::{decide, decide_into, unsent};
 pub use policy::{
     ExitConfig, ExitOverrides, ExitPolicy, FireOn, InsiderSell, PhantomCfg, PhantomFrom,
     PolicyError, TpBasis, TpLadder, TpLevel,

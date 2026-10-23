@@ -308,6 +308,51 @@ pub fn templates(cfg: &Config, owner: Pubkey, pool: &NoncePool) -> Result<Templa
     })
 }
 
+/// The sell templates riding each sell-pool nonce (`(final, partial)`,
+/// pool order): `AdvanceNonceAccount` first, the wallet as the nonce
+/// authority, otherwise the plain sells of [`templates`]. The hot loop uses
+/// them when no blockhash is fresh (docs/06 section 7.3: the sell pool).
+pub fn sell_nonce_templates(
+    cfg: &Config,
+    owner: Pubkey,
+    pool: &NoncePool,
+) -> Result<Vec<(Template, Template)>, String> {
+    let paper = !cfg.mode.mode.is_real();
+    let cu = match cfg.tx.cu_limit {
+        0 if paper => PAPER_CU_LIMIT,
+        0 => return Err("tx.cu_limit = 0".into()),
+        n => n,
+    };
+    let lads = match cfg.tx.lads_bytes {
+        0 if paper => PAPER_LADS_BYTES,
+        0 => return Err("tx.lads_bytes = 0".into()),
+        n => n,
+    };
+    let mut out = Vec::with_capacity(pool.len());
+    for i in 0..pool.len() {
+        let p = CurveParams {
+            format: cfg.tx.format,
+            user: owner,
+            nonce: Some(NonceKeys {
+                account: pool.account(i),
+                authority: pool.authority,
+            }),
+            cu_limit: rugsnipe_tx::cu::sell_cu_limit(cu),
+            lads_bytes: lads,
+            tip_account: Some(c::JITO_TIP_ACCOUNTS[0]),
+            buyback_fee_recipient: c::BUYBACK_FEE_RECIPIENTS[0],
+            base_token_program: TOKEN_2022_PROGRAM_ID,
+            partial_fill: None,
+        };
+        let e = |e| format!("sell nonce template: {e}");
+        out.push((
+            Template::sell(&p, true).map_err(e)?,
+            Template::sell(&p, false).map_err(e)?,
+        ));
+    }
+    Ok(out)
+}
+
 /// `min_tokens_out` for spending `spend` at the operator's `v_max`
 /// (docs/06 section 7.1 step 11: the on-chain bound is the curve at
 /// `V = v_max`, `T = k / v_max`). `u64::MAX` if nothing can be bought.

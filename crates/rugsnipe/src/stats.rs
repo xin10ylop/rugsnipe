@@ -70,6 +70,11 @@ pub mod code {
     /// outside the creator set are not one of the listed counts; nothing
     /// sent, no risk or nonce taken.
     pub const BUNDLE_SHAPE: u8 = 0x55;
+    /// Real modes: no fresh blockhash for more than
+    /// `risk.max_blockhash_age_ms` and no free sell nonce, so a position
+    /// bought now could not be sold: nothing sent, risk released (transient,
+    /// clears on the next fresh blockhash; never latched).
+    pub const NO_BLOCKHASH: u8 = 0x56;
     /// Metrics only: a paper decision that a real mode would have skipped
     /// (rslog keeps the RiskGate code and the `would_skip` reason).
     pub const PAPER_WOULD_SKIP: u8 = 0x1f;
@@ -116,6 +121,7 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (code::PRESEND, "skip_presend"),
     (code::NOT_OPERATOR, "skip_not_operator"),
     (code::BUNDLE_SHAPE, "skip_bundle_shape"),
+    (code::NO_BLOCKHASH, "skip_no_blockhash"),
 ];
 
 /// Label of a decision code.

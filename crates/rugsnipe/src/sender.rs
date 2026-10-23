@@ -225,6 +225,128 @@ pub fn plan_sell(
         .collect()
 }
 
+/// Fetches `(blockhash, context slot)` (the app's chain handle:
+/// `getLatestBlockhash`, confirmed).
+pub type FetchBlockhash = Arc<dyn Fn() -> Option<([u8; 32], u64)> + Send + Sync>;
+
+/// The sender thread's blockhash for a real sell the hot loop handed over
+/// without a lifetime ([`crate::hot::NO_LIFETIME`]: the lane's blockhash
+/// was stale and no sell nonce was free). The hot thread never waits on
+/// the network (no allocation, no I/O there); this runs on the sender
+/// thread, which already allocates per job:
+///
+/// 1. the lane's cached blockhash if it became fresh meanwhile;
+/// 2. an answer of a fetch still recent (`RECENT_MS`, a late answer to an
+///    earlier timed-out request);
+/// 3. a fetch on a dedicated fetcher thread (one request at a time), waited
+///    for at most `budget` (300 ms in the hot binary). A late answer still
+///    refreshes [`crate::hot::Shared`]'s blockhash for the next try.
+///
+/// `None`: the sell is not sent and the hot loop is told
+/// ([`crate::msgs::ColdMsg::SellUnsent`]); it retries on the next slot.
+pub struct BlockhashResolver {
+    shared: Arc<crate::hot::Shared>,
+    budget: Duration,
+    req: std::sync::Mutex<mpsc::Sender<()>>,
+    resp: std::sync::Mutex<mpsc::Receiver<([u8; 32], std::time::Instant)>>,
+    busy: Arc<AtomicBool>,
+}
+
+impl core::fmt::Debug for BlockhashResolver {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("BlockhashResolver")
+            .field("budget", &self.budget)
+            .finish_non_exhaustive()
+    }
+}
+
+impl BlockhashResolver {
+    /// A fetched blockhash younger than this is used as is (a blockhash
+    /// lives ~60 s; the lane's cache accepts one 60 slots old).
+    pub const RECENT_MS: u64 = 10_000;
+
+    pub fn spawn(
+        shared: Arc<crate::hot::Shared>,
+        fetch: FetchBlockhash,
+        budget: Duration,
+    ) -> std::io::Result<Arc<Self>> {
+        let (req_tx, req_rx) = mpsc::channel::<()>();
+        let (resp_tx, resp_rx) = mpsc::channel();
+        let busy = Arc::new(AtomicBool::new(false));
+        let (sh, b) = (shared.clone(), busy.clone());
+        std::thread::Builder::new()
+            .name("blockhash".into())
+            .spawn(move || {
+                while req_rx.recv().is_ok() {
+                    if let Some((h, slot)) = fetch() {
+                        let at = if slot > 0 {
+                            slot
+                        } else {
+                            sh.slot_now.load(Relaxed)
+                        };
+                        sh.set_blockhash(h, at);
+                        let _ = resp_tx.send((h, std::time::Instant::now()));
+                    }
+                    b.store(false, std::sync::atomic::Ordering::Release);
+                }
+            })?;
+        Ok(Arc::new(Self {
+            shared,
+            budget,
+            req: std::sync::Mutex::new(req_tx),
+            resp: std::sync::Mutex::new(resp_rx),
+            busy,
+        }))
+    }
+
+    /// A recent blockhash within the budget, or `None`.
+    pub fn resolve(&self) -> Option<[u8; 32]> {
+        if let Some(h) = self.shared.fresh_blockhash() {
+            return Some(h);
+        }
+        let rx = self.resp.lock().unwrap_or_else(|e| e.into_inner());
+        let recent = Duration::from_millis(Self::RECENT_MS);
+        let mut last = None;
+        while let Ok((h, at)) = rx.try_recv() {
+            last = Some((h, at));
+        }
+        if let Some((h, at)) = last {
+            if at.elapsed() <= recent {
+                return Some(h);
+            }
+        }
+        if !self.busy.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            let sent = self.req.lock().unwrap_or_else(|e| e.into_inner()).send(());
+            if sent.is_err() {
+                self.busy.store(false, std::sync::atomic::Ordering::Release);
+                return None;
+            }
+        }
+        match rx.recv_timeout(self.budget) {
+            Ok((h, _)) => Some(h),
+            Err(_) => self.shared.fresh_blockhash(),
+        }
+    }
+}
+
+/// A real sell job handed over without a lifetime gets one from `r`
+/// (`false`: none within the budget, the job is not sent).
+pub fn resolve_lifetime(job: &mut FireJob, r: Option<&BlockhashResolver>) -> bool {
+    if !job.real
+        || kind_of(job.idx) != VariantKind::Sell
+        || job.tmpl.lifetime() != crate::hot::NO_LIFETIME
+    {
+        return true;
+    }
+    match r.and_then(|r| r.resolve()) {
+        Some(h) => {
+            job.tmpl.set_lifetime(&h);
+            true
+        }
+        None => false,
+    }
+}
+
 /// One send result on its way back to the main sender thread.
 struct Done {
     intent: u64,
@@ -289,6 +411,21 @@ fn spawn_worker(
 /// `stop` is set or the hot loop dropped its producer; it returns the number
 /// of `(sender, result)` pairs it produced (paper records included).
 pub fn spawn(
+    rx: rtrb::Consumer<FireJob>,
+    senders: Arc<SenderSet>,
+    signer: Arc<HotSigner>,
+    rslog: RslogProducer,
+    cold: mpsc::Sender<ColdMsg>,
+    stats: Arc<HotStats>,
+    stop: Arc<AtomicBool>,
+) -> std::io::Result<JoinHandle<u64>> {
+    spawn_with(rx, senders, signer, rslog, cold, stats, stop, None)
+}
+
+/// [`spawn`] with the blockhash resolver of real sells handed over
+/// without a lifetime ([`BlockhashResolver`]).
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_with(
     mut rx: rtrb::Consumer<FireJob>,
     senders: Arc<SenderSet>,
     signer: Arc<HotSigner>,
@@ -296,6 +433,7 @@ pub fn spawn(
     cold: mpsc::Sender<ColdMsg>,
     stats: Arc<HotStats>,
     stop: Arc<AtomicBool>,
+    resolver: Option<Arc<BlockhashResolver>>,
 ) -> std::io::Result<JoinHandle<u64>> {
     std::thread::Builder::new()
         .name("sender".into())
@@ -408,7 +546,21 @@ pub fn spawn(
                         .iter()
                         .position(|j| j.intent != intent)
                         .unwrap_or(pending.len());
-                    let jobs: Vec<FireJob> = pending.drain(..end).collect();
+                    let mut jobs: Vec<FireJob> = pending.drain(..end).collect();
+                    // a real sell without a lifetime: resolved here, off the hot thread
+                    jobs.retain_mut(|j| {
+                        let ok = resolve_lifetime(j, resolver.as_deref());
+                        if !ok {
+                            let _ = cold.send(ColdMsg::SellUnsent {
+                                intent: j.intent,
+                                idx: j.idx,
+                            });
+                        }
+                        ok
+                    });
+                    if jobs.is_empty() {
+                        continue;
+                    }
                     let t0 = mono_ns();
                     for job in &jobs {
                         // the plan as the hot loop priced it, signed: the paper record

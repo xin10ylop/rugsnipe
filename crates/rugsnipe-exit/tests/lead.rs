@@ -493,3 +493,60 @@ fn hold_to_create_coexists_with_the_lead_rules() {
     assert_eq!(s.len(), 1, "{s:?}");
     assert_eq!(s[0].reason, ExitReason::HoldTo);
 }
+
+/// The probe-A sell bids of 2026-10-23: 3.4M per sell, tip x2 per retry,
+/// 20M of sell spend per position.
+fn probe_a() -> ExitPolicy {
+    let mut p = lead();
+    p.sell_tip_lamports = 3_400_000;
+    p.dump_tip_lamports = 3_400_000;
+    p
+}
+
+#[test]
+fn unsent_tries_used_to_exhaust_the_sell_spend_cap_after_three() {
+    // the incident: every try charged its tip although nothing was sent;
+    // 3.4M + 6.8M + 9.8M = 20M, the fourth reissue found no spend left
+    let mut l = Lead::new(probe_a(), &[]);
+    l.buy(500_000_000);
+    let mut tries = vec![];
+    let mut exhausted = false;
+    for slot in 105..140 {
+        let a = l.tick(slot);
+        tries.extend(sells(&a).iter().map(|o| o.try_no));
+        exhausted |= a
+            .iter()
+            .any(|x| matches!(x, ExitAction::Alert(Alert::SellExhausted { .. })));
+    }
+    assert_eq!(tries, vec![1, 2, 3]);
+    assert!(exhausted);
+}
+
+#[test]
+fn an_unsent_sell_is_retried_every_slot_while_the_position_is_open() {
+    let mut l = Lead::new(probe_a(), &[]);
+    l.buy(500_000_000);
+    let mut sent = 0;
+    for slot in 105..205 {
+        let a = l.tick(slot);
+        let s = sells(&a);
+        assert_eq!(s.len(), 1, "slot {slot}: one attempt every slot ({a:?})");
+        assert_eq!(s[0].try_no, 1, "an unsent attempt uses no try");
+        assert_eq!(s[0].tip_lamports, 3_400_000, "and no escalation");
+        assert!(!a
+            .iter()
+            .any(|x| matches!(x, ExitAction::Alert(Alert::SellExhausted { .. }))));
+        // the caller had no lifetime for it: taken back
+        assert!(unsent(&mut l.pos, s[0].order_id, slot));
+        assert_eq!(l.pos.sell_spend, 0, "an unsent attempt costs nothing");
+        sent += 1;
+    }
+    assert_eq!(sent, 100);
+    // once a lifetime is back the attempt goes out and normal retries resume
+    let s = sells(&l.tick(205));
+    assert_eq!((s[0].try_no, l.pos.sell_spend), (1, 3_400_000));
+    assert!(sells(&l.tick(206)).is_empty(), "every_slots = 2 again");
+    let s = sells(&l.tick(207));
+    assert_eq!(s[0].try_no, 2);
+    assert!(!unsent(&mut l.pos, 999, 207), "unknown order");
+}

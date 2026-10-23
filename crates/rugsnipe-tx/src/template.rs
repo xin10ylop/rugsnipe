@@ -625,6 +625,22 @@ impl Template {
         self.priority_lamports
     }
 
+    /// The lifetime currently in the message (blockhash or nonce value).
+    pub fn lifetime(&self) -> [u8; 32] {
+        let o = self.table.lifetime;
+        let mut l = [0u8; 32];
+        l.copy_from_slice(&self.buf[o..o + 32]);
+        l
+    }
+
+    /// Change only the lifetime (a blockhash resolved after the patch).
+    /// Clears nothing (re-sign afterwards).
+    #[inline]
+    pub fn set_lifetime(&mut self, l: &[u8; 32]) {
+        let o = self.table.lifetime;
+        self.buf[o..o + 32].copy_from_slice(l);
+    }
+
     /// Apply per-create values (a handful of `memcpy`s). Clears signatures.
     #[inline]
     pub fn patch(&mut self, p: &Patch<'_>) {

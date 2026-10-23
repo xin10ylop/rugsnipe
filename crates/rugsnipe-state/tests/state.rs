@@ -731,3 +731,72 @@ fn presend_rows_upsert_by_intent() {
         .unwrap();
     assert_eq!(unscored, (None, None));
 }
+
+#[test]
+fn recovery_keeps_the_known_cost_of_a_position_still_open_on_chain() {
+    // 2026-10-23: two positions (0.5 SOL each) still open at a restart came
+    // back as cost 0 / opened_slot 0 and the guard's proceeds counted as
+    // pure profit. An open row for the mint keeps its cost, opened slot,
+    // intent and bundle; the wallet only reconciles the token amount.
+    let (_tmp, p) = tmp_guarded("recover-cost");
+    let s = StateStore::open(&p).unwrap();
+    let l = Ledger::new(s.writer());
+    let (a, b) = (Pubkey::new_unique(), Pubkey::new_unique());
+    let dev = Pubkey::new_unique();
+    let row = |mint, tokens, state| PositionRow {
+        intent_id: 4242,
+        opened_slot: 459_123_456,
+        cost: 500_000_000,
+        bundle_json: format!("[\"{dev}\"]"),
+        ..position(mint, tokens, state)
+    };
+    l.position(row(a, 1_000, PosState::Open));
+    l.position(row(b, 2_000, PosState::Exiting));
+    l.flush();
+    let owner = Pubkey::new_unique();
+    let chain = MockChain {
+        slot: 459_200_000,
+        balances: vec![
+            TokenBalance {
+                mint: a,
+                account: Pubkey::new_unique(),
+                amount: 1_000,
+            },
+            TokenBalance {
+                mint: b,
+                account: Pubkey::new_unique(),
+                amount: 1_500,
+            },
+        ],
+        accounts: Default::default(),
+    };
+    let c = s.reader().unwrap();
+    let rep = recover(
+        &c,
+        &l,
+        &RecoverCtx {
+            owner: Some(owner),
+            mode: "probe",
+            nonce_accounts: &[],
+            chain: Some(&chain),
+        },
+    )
+    .unwrap();
+    assert!(
+        rep.orphans.is_empty(),
+        "a known position is never an orphan"
+    );
+    assert_eq!(rep.resized, vec![(b, 2_000, 1_500)]);
+    for r in rep
+        .open_positions
+        .iter()
+        .chain(load_open_positions(&c).unwrap().iter())
+    {
+        assert_eq!(r.cost, 500_000_000, "{}", r.mint);
+        assert_eq!(r.opened_slot, 459_123_456);
+        assert_eq!(r.intent_id, 4242);
+        assert_eq!(r.origin, Origin::Intent);
+        assert_eq!(r.bundle_json, format!("[\"{dev}\"]"));
+        assert_eq!(r.tokens, if r.mint == a { 1_000 } else { 1_500 });
+    }
+}

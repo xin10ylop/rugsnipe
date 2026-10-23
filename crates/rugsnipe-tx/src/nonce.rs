@@ -441,6 +441,63 @@ impl NoncePool {
     }
 
     /// Number of Free slots with a known value.
+    /// Sell pool: claim the first Free nonce with a known value (a sell
+    /// has no create slot, so no mint mapping and no age rule: every retry
+    /// of the position rides the claimed value, so at most one lands).
+    pub fn try_claim_any(&self, intent: u64, now_slot: u64) -> Result<Claim, NonceSkip> {
+        if self.slots.is_empty() {
+            return Err(NonceSkip::EmptyPool);
+        }
+        for (idx, s) in self.slots.iter().enumerate() {
+            let s1 = s.seq.load(SeqCst);
+            if s1 & 1 == 1 {
+                continue;
+            }
+            let w = s.word.load(SeqCst);
+            let p = Packed::unpack(w);
+            if p.state != NonceState::Free || p.last_change_slot == UNKNOWN_SLOT {
+                continue;
+            }
+            let mut value = [0u8; 32];
+            for (i, v) in s.value.iter().enumerate() {
+                value[8 * i..8 * i + 8].copy_from_slice(&v.load(SeqCst).to_le_bytes());
+            }
+            let claimed = Packed {
+                state: NonceState::InFlight,
+                ..p
+            }
+            .pack();
+            if s.word.compare_exchange(w, claimed, SeqCst, SeqCst).is_err() {
+                continue;
+            }
+            if s.seq.load(SeqCst) != s1 {
+                let _ = s.word.compare_exchange(claimed, w, SeqCst, SeqCst);
+                continue;
+            }
+            s.since_slot.store(now_slot, Release);
+            s.intent.store(intent, Release);
+            return Ok(Claim {
+                idx,
+                account: s.account,
+                value,
+                last_change_slot: p.last_change_slot,
+            });
+        }
+        Err(NonceSkip::NotFree(NonceState::InFlight))
+    }
+
+    /// `c` is still in flight for `intent` with the value it was claimed
+    /// with (no advance, no burn since).
+    pub fn holds(&self, c: &Claim, intent: u64) -> bool {
+        let Some(s) = self.slots.get(c.idx) else {
+            return false;
+        };
+        let p = Packed::unpack(s.word.load(Acquire));
+        p.state == NonceState::InFlight
+            && p.last_change_slot == c.last_change_slot
+            && s.intent.load(Acquire) == intent
+    }
+
     pub fn free_count(&self) -> usize {
         (0..self.slots.len())
             .filter(|&i| {
@@ -448,5 +505,33 @@ impl NoncePool {
                 p.state == NonceState::Free && p.last_change_slot != UNKNOWN_SLOT
             })
             .count()
+    }
+}
+
+#[cfg(test)]
+mod sell_pool_tests {
+    use super::*;
+
+    #[test]
+    fn a_sell_claim_takes_any_known_free_nonce_and_holds_until_it_moves() {
+        let auth = Pubkey::new_unique();
+        let pool = NoncePool::new(auth, &[Pubkey::new_unique(), Pubkey::new_unique()]);
+        assert!(pool.try_claim_any(1, 10).is_err(), "unknown values: never");
+        pool.on_value(1, [7; 32], 5);
+        let c = pool.try_claim_any(1, 10).unwrap();
+        assert_eq!((c.idx, c.value), (1, [7; 32]));
+        assert!(pool.holds(&c, 1));
+        assert!(!pool.holds(&c, 2), "another position's claim");
+        assert!(
+            pool.try_claim_any(2, 10).is_err(),
+            "the only known one is in flight"
+        );
+        // the sell landed (or the keeper burned it): the value moved
+        pool.on_value(1, [8; 32], 12);
+        assert!(!pool.holds(&c, 1));
+        let d = pool.try_claim_any(2, 13).unwrap();
+        assert_eq!(d.value, [8; 32]);
+        pool.release_unsent(&d);
+        assert_eq!(pool.free_count(), 1);
     }
 }
