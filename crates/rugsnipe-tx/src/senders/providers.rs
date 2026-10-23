@@ -251,6 +251,17 @@ impl HttpSender {
         self.conn.lock().unwrap_or_else(|e| e.into_inner()).0.warm()
     }
 
+    /// Renew the idle connection ([`HttpConn::refresh`]); errors are the
+    /// next send's problem (it reconnects itself).
+    pub fn keepalive(&self) {
+        let _ = self
+            .conn
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .0
+            .refresh();
+    }
+
     /// Send several transactions in one request where the wire allows it
     /// (Nozomi batch; others send them one by one).
     pub fn send_many(&self, vs: &[&Variant]) -> SendResult {
@@ -385,6 +396,9 @@ impl Sender for HttpSender {
     }
     fn warm(&self) -> Result<(), SendError> {
         HttpSender::warm(self)
+    }
+    fn keepalive(&self) {
+        HttpSender::keepalive(self)
     }
     fn send_batch(&self, vs: &[&Variant]) -> Vec<SendResult> {
         if self.wire == Wire::NozomiBatch && vs.len() > 1 {

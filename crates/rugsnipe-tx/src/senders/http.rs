@@ -9,7 +9,7 @@
 
 use super::SendError;
 use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 /// A parsed `http://host[:port]/path?query` URL.
@@ -72,6 +72,9 @@ impl HttpTarget {
 pub struct HttpConn {
     target: HttpTarget,
     stream: Option<TcpStream>,
+    /// The resolved address, kept across reconnects (a `getaddrinfo` on the
+    /// send path cost a blocking lookup per reconnect).
+    addr: Option<SocketAddr>,
     timeout: Duration,
     req: Vec<u8>,
     resp: Box<[u8; 16 * 1024]>,
@@ -85,6 +88,7 @@ impl HttpConn {
         Self {
             target,
             stream: None,
+            addr: None,
             timeout,
             req: Vec::with_capacity(8 * 1024),
             resp: Box::new([0u8; 16 * 1024]),
@@ -97,14 +101,33 @@ impl HttpConn {
         &self.target
     }
 
-    fn connect(&mut self) -> Result<(), SendError> {
-        let addr = (self.target.host.as_str(), self.target.port)
+    fn resolve(&self) -> Result<SocketAddr, SendError> {
+        (self.target.host.as_str(), self.target.port)
             .to_socket_addrs()
             .map_err(|e| SendError::Io(e.to_string()))?
             .next()
-            .ok_or_else(|| SendError::Io("no address".into()))?;
-        let s = TcpStream::connect_timeout(&addr, self.timeout)
-            .map_err(|e| SendError::Io(e.to_string()))?;
+            .ok_or_else(|| SendError::Io("no address".into()))
+    }
+
+    fn connect(&mut self) -> Result<(), SendError> {
+        let addr = match self.addr {
+            Some(a) => a,
+            None => {
+                let a = self.resolve()?;
+                self.addr = Some(a);
+                a
+            }
+        };
+        let s = match TcpStream::connect_timeout(&addr, self.timeout) {
+            Ok(s) => s,
+            Err(_) => {
+                // the cached address may be stale: resolve once more
+                let a = self.resolve()?;
+                self.addr = Some(a);
+                TcpStream::connect_timeout(&a, self.timeout)
+                    .map_err(|e| SendError::Io(e.to_string()))?
+            }
+        };
         let _ = s.set_nodelay(true);
         let _ = s.set_read_timeout(Some(self.timeout));
         let _ = s.set_write_timeout(Some(self.timeout));
@@ -122,6 +145,16 @@ impl HttpConn {
 
     pub fn is_connected(&self) -> bool {
         self.stream.is_some()
+    }
+
+    /// Close and reopen the connection (keep-alive by renewal: the providers
+    /// close idle connections after about a minute, and a request on a
+    /// closed socket pays a failed round trip, a lookup and a handshake on
+    /// the send path; a connection renewed every 20 s is never idle that
+    /// long).
+    pub fn refresh(&mut self) -> Result<(), SendError> {
+        self.stream = None;
+        self.connect()
     }
 
     /// `POST path` with `body`; returns the HTTP status. The response body

@@ -254,6 +254,11 @@ impl SendResult {
 }
 
 /// A transaction submission path.
+/// How long a sender's worker waits for work before renewing its connection
+/// ([`Sender::keepalive`]): under every provider's idle close (Nozomi 65 s,
+/// Helius about a minute).
+pub const KEEPALIVE_EVERY: std::time::Duration = std::time::Duration::from_secs(20);
+
 pub trait Sender: Send + Sync + core::fmt::Debug {
     fn id(&self) -> SenderId;
     /// Submit one variant (blocking; call from a sender thread).
@@ -283,6 +288,9 @@ pub trait Sender: Send + Sync + core::fmt::Debug {
     fn warm(&self) -> Result<(), SendError> {
         Ok(())
     }
+    /// Keep the connection warm while idle (the worker calls it every
+    /// [`KEEPALIVE_EVERY`] without work); no-op where there is none.
+    fn keepalive(&self) {}
     /// Several variants in one request where the wire allows it (Nozomi
     /// batch send); one result per variant.
     fn send_batch(&self, vs: &[&Variant]) -> Vec<SendResult> {

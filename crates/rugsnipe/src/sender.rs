@@ -116,16 +116,40 @@ pub fn plan_variants(
 ) -> Vec<(usize, Variant)> {
     let mut out = vec![];
     let mut used: Vec<([u8; 32], u64, u64)> = vec![];
-    for job in jobs {
+    let mut sells: Vec<Option<Vec<(usize, Variant)>>> = vec![None; jobs.len()];
+    for k in 0..targets.len() {
+        out.extend(plan_target(jobs, targets, k, signer, &mut used, &mut sells));
+    }
+    out
+}
+
+/// The variants of `jobs` for ONE target sender (`k`), so the sender thread
+/// can hand each worker its batch as soon as it is signed instead of after
+/// every sender's copies are: `used` carries the intent's `(account, tip,
+/// priority)` uniqueness across targets, `sells` caches each sell job's one
+/// signed message ([`plan_sell`]) across targets. Target-major over all
+/// targets equals [`plan_variants`].
+pub fn plan_target(
+    jobs: &[FireJob],
+    targets: &[Box<dyn Sender>],
+    k: usize,
+    signer: &HotSigner,
+    used: &mut Vec<([u8; 32], u64, u64)>,
+    sells: &mut [Option<Vec<(usize, Variant)>>],
+) -> Vec<(usize, Variant)> {
+    let mut out = vec![];
+    for (j, job) in jobs.iter().enumerate() {
         let kind = kind_of(job.idx);
         if kind == VariantKind::Sell {
-            out.extend(plan_sell(job, targets, signer));
+            let all = sells[j].get_or_insert_with(|| plan_sell(job, targets, signer));
+            out.extend(all.iter().filter(|(t, _)| *t == k).cloned());
             continue;
         }
-        for (k, s) in targets.iter().enumerate() {
-            if kind == VariantKind::Buy && (job.idx & 0x7f) >= s.buy_variants() {
-                continue;
-            }
+        let s = &targets[k];
+        if kind == VariantKind::Buy && (job.idx & 0x7f) >= s.buy_variants() {
+            continue;
+        }
+        {
             let mut tmpl = job.tmpl.clone();
             tmpl.set_priority(job.prio);
             // the provider's rotated tip account and floor (tip_plan); paths
@@ -232,7 +256,16 @@ fn spawn_worker(
     let h = std::thread::Builder::new().name(name).spawn(move || {
         let s = &senders.real()[k];
         let _ = s.warm();
-        while let Ok(b) = rx.recv() {
+        loop {
+            let b = match rx.recv_timeout(rugsnipe_tx::senders::KEEPALIVE_EVERY) {
+                Ok(b) => b,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    // idle: renew the connection off the send path
+                    s.keepalive();
+                    continue;
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            };
             let refs: Vec<&Variant> = b.variants.iter().collect();
             let results = s.send_batch(&refs);
             for (v, result) in b.variants.iter().zip(results) {
@@ -418,8 +451,8 @@ pub fn spawn(
                     }
                     let bid = real[0].bid;
                     let leader = real[0].leader;
-                    let planned = plan_variants(&real, senders.targets(), &signer);
                     if senders.dry {
+                        let planned = plan_variants(&real, senders.targets(), &signer);
                         // --probe-dry: every per-sender variant is signed and recorded
                         for (k, v) in planned {
                             let s = &senders.targets()[k];
@@ -441,16 +474,27 @@ pub fn spawn(
                         }
                         continue;
                     }
-                    let mut per: Vec<Vec<Variant>> = vec![vec![]; workers.len()];
-                    for (k, v) in planned {
-                        per[k].push(v);
-                    }
+                    // one target at a time: its copies are signed and handed to
+                    // its worker before the next target's are signed, so the
+                    // first copy leaves about the signing time of all the
+                    // others earlier
                     let now_ms = crate::now_ms();
-                    for (k, vs) in per.into_iter().enumerate() {
-                        if vs.is_empty() || errs.is_quarantined(senders.real()[k].label(), now_ms) {
+                    let targets = senders.targets();
+                    let mut used: Vec<([u8; 32], u64, u64)> = vec![];
+                    let mut sells: Vec<Option<Vec<(usize, Variant)>>> = vec![None; real.len()];
+                    for (k, worker) in workers.iter().enumerate() {
+                        if errs.is_quarantined(senders.real()[k].label(), now_ms) {
                             continue;
                         }
-                        match &workers[k] {
+                        let vs: Vec<Variant> =
+                            plan_target(&real, targets, k, &signer, &mut used, &mut sells)
+                                .into_iter()
+                                .map(|(_, v)| v)
+                                .collect();
+                        if vs.is_empty() {
+                            continue;
+                        }
+                        match worker {
                             Some((tx, _)) => {
                                 let _ = tx.send(Batch {
                                     variants: vs,

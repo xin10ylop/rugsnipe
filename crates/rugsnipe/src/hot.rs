@@ -248,7 +248,11 @@ impl HotCfg {
             post_exec_feed: false,
             max_premium_bps: (cfg.entry.max_premium * 10_000.0).round().clamp(0.0, 1e6) as u32,
             bundle_lamports: cfg.entry.bundle_lamports,
-            bundle_wait_ns: cfg.entry.bundle_wait_ms.saturating_mul(1_000_000),
+            bundle_wait_ns: if cfg.entry.bundle_wait_us > 0 {
+                cfg.entry.bundle_wait_us.saturating_mul(1_000)
+            } else {
+                cfg.entry.bundle_wait_ms.saturating_mul(1_000_000)
+            },
             dev_buy: dev_buy_ranges(&cfg.entry.dev_buy_sol, cfg.entry.dev_buy_tol_sol),
             leader_allowed: leader_mask(&cfg.entry.leader_regions),
             require_bundle: cfg.entry.require_bundle,

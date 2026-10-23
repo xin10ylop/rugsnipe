@@ -865,6 +865,12 @@ pub struct EntryCfg {
     /// or a trade at create + 5 fires it earlier. 0 fires on the first
     /// bundle buy (the bound then misses the rest of the bundle).
     pub bundle_wait_ms: u64,
+    /// The same wait in microseconds; when set (> 0) it replaces
+    /// `bundle_wait_ms`. A Jito bundle's buys sit in one entry and reach
+    /// the feed within microseconds of each other, so a wait of a few
+    /// hundred microseconds sees the whole bundle; the 2 ms default was
+    /// measured as dead time on every attempt (2026-10-23).
+    pub bundle_wait_us: u64,
     /// Dev buys (SOL, the create transaction's own buy) a buy may fire on;
     /// empty = any. The amount is an operator template marker: in the dry
     /// run (2026-10-23, 2,645 launches, no sniper in the create slot, which
@@ -908,6 +914,7 @@ impl Default for EntryCfg {
             max_premium: 0.02,
             bundle_lamports: 4_000_000_000,
             bundle_wait_ms: 2,
+            bundle_wait_us: 0,
             dev_buy_sol: vec![],
             dev_buy_tol_sol: 0.005,
             leader_regions: vec![],
@@ -1473,6 +1480,13 @@ impl Config {
         }
         if !(0.0..1.0).contains(&self.entry.max_premium) {
             inv(&mut r, "entry.max_premium", "must be in [0, 1)");
+        }
+        if self.entry.bundle_wait_us > 200_000 {
+            inv(
+                &mut r,
+                "entry.bundle_wait_us",
+                "must be at most 200000 (us; the create slot is 400 ms)",
+            );
         }
         if self.entry.bundle_wait_ms > 200 {
             inv(
