@@ -1,13 +1,17 @@
 """Live lift test of the LEAD demand classifier (demand_v1.json) on the bot's own state.db. STDLIB ONLY.
 
   python3 -I analysis/scripts/strategy/demand_eval.py --state /var/lib/rugsnipe/state.db \
-      --model /etc/rugsnipe/demand_v1.json [--ref-model /etc/rugsnipe/entry_filter_v1.json] [--since-hours 24]
+      --model /etc/rugsnipe/demand_v1.json [--ref-model /etc/rugsnipe/entry_filter_v1.json] [--since-hours 24] \
+      [--table presend]
 
 1. Opens state.db read-only (``file:...?mode=ro``).
-2. Reads ``filter`` (one row per scored intent: ``features`` = JSON array of the 60 entry-filter features in
+2. Reads ``filter`` (or, with ``--table presend``, the pre-send gate's ``presend`` table: same columns plus
+   ``written_ms``, one row per fired create; falls back to ``filter`` when the table is absent) (one row per scored intent: ``features`` = JSON array of the 60 entry-filter features in
    ``filter.rs::FEATURES`` order, written by ``FilterLane::on_score``; ``score`` = the entry filter's own score).
-3. Validates the pure-Python tree scorer: loaded with the entry filter JSON (``--ref-model``) it must reproduce the
-   stored ``filter.score`` on the first 200 rows of that model (max |diff| <= 1e-9), else it aborts.
+3. Validates the pure-Python tree scorer: loaded with the JSON of the model that wrote the stored scores
+   (``--ref-model``; else found by the stored ``model`` name: ``--model`` itself, ``<dir of --model>/<name>.json``,
+   ``data/reports/strategy/<name>.json``, ``/etc/rugsnipe/entry_filter_v1.json``) it must reproduce the stored
+   ``score`` on the first 200 rows of that model (max |diff| <= 1e-9), else it aborts.
 4. Scores every create with the demand model, buckets by the model's tertile cuts (``tertiles.t1/t2``) and joins
    ``shadow`` (tp_ahead / tp_behind), ``positions`` (cost, state), ``exits`` (sum sol_delta by mint) and ``fills``
    (fail_cost, fail_reason) by intent.
@@ -187,6 +191,8 @@ def main():
     ap.add_argument("--ref-model", default=None, help="entry_filter_v1.json (scorer validation against filter.score)")
     ap.add_argument("--since-hours", type=float, default=None)
     ap.add_argument("--intent-mode", default=None, help="keep only intents.mode = this (e.g. live / paper)")
+    ap.add_argument("--table", choices=("filter", "presend"), default="filter",
+                    help="scores / features from the entry filter's table or the pre-send gate's (default filter)")
     ap.add_argument("--n-validate", type=int, default=200)
     ap.add_argument("--skip-validate", action="store_true", help="DANGER: do not abort when validation fails")
     ap.add_argument("--immutable", action="store_true", help="open with immutable=1 (only for a copied file)")
@@ -199,14 +205,30 @@ def main():
     con = connect(a.state, a.immutable)
     print(f"state {a.state} (read-only)")
 
-    filt = select(con, "filter", ["intent_id", "mint", "model", "score", "tertile", "mode", "skipped", "features"])
+    table = a.table
+    if table == "presend" and not columns(con, "presend"):
+        print("NOTE: no presend table in this state.db: falling back to filter")
+        table = "filter"
+    want = ["intent_id", "mint", "model", "score", "tertile", "mode", "skipped", "features"]
+    filt = select(con, table, want + (["written_ms"] if table == "presend" else []))
     filt.sort(key=lambda r: i0(r["intent_id"]))
-    print(f"filter rows: {len(filt)}")
+    print(f"{table} rows: {len(filt)}")
     if not filt:
-        raise SystemExit("no filter rows: nothing to evaluate")
+        raise SystemExit(f"no {table} rows: nothing to evaluate")
 
     # ---- 1. validate the scorer against the stored entry-filter scores
-    ref_path = a.ref_model or next((p for p in REF_DEFAULTS if os.path.exists(p)), None)
+    stored = {}
+    for r in filt:
+        if r["model"] is not None and r["score"] is not None:
+            stored[str(r["model"])] = stored.get(str(r["model"]), 0) + 1
+    cands = []
+    for nm in sorted(stored, key=lambda k: -stored[k]):
+        if nm == doc.get("name"):
+            cands.append(a.model)
+        cands += [os.path.join(os.path.dirname(os.path.abspath(a.model)), nm + ".json"),
+                  os.path.join(HERE, "..", "..", "..", "data", "reports", "strategy", nm + ".json")]
+    cands += list(REF_DEFAULTS)
+    ref_path = a.ref_model or next((p for p in cands if os.path.exists(p)), None)
     if ref_path is None:
         msg = "no --ref-model and no entry_filter_v1.json at " + " / ".join(REF_DEFAULTS)
         if not a.skip_validate:
@@ -221,7 +243,7 @@ def main():
         rows = [(r, x) for r, x in rows if x is not None][: a.n_validate]
         models = sorted({str(r["model"]) for r in filt})
         if not rows:
-            msg = (f"no filter rows with model = {ref.get('name')!r}, a score and features (models in db: {models})")
+            msg = (f"no {table} rows with model = {ref.get('name')!r}, a score and features (models in db: {models})")
             if not a.skip_validate:
                 raise SystemExit("VALIDATION NOT POSSIBLE: " + msg)
             print("WARNING: " + msg)
@@ -255,6 +277,9 @@ def main():
             exits[r["mint"]] = exits.get(r["mint"], 0) + i0(r["sol_delta"])
     launch_ms = {i0(r["intent_id"]): i0(r["launch_ms"]) for r in select(con, "outcomes", ["intent_id", "launch_ms"])
                  if r["launch_ms"]}
+    for r in filt:
+        if r.get("written_ms") and i0(r["intent_id"]) not in launch_ms:
+            launch_ms[i0(r["intent_id"])] = i0(r["written_ms"])
     for r in select(con, "sends", ["intent_id", "sent_unix_ms"]):
         k, v = i0(r["intent_id"]), i0(r["sent_unix_ms"])
         if v and k not in launch_ms:
@@ -299,7 +324,7 @@ def main():
     for r in keep:
         k = ((intents.get(i0(r["intent_id"])) or {}).get("mode"), r["mode"])
         modes[k] = modes.get(k, 0) + 1
-    print("creates in scope by (intents.mode, filter.mode):",
+    print(f"creates in scope by (intents.mode, {table}.mode):",
           ", ".join(f"{k[0]}/{k[1]}: {v}" for k, v in sorted(modes.items(), key=lambda kv: -kv[1])))
 
     # ---- 4. per create
@@ -354,7 +379,7 @@ def main():
     print(f"  live AUC of the demand score for tp_behind >= 2: all creates with shadow {fmt(auc(pairs), '.3f')} "
           f"(n {len(pairs)}); fills with tp_ahead = 0 {fmt(auc(pf), '.3f')} (n {len(pf)})")
     pe = [(r["ef"], i0(r["tp_behind"]) >= 2) for r in recs if r["ef"] is not None and r["tp_behind"] is not None]
-    print(f"  (reference: entry filter's stored score for the same label: {fmt(auc(pe), '.3f')}, n {len(pe)})")
+    print(f"  (reference: the stored {table}.score for the same label: {fmt(auc(pe), '.3f')}, n {len(pe)})")
 
     # (B) fills
     print("\n(B) fills per demand tertile (P&L on closed positions: exits - cost - fail cost)")
