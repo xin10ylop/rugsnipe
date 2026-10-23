@@ -56,6 +56,9 @@ pub mod code {
     /// The create slot's leader is outside `entry.leader_regions` (the box
     /// would land a slot late); nothing parked, nothing sent.
     pub const FAR_LEADER: u8 = 0x51;
+    /// The create's dev, creator or a bundle wallet dumped an earlier
+    /// launch (`entry.dumper_skip = "skip"`).
+    pub const DUMPER: u8 = 0x52;
     /// Metrics only: a paper decision that a real mode would have skipped
     /// (rslog keeps the RiskGate code and the `would_skip` reason).
     pub const PAPER_WOULD_SKIP: u8 = 0x1f;
@@ -98,6 +101,7 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (code::NOT_FIRST, "skip_not_first"),
     (code::DEV_BUY, "skip_dev_buy"),
     (code::FAR_LEADER, "skip_far_leader"),
+    (code::DUMPER, "skip_dumper"),
 ];
 
 /// Label of a decision code.

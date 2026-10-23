@@ -715,6 +715,8 @@ pub struct ColdParts {
     pub post_exec: Option<PostExecFeed>,
     /// The leader schedule (shared with the hot loop).
     pub leaders: LeaderSnapshot,
+    /// The operator-dump set (shared with the hot loop; seeded from `dumpers`).
+    pub dumpers: crate::dumpers::DumperSnapshot,
 }
 
 /// Start the cold thread; it returns when `shared.stop` is set and the
@@ -785,6 +787,8 @@ struct Cold {
     deadman: crate::deadman::DeadMan,
     /// Creator set of each pending intent's mint (feed bundle runs).
     mint_info: HashMap<Pubkey, (u64, Pubkey, Pubkey)>,
+    /// The operator-dump tracker (every bundled launch the feed shows).
+    dump: crate::dumpers::DumpTracker,
 }
 
 /// A burn not confirmed by a new nonce value after this many slots is re-sent.
@@ -805,6 +809,7 @@ fn pos_state(s: PositionState) -> Option<PosState> {
 
 impl Cold {
     fn new(p: ColdParts) -> Self {
+        let dumpers = p.dumpers.clone();
         let (e2_tx, e2_rx) = tokio::sync::mpsc::unbounded_channel();
         let (e1_tx, e1_rx) = tokio::sync::mpsc::unbounded_channel();
         let n = p.nonces.len();
@@ -858,6 +863,7 @@ impl Cold {
             hourly_at: now + 3_600,
             deadman,
             mint_info: HashMap::new(),
+            dump: crate::dumpers::DumpTracker::new(dumpers),
         }
     }
 
@@ -1659,6 +1665,23 @@ impl Cold {
                 self.feed_watch(m, false);
                 self.marks.remove(&m);
             }
+            ColdMsg::MintTrade(t) => {
+                let rows = self.dump.on_trade(&t, crate::now_ms());
+                if !rows.is_empty() {
+                    eprintln!(
+                        "dumpers: {} wallets of mint {} marked (insiders sold within {} slots); set {}",
+                        rows.len(),
+                        t.mint,
+                        crate::dumpers::DUMP_SLOTS,
+                        self.dump.len()
+                    );
+                    if let Some(l) = &self.p.ledger {
+                        for r in rows {
+                            l.writer().send(Write::Dumper(r));
+                        }
+                    }
+                }
+            }
             ColdMsg::FeedSeen {
                 src,
                 sig_hash,
@@ -2446,6 +2469,8 @@ impl Cold {
     /// bundle features computed from the stream (`feed_bundle` row for a
     /// launch we decided on).
     fn on_bundle_run(&mut self, run: rugsnipe_feed::bundle::BundleRun) {
+        self.dump.on_run(&run);
+        self.dump.prune(run.slot);
         let info = self.mint_info.get(&run.mint).copied();
         let mut cset: Vec<Pubkey> = run
             .trades

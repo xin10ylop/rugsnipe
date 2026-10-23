@@ -32,6 +32,7 @@ pub mod cli;
 pub mod cold;
 pub mod convert;
 pub mod deadman;
+pub mod dumpers;
 pub mod e1;
 pub mod e2;
 pub mod filter;

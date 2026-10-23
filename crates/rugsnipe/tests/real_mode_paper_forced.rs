@@ -207,6 +207,7 @@ fn rig(cfg: &Config, set: &ArmSet, verified: bool, dir: &std::path::Path) -> Rig
         stats: stats.clone(),
         shared: Arc::new(Shared::default()),
         leaders: rugsnipe::leader::empty_snapshot(),
+        dumpers: rugsnipe::dumpers::snapshot_from(vec![]),
     });
     Rig {
         hot,

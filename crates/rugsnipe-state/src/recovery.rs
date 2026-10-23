@@ -279,3 +279,18 @@ pub fn recover(c: &Connection, ledger: &Ledger, ctx: &RecoverCtx<'_>) -> Result<
     ledger.flush();
     Ok(rep)
 }
+
+/// Every wallet of the `dumpers` table (the operator-dump skip's seed).
+pub fn load_dumpers(c: &Connection) -> Result<Vec<Pubkey>> {
+    let mut st = c.prepare("SELECT wallet FROM dumpers")?;
+    let rows = st.query_map([], |r| r.get::<_, String>(0))?;
+    let mut out = vec![];
+    for w in rows {
+        if let Ok(k) = bs58::decode(w?).into_vec() {
+            if let Ok(a) = <[u8; 32]>::try_from(k.as_slice()) {
+                out.push(Pubkey::new_from_array(a));
+            }
+        }
+    }
+    Ok(out)
+}

@@ -19,6 +19,8 @@ pub const BATCH: usize = 512;
 /// One write for the writer thread.
 #[derive(Debug, Clone)]
 pub enum Write {
+    /// `INSERT OR IGNORE` (a wallet's first dump is the one kept).
+    Dumper(DumperRow),
     /// `INSERT OR IGNORE` (an intent is decided once per mint and mode).
     Intent(IntentRow),
     /// Move an intent to `to` if its current state allows it.
@@ -504,6 +506,18 @@ pub fn apply(c: &Connection, w: &Write) -> rusqlite::Result<bool> {
         }
         Write::KvDelete(k) => {
             c.execute("DELETE FROM kv WHERE k = ?1", params![k])?;
+        }
+        Write::Dumper(r) => {
+            c.execute(
+                "INSERT OR IGNORE INTO dumpers(wallet, mint, slot, sold_bps, written_ms) VALUES(?1,?2,?3,?4,?5)",
+                params![
+                    r.wallet.to_string(),
+                    r.mint.to_string(),
+                    r.slot as i64,
+                    r.sold_bps as i64,
+                    r.written_ms as i64
+                ],
+            )?;
         }
         Write::FeedBundle(r) => {
             c.execute(

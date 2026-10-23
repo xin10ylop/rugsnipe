@@ -1341,7 +1341,11 @@ impl Adapter {
                 // on another wallet's buy in the create slot
                 if Some(t.user) == wallet
                     || self.mint_set.contains(&t.mint)
-                    || (self.cfg.bundle_run && self.recent.get(&t.mint) == Some(&slot))
+                    || (self.cfg.bundle_run
+                        && self
+                            .recent
+                            .get(&t.mint)
+                            .is_some_and(|s| slot >= *s && slot <= s + 3))
                 {
                     let ev = FeedEvent {
                         src: self.cfg.src,

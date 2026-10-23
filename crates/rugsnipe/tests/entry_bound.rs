@@ -305,6 +305,7 @@ fn a_real_decision_after_the_create_slot_is_refused() {
         stats,
         shared: Arc::new(Shared::default()),
         leaders: rugsnipe::leader::empty_snapshot(),
+        dumpers: rugsnipe::dumpers::snapshot_from(vec![]),
     });
     let grpc = |slot, payload| rugsnipe_feed::FeedEvent {
         src: FeedSrc::Grpc,

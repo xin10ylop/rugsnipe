@@ -463,3 +463,15 @@ mod tests {
         }
     }
 }
+
+/// `dumpers`: a wallet of a launch whose insiders sold at least half of
+/// their post-bundle tokens within a few slots of the create (the creator
+/// and the bundle wallets); first sighting kept.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DumperRow {
+    pub wallet: Pubkey,
+    pub mint: Pubkey,
+    pub slot: u64,
+    pub sold_bps: u32,
+    pub written_ms: u64,
+}

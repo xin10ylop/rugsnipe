@@ -205,6 +205,8 @@ pub struct HotCfg {
     /// `entry.leader_regions` as a mask by [`crate::leader::Region`]
     /// (`None` = any leader; an unknown region is always allowed).
     pub leader_allowed: Option<[bool; crate::leader::Region::COUNT]>,
+    /// `entry.dumper_skip`.
+    pub dumper_skip: rugsnipe_core::config::DumperSkip,
 }
 
 impl HotCfg {
@@ -255,6 +257,7 @@ impl HotCfg {
             },
             dev_buy: dev_buy_ranges(&cfg.entry.dev_buy_sol, cfg.entry.dev_buy_tol_sol),
             leader_allowed: leader_mask(&cfg.entry.leader_regions),
+            dumper_skip: cfg.entry.dumper_skip,
             require_bundle: cfg.entry.require_bundle,
         }
     }
@@ -668,6 +671,8 @@ pub struct LoopCounters {
     pub run_done: u64,
     pub not_first: u64,
     pub bundle_wait_us: u64,
+    /// Creates whose dev, creator or a bundle wallet is a known dumper.
+    pub dumper_hits: u64,
     /// Real: zero-balance reports not trusted (node view not past the fill,
     /// or a missing account inside the grace window), `balance_is_trustworthy`.
     pub balance_ignored: u64,
@@ -703,6 +708,8 @@ pub struct HotParts {
     pub shared: Arc<Shared>,
     /// The leader schedule (cold lane publishes; empty = unknown).
     pub leaders: LeaderSnapshot,
+    /// The operator-dump set (cold thread publishes).
+    pub dumpers: crate::dumpers::DumperSnapshot,
 }
 
 /// The hot loop.
@@ -744,6 +751,7 @@ pub struct HotLoop {
     prepark: [Option<TradeLite>; PREPARK],
     prepark_at: usize,
     leaders: LeaderSnapshot,
+    dumpers: crate::dumpers::DumperSnapshot,
     /// Scratch for the ALT-loaded addresses of a wire event (no allocation).
     loaded: Box<[Pubkey]>,
     last_mark_ns: u64,
@@ -805,6 +813,7 @@ impl HotLoop {
             prepark: [None; PREPARK],
             prepark_at: 0,
             leaders: p.leaders,
+            dumpers: p.dumpers,
             loaded: vec![Pubkey::default(); MAX_LOADED].into_boxed_slice(),
             last_mark_ns: 0,
         }
@@ -1334,6 +1343,45 @@ impl HotLoop {
         if cap > 0 && op.size > cap {
             op.size = cap;
         }
+        // 5b: the operator-dump skip (entry.dumper_skip): the dev, the
+        // creator or a bundle wallet dumped an earlier launch
+        if self.cfg.dumper_skip != rugsnipe_core::config::DumperSkip::Off {
+            let d = self.dumpers.load();
+            if !d.is_empty() {
+                let dumper = d.contains(&hit.user)
+                    || d.contains(&hit.creator_arg)
+                    || parked.is_some_and(|p| {
+                        p.wallets[..p.n_wallets as usize]
+                            .iter()
+                            .any(|w| d.contains(w))
+                    });
+                if dumper {
+                    self.counters.dumper_hits += 1;
+                    let k8 = key8(&hit.mint);
+                    journal(format_args!(
+                        "dumper {} {}",
+                        std::str::from_utf8(&k8).unwrap_or("?"),
+                        if self.cfg.dumper_skip == rugsnipe_core::config::DumperSkip::Skip {
+                            "skipped"
+                        } else {
+                            "logged (would skip)"
+                        }
+                    ));
+                    if self.cfg.dumper_skip == rugsnipe_core::config::DumperSkip::Skip {
+                        return self.decision(
+                            intent,
+                            hit,
+                            code::DUMPER,
+                            0,
+                            op.size,
+                            op.v_max,
+                            0,
+                            0,
+                        );
+                    }
+                }
+            }
+        }
         let via_code = match (via, entry.dynamic) {
             (Via::Class, _) => 4,
             (_, true) => 3,
@@ -1753,6 +1801,9 @@ impl HotLoop {
         self.stats.trades_seen.inc();
         let Some(i) = self.find_mint(&t.mint) else {
             self.stats.trades_unmatched.inc();
+            // the first slots of a bundled launch we do not hold: the
+            // operator-dump tracker's input (cold thread)
+            self.send_cold(ColdMsg::MintTrade(t));
             return;
         };
         let s = self.slots[i].as_mut().expect("found");

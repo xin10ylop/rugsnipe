@@ -10,6 +10,10 @@ use rugsnipe_tx::template::Template;
 /// Hot (or sender) thread -> cold thread.
 #[derive(Debug, Clone, Copy)]
 pub enum ColdMsg {
+    /// A trade of a mint the hot loop neither holds nor parks (the feed
+    /// streams the first slots of every bundled launch): the operator-dump
+    /// tracker's input.
+    MintTrade(Trade),
     /// A decision produced an intent (step 14).
     Intent {
         intent: u64,

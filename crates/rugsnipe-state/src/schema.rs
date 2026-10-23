@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS outcomes(intent_id INTEGER PRIMARY KEY, mint TEXT, si
 CREATE TABLE IF NOT EXISTS feed_bundle(mint TEXT PRIMARY KEY, intent_id INT, slot INT, create_index INT, trades INT,
   bundle_wallets INT, s0_third INT, dev_sol REAL, bundle_sol REAL, me_sol REAL, closed TEXT, run_close_ms REAL,
   out_of_order INT, features TEXT);
+CREATE TABLE IF NOT EXISTS dumpers(wallet TEXT PRIMARY KEY, mint TEXT, slot INT, sold_bps INT, written_ms INT);
 "#;
 
 /// The version-2 `intents` DDL under a temporary name (CHECK constraints
@@ -73,7 +74,7 @@ ALTER TABLE intents_v2 RENAME TO intents;
 "#;
 
 /// Table names in DDL order.
-pub const TABLES: [&str; 15] = [
+pub const TABLES: [&str; 16] = [
     "intents",
     "sends",
     "fills",
@@ -89,6 +90,7 @@ pub const TABLES: [&str; 15] = [
     "filter",
     "outcomes",
     "feed_bundle",
+    "dumpers",
 ];
 
 /// Open settings for every connection: WAL, NORMAL sync, busy timeout,

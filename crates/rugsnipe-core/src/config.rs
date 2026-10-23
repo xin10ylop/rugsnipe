@@ -888,6 +888,13 @@ pub struct EntryCfg {
     /// The validator region table (`data/leader_regions.json`, installed to
     /// `/var/lib/rugsnipe/data/`); required when `leader_regions` is set.
     pub leader_regions_file: String,
+    /// The operator-dump skip (2026-10-23): a create whose dev, creator or
+    /// bundle wallets belong to an earlier launch whose insiders sold at
+    /// least half of their tokens within 3 slots of the create. `log`
+    /// records the hit and fires anyway, `skip` drops the create, `off`
+    /// does neither. The set grows live from every bundled launch the feed
+    /// shows and persists in `state.db` (`dumpers`).
+    pub dumper_skip: DumperSkip,
     pub filter: EntryFilter,
     /// The frozen P(take-profit) model of the entry filter
     /// (`data/reports/strategy/entry_filter_v1.json`, docs/04 section 2);
@@ -915,6 +922,7 @@ impl Default for EntryCfg {
             bundle_lamports: 4_000_000_000,
             bundle_wait_ms: 2,
             bundle_wait_us: 0,
+            dumper_skip: DumperSkip::Log,
             dev_buy_sol: vec![],
             dev_buy_tol_sol: 0.005,
             leader_regions: vec![],
@@ -935,6 +943,18 @@ pub enum FilterMode {
     #[default]
     Log,
     /// Drop intents with `score < t1`.
+    Skip,
+}
+
+/// `entry.dumper_skip`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DumperSkip {
+    Off,
+    /// Count and journal the hit, fire anyway.
+    #[default]
+    Log,
+    /// Skip the create (`skip_dumper`).
     Skip,
 }
 

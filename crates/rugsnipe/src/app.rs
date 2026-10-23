@@ -508,11 +508,13 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     } else {
         vec![]
     };
+    let mut dumper_seed: Vec<Pubkey> = vec![];
     let (store, ledger, recovery) = match &o.state_path {
         Some(p) => {
             let s = StateStore::open(p).map_err(|e| format!("state.db: {e}"))?;
             let l = Ledger::new(s.writer());
             let c = s.reader().map_err(|e| e.to_string())?;
+            dumper_seed = rugsnipe_state::recovery::load_dumpers(&c).map_err(|e| e.to_string())?;
             let rep = recover(
                 &c,
                 &l,
@@ -672,6 +674,8 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     };
     let fill_lane = e1_lane.is_some() || e2_lane.is_some();
     let leaders = crate::leader::empty_snapshot();
+    // the operator-dump set, seeded from state.db (entry.dumper_skip)
+    let dumpers = crate::dumpers::snapshot_from(dumper_seed.clone());
     let has_post_exec = o.post_exec.is_some();
     // one budget for the keeper's reads: real fill lane, chain checks, leaders
     let keeper_budget = Arc::new(RpcBudget::new(cfg.rpc_budget.keeper.max(1) as f64));
@@ -808,6 +812,7 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         outcomes,
         post_exec: o.post_exec,
         leaders: leaders.clone(),
+        dumpers: dumpers.clone(),
     })
     .map_err(|e| e.to_string())?;
     let mut hot_cfg = HotCfg::from_config(&cfg, policy);
@@ -832,6 +837,7 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         stats: stats.clone(),
         shared: shared.clone(),
         leaders: leaders.clone(),
+        dumpers: dumpers.clone(),
     });
     // probe: every token balance recovery found gets an exit owner (I2/I6)
     if mode.is_real() {
