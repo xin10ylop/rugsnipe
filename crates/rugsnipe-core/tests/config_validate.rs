@@ -167,8 +167,14 @@ fn invalid_in_every_mode() {
     c.tx.nonce_pool = 0;
     c.bid.split.bam = [0.6, 0.6];
     c.mode.max_age_slots = 0;
+    c.bid.lamports = c.risk.max_bid_lamports.max(25_000_000) + 1; // above risk.max_bid_lamports
     let v = c.validate(&ValidateEnv::default());
-    assert_eq!(v.refusals.len(), 4, "{:?}", v.refusals);
+    assert_eq!(v.refusals.len(), 5, "{:?}", v.refusals);
+    assert!(
+        format!("{:?}", v.refusals).contains("bid.lamports"),
+        "{:?}",
+        v.refusals
+    );
     assert!(v
         .refusals
         .iter()

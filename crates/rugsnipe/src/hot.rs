@@ -203,8 +203,9 @@ pub struct HotCfg {
 }
 
 impl HotCfg {
-    /// From the TOML. `bid_lamports` defaults to the measured median
-    /// first-winner bid (docs/03 section 6: 0.0034 SOL), capped by `max_bid`.
+    /// From the TOML. `bid_lamports` is `bid.lamports`, defaulting to the
+    /// measured median first-winner bid (docs/03 section 6: 0.0034 SOL),
+    /// capped by `max_bid`.
     pub fn from_config(cfg: &Config, policy: ExitPolicy) -> Self {
         let max_bid = if cfg.risk.max_bid_lamports > 0 {
             cfg.risk.max_bid_lamports
@@ -216,7 +217,11 @@ impl HotCfg {
             max_age_slots: cfg.mode.max_age_slots,
             freeze: cfg.mode.regime_freeze_slots.clone(),
             fill_timeout_slots: 300,
-            bid_lamports: 3_400_000u64.min(max_bid),
+            bid_lamports: match cfg.bid.lamports {
+                0 => 3_400_000u64,
+                v => v,
+            }
+            .min(max_bid),
             max_bid,
             bid_policy: BidPolicy::from_cfg(&cfg.bid),
             leader_class: None,

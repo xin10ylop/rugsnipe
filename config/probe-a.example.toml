@@ -111,6 +111,7 @@ burn_after_slots = 3                               # probe-A 2026-10-22: kept at
 partial_fill = false
 [bid]                                              # docs/03 section 6 "Pay on success"
 quantile = 0.75
+lamports = 3_400_000                               # the buy bid (0 = this measured median); split per leader class below. 2026-10-23: the snipers ahead of us paid a median 2.1M priority + 8.4M tip, we paid 3.4M; raise with the class caps below
 # [priority, tip] per leader class. The tip is a transfer AFTER the buy in the same transaction: a failed
 # (slippage-capped) buy reverts it, while the base fee and the priority fee are charged on failure too.
 # Jito-Agave (tip-ordered through the block engine) bids with the tip and keeps the priority fee at the floor.

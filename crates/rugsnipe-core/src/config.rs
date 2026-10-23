@@ -602,6 +602,12 @@ impl Default for BidSplit {
 #[serde(deny_unknown_fields, default)]
 pub struct BidCfg {
     pub quantile: f64,
+    /// The buy bid in lamports, split per leader class by `split` (0 = the
+    /// measured median first-winner bid of docs/03 section 6, 3,400,000).
+    /// Bounded by `risk.max_bid_lamports`. 2026-10-23: the snipers ahead of
+    /// us on contested launches paid a median 2.1M priority fee plus an
+    /// 8.4M tip, about three times this default.
+    pub lamports: u64,
     /// `[priority, tip]` fractions per leader class.
     pub split: BidSplit,
     /// Header priority fee of every variant (the scheduling floor): what a
@@ -634,6 +640,7 @@ impl Default for BidCfg {
     fn default() -> Self {
         Self {
             quantile: 0.75,
+            lamports: 0,
             split: BidSplit::default(),
             min_priority_lamports: 10_000,
             failed_attempt_lamports_max: 1_000_000,
@@ -1269,6 +1276,20 @@ impl Config {
         }
         if !(self.bid.quantile > 0.0 && self.bid.quantile <= 1.0) {
             inv(&mut r, "bid.quantile", "must be in (0, 1]");
+        }
+        if self.bid.lamports > 0 {
+            let max_bid = if self.risk.max_bid_lamports > 0 {
+                self.risk.max_bid_lamports
+            } else {
+                25_000_000
+            };
+            if self.bid.lamports > max_bid {
+                inv(
+                    &mut r,
+                    "bid.lamports",
+                    &format!("must be <= risk.max_bid_lamports ({max_bid})"),
+                );
+            }
         }
         for (n, s) in [
             ("bid.split.jito_agave", self.bid.split.jito_agave),
