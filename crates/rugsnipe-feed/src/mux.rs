@@ -59,6 +59,11 @@ impl FeedMux {
     fn dedup_range(&mut self, out: &mut FeedBuf, from: usize) {
         for i in from..out.len() {
             let ev = out.events()[i];
+            if ev.src.pre_exec() && matches!(ev.payload, Payload::Trade(_)) {
+                // a pre-execution quote of a trade: never the first copy of
+                // record, so the executed copy still reaches the hot loop
+                continue;
+            }
             let key = ev.dedup_key(|w| wire_first_sig(out.wire(w)).map(xxhash_rust::xxh3::xxh3_64));
             let Some(key) = key else { continue };
             match self.dedup.insert(key, ev.src, ev.recv_ns) {

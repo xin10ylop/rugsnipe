@@ -955,6 +955,21 @@ impl HotLoop {
                     }
                 }
             }
+            Payload::Trade(t) if ev.src.pre_exec() => {
+                // a quote of a trade the chain has not run yet (a shreds
+                // feed): the bundle gate's input, never a position's. A
+                // sniper's buy behind us that then fails its bound would
+                // otherwise mark the position up and fire a take-profit
+                // into a price that never existed (2026-10-23).
+                if self.cfg.require_bundle
+                    && !self.parked_trade(&t)
+                    && t.index != u32::MAX
+                    && self.find_mint(&t.mint).is_none()
+                {
+                    self.prepark[self.prepark_at % PREPARK] = Some(t);
+                    self.prepark_at = self.prepark_at.wrapping_add(1);
+                }
+            }
             Payload::Trade(t) if t.user == self.owner && self.cfg.mode.is_real() => {
                 // our own TradeEvent from the feed: opens / sizes a real position
                 self.on_own_trade(t.sig.0, trade_from_lite(&t), false);

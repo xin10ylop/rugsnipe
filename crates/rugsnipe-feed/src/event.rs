@@ -69,6 +69,15 @@ impl FeedSrc {
     pub fn from_u8(v: u8) -> Option<FeedSrc> {
         FeedSrc::ALL.get(v as usize).copied()
     }
+
+    /// A source that reports transactions before the chain executes them
+    /// (shreds): its trades are quotes of what is about to run, not what
+    /// ran. They feed the bundle gate only; a position marks itself on
+    /// executed trades, and the mux never drops the executed copy of one
+    /// of these as a duplicate.
+    pub fn pre_exec(self) -> bool {
+        matches!(self, FeedSrc::Shreds | FeedSrc::ShredStream)
+    }
 }
 
 /// A transaction signature (64 raw bytes).
