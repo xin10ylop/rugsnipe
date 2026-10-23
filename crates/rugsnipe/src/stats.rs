@@ -46,9 +46,12 @@ pub mod code {
     /// risk or nonce taken.
     pub const NO_BUNDLE: u8 = 0x4e;
     /// `entry.require_bundle`: a trade of the mint beyond the bundle run
-    /// executed in the create slot before the parked create fired, so the
-    /// first buy behind the bundle is someone else's: not sent (docs/04
-    /// section 2 scores rank 1 only), no risk or nonce taken.
+    /// executed in the create slot before the parked create fired, or a
+    /// buy inside the run by a wallet outside the creator set and the
+    /// contiguous bundle (`hot::derive_run`), so the first buy behind the
+    /// bundle is someone else's: not sent (docs/04 section 2 scores rank 1
+    /// only), no risk or nonce taken. Also a run too long for the park to
+    /// check (`RunTrades::full`).
     pub const NOT_FIRST: u8 = 0x4f;
     /// The create's own dev buy is not one of `entry.dev_buy_sol` (operator
     /// template filter); nothing parked, nothing sent.
@@ -75,6 +78,17 @@ pub mod code {
     /// bought now could not be sold: nothing sent, risk released (transient,
     /// clears on the next fresh blockhash; never latched).
     pub const NO_BLOCKHASH: u8 = 0x56;
+    /// `entry.max_post_bundle_sol` (the pick template's price bound): the
+    /// post-bundle virtual SOL reserve the buy would be bound at (the
+    /// parked run's anchor, else V0) is above the cap; nothing sent, no risk
+    /// or nonce taken.
+    pub const TOO_BIG: u8 = 0x57;
+    /// `entry.max_bundle_sol`: the dev buy plus the parked run's
+    /// creator-set and bundle buys exceed the cap; nothing sent.
+    pub const BUNDLE_SOL: u8 = 0x58;
+    /// `entry.uri_hosts` / `entry.uri_hosts_deny`: the create's uri host is
+    /// not an allowed one, or a denied one; nothing parked, nothing sent.
+    pub const URI_HOST: u8 = 0x59;
     /// Metrics only: a paper decision that a real mode would have skipped
     /// (rslog keeps the RiskGate code and the `would_skip` reason).
     pub const PAPER_WOULD_SKIP: u8 = 0x1f;
@@ -122,6 +136,9 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (code::NOT_OPERATOR, "skip_not_operator"),
     (code::BUNDLE_SHAPE, "skip_bundle_shape"),
     (code::NO_BLOCKHASH, "skip_no_blockhash"),
+    (code::TOO_BIG, "skip_bundle_too_big"),
+    (code::BUNDLE_SOL, "skip_bundle_sol"),
+    (code::URI_HOST, "skip_uri_host"),
 ];
 
 /// Label of a decision code.

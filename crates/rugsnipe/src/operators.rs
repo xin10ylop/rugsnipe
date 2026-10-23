@@ -118,10 +118,11 @@ pub fn in_creator_set(hit: &CreateHit, k: &Pubkey) -> bool {
 }
 
 /// Distinct bundle wallets of a parked create, counted like rt.json's
-/// `n_bw`: the bundle run's buyers outside the creator set. The park holds
-/// at most `RUN_MAX_AFTER` (5) distinct buyers and only what the stream
-/// delivered before the fire, so the count saturates at 5 and can be short
-/// of the confirmed block's.
+/// `n_bw`: the bundle run's buyers (chained behind the create at most 2
+/// indices apart, `hot::derive_run`) outside the creator set. The park
+/// holds at most `RUN_MAX_AFTER` (5) distinct buyers and only what the
+/// stream delivered before the fire, so the count saturates at 5 and can be
+/// short of the confirmed block's (the status line's `wallets@fire`).
 pub fn bundle_wallet_count(p: &Parked) -> u32 {
     p.wallets[..p.n_wallets as usize]
         .iter()

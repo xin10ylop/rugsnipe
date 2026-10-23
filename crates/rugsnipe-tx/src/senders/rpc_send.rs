@@ -41,15 +41,25 @@ impl Sender for RpcSend {
         if self.sells_only && v.kind == VariantKind::Buy {
             return SendResult::Failed(SendError::NotForThisSender);
         }
-        if !self.breaker.allow(now_ms()) {
+        // a sell is never blocked by the breaker (one at a time as the
+        // half-open probe of an open one) and its failure never opens it
+        let sell = v.kind == VariantKind::Sell;
+        let probe = if self.breaker.allow(now_ms()) {
+            false
+        } else if sell && self.breaker.try_probe() {
+            true
+        } else {
             return SendResult::Failed(SendError::BreakerOpen);
-        }
+        };
         let b64 = base64::engine::general_purpose::STANDARD.encode(v.bytes());
         let t0 = Instant::now();
         let r = self.client.call(
             "sendTransaction",
             json!([b64, {"encoding": "base64", "skipPreflight": true, "maxRetries": 0}]),
         );
+        if probe {
+            self.breaker.end_probe();
+        }
         match r {
             Ok(_) => {
                 self.breaker.on_success();
@@ -58,10 +68,15 @@ impl Sender for RpcSend {
                 }
             }
             Err(e) => {
-                self.breaker.on_failure(now_ms());
+                if !sell {
+                    self.breaker.on_failure(now_ms());
+                }
                 SendResult::Failed(SendError::Rpc(e))
             }
         }
+    }
+    fn ready(&self, kind: VariantKind, now_ms: u64) -> bool {
+        self.breaker.allows(kind, now_ms)
     }
     /// `sells_only`: no buy variant is planned for this path (it would only
     /// come back `NotForThisSender` and count as a send error).

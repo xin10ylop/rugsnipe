@@ -387,6 +387,9 @@ fn run(args: &[String]) -> Result<(), String> {
                 GuardAction::SellDeferred { mint, why } => {
                     format!("real sell of {mint} deferred: {why}")
                 }
+                GuardAction::HandoffCleared { mint } => {
+                    format!("guard_handoff:{mint} cleared (position no longer open)")
+                }
                 GuardAction::Released => "released the exits lease (no open positions)".into(),
             })
             .collect::<Vec<_>>()

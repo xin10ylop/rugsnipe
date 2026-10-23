@@ -28,6 +28,14 @@
 //! ([`rugsnipe_state::lease::HOT_HEARTBEAT`]) is fresh again and no sell is
 //! in flight, so a restarted hot box resumes its exits instead of finding
 //! them "lost".
+//!
+//! **Handed-off positions are sold while the hot box is alive.** A
+//! `guard_handoff:<mint>` row in `kv` (the hot loop's sell of that mint has
+//! not landed 5 s after its first try) makes the guard sell that mint at
+//! once, without the exits lease and whatever the heartbeat says, through
+//! the same real sell path (re-sent every `retry_ms` until the balance
+//! reads 0 or `max_sell_spend`); the exit is booked when the balance reads
+//! 0 and the row is cleared (also when the position is already closed).
 
 use pump_codec::constants::{TOKEN_2022_PROGRAM_ID, WSOL_MINT};
 use pump_codec::curve::FeeBps;
@@ -131,7 +139,44 @@ pub enum GuardAction {
         mint: Pubkey,
         why: &'static str,
     },
+    /// A `guard_handoff:<mint>` row whose position is no longer open was
+    /// removed.
+    HandoffCleared {
+        mint: Pubkey,
+    },
     Released,
+}
+
+/// `kv` key prefix of a position the hot loop handed to the guard.
+pub const HANDOFF_PREFIX: &str = "guard_handoff:";
+
+/// Mints with a `guard_handoff:<mint>` row.
+pub fn handoff_mints(c: &rusqlite::Connection) -> Result<HashSet<Pubkey>, String> {
+    let mut st = c
+        .prepare("SELECT k FROM kv WHERE k LIKE 'guard_handoff:%'")
+        .map_err(|e| e.to_string())?;
+    let keys = st
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(|e| e.to_string())?;
+    let mut out = HashSet::new();
+    for k in keys {
+        let k = k.map_err(|e| e.to_string())?;
+        if let Some(m) = k
+            .strip_prefix(HANDOFF_PREFIX)
+            .and_then(|m| m.parse::<Pubkey>().ok())
+        {
+            out.insert(m);
+        }
+    }
+    Ok(out)
+}
+
+/// Remove `guard_handoff:<mint>` (no-op without one).
+fn clear_handoff(c: &rusqlite::Connection, mint: &Pubkey) -> Result<(), String> {
+    let w = rugsnipe_state::store::Write::KvDelete(format!("{HANDOFF_PREFIX}{mint}"));
+    rugsnipe_state::store::apply(c, &w)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 /// The paper sell path of a non-dry-run guard.
@@ -359,6 +404,7 @@ impl Guard {
             let e = rugsnipe_state::store::Write::Exit(e);
             rugsnipe_state::store::apply(c, &e).map_err(|e| e.to_string())?;
         }
+        clear_handoff(c, &p.mint)?;
         self.sold.insert(p.mint);
         Ok(action)
     }
@@ -372,6 +418,13 @@ impl Guard {
     ) -> Result<Vec<GuardAction>, String> {
         let positions = load_open_positions(c).map_err(|e| e.to_string())?;
         let mut out = vec![];
+        let handoffs = handoff_mints(c)?;
+        for m in &handoffs {
+            if !positions.iter().any(|p| p.mint == *m) {
+                clear_handoff(c, m)?;
+                out.push(GuardAction::HandoffCleared { mint: *m });
+            }
+        }
         if positions.is_empty() {
             if self.lease.is_held() {
                 self.lease.release(c).map_err(|e| e.to_string())?;
@@ -406,6 +459,11 @@ impl Guard {
                         age_ms: row.age_ms(now_ms),
                         owner: row.owner,
                     });
+                    // the hot box is alive but handed these over: sell them
+                    // without the lease
+                    if positions.iter().any(|p| handoffs.contains(&p.mint)) {
+                        self.sell_loop(c, now_ms, price, positions, Some(&handoffs), &handoffs, 0, &mut out)?;
+                    }
                     return Ok(out);
                 }
             }
@@ -420,9 +478,31 @@ impl Guard {
             }
         }
         let held_ms = now_ms.saturating_sub(self.held_since_ms.unwrap_or(now_ms));
+        self.sell_loop(c, now_ms, price, positions, None, &handoffs, held_ms, &mut out)?;
+        Ok(out)
+    }
+
+    /// The sell rules over `positions` (`only`: just these mints, the
+    /// hand-offs sold while the hot box holds the lease); a mint in
+    /// `handoffs` is sold at once (reason `handoff`).
+    #[allow(clippy::too_many_arguments)]
+    fn sell_loop(
+        &mut self,
+        c: &rusqlite::Connection,
+        now_ms: u64,
+        price: &dyn Fn(&Pubkey) -> Option<u64>,
+        positions: Vec<PositionRow>,
+        only: Option<&HashSet<Pubkey>>,
+        handoffs: &HashSet<Pubkey>,
+        held_ms: u64,
+        out: &mut Vec<GuardAction>,
+    ) -> Result<(), String> {
         let real = !self.cfg.dry_run && self.sell.as_ref().is_some_and(|s| s.real.is_some());
         for p in positions {
             if self.sold.contains(&p.mint) || p.tokens == 0 {
+                continue;
+            }
+            if only.is_some_and(|o| !o.contains(&p.mint)) {
                 continue;
             }
             // real: the chain balance decides (size, and whether it is sold)
@@ -466,6 +546,8 @@ impl Guard {
             };
             let reason = if let Some(r) = retry {
                 r
+            } else if handoffs.contains(&p.mint) {
+                "handoff"
             } else if dropped {
                 "drop_from_peak"
             } else if held_ms >= self.cfg.grace_s * 1_000 {
@@ -596,7 +678,7 @@ impl Guard {
                 sig: var.sig,
             });
         }
-        Ok(out)
+        Ok(())
     }
 }
 

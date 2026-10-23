@@ -188,6 +188,13 @@ impl HttpConn {
         w.extend_from_slice(body);
         let reused = self.stream.is_some();
         match self.round_trip() {
+            // a 408 on a kept-alive connection is the server timing out the
+            // idle socket, not an answer to this request (it never reached
+            // the handler): reconnect and send once more
+            Ok(408) if reused => {
+                self.stream = None;
+                self.round_trip()
+            }
             Ok(s) => Ok(s),
             Err(_) if reused => {
                 self.stream = None;

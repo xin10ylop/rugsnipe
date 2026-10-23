@@ -40,6 +40,8 @@ pub struct Config {
     pub risk: RiskCfg,
     pub feeds: FeedsCfg,
     pub senders: SendersCfg,
+    /// `[sells]`: which senders a real sell goes to (default: all).
+    pub sells: SellsCfg,
     pub rpc_budget: RpcBudgetCfg,
     pub tx: TxCfg,
     pub bid: BidCfg,
@@ -491,6 +493,27 @@ impl SendersCfg {
             ("jito", &self.jito),
             ("nextblock", &self.nextblock),
         ]
+    }
+}
+
+/// `[sells]`: the sell fan-out.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields, default)]
+pub struct SellsCfg {
+    /// Sender labels a real sell goes to (`helius`, `helius_swqos`,
+    /// `nozomi`, `astralane`, `blockrazor`, `nextblock`, `rpcsend`,
+    /// `jito_<region>`, or `jito` for every region); empty = every
+    /// configured sender (the buy set).
+    pub senders: Vec<String>,
+}
+impl SellsCfg {
+    /// A sell may go to the sender labelled `label`.
+    pub fn allows(&self, label: &str) -> bool {
+        self.senders.is_empty()
+            || self
+                .senders
+                .iter()
+                .any(|n| n == label || (n == "jito" && label.starts_with("jito")))
     }
 }
 
@@ -950,6 +973,37 @@ pub struct EntryCfg {
     /// (the count comes from the parked run); a create outside the list is
     /// skipped as `skip_bundle_shape`.
     pub bundle_wallets: Vec<u32>,
+    /// The pick template (docs/09, 2026-10-23): skip a create whose
+    /// post-bundle virtual SOL reserve exceeds this many SOL, as
+    /// `skip_bundle_too_big` (0x57); 0 = off. The reserve is the one the buy
+    /// is bound at: the parked run's last creator-set / bundle trade, or
+    /// without a run (`require_bundle` off, paper) the curve after the
+    /// create's own buy (V0). The curve starts at 30 virtual SOL, so a
+    /// value must be above 30. The copied wallet bought at about 37-47
+    /// (post-bundle mcap 36-65 SOL); the 2026-10-23 loss was bought at 58.
+    pub max_post_bundle_sol: f64,
+    /// Skip a create whose dev buy (the create transaction's own buys) plus
+    /// the parked run's creator-set and bundle buys exceed this many SOL, as
+    /// `skip_bundle_sol` (0x58); 0 = off. Without a run only the dev buy
+    /// counts. The copied wallet's dev + bundle: about 7 SOL, p90 17.
+    pub max_bundle_sol: f64,
+    /// An alternative to `dev_buy_sol`: the create's own buy may also be a
+    /// whole number of SOL (+- `dev_buy_tol_sol`) in `[dev_buy_round_min,
+    /// dev_buy_round_max]`. With `dev_buy_sol` also set a dev buy passes on
+    /// either; a create passing neither is `skip_dev_buy` (0x50).
+    pub dev_buy_round: bool,
+    pub dev_buy_round_min: f64,
+    pub dev_buy_round_max: f64,
+    /// The create's uri host (`https?://<host>/...`, as the wire decoder
+    /// keeps it: lower case, at most 64 bytes) must end in one of these
+    /// (case-insensitive, on a label boundary: `uxento.io` matches
+    /// `meta.uxento.io`, not `xuxento.io`); empty = any. A create with no
+    /// such host (`ipfs://`, no scheme, a host over 64 bytes) fails a
+    /// non-empty list. Else `skip_uri_host` (0x59), nothing parked.
+    pub uri_hosts: Vec<String>,
+    /// Hosts that skip a create the same way (`skip_uri_host`), matched
+    /// like `uri_hosts`; empty = none.
+    pub uri_hosts_deny: Vec<String>,
 }
 impl Default for EntryCfg {
     fn default() -> Self {
@@ -973,8 +1027,27 @@ impl Default for EntryCfg {
             operators_file: String::new(),
             operators_only: false,
             bundle_wallets: vec![],
+            max_post_bundle_sol: 0.0,
+            max_bundle_sol: 0.0,
+            dev_buy_round: false,
+            dev_buy_round_min: 1.0,
+            dev_buy_round_max: 6.0,
+            uri_hosts: vec![],
+            uri_hosts_deny: vec![],
         }
     }
+}
+
+/// An `entry.uri_hosts` / `uri_hosts_deny` entry: a host name or a suffix
+/// of one (letters, digits, `.`, `-`, `_`; a leading `.` is allowed), at
+/// most 64 bytes (the decoder's host limit), no scheme, path or port.
+pub fn uri_host_pattern_ok(s: &str) -> bool {
+    let h = s.trim_start_matches('.');
+    !h.is_empty()
+        && h.len() <= 64
+        && !h.ends_with('.')
+        && h.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
 }
 
 /// `entry.presend_mode`.
@@ -1608,6 +1681,41 @@ impl Config {
                 "entry.bundle_wallets",
                 "needs entry.require_bundle = true (the count comes from the parked bundle run)",
             );
+        }
+        let mp = self.entry.max_post_bundle_sol;
+        if !(mp == 0.0 || (mp > 30.0 && mp < 1_000.0)) {
+            inv(
+                &mut r,
+                "entry.max_post_bundle_sol",
+                "must be 0 (off) or in (30, 1000) SOL: the post-bundle virtual SOL reserve (the curve starts at 30)",
+            );
+        }
+        if !(self.entry.max_bundle_sol >= 0.0 && self.entry.max_bundle_sol < 1_000.0) {
+            inv(
+                &mut r,
+                "entry.max_bundle_sol",
+                "must be in [0, 1000) SOL (0 = off)",
+            );
+        }
+        let (lo, hi) = (self.entry.dev_buy_round_min, self.entry.dev_buy_round_max);
+        if !(lo >= 0.0 && lo <= hi && hi < 1_000.0) || lo.ceil() > hi.floor() {
+            inv(
+                &mut r,
+                "entry.dev_buy_round_min",
+                "dev_buy_round_min / dev_buy_round_max must satisfy 0 <= min <= max < 1000 SOL with a whole number between them",
+            );
+        }
+        for (field, list) in [
+            ("entry.uri_hosts", &self.entry.uri_hosts),
+            ("entry.uri_hosts_deny", &self.entry.uri_hosts_deny),
+        ] {
+            if list.iter().any(|h| !uri_host_pattern_ok(h)) {
+                inv(
+                    &mut r,
+                    field,
+                    "each entry must be a host or host suffix (letters, digits, '.', '-', '_'; at most 64 bytes; no scheme, path or port)",
+                );
+            }
         }
         if self.entry.bundle_wait_us > 200_000 {
             inv(

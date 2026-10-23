@@ -12,14 +12,29 @@
 //!   priority fee, signed again with the real key; every variant rides the
 //!   intent's one durable nonce, so at most one executes. Jito takes only
 //!   the pay-on-success primary of a buy (1 req/s per IP and region).
-//! * A **sell** rides a plain recent blockhash (no nonce), so copies with
-//!   different signatures could all land (a partial take-profit selling
-//!   twice, the tip paid twice). A sell is therefore signed **once**
-//!   ([`plan_variants`]): one message, one signature, the tip to the first
-//!   tip-taking sender's account; every other sender gets the identical
-//!   bytes if that message passes its tip check (same tip set, e.g. both
-//!   Helius legs, every Jito region; tipless paths such as `rpcsend`) and
-//!   is skipped otherwise. One sell job can land at most once.
+//! * A **final sell** (sells the whole balance and closes the token
+//!   account) fans out like a buy: one variant per sender
+//!   ([`plan_target`]), each with that provider's tip account and floor,
+//!   to every sender of `[sells] senders` (default: all) that can take a
+//!   sell now ([`Sender::ready`]: a sell goes through an open breaker as
+//!   its half-open probe; a quarantine never skips a sell). It still lands
+//!   at most once: a second copy finds no tokens and no account and fails
+//!   as a whole, its tip reverting.
+//! * A **partial sell** rides a plain recent blockhash (no nonce), so
+//!   copies with different signatures could all land (a partial
+//!   take-profit selling twice, the tip paid twice). It is therefore
+//!   signed **once** ([`plan_sell`]): one message, one signature, the tip
+//!   to the first ready tip-taking sender's account; every other ready
+//!   sender gets the identical bytes if that message passes its tip check
+//!   (same tip set, e.g. both Helius legs, every Jito region; tipless
+//!   paths such as `rpcsend`) and is skipped otherwise.
+//! * **A sell try counts only when a sender accepted it.** A sell job no
+//!   sender could take (every breaker open with its probe in flight,
+//!   nothing in `[sells] senders`) or that every sender refused or failed
+//!   (breaker, rate limit, tip check, connection, HTTP error) goes back to
+//!   the hot loop as [`ColdMsg::SellUnsent`]: no try used, no tip charged,
+//!   re-sent on the next slot (2026-10-23 22:14: three hold_to tries were
+//!   spent on `helius_swqos` `breaker_open` while four senders sat idle).
 //! * Each real sender has its own worker thread (warm connection, breaker,
 //!   token bucket), so one slow provider never delays the others; a Nozomi
 //!   worker sends both variants of an intent in one batch request.
@@ -114,13 +129,38 @@ pub fn plan_variants(
     targets: &[Box<dyn Sender>],
     signer: &HotSigner,
 ) -> Vec<(usize, Variant)> {
+    plan_variants_on(jobs, targets, &vec![true; targets.len()], signer)
+}
+
+/// [`plan_variants`] with the targets a sell may use now (`sell_ok[k]`:
+/// in `[sells] senders` and [`Sender::ready`] for a sell).
+pub fn plan_variants_on(
+    jobs: &[FireJob],
+    targets: &[Box<dyn Sender>],
+    sell_ok: &[bool],
+    signer: &HotSigner,
+) -> Vec<(usize, Variant)> {
     let mut out = vec![];
     let mut used: Vec<([u8; 32], u64, u64)> = vec![];
     let mut sells: Vec<Option<Vec<(usize, Variant)>>> = vec![None; jobs.len()];
     for k in 0..targets.len() {
-        out.extend(plan_target(jobs, targets, k, signer, &mut used, &mut sells));
+        out.extend(plan_target(
+            jobs, targets, k, sell_ok, signer, &mut used, &mut sells,
+        ));
     }
     out
+}
+
+/// A sell job that may go out as one variant per sender: a final sell
+/// (whole balance, token account closed), which executes at most once
+/// whatever its signature (a second copy fails as a whole, tip included).
+pub fn sell_fans_out(job: &FireJob) -> bool {
+    matches!(
+        job.tmpl.kind,
+        rugsnipe_tx::template::TemplateKind::Sell {
+            close_account: true
+        }
+    )
 }
 
 /// The variants of `jobs` for ONE target sender (`k`), so the sender thread
@@ -129,10 +169,12 @@ pub fn plan_variants(
 /// priority)` uniqueness across targets, `sells` caches each sell job's one
 /// signed message ([`plan_sell`]) across targets. Target-major over all
 /// targets equals [`plan_variants`].
+#[allow(clippy::too_many_arguments)]
 pub fn plan_target(
     jobs: &[FireJob],
     targets: &[Box<dyn Sender>],
     k: usize,
+    sell_ok: &[bool],
     signer: &HotSigner,
     used: &mut Vec<([u8; 32], u64, u64)>,
     sells: &mut [Option<Vec<(usize, Variant)>>],
@@ -141,9 +183,16 @@ pub fn plan_target(
     for (j, job) in jobs.iter().enumerate() {
         let kind = kind_of(job.idx);
         if kind == VariantKind::Sell {
-            let all = sells[j].get_or_insert_with(|| plan_sell(job, targets, signer));
-            out.extend(all.iter().filter(|(t, _)| *t == k).cloned());
-            continue;
+            if !sell_ok.get(k).copied().unwrap_or(false) {
+                continue;
+            }
+            if !sell_fans_out(job) {
+                let all =
+                    sells[j].get_or_insert_with(|| plan_sell(job, targets, sell_ok, signer));
+                out.extend(all.iter().filter(|(t, _)| *t == k).cloned());
+                continue;
+            }
+            // a final sell: this sender's own variant, planned like a buy's
         }
         let s = &targets[k];
         if kind == VariantKind::Buy && (job.idx & 0x7f) >= s.buy_variants() {
@@ -196,13 +245,16 @@ pub fn plan_target(
 pub fn plan_sell(
     job: &FireJob,
     targets: &[Box<dyn Sender>],
+    sell_ok: &[bool],
     signer: &HotSigner,
 ) -> Vec<(usize, Variant)> {
+    let ok = |k: usize| sell_ok.get(k).copied().unwrap_or(false);
     let mut tmpl = job.tmpl.clone();
     tmpl.set_priority(job.prio);
     let anchor = targets
         .iter()
         .enumerate()
+        .filter(|(k, _)| ok(*k))
         .find_map(|(k, s)| tip_plan(s.as_ref(), k, job.idx, job.intent, job.tip));
     let (acct, tip) = anchor.unwrap_or((job.tip_account, job.tip));
     tmpl.set_tip_account(&acct);
@@ -220,7 +272,9 @@ pub fn plan_sell(
     targets
         .iter()
         .enumerate()
-        .filter(|(_, s)| rugsnipe_tx::senders::check_tip(&v, s.tip_accounts(), s.min_tip()).is_ok())
+        .filter(|(k, s)| {
+            ok(*k) && rugsnipe_tx::senders::check_tip(&v, s.tip_accounts(), s.min_tip()).is_ok()
+        })
         .map(|(k, _)| (k, v.clone()))
         .collect()
 }
@@ -365,6 +419,86 @@ struct Batch {
     bid: u64,
     t0: u64,
     leader: u8,
+}
+
+/// A real sell job's copies at the workers.
+#[derive(Debug, Default)]
+struct SellWait {
+    left: usize,
+    accepted: bool,
+    /// `label err` of each failed copy (the unsent line).
+    fails: String,
+}
+
+/// One sell result into its job's wait: `Some((job, failures))` when the
+/// last copy is back and no sender accepted any (the try is not used).
+fn settle(
+    waits: &mut std::collections::HashMap<(u64, u8), SellWait>,
+    d: &Done,
+) -> Option<((u64, u8), String)> {
+    if d.variant.kind != VariantKind::Sell {
+        return None;
+    }
+    let key = (d.intent, d.variant.idx);
+    let w = waits.get_mut(&key)?;
+    w.left = w.left.saturating_sub(1);
+    if d.result.is_ok() {
+        w.accepted = true;
+    } else {
+        if !w.fails.is_empty() {
+            w.fails.push_str(", ");
+        }
+        w.fails.push_str(d.label);
+        w.fails.push(' ');
+        w.fails.push_str(err_name(&d.result));
+    }
+    if w.left > 0 {
+        return None;
+    }
+    let w = waits.remove(&key)?;
+    (!w.accepted).then_some((key, w.fails))
+}
+
+/// The unsent-sell journal line, at most once a second (the hot loop
+/// re-sends an unsent sell every slot); the lines held back are counted.
+#[derive(Debug, Default)]
+struct UnsentLog {
+    last_ms: u64,
+    held: u64,
+}
+
+/// A real sell job went out to no sender that accepted it: the hot loop
+/// takes the attempt back ([`ColdMsg::SellUnsent`]: no try, no tip) and
+/// re-sends it on the next slot.
+fn sell_unsent(
+    cold: &mpsc::Sender<ColdMsg>,
+    log: &mut UnsentLog,
+    (intent, idx): (u64, u8),
+    why: &'static str,
+    fails: &str,
+) {
+    let t = crate::now_ms();
+    if t.saturating_sub(log.last_ms) >= 1_000 {
+        let held = std::mem::take(&mut log.held);
+        let more = if held > 0 {
+            format!(" (+{held} more held back)")
+        } else {
+            String::new()
+        };
+        let fails = if fails.is_empty() {
+            String::new()
+        } else {
+            format!(": {fails}")
+        };
+        eprintln!(
+            "sender: sell intent {intent} try {} UNSENT, {why}{fails}; no try used, re-sent next slot{more}",
+            idx & 0x7f
+        );
+        log.last_ms = t;
+    } else {
+        log.held += 1;
+    }
+    let _ = cold.send(ColdMsg::SellUnsent { intent, idx, why });
 }
 
 fn spawn_worker(
@@ -534,6 +668,11 @@ pub fn spawn_with(
                 }
             };
             let mut pending: Vec<FireJob> = vec![];
+            // real sell jobs with copies at the workers: `(intent, idx)` ->
+            // copies left, accepted by any
+            let mut sell_wait: std::collections::HashMap<(u64, u8), SellWait> =
+                std::collections::HashMap::new();
+            let mut unsent_log = UnsentLog::default();
             loop {
                 while let Ok(job) = rx.pop() {
                     pending.push(job);
@@ -554,6 +693,7 @@ pub fn spawn_with(
                             let _ = cold.send(ColdMsg::SellUnsent {
                                 intent: j.intent,
                                 idx: j.idx,
+                                why: "no blockhash within the sender's budget",
                             });
                         }
                         ok
@@ -632,19 +772,42 @@ pub fn spawn_with(
                     // others earlier
                     let now_ms = crate::now_ms();
                     let targets = senders.targets();
+                    // where a sell may go now: `[sells] senders`, a running
+                    // worker, and the sender ready for a sell (its breaker
+                    // closed, or its one half-open sell probe free)
+                    let sell_ok: Vec<bool> = (0..targets.len())
+                        .map(|k| {
+                            workers.get(k).is_some_and(|w| w.is_some())
+                                && senders.sells_via(k)
+                                && targets[k].ready(VariantKind::Sell, now_ms)
+                        })
+                        .collect();
+                    let has_sell = real.iter().any(|j| kind_of(j.idx) == VariantKind::Sell);
                     let mut used: Vec<([u8; 32], u64, u64)> = vec![];
                     let mut sells: Vec<Option<Vec<(usize, Variant)>>> = vec![None; real.len()];
+                    let mut handed: Vec<(u64, u8)> = vec![];
                     for (k, worker) in workers.iter().enumerate() {
-                        if errs.is_quarantined(senders.real()[k].label(), now_ms) {
+                        // a quarantine skips buys; a sell always tries every path
+                        let quarantined = errs.is_quarantined(senders.real()[k].label(), now_ms);
+                        if quarantined && !has_sell {
                             continue;
                         }
-                        let vs: Vec<Variant> =
-                            plan_target(&real, targets, k, &signer, &mut used, &mut sells)
-                                .into_iter()
-                                .map(|(_, v)| v)
-                                .collect();
+                        let vs: Vec<Variant> = plan_target(
+                            &real, targets, k, &sell_ok, &signer, &mut used, &mut sells,
+                        )
+                        .into_iter()
+                        .map(|(_, v)| v)
+                        .filter(|v| !quarantined || v.kind == VariantKind::Sell)
+                        .collect();
                         if vs.is_empty() {
                             continue;
+                        }
+                        if worker.is_some() {
+                            handed.extend(
+                                vs.iter()
+                                    .filter(|v| v.kind == VariantKind::Sell)
+                                    .map(|v| (v.intent, v.idx)),
+                            );
                         }
                         match worker {
                             Some((tx, _)) => {
@@ -677,11 +840,31 @@ pub fn spawn_with(
                             }
                         }
                     }
+                    // every real sell job: the copies in flight, or unsent now
+                    for j in real.iter().filter(|j| kind_of(j.idx) == VariantKind::Sell) {
+                        let key = (j.intent, j.idx);
+                        let n = handed.iter().filter(|h| **h == key).count();
+                        if n == 0 {
+                            sell_unsent(
+                                &cold,
+                                &mut unsent_log,
+                                key,
+                                "no sender can take a sell now (every breaker open with its probe in flight, or none in [sells] senders)",
+                                "",
+                            );
+                            continue;
+                        }
+                        let w = sell_wait.entry(key).or_default();
+                        w.left += n;
+                    }
                 }
                 let mut got = 0;
                 while let Ok(d) = done_rx.try_recv() {
                     got += 1;
                     note(&d, &mut errs);
+                    if let Some((key, fails)) = settle(&mut sell_wait, &d) {
+                        sell_unsent(&cold, &mut unsent_log, key, "no sender accepted it", &fails);
+                    }
                     record(d, &mut sent, &mut rslog);
                 }
                 if n == 0 && got == 0 {
@@ -789,7 +972,34 @@ mod tests {
             vec![fake(SenderId::Rpc, "rpcsend", none, 0)],
         ];
         for (n, targets) in shapes.iter().enumerate() {
-            for (tmpl, idx) in [(&t.sell_partial, 0x80u8), (&t.sell_final, 0x83)] {
+            // a final sell (whole balance, account closed) lands at most once
+            // whatever its signature: one variant per target, each accepted
+            for tip in [0u64, 2_000_000] {
+                let job = FireJob {
+                    tmpl: t.sell_final.clone(),
+                    intent: 99,
+                    idx: 0x83,
+                    prio: 50_000,
+                    tip,
+                    tip_account: t.tip_account,
+                    bid: tip,
+                    real: true,
+                    leader: crate::leader::UNKNOWN,
+                };
+                let vs = plan_variants(&[job], targets, &signer);
+                let ks: Vec<usize> = vs.iter().map(|(k, _)| *k).collect();
+                assert_eq!(ks, (0..targets.len()).collect::<Vec<_>>(), "shape {n}");
+                for (k, v) in &vs {
+                    let s = &targets[*k];
+                    assert!(
+                        rugsnipe_tx::senders::check_tip(v, s.tip_accounts(), s.min_tip())
+                            .is_ok(),
+                        "shape {n}: {} accepts its final sell",
+                        s.label()
+                    );
+                }
+            }
+            for (tmpl, idx) in [(&t.sell_partial, 0x80u8)] {
                 for tip in [0u64, 2_000_000] {
                     let job = FireJob {
                         tmpl: tmpl.clone(),
@@ -824,7 +1034,7 @@ mod tests {
         }
         // the Jito-first shape: both regions and the tipless path share it
         let job = FireJob {
-            tmpl: t.sell_final.clone(),
+            tmpl: t.sell_partial.clone(),
             intent: 5,
             idx: 0x80,
             prio: 50_000,
@@ -956,10 +1166,10 @@ mod tests {
             .map(|(_, v)| v.tip_account.unwrap())
             .collect();
         assert_ne!(jito_accts[0], jito_accts[1]);
-        // a sell is one signed message: the first tip-taking path's tip set
-        // (both Helius legs share it), never a second signature
+        // a partial sell is one signed message: the first tip-taking path's
+        // tip set (both Helius legs share it), never a second signature
         let sell = FireJob {
-            tmpl: t.sell_final.clone(),
+            tmpl: t.sell_partial.clone(),
             idx: 0x81,
             ..job(0, 10_000, 1_000_000)
         };
@@ -968,5 +1178,246 @@ mod tests {
         assert_eq!(ks, vec![0, 1], "helius + helius_swqos take the same bytes");
         let sigs: std::collections::HashSet<[u8; 64]> = sv.iter().map(|(_, v)| v.sig).collect();
         assert_eq!(sigs.len(), 1);
+        // a final sell goes to every sender, Jito regions included
+        let sell = FireJob {
+            tmpl: t.sell_final.clone(),
+            idx: 0x81,
+            ..job(0, 10_000, 1_000_000)
+        };
+        let sv = plan_variants(&[sell], &targets, &signer);
+        let ks: Vec<usize> = sv.iter().map(|(k, _)| *k).collect();
+        assert_eq!(ks, vec![0, 1, 2, 3, 4]);
+        for (k, v) in &sv {
+            let s = &targets[*k];
+            assert!(s.tip_accounts().contains(&v.tip_account.unwrap()));
+            assert!(v.tip_lamports >= s.min_tip(), "{}: tip floor", s.label());
+        }
+    }
+
+    /// A sender whose breaker is open with its sell probe in flight
+    /// (`ready(Sell)` false).
+    #[derive(Debug)]
+    struct Down(Fake);
+    impl Sender for Down {
+        fn id(&self) -> SenderId {
+            self.0.id
+        }
+        fn send(&self, _v: &Variant) -> SendResult {
+            SendResult::Failed(SendError::BreakerOpen)
+        }
+        fn tip_accounts(&self) -> &[Pubkey] {
+            self.0.tips
+        }
+        fn min_tip(&self) -> u64 {
+            self.0.min
+        }
+        fn label(&self) -> &'static str {
+            self.0.label
+        }
+        fn ready(&self, _kind: VariantKind, _now_ms: u64) -> bool {
+            false
+        }
+    }
+
+    /// The fra1 set of 2026-10-23 (helius, helius_swqos, nozomi,
+    /// blockrazor, jito_frankfurt), `down` marking breaker-open senders.
+    fn fra1(down: &[&str]) -> Vec<Box<dyn Sender>> {
+        // provider tip sets (the real ones need feature `senders`)
+        static HELIUS: std::sync::LazyLock<Vec<Pubkey>> =
+            std::sync::LazyLock::new(|| (1..=10).map(|i| Pubkey::new_from_array([i; 32])).collect());
+        static NOZOMI: std::sync::LazyLock<Vec<Pubkey>> = std::sync::LazyLock::new(|| {
+            (20..37).map(|i| Pubkey::new_from_array([i; 32])).collect()
+        });
+        static RAZOR: std::sync::LazyLock<Vec<Pubkey>> = std::sync::LazyLock::new(|| {
+            (60..75).map(|i| Pubkey::new_from_array([i; 32])).collect()
+        });
+        let jito = &pump_codec::constants::JITO_TIP_ACCOUNTS;
+        let set: [(SenderId, &'static str, &'static [Pubkey], u64); 5] = [
+            (SenderId::Helius, "helius", &HELIUS, 1_000_000),
+            (SenderId::HeliusSwqos, "helius_swqos", &HELIUS, 5_000),
+            (SenderId::Nozomi, "nozomi", &NOZOMI, 1_000_000),
+            (SenderId::BlockRazor, "blockrazor", &RAZOR, 100_000),
+            (SenderId::Jito, "jito_frankfurt", jito, 1_000),
+        ];
+        set.into_iter()
+            .map(|(id, label, tips, min)| {
+                let f = Fake {
+                    id,
+                    label,
+                    tips,
+                    min,
+                    variants: if id == SenderId::Jito { 1 } else { 2 },
+                };
+                if down.contains(&label) {
+                    Box::new(Down(f)) as Box<dyn Sender>
+                } else {
+                    Box::new(f)
+                }
+            })
+            .collect()
+    }
+
+    fn hold_to_sell(t: &crate::setup::Templates, final_sell: bool) -> FireJob {
+        FireJob {
+            tmpl: if final_sell {
+                t.sell_final.clone()
+            } else {
+                t.sell_partial.clone()
+            },
+            intent: 41,
+            idx: 0x81,
+            prio: 50_000,
+            tip: 3_400_000,
+            tip_account: t.tip_account,
+            bid: 3_400_000,
+            real: true,
+            leader: crate::leader::UNKNOWN,
+        }
+    }
+
+    fn sell_ok(targets: &[Box<dyn Sender>]) -> Vec<bool> {
+        targets
+            .iter()
+            .map(|s| s.ready(VariantKind::Sell, 0))
+            .collect()
+    }
+
+    #[test]
+    fn a_sell_with_one_breaker_open_sender_goes_to_the_four_healthy_ones() {
+        let signer = crate::setup::throwaway_signer().unwrap();
+        let mut cfg = Config::default();
+        cfg.tx.cu_limit = 88_000;
+        cfg.tx.lads_bytes = 12_124_160;
+        let pool = crate::setup::paper_nonce_pool(signer.pubkey(), 2);
+        let t = crate::setup::templates(&cfg, signer.pubkey(), &pool).unwrap();
+        let targets = fra1(&["helius_swqos"]);
+        let ok = sell_ok(&targets);
+        let vs = plan_variants_on(&[hold_to_sell(&t, true)], &targets, &ok, &signer);
+        let labels: Vec<&str> = vs.iter().map(|(k, _)| targets[*k].label()).collect();
+        assert_eq!(labels, ["helius", "nozomi", "blockrazor", "jito_frankfurt"]);
+        for (k, v) in &vs {
+            let s = &targets[*k];
+            assert!(
+                rugsnipe_tx::senders::check_tip(v, s.tip_accounts(), s.min_tip()).is_ok(),
+                "{} accepts its own variant",
+                s.label()
+            );
+            assert!(rugsnipe_tx::signer::verify(
+                &signer.pubkey(),
+                &v.bytes()[65..],
+                &v.sig
+            ));
+        }
+        // the plan before the fix: one message on the Helius tip set, so
+        // with helius_swqos down only helius could take it (and with helius
+        // also unusable, nothing); a partial sell keeps that one-signature
+        // rule but is anchored on a ready sender
+        let vs = plan_variants_on(&[hold_to_sell(&t, false)], &targets, &ok, &signer);
+        let labels: Vec<&str> = vs.iter().map(|(k, _)| targets[*k].label()).collect();
+        assert_eq!(labels, ["helius"]);
+        let targets = fra1(&["helius", "helius_swqos"]);
+        let vs = plan_variants_on(&[hold_to_sell(&t, false)], &targets, &sell_ok(&targets), &signer);
+        let labels: Vec<&str> = vs.iter().map(|(k, _)| targets[*k].label()).collect();
+        assert_eq!(labels, ["nozomi"], "anchored on the first ready tip set");
+    }
+
+    #[test]
+    fn a_sell_with_every_breaker_open_is_unsent_and_given_back_for_the_next_slot() {
+        let signer = crate::setup::throwaway_signer().unwrap();
+        let mut cfg = Config::default();
+        cfg.tx.cu_limit = 88_000;
+        cfg.tx.lads_bytes = 12_124_160;
+        let pool = crate::setup::paper_nonce_pool(signer.pubkey(), 2);
+        let t = crate::setup::templates(&cfg, signer.pubkey(), &pool).unwrap();
+        let targets = fra1(&["helius", "helius_swqos", "nozomi", "blockrazor", "jito_frankfurt"]);
+        for final_sell in [true, false] {
+            let job = hold_to_sell(&t, final_sell);
+            let vs = plan_variants_on(std::slice::from_ref(&job), &targets, &sell_ok(&targets), &signer);
+            assert!(vs.is_empty(), "nothing is handed to any worker");
+        }
+        // the dispatch's unsent path: the hot loop gets the attempt back
+        let (tx, rx) = mpsc::channel();
+        let mut log = UnsentLog::default();
+        sell_unsent(&tx, &mut log, (41, 0x81), "every breaker open", "");
+        sell_unsent(&tx, &mut log, (41, 0x81), "every breaker open", "");
+        for _ in 0..2 {
+            match rx.try_recv() {
+                Ok(ColdMsg::SellUnsent { intent: 41, idx: 0x81, .. }) => {}
+                other => panic!("{other:?}"),
+            }
+        }
+        assert_eq!(log.held, 1, "the second line within a second is held back");
+    }
+
+    #[test]
+    fn a_locally_failed_send_consumes_no_try() {
+        let v = Variant::from_bytes(
+            &[1u8; 200],
+            [3; 64],
+            41,
+            0x81,
+            VariantKind::Sell,
+            50_000,
+            3_400_000,
+            None,
+        );
+        let done = |label: &'static str, result: SendResult| Done {
+            intent: 41,
+            variant: v.clone(),
+            id: SenderId::Helius,
+            label,
+            bid: 0,
+            result,
+            t0: 0,
+            leader: 0,
+        };
+        let mut waits = std::collections::HashMap::new();
+        waits.insert(
+            (41u64, 0x81u8),
+            SellWait {
+                left: 4,
+                ..Default::default()
+            },
+        );
+        let fails = [
+            ("helius_swqos", SendError::BreakerOpen),
+            ("jito_frankfurt", SendError::RateLimited),
+            ("nozomi", SendError::Io("connection refused".into())),
+        ];
+        for (label, e) in fails {
+            assert!(settle(&mut waits, &done(label, SendResult::Failed(e))).is_none());
+        }
+        // the last copy fails too: no sender accepted it, the try is given back
+        let (key, why) = settle(
+            &mut waits,
+            &done("blockrazor", SendResult::Failed(SendError::TooLarge)),
+        )
+        .expect("unsent");
+        assert_eq!(key, (41, 0x81));
+        assert!(why.contains("helius_swqos breaker_open"), "{why}");
+        assert!(waits.is_empty());
+        // one accepted copy uses the try, whatever the others did
+        waits.insert(
+            (41u64, 0x81u8),
+            SellWait {
+                left: 2,
+                ..Default::default()
+            },
+        );
+        assert!(settle(
+            &mut waits,
+            &done("helius_swqos", SendResult::Failed(SendError::BreakerOpen))
+        )
+        .is_none());
+        assert!(settle(
+            &mut waits,
+            &done("helius", SendResult::Accepted { latency_ns: 1 })
+        )
+        .is_none());
+        assert!(waits.is_empty());
+        // a buy result never touches the sell waits
+        let mut b = done("helius", SendResult::Failed(SendError::BreakerOpen));
+        b.variant.kind = VariantKind::Buy;
+        assert!(settle(&mut waits, &b).is_none());
     }
 }

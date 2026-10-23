@@ -465,3 +465,110 @@ fn guard_books_a_sale_it_did_not_send_when_the_wallet_holds_none() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 2026-10-23 22:14: a hold_to sell's tries were spent on one failing
+/// sender and the position stayed open until the hot path was stopped. A
+/// position the hot loop hands over (`guard_handoff:<mint>`) is now sold by
+/// the guard while the hot box is alive (lease and heartbeat fresh): one
+/// sell of that mint only, the exit booked when the stub chain's balance
+/// reads 0, the row cleared; a row whose position is gone is cleared too.
+#[test]
+fn guard_sells_a_handed_off_mint_while_the_hot_box_is_alive() {
+    use std::sync::atomic::{AtomicU64, Ordering::*};
+    let dir = tmpdir("guard-handoff-alive");
+    let s = StateStore::open(dir.join("state.db")).unwrap();
+    let l = Ledger::new(s.writer());
+    let c = s.reader().unwrap();
+    let (m, other, gone) = (
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+        Pubkey::new_unique(),
+    );
+    l.position(position(m, 40_000_000_000));
+    l.position(position(other, 40_000_000_000));
+    l.kv(&format!("guard_handoff:{m}"), r#"{"intent":5}"#);
+    l.kv(&format!("guard_handoff:{gone}"), r#"{"intent":6}"#);
+    l.flush();
+    // the hot box is alive: it holds the exits lease and beats
+    let hc = s.reader().unwrap();
+    let mut hot = Lease::new("exits", "hot:1");
+    hot.acquire(&hc, 10_000, 5_000).unwrap();
+    rugsnipe_state::lease::beat(&hc, rugsnipe_state::lease::HOT_HEARTBEAT, "hot:1", 10_000)
+        .unwrap();
+    // stub chain: the balance of `m` until the sale lands, its proceeds
+    let bal = Arc::new(AtomicU64::new(1_000_000_000_000));
+    let b2 = bal.clone();
+    let cfgt = rugsnipe_core::config::Config::default();
+    let signer = Arc::new(rugsnipe::setup::throwaway_signer().unwrap());
+    let pool = rugsnipe::setup::paper_nonce_pool(signer.pubkey(), 1);
+    let t = rugsnipe::setup::templates(&cfgt, signer.pubkey(), &pool).unwrap();
+    let senders = Arc::new(
+        rugsnipe_tx::senders::SenderSet::build(&cfgt, &Default::default(), &Default::default())
+            .unwrap(),
+    );
+    let mut g = Guard::new(
+        cfg(false, 600),
+        Some(PaperSell {
+            template: t.sell_final,
+            signer: signer.clone(),
+            paper: Arc::new(rugsnipe_tx::senders::paper::Paper::new(16)),
+            tip_account: t.tip_account,
+            bid: rugsnipe_core::bid::BidPolicy::from_cfg(&cfgt.bid),
+            real: Some(rugsnipe::guard::GuardReal {
+                senders,
+                blockhash: Arc::new(|| Some([7; 32])),
+                token_balance: Some(Arc::new(move |k: &Pubkey| {
+                    Some(if *k == m { b2.load(SeqCst) } else { 1_000 })
+                })),
+                proceeds: Some(Arc::new(|_| Some((241_600_000, 900)))),
+                find_sale: None,
+            }),
+        }),
+    );
+    let acts = g.step(&c, 11_000, &|_| None).unwrap();
+    assert_eq!(acts[0], GuardAction::HandoffCleared { mint: gone }, "{acts:?}");
+    assert!(matches!(&acts[1], GuardAction::HotAlive { owner, .. } if owner == "hot:1"));
+    assert!(
+        matches!(
+            &acts[2..],
+            [GuardAction::SentReal { mint, reason: "handoff", try_no: 1, .. }] if *mint == m
+        ),
+        "only the handed-off mint is sold: {acts:?}"
+    );
+    assert!(!g.holds_lease(), "no takeover: the hot box keeps the lease");
+    // within retry_ms nothing is re-sent; the sale lands: booked and cleared
+    let acts = g.step(&c, 12_000, &|_| None).unwrap();
+    assert!(matches!(&acts[..], [GuardAction::HotAlive { .. }]), "{acts:?}");
+    bal.store(0, SeqCst);
+    hot.renew(&hc, 12_500).unwrap();
+    let acts = g.step(&c, 13_000, &|_| None).unwrap();
+    assert!(
+        matches!(&acts[1..], [GuardAction::Closed { mint, tries: 1 }] if *mint == m),
+        "{acts:?}"
+    );
+    let (reason, sol_delta): (String, i64) = c
+        .query_row(
+            "SELECT reason, sol_delta FROM exits WHERE mint = ?1",
+            [m.to_string()],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!((reason.as_str(), sol_delta), ("guard_handoff", 241_600_000));
+    let rows: i64 = c
+        .query_row(
+            "SELECT COUNT(*) FROM kv WHERE k LIKE 'guard_handoff:%'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(rows, 0, "the rows are cleared");
+    let st: String = c
+        .query_row(
+            "SELECT state FROM positions WHERE mint = ?1",
+            [other.to_string()],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(st, "open", "a position not handed over is the hot box's");
+    let _ = std::fs::remove_dir_all(&dir);
+}

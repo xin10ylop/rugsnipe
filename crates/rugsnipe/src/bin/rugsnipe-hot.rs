@@ -966,12 +966,13 @@ fn run(args: &[String]) -> Result<(), String> {
                     .unwrap_or_default();
             let gate = if c.parked > 0 {
                 format!(
-                    " | gate parked {} fired {} run_done {} not_first {} wait_us {}",
+                    " | gate parked {} fired {} run_done {} not_first {} wait_us {} wallets@fire 0-5 {}",
                     c.parked,
                     c.bundle_fired,
                     c.run_done,
                     c.not_first,
-                    c.bundle_wait_us / c.bundle_fired.max(1)
+                    c.bundle_wait_us / c.bundle_fired.max(1),
+                    c.fire_wallets.map(|n| n.to_string()).join("/")
                 )
             } else {
                 String::new()
@@ -996,8 +997,17 @@ fn run(args: &[String]) -> Result<(), String> {
                     )
                 })
                 .unwrap_or_default();
+            // the pick-template gates (docs/09): skips by gate
+            let template = if app.hot.template_on() {
+                format!(
+                    " | template too_big {} bundle_sol {} dev_buy {} uri_host {}",
+                    c.skip_too_big, c.skip_bundle_sol, c.skip_dev_buy, c.skip_uri_host
+                )
+            } else {
+                String::new()
+            };
             eprintln!(
-                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {}{gate}{presend} | {kill}{g} | {} | {}",
+                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {}{gate}{presend}{template} | {kill}{g} | {} | {}",
                 t0.elapsed().as_secs(),
                 c.events,
                 c.creates,

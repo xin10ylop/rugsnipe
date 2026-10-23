@@ -964,3 +964,134 @@ grpc = { enabled = false, url = "", x_token = "", stale_ms = 4_000, bundle_run =
     assert!(c.entry.operators_only);
     assert_eq!(c.entry.bundle_wallets, vec![2, 3, 4]);
 }
+
+/// The pick-template keys (docs/09): off by default, each value checked at
+/// its boundary, the TOML form.
+#[test]
+fn pick_template_entry_keys_parse_and_validate() {
+    let d = Config::default();
+    assert_eq!(
+        (d.entry.max_post_bundle_sol, d.entry.max_bundle_sol),
+        (0.0, 0.0)
+    );
+    assert!(!d.entry.dev_buy_round);
+    assert_eq!(
+        (d.entry.dev_buy_round_min, d.entry.dev_buy_round_max),
+        (1.0, 6.0)
+    );
+    assert!(d.entry.uri_hosts.is_empty() && d.entry.uri_hosts_deny.is_empty());
+    let refused = |f: &dyn Fn(&mut Config), field: &str| -> bool {
+        let mut c = example();
+        f(&mut c);
+        let v = c.validate(&ValidateEnv::default());
+        v.refusals
+            .iter()
+            .any(|r| matches!(r, Refusal::Invalid { field: k, .. } if *k == field))
+    };
+    let pb = "entry.max_post_bundle_sol";
+    assert!(!refused(&|_| {}, pb));
+    for (v, bad) in [
+        (0.0, false),
+        (30.000_000_001, false),
+        (47.0, false),
+        (999.9, false),
+        (30.0, true),
+        (12.0, true),
+        (-1.0, true),
+        (1_000.0, true),
+        (f64::NAN, true),
+    ] {
+        assert_eq!(
+            refused(&|c| c.entry.max_post_bundle_sol = v, pb),
+            bad,
+            "{v}"
+        );
+    }
+    let bs = "entry.max_bundle_sol";
+    for (v, bad) in [
+        (0.0, false),
+        (17.0, false),
+        (999.0, false),
+        (-0.1, true),
+        (1_000.0, true),
+        (f64::NAN, true),
+    ] {
+        assert_eq!(refused(&|c| c.entry.max_bundle_sol = v, bs), bad, "{v}");
+    }
+    let rd = "entry.dev_buy_round_min";
+    for (lo, hi, bad) in [
+        (1.0, 6.0, false),
+        (0.0, 0.0, false),
+        (2.0, 2.0, false),
+        (1.5, 2.0, false),
+        (1.5, 1.9, true),
+        (6.0, 1.0, true),
+        (-1.0, 6.0, true),
+        (1.0, 1_000.0, true),
+        (f64::NAN, 6.0, true),
+    ] {
+        let f = |c: &mut Config| {
+            c.entry.dev_buy_round = true;
+            c.entry.dev_buy_round_min = lo;
+            c.entry.dev_buy_round_max = hi;
+        };
+        assert_eq!(refused(&f, rd), bad, "[{lo}, {hi}]");
+    }
+    for field in ["entry.uri_hosts", "entry.uri_hosts_deny"] {
+        for (h, bad) in [
+            ("uxento.io", false),
+            ("META.uxento.io", false),
+            (".gg.sc", false),
+            ("j7_tracker-1.io", false),
+            ("", true),
+            (".", true),
+            ("uxento.io.", true),
+            ("https://ipfs.io", true),
+            ("ipfs.io/ipfs", true),
+            ("ipfs.io:443", true),
+            ("ip fs.io", true),
+            (&"a".repeat(65), true),
+        ] {
+            let f = |c: &mut Config| {
+                let v = vec!["ipfs.io".to_string(), h.to_string()];
+                if field == "entry.uri_hosts" {
+                    c.entry.uri_hosts = v;
+                } else {
+                    c.entry.uri_hosts_deny = v;
+                }
+            };
+            assert_eq!(refused(&f, field), bad, "{field} {h:?}");
+        }
+    }
+    let t = r#"
+[entry]
+max_post_bundle_sol = 47.0
+max_bundle_sol = 17.0
+dev_buy_round = true
+dev_buy_round_min = 2.0
+dev_buy_round_max = 5.0
+uri_hosts = ["uxento.io", "j7tracker.io"]
+uri_hosts_deny = ["ipfs.io"]
+"#;
+    let c = Config::from_toml_str(t).unwrap();
+    assert_eq!(
+        (c.entry.max_post_bundle_sol, c.entry.max_bundle_sol),
+        (47.0, 17.0)
+    );
+    assert!(c.entry.dev_buy_round);
+    assert_eq!(
+        (c.entry.dev_buy_round_min, c.entry.dev_buy_round_max),
+        (2.0, 5.0)
+    );
+    assert_eq!(c.entry.uri_hosts, vec!["uxento.io", "j7tracker.io"]);
+    assert_eq!(c.entry.uri_hosts_deny, vec!["ipfs.io"]);
+    assert!(
+        c.validate(&ValidateEnv::default()).ok(),
+        "{:?}",
+        c.validate(&ValidateEnv::default()).refusals
+    );
+    assert!(
+        Config::from_toml_str("[entry]\nmax_post_bundle = 47.0\n").is_err(),
+        "unknown key"
+    );
+}

@@ -296,6 +296,12 @@ pub trait Sender: Send + Sync + core::fmt::Debug {
     fn send_batch(&self, vs: &[&Variant]) -> Vec<SendResult> {
         vs.iter().map(|v| self.send(v)).collect()
     }
+    /// May a variant of `kind` go out at `now_ms`? `false` only when the
+    /// path's breaker is open and, for a sell, its one half-open probe is
+    /// already in flight ([`Breaker::allows`]). Decided before any network.
+    fn ready(&self, _kind: VariantKind, _now_ms: u64) -> bool {
+        true
+    }
 }
 
 /// Tip account and tip of variant `idx` of `intent` for one sender.
@@ -383,12 +389,21 @@ pub fn check_tip(v: &Variant, accounts: &[Pubkey], min: u64) -> Result<(), SendE
 }
 
 /// Circuit breaker: `threshold` consecutive failures open it for `cooldown_ms`.
+///
+/// It guards the **buy** fan-out (a dead path is skipped instead of eating
+/// the latency budget). A **sell** is never blocked by it: while it is open
+/// one sell at a time goes through as a half-open probe ([`Breaker::allows`],
+/// [`Breaker::try_probe`]); a sell's success closes it, a sell's failure
+/// does not count toward opening it (2026-10-23: a run of `http 408` on
+/// buys opened `helius_swqos`, and the three tries of a hold_to sell were
+/// spent on `breaker_open` without a byte leaving the box).
 #[derive(Debug)]
 pub struct Breaker {
     threshold: u32,
     cooldown_ms: u64,
     fails: AtomicU32,
     open_until_ms: AtomicU64,
+    probing: std::sync::atomic::AtomicBool,
 }
 
 impl Breaker {
@@ -398,7 +413,23 @@ impl Breaker {
             cooldown_ms,
             fails: AtomicU32::new(0),
             open_until_ms: AtomicU64::new(0),
+            probing: std::sync::atomic::AtomicBool::new(false),
         }
+    }
+    /// May a variant of `kind` go out at `now_ms`: the breaker is closed, or
+    /// it is a sell and no sell probe is in flight.
+    pub fn allows(&self, kind: VariantKind, now_ms: u64) -> bool {
+        self.allow(now_ms) || (kind == VariantKind::Sell && !self.probing.load(Acquire))
+    }
+    /// Claim the one half-open probe of an open breaker (`false`: one is in
+    /// flight). Give it back with [`Breaker::end_probe`].
+    pub fn try_probe(&self) -> bool {
+        self.probing
+            .compare_exchange(false, true, AcqRel, Acquire)
+            .is_ok()
+    }
+    pub fn end_probe(&self) {
+        self.probing.store(false, Release);
     }
     /// May a request go out at `now_ms`? (After the cooldown one probe is allowed.)
     pub fn allow(&self, now_ms: u64) -> bool {
@@ -502,6 +533,8 @@ pub struct SenderSet {
     /// per-sender ratio that quarantines a sender.
     pub send_error_window: usize,
     pub send_error_ratio: f64,
+    /// `[sells] senders`: the labels a real sell goes to (empty = all).
+    pub sells: rugsnipe_core::config::SellsCfg,
     real: Vec<Box<dyn Sender>>,
 }
 
@@ -535,6 +568,7 @@ impl SenderSet {
                 quarantine_ms: cfg.senders.quarantine_ms(),
                 send_error_window: cfg.risk.send_error_window.max(1) as usize,
                 send_error_ratio: cfg.risk.send_error_kill_ratio,
+                sells: cfg.sells.clone(),
                 real: vec![],
             });
         }
@@ -550,6 +584,7 @@ impl SenderSet {
             quarantine_ms: cfg.senders.quarantine_ms(),
             send_error_window: cfg.risk.send_error_window.max(1) as usize,
             send_error_ratio: cfg.risk.send_error_kill_ratio,
+            sells: cfg.sells.clone(),
             real,
         })
     }
@@ -585,6 +620,13 @@ impl SenderSet {
     /// use [`SenderSet::real`].
     pub fn targets(&self) -> &[Box<dyn Sender>] {
         &self.real
+    }
+
+    /// Target `k` of [`SenderSet::targets`] takes real sells (`[sells] senders`).
+    pub fn sells_via(&self, k: usize) -> bool {
+        self.real
+            .get(k)
+            .is_some_and(|s| self.sells.allows(s.label()))
     }
 
     /// Send through the paper recorder and, in a real mode, every real

@@ -18,7 +18,7 @@
 use super::http::{json_rpc_send_body, HttpConn, HttpTarget};
 use super::{
     check_tip, now_ms, ApiKeys, Breaker, SendError, SendResult, Sender, SenderId, TokenBucket,
-    Variant,
+    Variant, VariantKind,
 };
 use pump_codec::Pubkey;
 use rugsnipe_core::config::HttpSenderCfg;
@@ -280,7 +280,8 @@ impl HttpSender {
             }
             return last;
         }
-        self.request(|body| {
+        let kind = vs.first().map_or(VariantKind::Buy, |v| v.kind);
+        self.request(kind, |body| {
             body.clear();
             for v in vs {
                 body.extend_from_slice(&(v.bytes().len() as u16).to_be_bytes());
@@ -289,11 +290,33 @@ impl HttpSender {
         })
     }
 
-    fn request(&self, fill: impl FnOnce(&mut Vec<u8>)) -> SendResult {
+    /// One request of a variant of `kind`. The breaker skips a buy while
+    /// it is open; a sell always goes (one at a time as the half-open probe
+    /// of an open breaker), its success closes the breaker and its failure
+    /// does not count toward opening it ([`Breaker`]).
+    fn request(&self, kind: VariantKind, fill: impl FnOnce(&mut Vec<u8>)) -> SendResult {
         let now = now_ms();
-        if !self.breaker.allow(now) {
+        let sell = kind == VariantKind::Sell;
+        let probe = if self.breaker.allow(now) {
+            false
+        } else if sell && self.breaker.try_probe() {
+            true
+        } else {
             return SendResult::Failed(SendError::BreakerOpen);
+        };
+        let r = self.request_inner(sell, fill);
+        if probe {
+            self.breaker.end_probe();
         }
+        r
+    }
+
+    fn request_inner(&self, sell: bool, fill: impl FnOnce(&mut Vec<u8>)) -> SendResult {
+        let fail = |now| {
+            if !sell {
+                self.breaker.on_failure(now);
+            }
+        };
         if !self.bucket.try_take() {
             return SendResult::Failed(SendError::RateLimited);
         }
@@ -319,7 +342,7 @@ impl HttpSender {
                 // BlockRazor's success reply carries an empty one
                 // (`{"signature":"...","error":""}`), which is not an error
                 if json_errors && body_has_error(conn.last_body()) {
-                    self.breaker.on_failure(now_ms());
+                    fail(now_ms());
                     let msg = String::from_utf8_lossy(conn.last_body())
                         .chars()
                         .take(200)
@@ -330,7 +353,7 @@ impl HttpSender {
                 SendResult::Accepted { latency_ns }
             }
             Ok(s) => {
-                self.breaker.on_failure(now_ms());
+                fail(now_ms());
                 SendResult::Failed(if s == 429 {
                     SendError::RateLimited
                 } else {
@@ -338,7 +361,7 @@ impl HttpSender {
                 })
             }
             Err(e) => {
-                self.breaker.on_failure(now_ms());
+                fail(now_ms());
                 SendResult::Failed(e)
             }
         }
@@ -413,31 +436,35 @@ impl Sender for HttpSender {
     fn min_tip(&self) -> u64 {
         self.min_tip
     }
+    fn ready(&self, kind: VariantKind, now_ms: u64) -> bool {
+        self.breaker.allows(kind, now_ms)
+    }
     fn send(&self, v: &Variant) -> SendResult {
         if let Err(e) = check_tip(v, self.tips, self.min_tip) {
             return SendResult::Failed(e);
         }
         let opts = self.opts;
+        let k = v.kind;
         match self.wire {
             Wire::JsonRpc => {
-                self.request(|b| json_rpc_send_body(b, "sendTransaction", v.bytes(), opts))
+                self.request(k, |b| json_rpc_send_body(b, "sendTransaction", v.bytes(), opts))
             }
-            Wire::NozomiBatch => self.request(|b| {
+            Wire::NozomiBatch => self.request(k, |b| {
                 b.clear();
                 b.extend_from_slice(&(v.bytes().len() as u16).to_be_bytes());
                 b.extend_from_slice(v.bytes());
             }),
-            Wire::Raw => self.request(|b| {
+            Wire::Raw => self.request(k, |b| {
                 b.clear();
                 b.extend_from_slice(v.bytes());
             }),
-            Wire::NextBlock => self.request(|b| {
+            Wire::NextBlock => self.request(k, |b| {
                 b.clear();
                 b.extend_from_slice(br#"{"transaction":{"content":""#);
                 push_b64(b, v.bytes());
                 b.extend_from_slice(br#""},"frontRunningProtection":false}"#);
             }),
-            Wire::BlockRazor => self.request(|b| {
+            Wire::BlockRazor => self.request(k, |b| {
                 b.clear();
                 b.extend_from_slice(br#"{"transaction":""#);
                 push_b64(b, v.bytes());

@@ -18,18 +18,22 @@ pub enum ColdMsg {
         intent: u64,
         on: bool,
     },
-    /// Sender thread: a real sell handed over without a lifetime found no
-    /// blockhash inside its budget and was not sent (variant `idx`).
+    /// Sender thread: a real sell (variant `idx`) went out to no sender
+    /// that accepted it (no blockhash inside the resolver's budget, every
+    /// breaker open, every copy refused or failed): the try is not used.
     SellUnsent {
         intent: u64,
         idx: u8,
+        why: &'static str,
     },
-    /// The hot loop could not send a sell of `mint` for `unsold_ms`: the
-    /// position is handed to the guard (`guard_handoff:<mint>` in `kv`).
+    /// A sell of `mint` has not landed `unsold_ms` after its first try
+    /// (`why`): the position is handed to the guard (`guard_handoff:<mint>`
+    /// in `kv`), which sells it even while the hot box is alive.
     GuardHandoff {
         mint: Pubkey,
         intent: u64,
         unsold_ms: u64,
+        why: &'static str,
     },
     /// A trade of a mint the hot loop neither holds nor parks (the feed
     /// streams the first slots of every bundled launch): the operator-dump

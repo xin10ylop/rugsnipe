@@ -472,3 +472,68 @@ fn token_bucket_rate_and_burst() {
     assert!(!b.try_take_at(t0 + Duration::from_secs(10)));
     assert!(TokenBucket::new(0.0, 1.0).try_take(), "0 = unlimited");
 }
+
+/// 2026-10-23 22:14: `helius_swqos`'s breaker opened on a run of buy
+/// timeouts and the three tries of a sell came back `breaker_open` without
+/// a request. An open breaker still skips a buy, but a sell goes through
+/// as its half-open probe, its failure does not count, its success closes
+/// the breaker.
+#[test]
+fn an_open_breaker_skips_buys_but_never_a_sell() {
+    let (url, rx) = mock(vec![
+        (500, "boom"),
+        (500, "boom"),
+        (500, "boom"),
+        (500, "boom"),
+        (500, "boom"),
+        (408, "timeout"),
+        (200, r#"{"result":"sig"}"#),
+        (200, r#"{"result":"sig"}"#),
+    ]);
+    let t = HttpTarget::parse(&url).unwrap().with_path("/fast");
+    let s = HttpSender::new(
+        SenderId::HeliusSwqos,
+        Wire::JsonRpc,
+        t,
+        &HELIUS_TIP_ACCOUNTS,
+        5_000,
+        vec![],
+        0,
+    );
+    let buy = variant(HELIUS_TIP_ACCOUNTS[0], 5_000);
+    let mut sell = variant(HELIUS_TIP_ACCOUNTS[0], 5_000);
+    sell.kind = VariantKind::Sell;
+    for _ in 0..5 {
+        assert_eq!(s.send(&buy), SendResult::Failed(SendError::Http(500)));
+        rx.recv().unwrap();
+    }
+    let now = now_ms();
+    assert!(s.breaker().is_open(now));
+    assert!(!s.ready(VariantKind::Buy, now), "a buy skips the open breaker");
+    assert!(s.ready(VariantKind::Sell, now), "a sell never does");
+    assert_eq!(s.send(&buy), SendResult::Failed(SendError::BreakerOpen));
+    assert!(rx.recv_timeout(Duration::from_millis(100)).is_err(), "no request");
+    // the sell probe goes out; its 408 is not counted (the mock's 408 is on
+    // a reused connection: re-sent once on a fresh one, which answers 200)
+    assert!(matches!(s.send(&sell), SendResult::Accepted { .. }));
+    rx.recv().unwrap();
+    rx.recv().unwrap();
+    assert!(!s.breaker().is_open(now_ms()), "the sell's success closed it");
+    assert_eq!(s.breaker().consecutive_failures(), 0);
+    assert!(matches!(s.send(&buy), SendResult::Accepted { .. }));
+}
+
+#[test]
+fn a_sell_probe_is_one_at_a_time_and_its_failures_never_open_the_breaker() {
+    let b = Breaker::new(2, 10_000);
+    b.on_failure(1_000);
+    b.on_failure(1_000);
+    assert!(!b.allows(VariantKind::Buy, 2_000));
+    assert!(b.allows(VariantKind::Sell, 2_000));
+    assert!(b.try_probe());
+    assert!(!b.allows(VariantKind::Sell, 2_000), "one probe in flight");
+    assert!(!b.try_probe());
+    b.end_probe();
+    assert!(b.allows(VariantKind::Sell, 2_000));
+    assert!(b.allows(VariantKind::Buy, 11_000), "the cooldown still ends");
+}

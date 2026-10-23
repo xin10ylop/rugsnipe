@@ -1818,29 +1818,30 @@ impl Cold {
                 }
                 self.write_sell_nonce_row(i);
             }
-            ColdMsg::SellUnsent { intent, idx } => {
-                lock(&self.p.report).probe.error(format!(
-                    "sell of intent {intent} not sent: no blockhash within the sender's budget"
-                ));
+            ColdMsg::SellUnsent { intent, idx, why } => {
+                lock(&self.p.report)
+                    .probe
+                    .error(format!("sell of intent {intent} not sent: {why}"));
                 self.to_hot_q.push_back(HotIn::SellUnsent { intent, idx });
             }
             ColdMsg::GuardHandoff {
                 mint,
                 intent,
                 unsold_ms,
+                why,
             } => {
                 let detail = format!(
-                    "no sell of {mint} (intent {intent}) could be sent for {unsold_ms} ms (no fresh blockhash, no sell nonce)"
+                    "the sell of {mint} (intent {intent}) has not landed {unsold_ms} ms after its first try ({why})"
                 );
                 eprintln!("guard handoff: {detail}");
                 lock(&self.p.report)
                     .probe
                     .error(format!("guard handoff: {detail}"));
-                self.alerts.send(format!("CRITICAL: hot cannot sell {mint}: handed to the guard ({unsold_ms} ms without a sell lifetime)"));
+                self.alerts.send(format!("CRITICAL: hot cannot sell {mint}: handed to the guard ({why}, {unsold_ms} ms)"));
                 if let Some(l) = &ledger {
                     l.kv(
                         &format!("guard_handoff:{mint}"),
-                        serde_json::json!({"intent": intent, "unsold_ms": unsold_ms, "unix_ms": crate::now_ms()})
+                        serde_json::json!({"intent": intent, "unsold_ms": unsold_ms, "why": why, "unix_ms": crate::now_ms()})
                             .to_string(),
                     );
                     l.flush();
