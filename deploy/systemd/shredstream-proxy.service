@@ -1,0 +1,43 @@
+# shredstream-proxy -- hot role (fra1), optional. A shredstream proxy (Jito's
+# `jito-shredstream-proxy` protocol; the AllenHark fork at /opt/shredproxy) receiving shreds from a
+# gateway, deshredding them and serving the entries on a local gRPC port that rugsnipe-hot consumes
+# as the second pre-execution feed (`[feeds] entries`, docs/08 section 7). Settings in
+# /etc/rugsnipe/shredstream.env (BLOCK_ENGINE_URL, REGIONS, GRPC_PORT); the auth keypair is
+# /etc/rugsnipe/keys/shred-auth.json (root 0400), handed to the service as a credential. The proxy
+# receives shreds on UDP 20000 (SRC_BIND_PORT): open it inbound; NAT is not supported.
+[Unit]
+Description=shredstream proxy (shreds in, deshredded entries out on gRPC)
+PartOf=rugsnipe.target
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/opt/shredproxy/target/release/jito-shredstream-proxy
+ConditionPathExists=/etc/rugsnipe/keys/shred-auth.json
+ConditionPathExists=/etc/rugsnipe/shredstream.env
+StartLimitIntervalSec=300
+StartLimitBurst=30
+
+[Service]
+Type=simple
+User=rugsnipe
+Group=rugsnipe
+WorkingDirectory=/var/lib/rugsnipe
+Environment=RUST_LOG=info
+EnvironmentFile=/etc/rugsnipe/shredstream.env
+ExecStart=/opt/shredproxy/target/release/jito-shredstream-proxy shredstream \
+  --block-engine-url ${BLOCK_ENGINE_URL} \
+  --auth-keypair ${CREDENTIALS_DIRECTORY}/shred-auth \
+  --desired-regions ${REGIONS} \
+  --dest-ip-ports 127.0.0.1:8001 \
+  --grpc-service-port ${GRPC_PORT}
+LoadCredential=shred-auth:/etc/rugsnipe/keys/shred-auth.json
+Restart=always
+RestartSec=2
+OOMScoreAdjust=-500
+UMask=0027
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=rugsnipe.target

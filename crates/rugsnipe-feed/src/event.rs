@@ -26,10 +26,16 @@ pub enum FeedSrc {
     /// provider on trial). The same class as [`FeedSrc::Grpc`]; the
     /// first-seen report races the two copies of every create.
     GrpcB = 6,
+    /// The entry stream of a shredstream proxy (Jito's `jito-shredstream-proxy`
+    /// protocol: shreds from a block-engine style gateway, deshredded by the
+    /// proxy and served as `ShredstreamProxy/SubscribeEntries`): every
+    /// transaction of a slot before execution, the same class as
+    /// [`FeedSrc::Shreds`]; the first-seen report races the two.
+    ShredStream = 7,
 }
 
 /// Number of [`FeedSrc`] values.
-pub const SRC_COUNT: usize = 7;
+pub const SRC_COUNT: usize = 8;
 
 impl FeedSrc {
     pub const ALL: [FeedSrc; SRC_COUNT] = [
@@ -40,6 +46,7 @@ impl FeedSrc {
         FeedSrc::Grpc,
         FeedSrc::Shreds,
         FeedSrc::GrpcB,
+        FeedSrc::ShredStream,
     ];
 
     pub fn name(self) -> &'static str {
@@ -51,6 +58,7 @@ impl FeedSrc {
             FeedSrc::Grpc => "grpc",
             FeedSrc::Shreds => "shreds",
             FeedSrc::GrpcB => "grpc_b",
+            FeedSrc::ShredStream => "shredstream",
         }
     }
 
@@ -338,7 +346,8 @@ mod tests {
             assert_eq!(FeedSrc::from_u8(s as u8), Some(s));
         }
         assert_eq!(FeedSrc::from_u8(6), Some(FeedSrc::GrpcB));
-        assert_eq!(FeedSrc::from_u8(7), None);
+        assert_eq!(FeedSrc::from_u8(7), Some(FeedSrc::ShredStream));
+        assert_eq!(FeedSrc::from_u8(8), None);
     }
 
     #[test]

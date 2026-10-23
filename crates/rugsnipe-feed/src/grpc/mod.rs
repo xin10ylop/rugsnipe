@@ -112,6 +112,13 @@ pub struct GrpcConfig {
     /// index, and the create slot's buys are quoted on our own curve so the
     /// bundle gate sees the run before the chain executes it.
     pub deshred: bool,
+    /// Subscribe to a shredstream proxy's entry stream instead
+    /// (`ShredstreamProxy/SubscribeEntries` on `url`, plain h2c to the
+    /// proxy on this box): every transaction of a slot as the shreds
+    /// arrive, handled exactly like the deshred stream (no meta, no loaded
+    /// addresses: a create whose accounts hide behind a lookup table is
+    /// left to the other feeds).
+    pub entries: bool,
     /// Fee schedule for the pre-execution quotes.
     pub fees: FeeBps,
     /// Client pings when the server is quiet (`<= stale_ms / 3`).
@@ -151,6 +158,7 @@ impl Default for GrpcConfig {
             bundle_timeout_ms: 2_000,
             ping_ms: 5_000,
             deshred: false,
+            entries: false,
             fees: FeeBps::DEFAULT,
         }
     }
@@ -356,6 +364,53 @@ fn ping_request(id: i32) -> SubscribeRequest {
         ping: Some(SubscribeRequestPing { id }),
         ..Default::default()
     }
+}
+
+/// `shredstream.ShredstreamProxy/SubscribeEntries` (jito-labs/mev-protos
+/// `shredstream.proto`): the request has no fields, the reply is a stream of
+/// [`ShredEntry`].
+pub const ENTRIES_PATH: &str = "/shredstream.ShredstreamProxy/SubscribeEntries";
+
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct SubscribeEntriesRequest {}
+
+/// One message of the entry stream: `entries` is the bincode of a
+/// `Vec<solana_entry::Entry>` (fixed-width lengths; each transaction in its
+/// wire encoding).
+#[derive(Clone, PartialEq, prost::Message)]
+pub struct ShredEntry {
+    #[prost(uint64, tag = "1")]
+    pub slot: u64,
+    #[prost(bytes = "vec", tag = "2")]
+    pub entries: Vec<u8>,
+}
+
+/// Walk the transactions of a serialized `Vec<Entry>` in order: `f` gets
+/// each transaction's wire bytes. Returns the count, or an error on a
+/// malformed buffer (what was walked before it stays delivered).
+pub fn for_each_entry_tx(bytes: &[u8], mut f: impl FnMut(&[u8])) -> Result<usize, &'static str> {
+    fn u64_at(b: &[u8], p: usize) -> Result<u64, &'static str> {
+        let s = b.get(p..p + 8).ok_or("truncated length")?;
+        Ok(u64::from_le_bytes(s.try_into().unwrap_or([0; 8])))
+    }
+    let mut p = 0usize;
+    let n_entries = u64_at(bytes, p)?;
+    p += 8;
+    let mut n = 0usize;
+    for _ in 0..n_entries {
+        // num_hashes: u64, hash: [u8; 32], transactions: Vec<_>
+        p += 8 + 32;
+        let n_tx = u64_at(bytes, p)?;
+        p += 8;
+        for _ in 0..n_tx {
+            let rest = bytes.get(p..).ok_or("truncated transaction")?;
+            let (_, len) = TxView::parse_prefix(rest).map_err(|_| "bad transaction")?;
+            f(&rest[..len]);
+            p += len;
+            n += 1;
+        }
+    }
+    Ok(n)
 }
 
 /// The pre-execution subscription: every pump transaction (no votes) and the
@@ -644,6 +699,9 @@ impl Adapter {
         if self.cfg.deshred {
             return self.session_deshred(stop, ctl).await;
         }
+        if self.cfg.entries {
+            return self.session_entries(stop, ctl).await;
+        }
         let mut client = self.connect().await?;
         let req = build_request(&self.cfg, &self.mints);
         let (mut sink, mut stream) = tokio::time::timeout(
@@ -835,15 +893,7 @@ impl Adapter {
             return;
         };
         let slot = t.slot;
-        self.bump_slot(slot);
-        if slot != self.seq.0 {
-            if slot < self.seq.0 {
-                self.stats.reordered.fetch_add(1, Ordering::Relaxed);
-            }
-            self.seq = (slot, 0);
-        }
-        let index = self.seq.1;
-        self.seq.1 = self.seq.1.saturating_add(1);
+        let index = self.next_index(slot);
         let wire = match convert::tx_to_wire(tx) {
             Ok(w) => w,
             Err(_) => {
@@ -883,9 +933,27 @@ impl Adapter {
         self.meta_buf.clear();
         wiremeta::encode(&meta, &mut self.meta_buf);
         let sig = Sig(info.signature.as_slice().try_into().unwrap_or([0; 64]));
-        let created = self.check_create(&wire, &keys, slot);
+        self.pre_exec_tx(slot, index, &wire, &keys, n_static, sig, recv);
+    }
+
+    /// One transaction of a slot before execution (the deshred stream or a
+    /// shredstream proxy's entries), `wire` its wire bytes, `keys` the
+    /// static keys followed by the loaded ones (`n_static` of them static),
+    /// `self.meta_buf` the encoded meta trailer. The deshred arrival index
+    /// is already taken ([`Self::next_index`]).
+    fn pre_exec_tx(
+        &mut self,
+        slot: u64,
+        index: u32,
+        wire: &[u8],
+        keys: &[Pubkey],
+        n_static: usize,
+        sig: Sig,
+        recv: u64,
+    ) {
+        let created = self.check_create(wire, keys, slot);
         if let Some(mint) = created {
-            if self.wire.push(recv, slot, 0, &wire, &self.meta_buf) {
+            if self.wire.push(recv, slot, 0, wire, &self.meta_buf) {
                 self.stats.wire_events.fetch_add(1, Ordering::Relaxed);
                 self.health.event(slot);
             }
@@ -895,7 +963,7 @@ impl Adapter {
             // the create's own buys and the curve after them, from the
             // instruction arguments (no execution yet)
             let mut own: Vec<RunTrade> = Vec::new();
-            if let Ok(view) = TxView::parse(&wire) {
+            if let Ok(view) = TxView::parse(wire) {
                 let loaded = (keys.len() > n_static).then(|| &keys[n_static..]);
                 if let Ok(Some(h)) = pump_codec::create_hit(&view, loaded, &[], self.cfg.fees) {
                     if let Some(c) = h.curve_after {
@@ -924,7 +992,7 @@ impl Adapter {
         } else if self.cfg.bundle_run {
             // buys of the last slots' creates, quoted before execution
             self.trades.clear();
-            if let Ok(view) = TxView::parse(&wire) {
+            if let Ok(view) = TxView::parse(wire) {
                 let loaded = (keys.len() > n_static).then(|| &keys[n_static..]);
                 if let Ok(buys) = pump_codec::create_hit::pump_buys(&view, loaded, &[]) {
                     for (k, b) in buys.iter().enumerate() {
@@ -1004,6 +1072,128 @@ impl Adapter {
             }
             self.flush_bundles();
         }
+    }
+
+    /// The pre-execution arrival index of the next transaction of `slot`
+    /// (counted per stream: the deshred stream carries pump transactions
+    /// only, the entries stream is filtered to them here).
+    fn next_index(&mut self, slot: u64) -> u32 {
+        self.bump_slot(slot);
+        if slot != self.seq.0 {
+            if slot < self.seq.0 {
+                self.stats.reordered.fetch_add(1, Ordering::Relaxed);
+            }
+            self.seq = (slot, 0);
+        }
+        let index = self.seq.1;
+        self.seq.1 = self.seq.1.saturating_add(1);
+        index
+    }
+
+    /// One `Entry` message of the shredstream proxy: every transaction of
+    /// the entries, pump transactions handled like the deshred stream.
+    fn on_entries(&mut self, e: &ShredEntry, recv: u64) {
+        self.stats.slot_updates.fetch_add(1, Ordering::Relaxed);
+        self.bump_slot(e.slot);
+        self.health.last_frame_ns.store(recv, Ordering::Relaxed);
+        let slot = e.slot;
+        let walked = for_each_entry_tx(&e.entries, |raw| self.on_entry_tx(slot, raw, recv));
+        if walked.is_err() {
+            self.stats.convert_errors.fetch_add(1, Ordering::Relaxed);
+            FeedHealth::inc(&self.health.decode_errors);
+        }
+        if self.cfg.bundle_run {
+            self.flush_bundles();
+        }
+    }
+
+    /// One transaction of an entry (wire bytes): pump transactions only.
+    fn on_entry_tx(&mut self, slot: u64, raw: &[u8], recv: u64) {
+        let Ok(view) = TxView::parse(raw) else {
+            self.stats.convert_errors.fetch_add(1, Ordering::Relaxed);
+            return;
+        };
+        let keys = view.static_account_keys();
+        if !keys.contains(&PUMP_PROGRAM_ID) {
+            return;
+        }
+        self.stats.transactions.fetch_add(1, Ordering::Relaxed);
+        let index = self.next_index(slot);
+        let meta = wiremeta::MetaIn {
+            tx_index: Some(index),
+            ..Default::default()
+        };
+        self.meta_buf.clear();
+        wiremeta::encode(&meta, &mut self.meta_buf);
+        let sig = Sig(*view.signature(0).unwrap_or(&[0; 64]));
+        let keys: Vec<Pubkey> = keys.to_vec();
+        let n = keys.len();
+        self.pre_exec_tx(slot, index, raw, &keys, n, sig, recv);
+    }
+
+    /// The entries session: `ShredstreamProxy/SubscribeEntries` on the
+    /// proxy's gRPC port (plain h2c on this box, no token).
+    async fn session_entries(
+        &mut self,
+        stop: &AtomicBool,
+        ctl: &mut mpsc::UnboundedReceiver<Control>,
+    ) -> Result<(), String> {
+        let timeout = Duration::from_millis(self.cfg.connect_timeout_ms);
+        let ep = tonic::transport::Endpoint::from_shared(self.cfg.url.clone())
+            .map_err(|e| e.to_string())?
+            .connect_timeout(timeout)
+            .tcp_nodelay(true)
+            .http2_keep_alive_interval(Duration::from_secs(10))
+            .keep_alive_timeout(Duration::from_secs(5))
+            .keep_alive_while_idle(true);
+        let channel = tokio::time::timeout(timeout, ep.connect())
+            .await
+            .map_err(|_| "connect timeout".to_string())?
+            .map_err(|e| e.to_string())?;
+        let mut client = tonic::client::Grpc::new(channel).max_decoding_message_size(64 << 20);
+        client.ready().await.map_err(|e| e.to_string())?;
+        let codec = tonic_prost::ProstCodec::<SubscribeEntriesRequest, ShredEntry>::default();
+        let path = tonic::codegen::http::uri::PathAndQuery::from_static(ENTRIES_PATH);
+        let resp = tokio::time::timeout(
+            timeout,
+            client.server_streaming(tonic::Request::new(SubscribeEntriesRequest {}), path, codec),
+        )
+        .await
+        .map_err(|_| "subscribe_entries timeout".to_string())?
+        .map_err(|e| e.to_string())?;
+        let mut stream = resp.into_inner();
+        self.health.connected.store(true, Ordering::Relaxed);
+        self.health
+            .last_frame_ns
+            .store(mono_ns(), Ordering::Relaxed);
+        let mut check = tokio::time::interval(Duration::from_millis(50));
+        while !stop.load(Ordering::Acquire) {
+            tokio::select! {
+                m = stream.message() => {
+                    match m {
+                        Ok(Some(e)) => self.on_entries(&e, mono_ns()),
+                        Ok(None) => return Err("stream ended".into()),
+                        Err(e) => return Err(e.to_string()),
+                    }
+                }
+                _ = check.tick() => {
+                    let now = mono_ns();
+                    if self.health.is_stale_at(now) {
+                        FeedHealth::inc(&self.health.stale_reconnects);
+                        return Err("stale".into());
+                    }
+                    self.asm.on_tick(now);
+                    self.flush_bundles();
+                }
+                Some(c) = ctl.recv() => {
+                    self.apply(c);
+                    while let Ok(c) = ctl.try_recv() {
+                        self.apply(c);
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn push_run_done(&mut self, done: Vec<Pubkey>, slot: u64, index: u32, recv: u64) {

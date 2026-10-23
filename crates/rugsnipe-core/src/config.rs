@@ -261,6 +261,35 @@ impl Default for GrpcCfg {
     }
 }
 
+/// A shredstream proxy's entry stream (`feeds.entries`): the
+/// `jito-shredstream-proxy` protocol (Jito's, or a gateway speaking it such
+/// as AllenHark's Frankfurt feed) run on this box with `--grpc-service-port`,
+/// its `ShredstreamProxy/SubscribeEntries` consumed as a second
+/// pre-execution feed, source `shredstream`, beside `feeds.deshred`. The
+/// first-seen report races the two (`lag."shreds_behind_shredstream"` /
+/// `"shredstream_behind_shreds"`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct EntriesCfg {
+    pub enabled: bool,
+    /// The proxy's gRPC service, plain h2c on this box.
+    pub url: String,
+    pub stale_ms: u64,
+    /// Assemble the create slot's bundle run from this stream too (the
+    /// hot loop's bundle gate fires on whichever feed completes it first).
+    pub bundle_run: bool,
+}
+impl Default for EntriesCfg {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            url: "http://127.0.0.1:9999".into(),
+            stale_ms: 4_000,
+            bundle_run: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(deny_unknown_fields, default)]
 pub struct ShredsCfg {
@@ -307,6 +336,8 @@ pub struct FeedsCfg {
     /// fires before the chain executes them. `feeds.grpc` stays on for
     /// fills, exits and the kill's post-execution health.
     pub deshred: GrpcCfg,
+    /// A shredstream proxy's entry stream, the second pre-execution feed.
+    pub entries: EntriesCfg,
     pub shreds: ShredsCfg,
     pub pumpportal: PumpPortalCfg,
     /// Feed class required before probe/live may fire (`post_exec`).
@@ -330,6 +361,7 @@ impl Default for FeedsCfg {
                 bundle_run: true,
                 ..GrpcCfg::default()
             },
+            entries: EntriesCfg::default(),
             shreds: ShredsCfg::default(),
             pumpportal: PumpPortalCfg::default(),
             probe_live_require: "post_exec".into(),
@@ -1599,6 +1631,26 @@ impl Config {
                     "feeds.deshred.x_token",
                     "is a credential NAME (e.g. DESHRED_TOKEN), not the token",
                 );
+            }
+        }
+        let e = &self.feeds.entries;
+        if e.enabled {
+            if !g.enabled {
+                inv(
+                    &mut r,
+                    "feeds.entries",
+                    "is a pre-execution feed beside feeds.grpc: enable feeds.grpc too (fills, exits and the post-execution health come from it)",
+                );
+            }
+            if !(e.url.starts_with("http://") || e.url.starts_with("https://")) {
+                inv(
+                    &mut r,
+                    "feeds.entries.url",
+                    "must be the shredstream proxy's gRPC service (http://127.0.0.1:PORT, its --grpc-service-port)",
+                );
+            }
+            if !(200..=60_000).contains(&e.stale_ms) {
+                inv(&mut r, "feeds.entries.stale_ms", "must be in [200, 60000]");
             }
         }
         let rk = &self.risk;

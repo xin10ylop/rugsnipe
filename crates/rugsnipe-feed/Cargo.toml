@@ -14,7 +14,7 @@ default = ["ws"]
 ws = ["dep:tokio", "dep:tokio-tungstenite", "dep:tokio-rustls", "dep:rustls", "dep:rustls-native-certs", "dep:futures-util"]
 # Yellowstone gRPC (Dragon's Mouth) post-execution feed: Triton, Alchemy, Helius LaserStream,
 # SVS... (docs/research/infra-shopping-2026.md section 1). Own thread + tokio runtime, like `ws`.
-grpc = ["ws", "dep:yellowstone-grpc-client", "dep:yellowstone-grpc-proto", "dep:tonic"]
+grpc = ["ws", "dep:yellowstone-grpc-client", "dep:yellowstone-grpc-proto", "dep:tonic", "dep:tonic-prost", "dep:prost"]
 # A local Yellowstone server (tonic, loopback h2c) for tests in this and other crates.
 grpc-mock = ["grpc"]
 
@@ -34,7 +34,9 @@ rustls-native-certs = { version = "0.8", optional = true }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"], optional = true }
 yellowstone-grpc-client = { workspace = true, optional = true }
 yellowstone-grpc-proto = { workspace = true, optional = true }
-tonic = { version = "0.14.6", default-features = false, features = ["tls-ring"], optional = true }
+tonic = { version = "0.14.6", default-features = false, features = ["tls-ring", "channel", "codegen"], optional = true }
+tonic-prost = { version = "0.14.6", optional = true }
+prost = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest = { version = "1.12", default-features = false, features = ["std"] }
@@ -55,4 +57,8 @@ required-features = ["grpc-mock"]
 
 [[test]]
 name = "deshred"
+required-features = ["grpc-mock"]
+
+[[test]]
+name = "entries"
 required-features = ["grpc-mock"]

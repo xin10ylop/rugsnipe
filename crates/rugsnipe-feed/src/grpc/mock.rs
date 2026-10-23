@@ -261,6 +261,8 @@ impl Geyser for MockGeyser {
 pub struct MockServer {
     pub addr: SocketAddr,
     pub geyser: MockGeyser,
+    /// The entry stream (`ShredstreamProxy/SubscribeEntries`) on the same port.
+    pub shredstream: MockShredstream,
     stop: Option<tokio::sync::oneshot::Sender<()>>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -281,9 +283,11 @@ impl MockServer {
             token: token.map(str::to_string),
             inner: Arc::new(Mutex::new(Inner::default())),
         };
+        let shredstream = MockShredstream::default();
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
         let (addr_tx, addr_rx) = std::sync::mpsc::channel();
         let g = geyser.clone();
+        let ss = shredstream.clone();
         let thread = std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -296,6 +300,7 @@ impl MockServer {
                 addr_tx.send(inc.local_addr().expect("addr")).unwrap();
                 let _ = tonic::transport::Server::builder()
                     .add_service(GeyserServer::new(g))
+                    .add_service(MockShredSvc(ss))
                     .serve_with_incoming_shutdown(inc, async {
                         let _ = stop_rx.await;
                     })
@@ -306,6 +311,7 @@ impl MockServer {
         MockServer {
             addr,
             geyser,
+            shredstream,
             stop: Some(stop_tx),
             thread: Some(thread),
         }
@@ -323,6 +329,7 @@ impl Drop for MockServer {
             let _ = s.send(());
         }
         self.geyser.drop_stream();
+        self.shredstream.drop_stream();
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
@@ -521,4 +528,141 @@ pub fn ping_update() -> SubscribeUpdate {
         update_oneof: Some(subscribe_update::UpdateOneof::Ping(SubscribeUpdatePing {})),
         created_at: None,
     }
+}
+
+// ------------------------------------------------------------ the entry stream
+
+use super::{ShredEntry, SubscribeEntriesRequest, ENTRIES_PATH};
+
+#[derive(Default)]
+struct ShredInner {
+    sender: Option<mpsc::UnboundedSender<Result<ShredEntry, Status>>>,
+    connections: u64,
+}
+
+/// A shredstream proxy's `SubscribeEntries` (jito-labs/mev-protos
+/// `shredstream.proto`), hand-written on tonic (no protoc): one subscriber
+/// at a time, entries pushed by the test.
+#[derive(Clone, Default)]
+pub struct MockShredstream {
+    inner: Arc<Mutex<ShredInner>>,
+}
+
+impl std::fmt::Debug for MockShredstream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MockShredstream").finish_non_exhaustive()
+    }
+}
+
+impl MockShredstream {
+    fn lock(&self) -> std::sync::MutexGuard<'_, ShredInner> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+    pub fn entries_connected(&self) -> bool {
+        self.lock().sender.is_some()
+    }
+    pub fn entries_connections(&self) -> u64 {
+        self.lock().connections
+    }
+    /// Push one `Entry` message; false when nobody is subscribed.
+    pub fn push_entry(&self, e: ShredEntry) -> bool {
+        let g = self.lock();
+        match &g.sender {
+            Some(s) => s.send(Ok(e)).is_ok(),
+            None => false,
+        }
+    }
+    pub fn drop_stream(&self) {
+        self.lock().sender = None;
+    }
+}
+
+type EntryStream = Pin<Box<dyn futures_util::Stream<Item = Result<ShredEntry, Status>> + Send>>;
+
+struct SubscribeEntriesSvc(MockShredstream);
+
+impl tonic::server::ServerStreamingService<SubscribeEntriesRequest> for SubscribeEntriesSvc {
+    type Response = ShredEntry;
+    type ResponseStream = EntryStream;
+    type Future = tonic::codegen::BoxFuture<Response<Self::ResponseStream>, Status>;
+    fn call(&mut self, _req: Request<SubscribeEntriesRequest>) -> Self::Future {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        {
+            let mut g = self.0.lock();
+            g.sender = Some(tx);
+            g.connections += 1;
+        }
+        let stream: EntryStream =
+            Box::pin(futures_util::stream::poll_fn(move |cx| rx.poll_recv(cx)));
+        Box::pin(async move { Ok(Response::new(stream)) })
+    }
+}
+
+/// The routed service (what `tonic-build` would generate for the proxy).
+#[derive(Clone, Debug)]
+pub struct MockShredSvc(pub MockShredstream);
+
+impl<B> tonic::codegen::Service<tonic::codegen::http::Request<B>> for MockShredSvc
+where
+    B: tonic::codegen::Body + Send + 'static,
+    B::Error: Into<tonic::codegen::StdError> + Send + 'static,
+{
+    type Response = tonic::codegen::http::Response<tonic::body::Body>;
+    type Error = std::convert::Infallible;
+    type Future = tonic::codegen::BoxFuture<Self::Response, Self::Error>;
+    fn poll_ready(
+        &mut self,
+        _cx: &mut tonic::codegen::Context<'_>,
+    ) -> tonic::codegen::Poll<Result<(), Self::Error>> {
+        tonic::codegen::Poll::Ready(Ok(()))
+    }
+    fn call(&mut self, req: tonic::codegen::http::Request<B>) -> Self::Future {
+        if req.uri().path() == ENTRIES_PATH {
+            let inner = self.0.clone();
+            Box::pin(async move {
+                let codec =
+                    tonic_prost::ProstCodec::<ShredEntry, SubscribeEntriesRequest>::default();
+                let mut grpc = tonic::server::Grpc::new(codec);
+                Ok(grpc.server_streaming(SubscribeEntriesSvc(inner), req).await)
+            })
+        } else {
+            Box::pin(async move {
+                let mut response = tonic::codegen::http::Response::new(tonic::body::Body::empty());
+                let headers = response.headers_mut();
+                headers.insert(
+                    tonic::Status::GRPC_STATUS,
+                    (tonic::Code::Unimplemented as i32).into(),
+                );
+                headers.insert(
+                    tonic::codegen::http::header::CONTENT_TYPE,
+                    tonic::metadata::GRPC_CONTENT_TYPE,
+                );
+                Ok(response)
+            })
+        }
+    }
+}
+
+impl tonic::server::NamedService for MockShredSvc {
+    const NAME: &'static str = "shredstream.ShredstreamProxy";
+}
+
+/// The bincode of a `Vec<solana_entry::Entry>` holding one entry with the
+/// fixtures' transactions (their `result.transaction[0]` base64 wire bytes).
+pub fn fixture_entries(fixtures: &[&serde_json::Value]) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&1u64.to_le_bytes()); // one entry
+    out.extend_from_slice(&0u64.to_le_bytes()); // num_hashes
+    out.extend_from_slice(&[0u8; 32]); // hash
+    out.extend_from_slice(&(fixtures.len() as u64).to_le_bytes());
+    for f in fixtures {
+        let b64 = f["result"]["transaction"][0]
+            .as_str()
+            .ok_or("no base64 transaction")?;
+        let raw = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|e| e.to_string())?;
+        out.extend_from_slice(&raw);
+    }
+    Ok(out)
 }

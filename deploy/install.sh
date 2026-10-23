@@ -101,7 +101,7 @@ TARGET_DIR="$PREFIX/target"
 RUST_BINS=(rugsnipe-hot rugsnipe-guard rugsnipe-keeper rugsnipe-ctl rugsnipe-replay rugsnipe-sim)
 
 if [ "$ROLE" = hot ]; then
-  UNITS=(rugsnipe-keeper.service rugsnipe-guard.service rugsnipe-hot.service rugsnipe-tune.service)
+  UNITS=(rugsnipe-keeper.service rugsnipe-guard.service rugsnipe-hot.service rugsnipe-tune.service shredstream-proxy.service)
   ENABLE_UNITS=(rugsnipe-keeper.service rugsnipe-guard.service rugsnipe-hot.service rugsnipe.target)
 else
   UNITS=(rugsnipe-collector.service rugsnipe-discover.service rugsnipe-discover.timer)

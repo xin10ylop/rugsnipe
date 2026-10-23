@@ -452,6 +452,8 @@ fn run(args: &[String]) -> Result<(), String> {
     #[allow(unused_mut, unused_assignments)]
     let mut grpc_stats_line: Option<Box<dyn Fn() -> String>> = None;
     let mut deshred_stats_line: Option<Box<dyn Fn() -> String>> = None;
+    #[allow(unused_mut)]
+    let mut entries_stats_line: Option<Box<dyn Fn() -> String>> = None;
     #[cfg(feature = "grpc")]
     if cfg.feeds.grpc.enabled {
         use rugsnipe_feed::grpc::{Grpc, GrpcConfig};
@@ -601,6 +603,45 @@ fn run(args: &[String]) -> Result<(), String> {
         eprintln!(
             "deshred feed {}: started beside grpc (pre-execution creates and bundle runs)",
             rugsnipe::keys::redact_url(&deshred_url)
+        );
+        feeds.push(Box::new(g));
+    }
+    // the second pre-execution feed: a shredstream proxy's entry stream on
+    // this box (source `shredstream`), handled like the deshred stream; the
+    // first-seen report races it against `shreds`
+    #[cfg(feature = "grpc")]
+    if cfg.feeds.entries.enabled {
+        use rugsnipe_feed::grpc::{Grpc, GrpcConfig};
+        let g = Grpc::spawn(GrpcConfig {
+            src: rugsnipe_feed::FeedSrc::ShredStream,
+            url: cfg.feeds.entries.url.clone(),
+            x_token: None,
+            stale_ms: cfg.feeds.entries.stale_ms,
+            wallet,
+            bundle_run: cfg.feeds.entries.bundle_run,
+            entries: true,
+            max_watches: num(args, "--max-watches", 64usize)?,
+            ..Default::default()
+        })
+        .map_err(|e| format!("entries feed: {e}"))?;
+        healths.push(g.health_arc().clone());
+        let st = g.stats().clone();
+        entries_stats_line = Some(Box::new(move || {
+            use std::sync::atomic::Ordering::Relaxed as R;
+            format!(
+                "shredstream: slot {} entries {} pump_tx {} creates->wire {} trades {} run_done {} reconnects {}",
+                st.slot.load(R),
+                st.slot_updates.load(R),
+                st.transactions.load(R),
+                st.wire_events.load(R),
+                st.trade_events.load(R),
+                st.run_done_events.load(R),
+                st.resubscribes.load(R)
+            )
+        }));
+        eprintln!(
+            "shredstream feed {}: started beside grpc (the proxy's entry stream: pre-execution creates and bundle runs)",
+            cfg.feeds.entries.url
         );
         feeds.push(Box::new(g));
     }
@@ -912,6 +953,10 @@ fn run(args: &[String]) -> Result<(), String> {
                 .map(|f| format!(" | {}", f()))
                 .unwrap_or_default()
                 + &deshred_stats_line
+                    .as_ref()
+                    .map(|f| format!(" | {}", f()))
+                    .unwrap_or_default()
+                + &entries_stats_line
                     .as_ref()
                     .map(|f| format!(" | {}", f()))
                     .unwrap_or_default();
