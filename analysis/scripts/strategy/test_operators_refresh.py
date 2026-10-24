@@ -59,16 +59,21 @@ class Refresh(unittest.TestCase):
             f.write('# keys\nOTHER = "x"\nRPC_URL = "https://rpc.example/?api-key=TEST"\n')
         try:
             self.assertEqual(op.read_rpc_url(f.name), "https://rpc.example/?api-key=TEST")
-        # another vendor's RPC_URL: the Helius URL is built from HELIUS_KEY
-        with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as f:
-            f.write('RPC_URL = "https://other.vendor/x"\nHELIUS_KEY = "HK"\n')
-        self.assertEqual(op.read_rpc_url(f.name), "https://mainnet.helius-rpc.com/?api-key=HK")
-        with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as f:
-            f.write('RPC_URL = "https://other.vendor/x"\n')
-        with self.assertRaises(SystemExit):
-            op.read_rpc_url(f.name)
         finally:
             os.unlink(f.name)
+        # another vendor's RPC_URL: the Helius URL is built from HELIUS_KEY; neither -> refused
+        for body, want in (('RPC_URL = "https://other.vendor/x"\nHELIUS_KEY = "HK"\n', "https://mainnet.helius-rpc.com/?api-key=HK"),
+                           ('RPC_URL = "https://other.vendor/x"\n', None)):
+            with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as f:
+                f.write(body)
+            try:
+                if want:
+                    self.assertEqual(op.read_rpc_url(f.name), want)
+                else:
+                    with self.assertRaises(SystemExit):
+                        op.read_rpc_url(f.name)
+            finally:
+                os.unlink(f.name)
 
     def test_merge(self):
         now = 1_800_000_000.0
