@@ -1001,6 +1001,9 @@ pub fn build(o: AppOpts) -> Result<App, String> {
                     .as_deref()
                     .and_then(|p| p.parent())
                     .map(|d| d.join("tweet_book.txt")),
+                // a failed fetch is tried again for 2.5 s: a copy found by
+                // then can still be sold before create + 10 (about 4 s)
+                retry_ms: 2_500,
             },
             tweet_fetch(cfg.entry.tweet_timeout_ms),
             req_rx,

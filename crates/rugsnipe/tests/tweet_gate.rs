@@ -284,6 +284,7 @@ fn run_full_with(
         fetch_us: 90_000,
         fail: rugsnipe::tweet::FetchFail::None,
         http: 200,
+        tries: 1,
     });
     if let (Some(v), true) = (v, verdict_first) {
         out_tx.push(v).ok().unwrap();

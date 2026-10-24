@@ -118,6 +118,8 @@ pub struct TweetVerdict {
     pub fail: FetchFail,
     /// The answer's HTTP status (0: no answer).
     pub http: u16,
+    /// Fetches made (a failed one is tried again within `retry_ms`).
+    pub tries: u8,
 }
 
 /// Why a fetch gave no verdict (journaled with the error).
@@ -174,6 +176,31 @@ impl std::fmt::Display for FailNote {
         }
     }
 }
+
+/// ` tries N` on the journal line when a fetch was retried.
+pub struct TriesNote(pub u8);
+
+impl std::fmt::Display for TriesNote {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.0 > 1 {
+            write!(f, " tries {}", self.0)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// A fetch worth trying again: no answer, or a non-2xx status (a file
+/// served before the tool finished writing it).
+fn retryable(fetched: &Result<(u16, String), String>) -> bool {
+    match fetched {
+        Err(_) => true,
+        Ok((s, _)) => !(200..300).contains(s),
+    }
+}
+
+/// Pause between two tries of a failed fetch.
+const RETRY_GAP: Duration = Duration::from_millis(250);
 
 /// The tweet id of a status link (`.../status/<digits>`), if any.
 pub fn status_id(link: &str) -> Option<u64> {
@@ -331,6 +358,12 @@ pub struct TweetLaneCfg {
     pub warm: Vec<String>,
     /// Where the book is saved and loaded from (none: kept in memory only).
     pub book_path: Option<PathBuf>,
+    /// A failed fetch is tried again while less than this has passed since
+    /// the first try (ms; 0 = no retry). A coin whose fetch failed never
+    /// enters the book, so the next coin on its tweet would rank first: on
+    /// Oct 24 a fifth of the fetches failed, and AXfECZ7q, the third coin on
+    /// its tweet, was held to create + 10 as a first coin (-39%).
+    pub retry_ms: u64,
 }
 
 /// The lane's threads (they end once the hot loop drops its request ring).
@@ -376,7 +409,7 @@ pub fn spawn(
     let mut threads = vec![];
     for w in 0..cfg.workers.max(1) {
         let (book, out, job_rx, fetch) = (book.clone(), out.clone(), job_rx.clone(), fetch.clone());
-        let max_age_s = cfg.max_age_s;
+        let (max_age_s, retry_ms) = (cfg.max_age_s, cfg.retry_ms);
         threads.push(
             std::thread::Builder::new()
                 .name(format!("tweet-w{w}"))
@@ -384,7 +417,13 @@ pub fn spawn(
                     let job = { job_rx.lock().unwrap_or_else(|e| e.into_inner()).recv() };
                     let Ok(req) = job else { return };
                     let t = Instant::now();
-                    let fetched = fetch(req.uri());
+                    let mut fetched = fetch(req.uri());
+                    let mut tries = 1u8;
+                    while retryable(&fetched) && t.elapsed() < Duration::from_millis(retry_ms) {
+                        std::thread::sleep(RETRY_GAP);
+                        fetched = fetch(req.uri());
+                        tries = tries.saturating_add(1);
+                    }
                     let fetch_us = t.elapsed().as_micros().min(u32::MAX as u128) as u32;
                     let (kind, sid, rank, age_s) = {
                         let mut b = book.lock().unwrap_or_else(|e| e.into_inner());
@@ -402,6 +441,7 @@ pub fn spawn(
                         fetch_us,
                         fail,
                         http,
+                        tries,
                     };
                     // a full answer ring drops the verdict: the park then
                     // times out as tweet_late (the ring holds 1024)
@@ -665,6 +705,7 @@ mod tests {
                 max_age_s: 3600,
                 warm: vec![],
                 book_path: None,
+                retry_ms: 0,
             },
             fetch,
             req_rx,
@@ -690,5 +731,68 @@ mod tests {
         );
         drop(req_tx);
         lane.join();
+    }
+
+    fn one_verdict(fetch: FetchFn, retry_ms: u64, r: TweetReq) -> (TweetVerdict, Duration) {
+        let (mut req_tx, req_rx) = rtrb::RingBuffer::<TweetReq>::new(4);
+        let (out_tx, mut out_rx) = rtrb::RingBuffer::<TweetVerdict>::new(4);
+        let cfg = TweetLaneCfg {
+            workers: 1,
+            max_age_s: 3600,
+            warm: vec![],
+            book_path: None,
+            retry_ms,
+        };
+        let lane = spawn(cfg, fetch, req_rx, out_tx).unwrap();
+        req_tx.push(r).ok().unwrap();
+        let t = Instant::now();
+        let v = loop {
+            if let Ok(v) = out_rx.pop() {
+                break v;
+            }
+            assert!(t.elapsed() < Duration::from_secs(5), "no verdict");
+            std::thread::sleep(Duration::from_millis(1));
+        };
+        let took = t.elapsed();
+        drop(req_tx);
+        lane.join();
+        (v, took)
+    }
+
+    #[test]
+    fn a_failed_fetch_is_tried_again_within_the_retry_window() {
+        // a 404 first (the tool still writing the file), then the body
+        let calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let c = calls.clone();
+        let flaky: FetchFn = Arc::new(move |_: &str| {
+            if c.fetch_add(1, Relaxed) == 0 {
+                Ok((404, "not yet".into()))
+            } else {
+                body(SID)
+            }
+        });
+        let (v, _) = one_verdict(
+            flaky,
+            1_000,
+            req(Pubkey::new_unique(), 7, 3, tweet_ms(SID) + 2_000),
+        );
+        assert_eq!((v.kind, v.tries, v.rank), (TweetKind::First, 2, 1));
+        assert_eq!(TriesNote(v.tries).to_string(), " tries 2");
+        // one that keeps failing gives up once the window has passed
+        let dead: FetchFn = Arc::new(|_: &str| Err("timeout: global".into()));
+        let (v, took) = one_verdict(dead, 600, req(Pubkey::new_unique(), 7, 3, 0));
+        assert_eq!((v.kind, v.fail), (TweetKind::Error, FetchFail::Timeout));
+        assert!(
+            v.tries >= 3 && took < Duration::from_millis(1_500),
+            "{} tries in {took:?}",
+            v.tries
+        );
+        // retry off: one try
+        let dead: FetchFn = Arc::new(|_: &str| Err("timeout: global".into()));
+        let (v, _) = one_verdict(dead, 0, req(Pubkey::new_unique(), 7, 3, 0));
+        assert_eq!(
+            (v.tries, TriesNote(v.tries).to_string()),
+            (1, String::new())
+        );
     }
 }
