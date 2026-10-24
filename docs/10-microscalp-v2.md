@@ -77,6 +77,23 @@ explanations, and the dry run's count is out of reach under both:
    paid about 25M (68 races) or landed first at near-zero pay (77). Bidding 12M or more is negative in the bid
    curve (section 4), and that curve uses the same optimistic counterfactual.
 
+**But beating an informed rival pays.** The copied wallet of docs/09 (`AHwJ...`) fires on launches it rates. Its
+buy carries an exact-state check, so it fails when someone trades first. That tells us, trade by trade, whether we
+beat him. These are chain results after the landed transactions' fees and tips:
+
+| | we beat him (his buy failed) | he did not fire |
+|---|---|---|
+| operator bot, Oct 23 19:18 to Oct 24 03:27 | 40 trades, 21 won, **median +2.0%**, mean -0.3% [-6.4, +5.8] | 35 trades, 8 won, median -3.9%, mean -1.6% |
+| the same without the 2 rugs (below -50%) | 38 trades, mean +2.8% [-1.8, +7.4], +0.54 SOL | |
+| micro-scalp, Oct 21-23, dry-run exits | 6 trades, +9.1% [+2.8, +15.5] | 156 trades, -3.1% [-4.7, -1.6] |
+
+We beat him by price. Our buy paid about 4M (a 3M priority fee plus a 1M tip). His routine buy is a 1M tip with
+almost no priority fee, so on a priority-ordered leader ours went first. When he wants a launch badly he pays about
+12M (an 8M tip), and he won all 16 such races. So a race against him marks a launch an informed buyer wants, and
+winning it pays. The micro-scalp's universe holds few of those: 6 of its 162 wins. The operator bot raced him on most
+launches. It lost on the trades where he did not fire, on 2 rugs, and on 0.24 SOL of failed 3M copies (the cost the
+Nozomi route removes).
+
 **What v2 should be expected to make:** about r1 of the races it wins minus costs. On the Oct 21-23 mix that is
 -2.6% per landed trade at 0.5 SOL, against the dry run's +1.1-1.6% and docs/04's +3.5%. At docs/04's 1,150 landed
 trades a day that is about -15 SOL a day, so the daily loss stop will trip first. v2 bids 2M, below live's 3.4M, so
