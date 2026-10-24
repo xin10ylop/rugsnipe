@@ -336,6 +336,12 @@ pub struct FireJob {
     /// Leader class this variant bids for ([`crate::leader`] code; recorded
     /// on every send).
     pub leader: u8,
+    /// A buy: the priority fee of this variant's revert-protected bundle
+    /// copy (`bid.bundle_priority` of the class it bids for; the bundle
+    /// sender sends it with its minimum tip, and a builder drops it if it
+    /// would fail, so it is paid only when the buy lands). 0 = no bundle
+    /// copy (every sell, and a class without a bundle share).
+    pub bundle_prio: u64,
 }
 
 /// rslog / metrics code of an exit reason.

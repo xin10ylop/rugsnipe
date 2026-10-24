@@ -637,6 +637,7 @@ impl Guard {
                     bid: self.policy.dump_tip_lamports,
                     real: true,
                     leader: crate::leader::UNKNOWN,
+                    bundle_prio: 0,
                 };
                 let targets = r.senders.real();
                 let vs =

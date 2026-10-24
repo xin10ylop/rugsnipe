@@ -6,6 +6,7 @@
 //! |---|---|---|
 //! | Helius Sender `/fast` | JSON-RPC `sendTransaction` (`skipPreflight`, `maxRetries: 0`); `?swqos_only=true` | 0.001 SOL; 5,000 lamports with `swqos_only` |
 //! | Nozomi | Batch Send `POST /api/sendBatch?c=KEY`, body `(u16 BE len ‖ tx)*`, octet-stream | 0.001 SOL |
+//! | Nozomi Send Bundle (`nozomi_bundle`, use.temporal.xyz/nozomi/send-bundle, 2026-10-24) | `POST /api/sendBundle?c=KEY`, body `u16 BE len ‖ tx` (one member per request here; 1-4 allowed, each <= 1,232 bytes), octet-stream; to the block builders only (Harmonic, Jito), all-or-nothing, a bundle that would fail is dropped; `200` empty = queued, `403` = key not allowed to send bundles | 0.001 SOL in a member, paid only if it lands; no exemptions |
 //! | Astralane | `POST /irisb?api-key=KEY&method=sendTransaction`, raw tx bytes | 0.001 SOL (config) |
 //! | Jito block engine (one sender per region, `frankfurt`, `amsterdam`) | `POST /api/v1/transactions?bundleOnly=true` JSON-RPC `sendTransaction` (a failed bundle-only transaction is not committed: costs nothing); `sendBundle` on `/api/v1/bundles` | 1,000 lamports; 1 req/s per IP per region (token bucket) |
 //! | NextBlock | `POST /api/v2/submit`, `Authorization: KEY`, JSON `{"transaction":{"content":b64},"frontRunningProtection":false}` | 0.001 SOL |
@@ -159,6 +160,10 @@ pub enum Wire {
     JsonRpc,
     /// Nozomi batch: `u16 BE len ‖ tx`.
     NozomiBatch,
+    /// Nozomi Send Bundle: the same framing, one transaction per request
+    /// (each buy copy is its own bundle: two copies on one durable nonce in
+    /// one bundle would make it fail as a whole).
+    NozomiBundle,
     /// Raw bytes (Astralane `irisb`).
     Raw,
     /// NextBlock JSON.
@@ -324,7 +329,7 @@ impl HttpSender {
         let (conn, body) = &mut *g;
         fill(body);
         let ct = match self.wire {
-            Wire::NozomiBatch | Wire::Raw => "application/octet-stream",
+            Wire::NozomiBatch | Wire::NozomiBundle | Wire::Raw => "application/octet-stream",
             _ => "application/json",
         };
         let json_errors = matches!(self.wire, Wire::JsonRpc | Wire::BlockRazor);
@@ -417,6 +422,9 @@ impl Sender for HttpSender {
     fn buy_variants(&self) -> u8 {
         self.buy_variants
     }
+    fn bundle(&self) -> bool {
+        self.wire == Wire::NozomiBundle
+    }
     fn warm(&self) -> Result<(), SendError> {
         HttpSender::warm(self)
     }
@@ -449,7 +457,7 @@ impl Sender for HttpSender {
             Wire::JsonRpc => {
                 self.request(k, |b| json_rpc_send_body(b, "sendTransaction", v.bytes(), opts))
             }
-            Wire::NozomiBatch => self.request(k, |b| {
+            Wire::NozomiBatch | Wire::NozomiBundle => self.request(k, |b| {
                 b.clear();
                 b.extend_from_slice(&(v.bytes().len() as u16).to_be_bytes());
                 b.extend_from_slice(v.bytes());
@@ -548,6 +556,19 @@ pub fn build(name: &str, c: &HttpSenderCfg, keys: &ApiKeys) -> Result<Box<dyn Se
             HttpSender::new(
                 SenderId::Nozomi,
                 Wire::NozomiBatch,
+                t,
+                &NOZOMI_TIP_ACCOUNTS,
+                c.min_tip.max(min_tips::NOZOMI),
+                vec![],
+                if c.max_rps == 0 { 5 } else { c.max_rps },
+            )
+        }
+        "nozomi_bundle" => {
+            let t = HttpTarget::parse(&url(endpoints::NOZOMI))?;
+            let t = t.with_path(&format!("/api/sendBundle?c={}", key("nozomi_bundle")?));
+            HttpSender::new(
+                SenderId::NozomiBundle,
+                Wire::NozomiBundle,
                 t,
                 &NOZOMI_TIP_ACCOUNTS,
                 c.min_tip.max(min_tips::NOZOMI),

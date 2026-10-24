@@ -69,6 +69,10 @@ rpcsend = { enabled = true, url = "https://api.mainnet-beta.solana.com", sells_o
 helius = { enabled = false, url = "http://fra-sender.helius-rpc.com/fast", key = "HELIUS_KEY" }        # 0.001 SOL; 50 req/s with a key (1/s keyless)
 helius_swqos = { enabled = false, url = "http://fra-sender.helius-rpc.com/fast" }                      # &swqos_only=true, 5,000 lamports; uses helius.key
 nozomi = { enabled = false, url = "http://fra2.nozomi.temporal.xyz", key = "NOZOMI_KEY", min_tip = 1_000_000 }   # batch send, 5/s
+# Nozomi Send Bundle: the buy copy of a class with a bid.bundle_priority share, alone in a bundle to the block
+# builders (Harmonic, Jito), which drop it if it would fail: the bid rides as the priority fee and is paid only when
+# the buy lands (plus the 0.001 SOL tip). Buys only. Uses nozomi.key; the key must be allowed to send bundles (403).
+nozomi_bundle = { enabled = false, url = "http://fra2.nozomi.temporal.xyz" }
 astralane = { enabled = false, url = "http://fr.gateway.astralane.io/irisb", key = "ASTRALANE_KEY", min_tip = 1_000_000 }
 blockrazor = { enabled = false, url = "http://frankfurt.solana.blockrazor.xyz:443/sendTransaction", key = "BLOCKRAZOR_KEY" }  # mode fast, 0.0001 SOL, 3 TPS
 jito = { enabled = false, regions = ["frankfurt", "amsterdam"], max_rps = 1 }                       # bundleOnly; 1 req/s per IP per region; the pay-on-success primary only
@@ -104,9 +108,17 @@ quantile = 0.75
 # 86-89% of the time, docs/03 section 6), so there the bid is the priority fee, at risk and capped below.
 # BAM stays priority-ordered until the probe measures which variant lands per leader class.
 split = { jito_agave = [0.0, 1.0], bam = [1.0, 0.0], harmonic = [1.0, 0.0], other = [1.0, 0.0] }
+# the same for sells (unset = split): a sell has no price bound, so its priority fee is never wasted; with the buys
+# on the tip only, this keeps sells on the priority fee where the leader orders by it
+# sell_split = { jito_agave = [0.0, 1.0], bam = [1.0, 0.0], harmonic = [1.0, 0.0], other = [1.0, 0.0] }
 min_priority_lamports = 10_000                     # header priority fee floor (gap-2: winners p10 1k, p25 45k lamports)
 failed_attempt_lamports_max = 1_000_000            # most a failed attempt may cost (base + priority); priority is clamped to it
 failed_attempt_max_by_class = { jito_agave = 0, bam = 0, harmonic = 0, other = 0 }   # per-class cap override; 0 = the global cap (probe-A arms, docs/06 section 6)
+# The share of the bid the bundle copy (senders.nozomi_bundle) pays as its priority fee, per leader class (0 = no
+# bundle copy): Harmonic orders by priority fee, and a bundle that would fail is dropped, so there the whole bid can
+# be the priority fee at no cost on a lost race. With the bundle on, give the plain copies of that class the tip only
+# (split.harmonic = [0.0, 1.0]): a plain copy that lands and fails still pays its priority fee.
+bundle_priority = { jito_agave = 0.0, bam = 0.0, harmonic = 1.0, other = 0.0 }
 [probe]                                            # docs/04 section 7, docs/08 section 9; read in mode = "probe" only
 stage = "a"                                        # a | b; a signed ArmSet that names probe_stage must name the same one (b: must name b)
 # each cap narrows the [risk] cap of the same name (the smaller non-zero value binds)

@@ -64,6 +64,17 @@ select sc.scope,
                 - coalesce((select sum(r.fail_cost) from races r where r.fail_reason is not null and r.t_ms >= sc.ms), 0)) / 1e9, 4)) net_sol
 from scopes sc;
 .print
+.print == buy routes today (won = our buy landed through it, lost = it landed and failed; a bundle never lands failed)
+select s.sender route, count(*) sent, coalesce(sum(s.result = 'accepted'), 0) accepted,
+       coalesce(sum(f.sig is not null and f.fail_reason is null), 0) won,
+       coalesce(sum(f.sig is not null and f.fail_reason is not null), 0) lost,
+       round(coalesce(sum(case when f.sig is null then 0 when f.fail_reason is null then coalesce(f.fee, 0) + coalesce(f.tip, 0)
+                               else coalesce(f.fail_cost, f.fee, 0) end), 0) / 1e9, 4) paid_sol,
+       coalesce(group_concat(distinct nullif(s.err, '')), '-') errors
+from sends s left join fills f on f.sig = s.sig
+where s.kind = 'buy' and s.sent_unix_ms >= $D0 * 1000
+group by s.sender order by won desc, sent desc;
+.print
 .print == today by tier (closed trades, after tips and fees)
 select tier, count(*) trades, sum(net > 0) wins, round(100.0 * avg(net * 1.0 / cost), 1) mean_pct,
        round(sum(net) / 1e9, 4) net_sol, round(avg(cost) / 1e9, 3) avg_stake

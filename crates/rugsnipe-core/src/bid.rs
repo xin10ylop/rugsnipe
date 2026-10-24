@@ -128,15 +128,21 @@ pub fn base_fee(n_sigs: u8) -> u64 {
 pub struct BidPolicy {
     /// `[priority, tip]` fractions by class, in [`LeaderClass::ALL`] order.
     pub split: [[f64; 2]; 4],
+    /// The same for sells (`bid.sell_split`, else `split`).
+    pub sell_split: [[f64; 2]; 4],
     pub min_priority_lamports: u64,
     pub failed_attempt_lamports_max: u64,
     /// Per-class override of the cap in [`LeaderClass::ALL`] order (0 = the
     /// global cap; `bid.failed_attempt_max_by_class`).
     pub class_cap: [u64; 4],
+    /// Share of the bid the bundle copy pays as its priority fee, in
+    /// [`LeaderClass::ALL`] order (`bid.bundle_priority`; 0 = no bundle copy).
+    pub bundle: [f64; 4],
 }
 
 impl BidPolicy {
     pub fn from_cfg(b: &BidCfg) -> Self {
+        let ss = b.sell_split.as_ref().unwrap_or(&b.split);
         Self {
             split: [
                 b.split.jito_agave,
@@ -144,6 +150,7 @@ impl BidPolicy {
                 b.split.harmonic,
                 b.split.other,
             ],
+            sell_split: [ss.jito_agave, ss.bam, ss.harmonic, ss.other],
             min_priority_lamports: b.min_priority_lamports,
             failed_attempt_lamports_max: b.failed_attempt_lamports_max,
             class_cap: [
@@ -152,7 +159,29 @@ impl BidPolicy {
                 b.failed_attempt_max_by_class.harmonic,
                 b.failed_attempt_max_by_class.other,
             ],
+            bundle: [
+                b.bundle_priority.jito_agave,
+                b.bundle_priority.bam,
+                b.bundle_priority.harmonic,
+                b.bundle_priority.other,
+            ],
         }
+    }
+
+    /// The priority fee of the revert-protected bundle copy of a buy bidding
+    /// for a leader of class `c` (`senders.nozomi_bundle`): the class's
+    /// `bid.bundle_priority` share of `bid`, at least the scheduling floor,
+    /// and never above the bid. Not clamped by the failed-attempt cap: a
+    /// builder drops a bundle whose transaction would fail, so the fee is
+    /// paid only when the buy lands. 0 = the class gets no bundle copy.
+    pub fn bundle_priority(&self, c: LeaderClass, bid: u64) -> u64 {
+        let f = self.bundle[LeaderClass::ALL.iter().position(|x| *x == c).unwrap_or(3)];
+        if f <= 0.0 || bid == 0 {
+            return 0;
+        }
+        ((bid as f64 * f.min(1.0)) as u64)
+            .max(self.min_priority_lamports)
+            .min(bid.max(self.min_priority_lamports))
     }
 
     /// The failed-attempt cap of class `c`: its override, else the global cap.
@@ -192,10 +221,11 @@ impl BidPolicy {
     /// priority-ordered class pays the bid as the priority fee and no tip.
     /// Unlike a buy, the priority fee is not clamped to
     /// `failed_attempt_lamports_max`: a sell that does not land leaves the
-    /// position open, and the exit engine already bounds its spend.
+    /// position open, and the exit engine already bounds its spend. The
+    /// fractions are `bid.sell_split`'s where set, else the buys' `split`.
     pub fn plan_sell(&self, c: Option<LeaderClass>, bid: u64, _n_sigs: u8) -> BidPlan {
         let c = c.unwrap_or(LeaderClass::Other);
-        let [p, t] = self.split_of(c);
+        let [p, t] = self.sell_split[LeaderClass::ALL.iter().position(|x| *x == c).unwrap_or(3)];
         BidPlan {
             class: c,
             priority_lamports: ((bid as f64 * p) as u64).max(self.min_priority_lamports),
@@ -253,6 +283,70 @@ mod tests {
         let o = pol.plan(LeaderClass::Other, bid, 2);
         assert_eq!(o.priority_lamports, b.failed_attempt_lamports_max - 10_000);
         assert_eq!(pol.plan(LeaderClass::JitoAgave, bid, 2).tip_lamports, bid);
+    }
+
+    #[test]
+    fn the_bundle_copy_bids_the_harmonic_share_unclamped_and_nothing_elsewhere() {
+        let mut b = BidCfg {
+            failed_attempt_lamports_max: 3_000_000,
+            ..Default::default()
+        };
+        let pol = BidPolicy::from_cfg(&b);
+        // default: the whole bid for a Harmonic leader, past the 3M cap
+        assert_eq!(
+            pol.bundle_priority(LeaderClass::Harmonic, 6_000_000),
+            6_000_000
+        );
+        for c in [LeaderClass::JitoAgave, LeaderClass::Bam, LeaderClass::Other] {
+            assert_eq!(pol.bundle_priority(c, 6_000_000), 0, "{c:?}");
+        }
+        // a share, raised to the floor, never above the bid
+        b.bundle_priority.bam = 0.5;
+        let pol = BidPolicy::from_cfg(&b);
+        assert_eq!(pol.bundle_priority(LeaderClass::Bam, 6_000_000), 3_000_000);
+        assert_eq!(pol.bundle_priority(LeaderClass::Bam, 1_000), 10_000);
+        assert_eq!(pol.bundle_priority(LeaderClass::Harmonic, 0), 0);
+        // the plain variants are unchanged
+        assert_eq!(
+            pol.plan(LeaderClass::Harmonic, 6_000_000, 1)
+                .priority_lamports,
+            3_000_000 - 5_000
+        );
+    }
+
+    #[test]
+    fn sells_keep_their_own_split_when_the_buys_go_tip_only() {
+        let mut b = BidCfg::default();
+        let tips = crate::config::BidSplit {
+            jito_agave: [0.0, 1.0],
+            bam: [0.0, 1.0],
+            harmonic: [0.0, 1.0],
+            other: [0.0, 1.0],
+        };
+        // unset: a sell is split like a buy
+        b.split = tips.clone();
+        let pol = BidPolicy::from_cfg(&b);
+        let s = pol.plan_sell(Some(LeaderClass::Harmonic), 3_400_000, 1);
+        assert_eq!((s.priority_lamports, s.tip_lamports), (10_000, 3_400_000));
+        // set: the buys pay tips, the sells keep the priority fee where the
+        // leader orders by it
+        b.sell_split = Some(crate::config::BidSplit::default());
+        let pol = BidPolicy::from_cfg(&b);
+        for c in [LeaderClass::Harmonic, LeaderClass::Bam, LeaderClass::Other] {
+            let s = pol.plan_sell(Some(c), 3_400_000, 1);
+            assert_eq!(
+                (s.priority_lamports, s.tip_lamports),
+                (3_400_000, 0),
+                "{c:?}"
+            );
+            let buy = pol.plan(c, 6_000_000, 1);
+            assert_eq!(
+                (buy.priority_lamports, buy.tip_lamports),
+                (10_000, 6_000_000)
+            );
+        }
+        let s = pol.plan_sell(Some(LeaderClass::JitoAgave), 3_400_000, 1);
+        assert_eq!((s.priority_lamports, s.tip_lamports), (10_000, 3_400_000));
     }
 
     #[test]

@@ -143,7 +143,8 @@ fn check_file(name: &str, dir: &Path) -> Result<PathBuf, Refusal> {
 }
 
 /// The API key names the enabled senders need (`key` of each enabled HTTP
-/// sender; `helius_swqos` falls back to `helius.key`).
+/// sender; `helius_swqos` falls back to `helius.key`, `nozomi_bundle` to
+/// `nozomi.key`).
 pub fn needed_api_keys(cfg: &Config) -> Vec<String> {
     let s = &cfg.senders;
     let mut v: Vec<String> = vec![];
@@ -151,11 +152,7 @@ pub fn needed_api_keys(cfg: &Config) -> Vec<String> {
         if !c.enabled {
             continue;
         }
-        let key = if name == "helius_swqos" && c.key.is_empty() {
-            s.helius.key.clone()
-        } else {
-            c.key.clone()
-        };
+        let key = s.key_of(name, c).to_string();
         if !key.is_empty() && !v.contains(&key) {
             v.push(key);
         }
@@ -670,13 +667,17 @@ mod tests {
         let mut c = probe_cfg();
         c.senders.helius.key = "HELIUS_KEY".into();
         c.senders.helius_swqos.enabled = true; // shares helius.key
+        c.senders.nozomi_bundle.enabled = true; // shares nozomi.key
         assert_eq!(
             needed_api_keys(&c),
             vec![
-                "HELIUS_KEY".to_string(),
-                "NOZOMI_KEY".into(),
+                "NOZOMI_KEY".to_string(),
+                "HELIUS_KEY".into(),
                 "BLOCKRAZOR_KEY".into()
             ]
         );
+        // its own key name wins
+        c.senders.nozomi_bundle.key = "NOZOMI_BUNDLE_KEY".into();
+        assert!(needed_api_keys(&c).contains(&"NOZOMI_BUNDLE_KEY".to_string()));
     }
 }

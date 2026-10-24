@@ -535,6 +535,7 @@ fn a_real_job_reaches_the_mock_sender() {
         bid: 1_000_000,
         real: true,
         leader: rugsnipe::leader::UNKNOWN,
+        bundle_prio: 0,
     })
     .unwrap();
     drop(tx);

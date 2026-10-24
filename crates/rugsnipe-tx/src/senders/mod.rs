@@ -4,7 +4,7 @@
 //! |---|---|---|---|
 //! | [`paper::Paper`] | always | always (the only sender in paper mode) | **never** (no socket code in the module) |
 //! | `RpcSend` | feature `rpc` | probe/live after `Config::validate` passes | JSON-RPC `sendTransaction` over TLS, off the hot thread |
-//! | `Helius`, `HeliusSwqos`, `Nozomi`, `Astralane`, `BlockRazor`, `Jito` (one per region), `NextBlock` | feature `senders` | same gate | fixed-buffer HTTP/1.1 over warm `TcpStream`s |
+//! | `Helius`, `HeliusSwqos`, `Nozomi`, `NozomiBundle`, `Astralane`, `BlockRazor`, `Jito` (one per region), `NextBlock` | feature `senders` | same gate | fixed-buffer HTTP/1.1 over warm `TcpStream`s |
 //!
 //! Every real sender knows its tip accounts and minimum tip and refuses a
 //! variant whose tip goes elsewhere or is too small **before** touching the
@@ -51,12 +51,14 @@ pub enum SenderId {
     NextBlock = 6,
     HeliusSwqos = 7,
     BlockRazor = 8,
+    /// Nozomi Send Bundle: revert-protected buy copies ([`Sender::bundle`]).
+    NozomiBundle = 9,
 }
 
 impl SenderId {
     /// Every id, in discriminant order (index `i` is the id with value `i`):
     /// size per-sender tables with `SenderId::COUNT` and index them by `id as usize`.
-    pub const ALL: [SenderId; 9] = [
+    pub const ALL: [SenderId; 10] = [
         Self::Paper,
         Self::Rpc,
         Self::Helius,
@@ -66,6 +68,7 @@ impl SenderId {
         Self::NextBlock,
         Self::HeliusSwqos,
         Self::BlockRazor,
+        Self::NozomiBundle,
     ];
     pub const COUNT: usize = Self::ALL.len();
 
@@ -80,6 +83,7 @@ impl SenderId {
             Self::NextBlock => "nextblock",
             Self::HeliusSwqos => "helius_swqos",
             Self::BlockRazor => "blockrazor",
+            Self::NozomiBundle => "nozomi_bundle",
         }
     }
 
@@ -95,6 +99,7 @@ impl SenderId {
             6 => Self::NextBlock,
             7 => Self::HeliusSwqos,
             8 => Self::BlockRazor,
+            9 => Self::NozomiBundle,
             _ => return None,
         })
     }
@@ -283,6 +288,15 @@ pub trait Sender: Send + Sync + core::fmt::Debug {
     /// pay-on-success primary, because of its 1 req/s per IP and region).
     fn buy_variants(&self) -> u8 {
         2
+    }
+    /// A revert-protected bundle path (Nozomi Send Bundle): a builder drops
+    /// a bundle whose transaction would fail, so a buy copy sent here pays
+    /// nothing when it loses. It takes only the buy variants that bid for
+    /// it (`FireJob::bundle_prio`), each as its own one-transaction bundle
+    /// with the bid as the priority fee and the provider's minimum tip,
+    /// and never a sell.
+    fn bundle(&self) -> bool {
+        false
     }
     /// Open the connection ahead of time (no-op where there is none).
     fn warm(&self) -> Result<(), SendError> {
@@ -622,11 +636,12 @@ impl SenderSet {
         &self.real
     }
 
-    /// Target `k` of [`SenderSet::targets`] takes real sells (`[sells] senders`).
+    /// Target `k` of [`SenderSet::targets`] takes real sells (`[sells] senders`;
+    /// never a bundle path).
     pub fn sells_via(&self, k: usize) -> bool {
         self.real
             .get(k)
-            .is_some_and(|s| self.sells.allows(s.label()))
+            .is_some_and(|s| !s.bundle() && self.sells.allows(s.label()))
     }
 
     /// Send through the paper recorder and, in a real mode, every real
@@ -669,11 +684,10 @@ fn build_real(cfg: &Config, keys: &ApiKeys) -> Result<Vec<Box<dyn Sender>>, Buil
         #[cfg(feature = "senders")]
         {
             let mut c = c.clone();
+            // second legs share their provider's credential name
+            c.key = s.key_of(name, &c).to_string();
             if name == "helius_swqos" {
                 c.swqos_only = true;
-                if c.key.is_empty() {
-                    c.key = s.helius.key.clone();
-                }
             }
             let built = if name == "jito" && !c.regions.is_empty() {
                 c.regions
@@ -718,6 +732,7 @@ fn name_static(n: &str) -> &'static str {
         "helius" => "helius",
         "helius_swqos" => "helius_swqos",
         "nozomi" => "nozomi",
+        "nozomi_bundle" => "nozomi_bundle",
         "astralane" => "astralane",
         "blockrazor" => "blockrazor",
         "jito" => "jito",
@@ -737,6 +752,9 @@ mod id_tests {
         for (i, id) in SenderId::ALL.iter().enumerate() {
             assert_eq!(*id as usize, i, "{id:?}");
         }
-        assert_eq!(SenderId::BlockRazor as usize + 1, SenderId::COUNT);
+        assert_eq!(SenderId::NozomiBundle as usize + 1, SenderId::COUNT);
+        for id in SenderId::ALL {
+            assert_eq!(SenderId::from_u8(id as u8), Some(id));
+        }
     }
 }

@@ -35,6 +35,13 @@
 //!   the hot loop as [`ColdMsg::SellUnsent`]: no try used, no tip charged,
 //!   re-sent on the next slot (2026-10-23 22:14: three hold_to tries were
 //!   spent on `helius_swqos` `breaker_open` while four senders sat idle).
+//! * A **bundle path** (`nozomi_bundle`, [`Sender::bundle`]) takes only the
+//!   buy variants with a bundle share for their leader class
+//!   (`FireJob::bundle_prio`, `bid.bundle_priority`): each is signed with
+//!   that priority fee and the provider's minimum tip and sent as its own
+//!   one-transaction bundle, which a builder drops if it would fail, so the
+//!   bid is paid only when the buy lands. It rides the intent's nonce like
+//!   every other copy and never takes a sell.
 //! * Each real sender has its own worker thread (warm connection, breaker,
 //!   token bucket), so one slow provider never delays the others; a Nozomi
 //!   worker sends both variants of an intent in one batch request.
@@ -180,8 +187,13 @@ pub fn plan_target(
     sells: &mut [Option<Vec<(usize, Variant)>>],
 ) -> Vec<(usize, Variant)> {
     let mut out = vec![];
+    let bundle = targets[k].bundle();
     for (j, job) in jobs.iter().enumerate() {
         let kind = kind_of(job.idx);
+        // a bundle path takes only the buys that bid for it
+        if bundle && (kind != VariantKind::Buy || job.bundle_prio == 0) {
+            continue;
+        }
         if kind == VariantKind::Sell {
             if !sell_ok.get(k).copied().unwrap_or(false) {
                 continue;
@@ -199,12 +211,20 @@ pub fn plan_target(
             continue;
         }
         {
+            // a bundle copy bids with the priority fee and pays the provider's
+            // minimum tip, both only if it lands (a builder drops a bundle
+            // whose transaction would fail); every other copy keeps the plan
+            let (prio, plan_tip) = if bundle {
+                (job.bundle_prio, 0)
+            } else {
+                (job.prio, job.tip)
+            };
             let mut tmpl = job.tmpl.clone();
-            tmpl.set_priority(job.prio);
+            tmpl.set_priority(prio);
             // the provider's rotated tip account and floor (tip_plan); paths
             // without tip accounts (rpcsend) keep the template's Jito set
             let (accounts, tip, start): (&[pump_codec::Pubkey], u64, usize) =
-                match tip_plan(s.as_ref(), k, job.idx, job.intent, job.tip) {
+                match tip_plan(s.as_ref(), k, job.idx, job.intent, plan_tip) {
                     Some((a, tip)) => {
                         let accts = s.tip_accounts();
                         (accts, tip, accts.iter().position(|x| *x == a).unwrap_or(0))
@@ -218,17 +238,17 @@ pub fn plan_target(
             let mut acct = accounts[start % accounts.len()];
             for step in 0..accounts.len() {
                 acct = accounts[(start + step) % accounts.len()];
-                if !used.contains(&(acct.to_bytes(), tip, job.prio)) {
+                if !used.contains(&(acct.to_bytes(), tip, prio)) {
                     break;
                 }
             }
-            used.push((acct.to_bytes(), tip, job.prio));
+            used.push((acct.to_bytes(), tip, prio));
             tmpl.set_tip_account(&acct);
             tmpl.set_tip(tip);
             tmpl.sign(signer, None);
             out.push((
                 k,
-                Variant::from_template(&tmpl, job.intent, job.idx, kind, job.prio, tip, Some(acct)),
+                Variant::from_template(&tmpl, job.intent, job.idx, kind, prio, tip, Some(acct)),
             ));
         }
     }
@@ -248,7 +268,7 @@ pub fn plan_sell(
     sell_ok: &[bool],
     signer: &HotSigner,
 ) -> Vec<(usize, Variant)> {
-    let ok = |k: usize| sell_ok.get(k).copied().unwrap_or(false);
+    let ok = |k: usize| sell_ok.get(k).copied().unwrap_or(false) && !targets[k].bundle();
     let mut tmpl = job.tmpl.clone();
     tmpl.set_priority(job.prio);
     let anchor = targets
@@ -907,6 +927,8 @@ mod tests {
         tips: &'static [Pubkey],
         min: u64,
         variants: u8,
+        /// A revert-protected bundle path ([`Sender::bundle`]).
+        bundle: bool,
     }
     impl Sender for Fake {
         fn id(&self) -> SenderId {
@@ -926,6 +948,9 @@ mod tests {
         }
         fn buy_variants(&self) -> u8 {
             self.variants
+        }
+        fn bundle(&self) -> bool {
+            self.bundle
         }
     }
 
@@ -950,6 +975,7 @@ mod tests {
                 tips,
                 min,
                 variants: 2,
+                bundle: false,
             })
         };
         let none: &'static [Pubkey] = &[];
@@ -985,6 +1011,7 @@ mod tests {
                     bid: tip,
                     real: true,
                     leader: crate::leader::UNKNOWN,
+                    bundle_prio: 0,
                 };
                 let vs = plan_variants(&[job], targets, &signer);
                 let ks: Vec<usize> = vs.iter().map(|(k, _)| *k).collect();
@@ -1011,6 +1038,7 @@ mod tests {
                         bid: tip,
                         real: true,
                         leader: crate::leader::UNKNOWN,
+                        bundle_prio: 0,
                     };
                     let vs = plan_variants(&[job], targets, &signer);
                     assert!(!vs.is_empty(), "shape {n}: the sell goes somewhere");
@@ -1043,6 +1071,7 @@ mod tests {
             bid: 10_000,
             real: true,
             leader: crate::leader::UNKNOWN,
+            bundle_prio: 0,
         };
         let ks: Vec<usize> = plan_variants(&[job], &shapes[1], &signer)
             .iter()
@@ -1080,6 +1109,7 @@ mod tests {
             bid: 3_400_000,
             real: true,
             leader: crate::leader::UNKNOWN,
+            bundle_prio: 0,
         };
         // primary (pay on success: tip = bid) and the priority-ordered secondary (tip 0)
         let jobs = [job(0, 10_000, 3_400_000), job(1, 990_000, 0)];
@@ -1090,6 +1120,7 @@ mod tests {
                 tips: &HELIUS_TIP_ACCOUNTS,
                 min: 1_000_000,
                 variants: 2,
+                bundle: false,
             }),
             Box::new(Fake {
                 id: SenderId::HeliusSwqos,
@@ -1097,6 +1128,7 @@ mod tests {
                 tips: &HELIUS_TIP_ACCOUNTS,
                 min: 5_000,
                 variants: 2,
+                bundle: false,
             }),
             Box::new(Fake {
                 id: SenderId::Nozomi,
@@ -1104,6 +1136,7 @@ mod tests {
                 tips: &NOZOMI_TIP_ACCOUNTS,
                 min: 1_000_000,
                 variants: 2,
+                bundle: false,
             }),
             Box::new(Fake {
                 id: SenderId::Jito,
@@ -1111,6 +1144,7 @@ mod tests {
                 tips: jito,
                 min: 1_000,
                 variants: 1,
+                bundle: false,
             }),
             Box::new(Fake {
                 id: SenderId::Jito,
@@ -1118,6 +1152,7 @@ mod tests {
                 tips: jito,
                 min: 1_000,
                 variants: 1,
+                bundle: false,
             }),
         ];
         let vs = plan_variants(&jobs, &targets, &signer);
@@ -1194,6 +1229,118 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_bundle_path_takes_only_the_buys_that_bid_for_it_at_the_bid_as_priority() {
+        static NOZOMI: std::sync::LazyLock<Vec<Pubkey>> = std::sync::LazyLock::new(|| {
+            (20..37).map(|i| Pubkey::new_from_array([i; 32])).collect()
+        });
+        static HELIUS: std::sync::LazyLock<Vec<Pubkey>> = std::sync::LazyLock::new(|| {
+            (1..=10).map(|i| Pubkey::new_from_array([i; 32])).collect()
+        });
+        let jito = &pump_codec::constants::JITO_TIP_ACCOUNTS;
+        let signer = crate::setup::throwaway_signer().unwrap();
+        let mut cfg = Config::default();
+        cfg.tx.cu_limit = 88_000;
+        cfg.tx.lads_bytes = 12_124_160;
+        let pool = crate::setup::paper_nonce_pool(signer.pubkey(), 2);
+        let t = crate::setup::templates(&cfg, signer.pubkey(), &pool).unwrap();
+        let fake = |id, label, tips: &'static [Pubkey], min, variants, bundle| -> Box<dyn Sender> {
+            Box::new(Fake {
+                id,
+                label,
+                tips,
+                min,
+                variants,
+                bundle,
+            })
+        };
+        let targets = vec![
+            fake(
+                SenderId::NozomiBundle,
+                "nozomi_bundle",
+                &NOZOMI,
+                1_000_000,
+                2,
+                true,
+            ),
+            fake(SenderId::Helius, "helius", &HELIUS, 1_000_000, 2, false),
+            fake(SenderId::Nozomi, "nozomi", &NOZOMI, 1_000_000, 2, false),
+            fake(SenderId::Jito, "jito_frankfurt", jito, 1_000, 1, false),
+        ];
+        // the leader of the create slot orders by tip (primary: tip-only, no
+        // bundle copy); the next slot's is Harmonic (secondary: tip-only for
+        // the plain copies, the whole 6M bid as priority in the bundle copy)
+        let job = |idx, prio, tip, bundle_prio| FireJob {
+            tmpl: t.buys[0].clone(),
+            intent: 78,
+            idx,
+            prio,
+            tip,
+            tip_account: t.tip_account,
+            bid: 6_000_000,
+            real: true,
+            leader: crate::leader::UNKNOWN,
+            bundle_prio,
+        };
+        let jobs = [
+            job(0, 10_000, 6_000_000, 0),
+            job(1, 10_000, 6_000_000, 6_000_000),
+        ];
+        let vs = plan_variants(&jobs, &targets, &signer);
+        let at = |label: &str| -> Vec<&Variant> {
+            vs.iter()
+                .filter(|(k, _)| targets[*k].label() == label)
+                .map(|(_, v)| v)
+                .collect()
+        };
+        let b = at("nozomi_bundle");
+        assert_eq!(b.len(), 1, "only the secondary bids for the bundle");
+        assert_eq!(b[0].idx, 1);
+        assert_eq!(
+            (b[0].priority_lamports, b[0].tip_lamports),
+            (6_000_000, 1_000_000),
+            "the bid as the priority fee, the provider's minimum tip"
+        );
+        assert!(NOZOMI.contains(&b[0].tip_account.unwrap()));
+        assert!(rugsnipe_tx::signer::verify(
+            &signer.pubkey(),
+            &b[0].bytes()[65..],
+            &b[0].sig
+        ));
+        // the plain copies are untouched: tip-only, priority at the floor
+        for label in ["helius", "nozomi", "jito_frankfurt"] {
+            for v in at(label) {
+                assert_eq!(
+                    (v.priority_lamports, v.tip_lamports),
+                    (10_000, 6_000_000),
+                    "{label} {}",
+                    v.idx
+                );
+            }
+        }
+        assert_eq!(
+            at("helius").len() + at("nozomi").len() + at("jito_frankfurt").len(),
+            5
+        );
+        let sigs: std::collections::HashSet<[u8; 64]> = vs.iter().map(|(_, v)| v.sig).collect();
+        assert_eq!(sigs.len(), vs.len(), "every copy has its own signature");
+        // no bundle share for either class: the bundle path gets nothing
+        let none = [job(0, 10_000, 6_000_000, 0), job(1, 2_990_000, 0, 0)];
+        let vs = plan_variants(&none, &targets, &signer);
+        assert!(vs.iter().all(|(k, _)| !targets[*k].bundle()));
+        // sells, final or partial, never go to a bundle path
+        for tmpl in [t.sell_final.clone(), t.sell_partial.clone()] {
+            let sell = FireJob {
+                tmpl,
+                idx: 0x81,
+                ..job(0, 10_000, 3_400_000, 3_400_000)
+            };
+            let sv = plan_variants(std::slice::from_ref(&sell), &targets, &signer);
+            assert!(!sv.is_empty());
+            assert!(sv.iter().all(|(k, _)| !targets[*k].bundle()), "{sv:?}");
+        }
+    }
+
     /// A sender whose breaker is open with its sell probe in flight
     /// (`ready(Sell)` false).
     #[derive(Debug)]
@@ -1247,6 +1394,7 @@ mod tests {
                     tips,
                     min,
                     variants: if id == SenderId::Jito { 1 } else { 2 },
+                    bundle: id == SenderId::NozomiBundle,
                 };
                 if down.contains(&label) {
                     Box::new(Down(f)) as Box<dyn Sender>
@@ -1272,6 +1420,7 @@ mod tests {
             bid: 3_400_000,
             real: true,
             leader: crate::leader::UNKNOWN,
+            bundle_prio: 0,
         }
     }
 

@@ -2287,6 +2287,7 @@ impl HotLoop {
                 bid,
                 real: true,
                 leader: leader0,
+                bundle_prio: self.cfg.bid_policy.bundle_priority(plan0.class, bid),
             };
             if self.fire.push(job).is_err() {
                 self.counters.ring_full += 1;
@@ -2317,6 +2318,7 @@ impl HotLoop {
                 // a paper decision's secondary variant is recorded, never sent
                 real,
                 leader: leader1,
+                bundle_prio: self.cfg.bid_policy.bundle_priority(plan1.class, bid),
             };
             if self.fire.push(job).is_err() {
                 self.counters.ring_full += 1;
@@ -3934,6 +3936,7 @@ impl HotLoop {
                     bid: order.tip_lamports,
                     real: true,
                     leader: sell_class.map_or(LEADER_UNKNOWN, |c| c as u8),
+                    bundle_prio: 0,
                 };
                 if self.fire.push(job).is_err() {
                     self.counters.ring_full += 1;

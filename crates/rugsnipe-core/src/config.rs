@@ -444,6 +444,14 @@ pub struct SendersCfg {
     /// its own `key` is empty).
     pub helius_swqos: HttpSenderCfg,
     pub nozomi: HttpSenderCfg,
+    /// Nozomi Send Bundle (`/api/sendBundle`): each buy copy that carries the
+    /// bid as its priority fee (`bid.bundle_priority`) goes out as its own
+    /// one-transaction bundle to the block builders (Harmonic, Jito), which
+    /// drop a bundle whose transaction would fail, so a lost race costs
+    /// nothing. Buys only, never sells. Uses `nozomi.key`'s name if its own
+    /// `key` is empty (the key must be allowed to send bundles: Nozomi
+    /// answers 403 otherwise).
+    pub nozomi_bundle: HttpSenderCfg,
     pub astralane: HttpSenderCfg,
     pub jito: HttpSenderCfg,
     pub nextblock: HttpSenderCfg,
@@ -482,9 +490,11 @@ impl SendersCfg {
         v
     }
 
-    /// Every HTTP sender table with its name, in fan-out order.
-    pub fn http(&self) -> [(&'static str, &HttpSenderCfg); 7] {
+    /// Every HTTP sender table with its name, in fan-out order (the bundle
+    /// copy first: on a Harmonic leader it is the one that bids).
+    pub fn http(&self) -> [(&'static str, &HttpSenderCfg); 8] {
         [
+            ("nozomi_bundle", &self.nozomi_bundle),
             ("helius", &self.helius),
             ("helius_swqos", &self.helius_swqos),
             ("nozomi", &self.nozomi),
@@ -493,6 +503,17 @@ impl SendersCfg {
             ("jito", &self.jito),
             ("nextblock", &self.nextblock),
         ]
+    }
+
+    /// The credential name sender `name` (an [`SendersCfg::http`] name) uses:
+    /// its own `key`, else the key of the provider it is a second leg of
+    /// (`helius_swqos` -> `helius`, `nozomi_bundle` -> `nozomi`).
+    pub fn key_of<'a>(&'a self, name: &str, c: &'a HttpSenderCfg) -> &'a str {
+        match name {
+            "helius_swqos" if c.key.is_empty() => &self.helius.key,
+            "nozomi_bundle" if c.key.is_empty() => &self.nozomi.key,
+            _ => &c.key,
+        }
     }
 }
 
@@ -692,6 +713,13 @@ pub struct BidCfg {
     pub by_tier: Vec<u64>,
     /// `[priority, tip]` fractions per leader class.
     pub split: BidSplit,
+    /// `[priority, tip]` fractions per leader class for **sells** (unset =
+    /// `split`). A sell has no price bound (it cannot fail on a rival), so
+    /// its priority fee is never wasted: with the buys on the tip only
+    /// (`split`) and the bid riding the bundle copy (`bundle_priority`),
+    /// this keeps the sells of a priority-ordered leader (BAM, Harmonic,
+    /// other) on the priority fee instead of the bottom of its batch.
+    pub sell_split: Option<BidSplit>,
     /// Header priority fee of every variant (the scheduling floor): what a
     /// pay-on-success variant still pays when it lands and fails. 10,000
     /// lamports sits between the p10 (1,000) and p25 (45,000) priority fee
@@ -706,6 +734,38 @@ pub struct BidCfg {
     /// can raise the cap of a priority-ordered class (rivals' median ~25.8M
     /// µL/CU against our ~990k-lamport clamp) without touching sizing.
     pub failed_attempt_max_by_class: ClassCaps,
+    /// The share of the bid a buy variant pays as its priority fee in its
+    /// revert-protected bundle copy (`senders.nozomi_bundle`), by the
+    /// variant's leader class; 0 = no bundle copy for that class. The copy
+    /// also pays the Nozomi tip (0.001 SOL), and both are charged only when
+    /// it lands: a builder drops a bundle whose transaction would fail.
+    /// Harmonic orders by priority fee, so a Harmonic leader gets the whole
+    /// bid (the copied wallet, 2026-10-23 19:15 to 10-24 03:31: 33 buys at
+    /// 0.5-29M priority, 32 on Harmonic leaders, 26 tipping Nozomi 0.001
+    /// SOL, none failed; its 595 other copies bid with a tip, and the 471 of
+    /// them that failed cost about 11,000 lamports each).
+    pub bundle_priority: ClassShares,
+}
+
+/// `bid.bundle_priority`: a fraction of the bid per leader class, each in
+/// [0, 1].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ClassShares {
+    pub jito_agave: f64,
+    pub bam: f64,
+    pub harmonic: f64,
+    pub other: f64,
+}
+impl Default for ClassShares {
+    fn default() -> Self {
+        Self {
+            jito_agave: 0.0,
+            bam: 0.0,
+            harmonic: 1.0,
+            other: 0.0,
+        }
+    }
 }
 
 /// `bid.failed_attempt_max_by_class`: lamports per leader class, 0 = the
@@ -725,9 +785,11 @@ impl Default for BidCfg {
             lamports: 0,
             by_tier: vec![],
             split: BidSplit::default(),
+            sell_split: None,
             min_priority_lamports: 10_000,
             failed_attempt_lamports_max: 1_000_000,
             failed_attempt_max_by_class: ClassCaps::default(),
+            bundle_priority: ClassShares::default(),
         }
     }
 }
@@ -1668,14 +1730,31 @@ impl Config {
                 );
             }
         }
+        let ss = self.bid.sell_split.as_ref();
         for (n, s) in [
-            ("bid.split.jito_agave", self.bid.split.jito_agave),
-            ("bid.split.harmonic", self.bid.split.harmonic),
-            ("bid.split.bam", self.bid.split.bam),
-            ("bid.split.other", self.bid.split.other),
+            ("bid.split.jito_agave", Some(self.bid.split.jito_agave)),
+            ("bid.split.harmonic", Some(self.bid.split.harmonic)),
+            ("bid.split.bam", Some(self.bid.split.bam)),
+            ("bid.split.other", Some(self.bid.split.other)),
+            ("bid.sell_split.jito_agave", ss.map(|x| x.jito_agave)),
+            ("bid.sell_split.harmonic", ss.map(|x| x.harmonic)),
+            ("bid.sell_split.bam", ss.map(|x| x.bam)),
+            ("bid.sell_split.other", ss.map(|x| x.other)),
         ] {
+            let Some(s) = s else { continue };
             if s.iter().any(|x| !(0.0..=1.0).contains(x)) || ((s[0] + s[1]) - 1.0).abs() > 1e-6 {
                 inv(&mut r, n, "fractions must be in [0,1] and sum to 1");
+            }
+        }
+        let bp = &self.bid.bundle_priority;
+        for (n, f) in [
+            ("bid.bundle_priority.jito_agave", bp.jito_agave),
+            ("bid.bundle_priority.bam", bp.bam),
+            ("bid.bundle_priority.harmonic", bp.harmonic),
+            ("bid.bundle_priority.other", bp.other),
+        ] {
+            if !(0.0..=1.0).contains(&f) {
+                inv(&mut r, n, "must be in [0, 1] (a share of the bid)");
             }
         }
         // the failed-attempt cap (docs/03 section 6 "Pay on success")
@@ -1710,6 +1789,7 @@ impl Config {
             // hot path cuts the fee); only a priority share on a tip class is
             // worth a warning
             let pol = crate::bid::BidPolicy::from_cfg(b);
+            let bundles = self.senders.nozomi_bundle.enabled;
             for c in crate::bid::LeaderClass::ALL {
                 let p = pol.plan(c, max_bid, 1);
                 if c.honours_tip() && p.priority_lamports > b.min_priority_lamports {
@@ -1718,7 +1798,26 @@ impl Config {
                         c.as_str(),
                         p.priority_lamports
                     ));
+                } else if bundles
+                    && pol.bundle_priority(c, max_bid) > 0
+                    && p.priority_lamports > b.min_priority_lamports
+                {
+                    w.push(format!(
+                        "bid.split.{}: the bundle copy bids for this class, but the plain copies still put {} lamports in the priority fee, which a lost race pays; [0.0, 1.0] leaves them the tip only",
+                        c.as_str(),
+                        p.priority_lamports
+                    ));
                 }
+            }
+            if bundles
+                && crate::bid::LeaderClass::ALL
+                    .iter()
+                    .all(|c| pol.bundle_priority(*c, max_bid) == 0)
+            {
+                w.push(
+                    "senders.nozomi_bundle is on but bid.bundle_priority is 0 for every class: no buy goes out as a bundle"
+                        .into(),
+                );
             }
         }
         let k = &self.probe.kill;
@@ -2267,7 +2366,7 @@ impl Config {
             .senders
             .http()
             .iter()
-            .any(|(_, s)| s.enabled && !s.key.is_empty());
+            .any(|(n, s)| s.enabled && !self.senders.key_of(n, s).is_empty());
         if http_enabled {
             creds.push(&self.secrets.api_keys);
         }

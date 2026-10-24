@@ -1093,6 +1093,7 @@ impl App {
             bid: 1_000_000,
             real: true,
             leader: crate::leader::UNKNOWN,
+            bundle_prio: 10_000,
         };
         let targets = self.senders.targets();
         let vs = crate::sender::plan_variants(std::slice::from_ref(&job), targets, &self.signer)

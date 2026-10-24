@@ -169,6 +169,72 @@ fn nozomi_batch_body_and_breaker() {
 }
 
 #[test]
+fn nozomi_bundle_sends_each_copy_as_its_own_one_transaction_bundle() {
+    let (url, rx) = mock(vec![(200, ""), (200, ""), (403, "Forbidden")]);
+    let mut keys = ApiKeys::default();
+    keys.insert("NOZOMI_KEY", "nk");
+    let c = rugsnipe_core::config::HttpSenderCfg {
+        enabled: true,
+        url,
+        key: "NOZOMI_KEY".into(),
+        ..Default::default()
+    };
+    let s = build("nozomi_bundle", &c, &keys).unwrap();
+    assert_eq!(
+        (s.id(), s.label()),
+        (SenderId::NozomiBundle, "nozomi_bundle")
+    );
+    assert!(
+        s.bundle(),
+        "revert-protected: takes the buys that bid for it"
+    );
+    assert_eq!(s.min_tip(), 1_000_000, "no tip exemption for bundles");
+    assert_eq!(s.tip_accounts(), &NOZOMI_TIP_ACCOUNTS[..]);
+    assert_eq!(s.buy_variants(), 2);
+    assert!(!format!("{s:?}").contains("nk"), "keys never printed");
+    let a = variant(NOZOMI_TIP_ACCOUNTS[0], 1_000_000);
+    let b = Variant::from_bytes(
+        &[8u8; 100],
+        [2; 64],
+        9,
+        1,
+        VariantKind::Buy,
+        6_000_000,
+        1_000_000,
+        Some(NOZOMI_TIP_ACCOUNTS[5]),
+    );
+    // two copies on one nonce in one bundle would fail as a whole: one
+    // request per copy, each a single length-prefixed member
+    let r = s.send_batch(&[&a, &b]);
+    assert!(r.iter().all(|r| r.is_ok()), "{r:?}");
+    for (len, fill) in [(200usize, 7u8), (100, 8)] {
+        let (head, body) = rx.recv().unwrap();
+        assert!(
+            head.starts_with("POST /api/sendBundle?c=nk HTTP/1.1"),
+            "{head}"
+        );
+        assert!(head.contains("application/octet-stream"));
+        assert_eq!(&body[..2], &(len as u16).to_be_bytes());
+        assert_eq!(body.len(), 2 + len);
+        assert!(body[2..].iter().all(|x| *x == fill));
+    }
+    // a key that may not send bundles: 403, a failure the journal shows
+    assert_eq!(s.send(&a), SendResult::Failed(SendError::Http(403)));
+    rx.recv().unwrap();
+    // a tip below the floor never leaves the box
+    assert_eq!(
+        s.send(&variant(NOZOMI_TIP_ACCOUNTS[0], 999_999)),
+        SendResult::Failed(SendError::TipTooLow {
+            min: 1_000_000,
+            got: 999_999
+        })
+    );
+    // the plain Nozomi sender is not a bundle path
+    let plain = build("nozomi", &c, &keys).unwrap();
+    assert!(!plain.bundle());
+}
+
+#[test]
 fn jito_rate_limit_and_nextblock_body() {
     let (url, rx) = mock(vec![(200, r#"{"result":"x"}"#)]);
     let t = HttpTarget::parse(&url)

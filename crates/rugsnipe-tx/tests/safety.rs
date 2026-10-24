@@ -359,6 +359,26 @@ fn rpcsend_sells_only_refuses_buys_before_the_network() {
 
 #[cfg(feature = "senders")]
 #[test]
+fn the_bundle_leg_shares_the_nozomi_key_comes_first_and_never_takes_a_sell() {
+    let mut c = armable(Mode::Probe);
+    c.senders.nozomi.enabled = true;
+    c.senders.nozomi.key = "NOZOMI_KEY".into();
+    c.senders.nozomi_bundle.enabled = true;
+    let mut keys = ApiKeys::default();
+    keys.insert("NOZOMI_KEY", "n");
+    let set = SenderSet::build(&c, &good_env(&c), &keys).unwrap();
+    let labels: Vec<&str> = set.real().iter().map(|s| s.label()).collect();
+    assert_eq!(labels, vec!["nozomi_bundle", "nozomi"]);
+    assert!(set.real()[0].bundle() && !set.real()[1].bundle());
+    assert!(!set.sells_via(0), "a bundle path never takes a sell");
+    assert!(set.sells_via(1));
+    // alone, the bundle leg still finds the shared credential name
+    c.senders.nozomi.enabled = false;
+    let set = SenderSet::build(&c, &good_env(&c), &keys).unwrap();
+    assert_eq!(set.real().len(), 1);
+}
+
+#[test]
 fn jito_regions_and_blockrazor_build_one_sender_each() {
     let mut c = armable(Mode::Probe);
     c.senders.jito.enabled = true;
