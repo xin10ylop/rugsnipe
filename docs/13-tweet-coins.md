@@ -1,5 +1,9 @@
 # 13. Tweet coins: the rule, its backtest on two days, and the tweet check in the bot (2026-10-24)
 
+**Corrected by docs/14.** The trade files behind these numbers left out the pump fee and cut busy coins at 150
+transactions; on complete data the rule makes +3.68% a trade (hold 10, all coins), the copy cut of `"exit"` loses, and
+`tweet_gate = "log"` is the setting to run.
+
 Data:
 - every pump.fun create from 00:00 to 12:00 UTC on Oct 23 and on Oct 24 (18,656 and 17,135), decoded;
 - the metadata file of every create with a dev buy of 0.95 SOL or more;
