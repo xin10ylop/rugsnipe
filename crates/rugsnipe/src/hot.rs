@@ -184,6 +184,9 @@ pub struct HotCfg {
     pub stake_by_tier: Option<[u64; 3]>,
     /// Base bid by tier (`bid.by_tier`; `None` = `bid_lamports`).
     pub bid_by_tier: Option<[u64; 3]>,
+    /// The bid A/B's second arm by tier (`bid.ab_by_tier`): launches whose
+    /// mint's last byte is odd bid it.
+    pub bid_ab_by_tier: Option<[u64; 3]>,
     /// Per-leader-class split, scheduling floor and failed-attempt cap
     /// (`[bid]`, docs/03 section 6 "Pay on success").
     pub bid_policy: BidPolicy,
@@ -322,6 +325,7 @@ impl HotCfg {
             max_bid,
             stake_by_tier: tier3(&cfg.entry.stake_by_tier),
             bid_by_tier: tier3(&cfg.bid.by_tier),
+            bid_ab_by_tier: tier3(&cfg.bid.ab_by_tier),
             bid_policy: BidPolicy::from_cfg(&cfg.bid),
             leader_class: None,
             secondary_variant: true,
@@ -2436,6 +2440,13 @@ impl HotLoop {
                 }
             })
             .min(self.cfg.max_bid);
+        // the bid A/B (bid.ab_by_tier): the odd half of the mints bids the
+        // second arm (sends.bid records which one each race carried)
+        if let Some(t) = self.cfg.bid_ab_by_tier {
+            if t[tier] > 0 && hit.mint.as_ref()[31] & 1 == 1 {
+                bid = t[tier].min(self.cfg.max_bid);
+            }
+        }
         if op.ev_cap > 0 {
             bid = bid.min(op.ev_cap);
         }

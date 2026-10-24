@@ -108,6 +108,10 @@ struct Outcome {
     open: u64,
     /// The position's hold (`create + N`) after the verdict, if one opened.
     hold: Option<u16>,
+    /// The bid of each fired job of the launch.
+    bids: Vec<u64>,
+    /// The fixture's mint.
+    mint: Pubkey,
 }
 
 /// `[exit.default]` with every rule off but the hold to create + 10.
@@ -149,6 +153,24 @@ fn run_full(
     verdict_first: bool,
     after: &dyn Fn(&CreateHit, &mut CurveState) -> Vec<FeedEvent>,
 ) -> Outcome {
+    run_full_with(
+        gate,
+        tweet_host_matches,
+        verdict,
+        verdict_first,
+        after,
+        &|_| {},
+    )
+}
+
+fn run_full_with(
+    gate: TweetGate,
+    tweet_host_matches: bool,
+    verdict: Option<TweetKind>,
+    verdict_first: bool,
+    after: &dyn Fn(&CreateHit, &mut CurveState) -> Vec<FeedEvent>,
+    tweak: &dyn Fn(&mut Config),
+) -> Outcome {
     let (tx, meta, hit) = fixture_hit();
     let host = hit
         .tx_shape
@@ -170,6 +192,7 @@ fn run_full(
     cfg.entry.tweet_min_dev_sol = 0.0;
     cfg.entry.tweet_late_slots = 1;
     cfg.exit = Config::from_toml_str(HOLD10).unwrap().exit;
+    tweak(&mut cfg);
     let v = cfg.validate(&good_env(&cfg));
     assert!(v.ok(), "{:?}", v.refusals);
     let senders = Arc::new(SenderSet::build(&cfg, &good_env(&cfg), &ApiKeys::default()).unwrap());
@@ -279,7 +302,11 @@ fn run_full(
         .position_of(&hit.mint)
         .and_then(|p| p.policy.hold_to_create_slot);
     let intent = IntentId::new(&hit.mint, &owner).0;
-    let fired = std::iter::from_fn(|| fire_rx.pop().ok()).any(|j| j.intent == intent);
+    let jobs: Vec<FireJob> = std::iter::from_fn(|| fire_rx.pop().ok())
+        .filter(|j| j.intent == intent)
+        .collect();
+    let fired = !jobs.is_empty();
+    let bids = jobs.iter().map(|j| j.bid).collect();
     let nonces_free = nonces.free_count();
     let open = risk.open_positions();
     drop(hot);
@@ -304,6 +331,8 @@ fn run_full(
         nonces_free,
         open,
         hold,
+        bids,
+        mint: hit.mint,
     }
 }
 
@@ -478,4 +507,35 @@ fn exit_mode_skips_a_copy_whose_verdict_came_before_the_buy() {
     let o = run_full(TweetGate::Exit, true, Some(TweetKind::First), true, &none);
     assert!(o.fired);
     assert_eq!(o.hold, Some(10));
+}
+
+#[test]
+fn the_bid_ab_sends_the_odd_mints_on_the_second_arm() {
+    let run = |ab: Vec<u64>| {
+        run_full_with(
+            TweetGate::Off,
+            true,
+            None,
+            false,
+            &none,
+            &move |c: &mut Config| {
+                c.bid.lamports = 3_000_000;
+                c.bid.ab_by_tier = ab.clone();
+            },
+        )
+    };
+    let base = run(vec![]);
+    assert!(
+        base.fired && base.bids.iter().all(|&b| b == 3_000_000),
+        "{:?}",
+        base.bids
+    );
+    let ab = run(vec![1_500_000, 3_000_000, 3_000_000]);
+    let odd = ab.mint.as_ref()[31] & 1 == 1;
+    let want = if odd { 1_500_000 } else { 3_000_000 };
+    assert!(
+        ab.fired && ab.bids.iter().all(|&b| b == want),
+        "odd {odd}: {:?}",
+        ab.bids
+    );
 }

@@ -711,6 +711,12 @@ pub struct BidCfg {
     /// tier-0 launches and 6-24M (about 1% of the stake) on tiers 1 and 2,
     /// which is how it wins the contested ones. Empty = off.
     pub by_tier: Vec<u64>,
+    /// A second buy bid by tier for an A/B test of the bid (2026-10-24):
+    /// launches whose mint's last byte is odd bid this instead of `by_tier`
+    /// (or `lamports`), the even half keeps it. The bid each race carried is
+    /// in `sends.bid`, so `rugsnipe-check` shows the land rate and P&L of each
+    /// arm. Empty = off; same shape and bound as `by_tier`.
+    pub ab_by_tier: Vec<u64>,
     /// `[priority, tip]` fractions per leader class.
     pub split: BidSplit,
     /// `[priority, tip]` fractions per leader class for **sells** (unset =
@@ -784,6 +790,7 @@ impl Default for BidCfg {
             quantile: 0.75,
             lamports: 0,
             by_tier: vec![],
+            ab_by_tier: vec![],
             split: BidSplit::default(),
             sell_split: None,
             min_priority_lamports: 10_000,
@@ -1763,6 +1770,13 @@ impl Config {
             inv(
                 &mut r,
                 "bid.by_tier",
+                "must be empty or three non-decreasing bids in lamports > 0 (tiers 0, 1, 2)",
+            );
+        }
+        if !tiers_ok(&self.bid.ab_by_tier) {
+            inv(
+                &mut r,
+                "bid.ab_by_tier",
                 "must be empty or three non-decreasing bids in lamports > 0 (tiers 0, 1, 2)",
             );
         }

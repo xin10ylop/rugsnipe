@@ -1135,6 +1135,13 @@ fn stake_and_bid_tiers_are_three_non_decreasing_values_or_empty() {
     let c = Config::from_toml_str("[entry]\nstake_by_tier = [250_000_000, 500_000_000, 1_000_000_000]\n[bid]\nby_tier = [6_000_000, 10_000_000, 20_000_000]\n").unwrap();
     assert_eq!(c.entry.stake_by_tier.len(), 3);
     assert_eq!(c.bid.by_tier, vec![6_000_000, 10_000_000, 20_000_000]);
+    // the bid A/B's second arm: same shape rule, and it parses
+    let mut c =
+        Config::from_toml_str("[bid]\nab_by_tier = [1_500_000, 3_000_000, 3_000_000]\n").unwrap();
+    assert_eq!(c.bid.ab_by_tier, vec![1_500_000, 3_000_000, 3_000_000]);
+    assert!(!fields(&c).contains(&"bid.ab_by_tier"));
+    c.bid.ab_by_tier = vec![3_000_000, 1_500_000];
+    assert!(fields(&c).contains(&"bid.ab_by_tier"));
 }
 
 #[test]
