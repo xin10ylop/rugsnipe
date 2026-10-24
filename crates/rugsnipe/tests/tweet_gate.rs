@@ -26,7 +26,7 @@ use rugsnipe::setup::{self, ArmState};
 use rugsnipe::stats::{code, decision_label, HotStats};
 use rugsnipe::tweet::{TweetKind, TweetReq, TweetVerdict};
 use rugsnipe::tweetfeed::{new_posts, Post, Posts};
-use rugsnipe_core::config::{ArmSetGate, Config, TweetFeed, TweetGate, ValidateEnv};
+use rugsnipe_core::config::{ArmSetGate, Config, DumperSkip, TweetFeed, TweetGate, ValidateEnv};
 use rugsnipe_core::risk::RiskGate;
 use rugsnipe_core::rslog::{box_id, Rec, RslogWriter};
 use rugsnipe_core::watchlist::Watchlist;
@@ -162,9 +162,12 @@ fn run_full(
         after,
         &|_| {},
         None,
+        &[],
     )
 }
 
+/// [`run_full`], with `tweak` applied to the config, `feed` as the tweet
+/// feed's posts and `dumpers` as the operator-dump set.
 fn run_full_with(
     gate: TweetGate,
     tweet_host_matches: bool,
@@ -173,6 +176,7 @@ fn run_full_with(
     after: &dyn Fn(&CreateHit, &mut CurveState) -> Vec<FeedEvent>,
     tweak: &dyn Fn(&mut Config),
     feed: Option<Posts>,
+    dumpers: &[Pubkey],
 ) -> Outcome {
     let (tx, meta, hit) = fixture_hit();
     let host = hit
@@ -236,7 +240,7 @@ fn run_full_with(
         stats,
         shared: Arc::new(Shared::default()),
         leaders: rugsnipe::leader::empty_snapshot(),
-        dumpers: rugsnipe::dumpers::snapshot_from(vec![]),
+        dumpers: rugsnipe::dumpers::snapshot_from(dumpers.to_vec()),
     });
     hot.set_tweet_lane(req_tx, out_rx);
     if let Some(posts) = feed {
@@ -530,6 +534,7 @@ fn the_bid_ab_sends_the_odd_mints_on_the_second_arm() {
                 c.bid.ab_by_tier = ab.clone();
             },
             None,
+            &[],
         )
     };
     let base = run(vec![]);
@@ -583,6 +588,7 @@ fn the_tweet_feed_on_skips_a_copy_and_log_only_journals() {
             &none,
             &move |c: &mut Config| c.entry.tweet_feed = mode,
             Some(feed_with(&key, taken)),
+            &[],
         )
     };
     // on: the post was taken by an earlier coin, so this one is a copy
@@ -596,4 +602,36 @@ fn the_tweet_feed_on_skips_a_copy_and_log_only_journals() {
     assert!(run(TweetFeed::On, false).fired);
     // log: a copy call never stops the buy
     assert!(run(TweetFeed::Log, true).fired);
+}
+
+#[test]
+fn the_dumper_skip_applies_only_to_its_hosts_when_they_are_set() {
+    let (_, _, hit) = fixture_hit();
+    let host = hit.tx_shape.uri_host().unwrap().to_string();
+    let run = |mode: DumperSkip, hosts: Vec<String>, dumpers: &[Pubkey]| {
+        run_full_with(
+            TweetGate::Off,
+            true,
+            None,
+            false,
+            &none,
+            &move |c: &mut Config| {
+                c.entry.dumper_skip = mode;
+                c.entry.dumper_skip_hosts = hosts.clone();
+            },
+            None,
+            dumpers,
+        )
+    };
+    let skipped = |o: &Outcome| !o.fired && o.decisions.iter().any(|d| d.0 == code::DUMPER);
+    let dev = [hit.user];
+    // skip on every host, and on a list naming the coin's host
+    assert!(skipped(&run(DumperSkip::Skip, vec![], &dev)));
+    assert!(skipped(&run(DumperSkip::Skip, vec![host.clone()], &dev)));
+    // a list without it: journaled and fired, as under log
+    let o = run(DumperSkip::Skip, vec!["m.rapidlaunch.io".into()], &dev);
+    assert!(o.fired, "{:?}", label(&o));
+    assert!(run(DumperSkip::Log, vec![host.clone()], &dev).fired);
+    // no dumper among the insiders: fired
+    assert!(run(DumperSkip::Skip, vec![host], &[]).fired);
 }

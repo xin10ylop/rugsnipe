@@ -4,7 +4,7 @@
 # Reads only: the hot unit's journal (status line, operator/tier lines), /etc/rugsnipe/rugsnipe.toml and
 # /var/lib/rugsnipe/state.db (read-only). Needs sudo for the journal and the config.
 # Test hooks: CHECK_STATUS (a status line instead of the journal's), CHECK_TIERS (operator lines), CHECK_TWEETS (tweet lines),
-# CHECK_FEED (tweetfeed lines),
+# CHECK_FEED (tweetfeed lines), CHECK_DUMPERS (dumper lines),
 # CHECK_RULE_T0 (the tweet rule's start, unix s; empty = none),
 # CHECK_DB (another state.db), CHECK_PRINT_SQL=1 (print the SQL and stop).
 DB=${CHECK_DB:-/var/lib/rugsnipe/state.db}
@@ -48,6 +48,13 @@ if [ -n "${CHECK_FEED+x}" ]; then FDL=$CHECK_FEED; else
 fi
 FEEDS=$(awk '{ printf "%s(\x27%s\x27,\x27%s\x27)", (n++ ? "," : ""), $2, $3 }' <<<"$FDL")
 [ -n "$FEEDS" ] || FEEDS="('','')"
+# ---- the dumper list's hits (entry.dumper_skip, docs/15) of today: mint8 -> skipped / logged, uri host ('-': none or
+# a line from before the host was journaled)
+if [ -n "${CHECK_DUMPERS+x}" ]; then DML=$CHECK_DUMPERS; else
+  DML=$(sudo journalctl -u rugsnipe-hot -o cat --since "@$D0" 2>/dev/null | grep -E '^dumper [1-9A-HJ-NP-Za-km-z]{8} (skipped|logged)')
+fi
+DUMPS=$(awk '{ h = ($(NF-1) == "host") ? $NF : "-"; gsub(/\x27/, "", h); printf "%s(\x27%s\x27,\x27%s\x27,\x27%s\x27)", (n++ ? "," : ""), $2, $3, h }' <<<"$DML")
+[ -n "$DUMPS" ] || DUMPS="('','','')"
 
 SQL="
 create temp table tiers(m8 text, tier int);
@@ -56,6 +63,8 @@ create temp table tweets(m8 text, kind text, ms int, slot_off int);
 insert into tweets values $TWEETS;
 create temp table feeds(m8 text, call text);
 insert into feeds values $FEEDS;
+create temp table dumps(m8 text, act text, host text);
+insert into dumps values $DUMPS;
 create temp view pos0 as
   select p.mint, p.cost, p.state, p.opened_slot, p.closed_slot, min(s.sent_unix_ms) t_ms, max(s.bid) bid,
          coalesce((select sum(e.sol_delta) from exits e where e.mint = p.mint), 0) ex,
@@ -133,6 +142,14 @@ from feeds f left join tweets t on t.m8 = f.m8 where f.m8 <> '' group by f.call 
 select coalesce((select f.call from feeds f where f.m8 = substr(p.mint, 1, 8) limit 1), 'not called') call,
        count(*) trades, sum(net > 0) wins, round(100.0 * avg(net * 1.0 / cost), 1) mean_pct, round(sum(net) / 1e9, 4) net_sol
 from pos p where state = 'closed' and cost > 0 and t_ms >= ${TR:-$D0} * 1000 group by call order by trades desc;
+.print
+.print == dumper list today (entry.dumper_skip): hits by uri host, and our closed trades since the rule started by the hit's host (big = -30% or worse)
+select host, count(*) hits, sum(act = 'skipped') skipped, sum(act = 'logged') fired_anyway
+from dumps where m8 <> '' group by host order by hits desc;
+select coalesce((select d.host from dumps d where d.m8 = substr(p.mint, 1, 8) limit 1), 'no hit') dumper_host,
+       count(*) trades, sum(net > 0) wins, sum(net <= -0.3 * cost) big, round(100.0 * avg(net * 1.0 / cost), 1) mean_pct,
+       round(sum(net) / 1e9, 4) net_sol
+from pos p where state = 'closed' and cost > 0 and t_ms >= ${TR:-$D0} * 1000 group by dumper_host order by trades desc;
 .print
 .print == last 10 trades, newest first (pct and net_sol after tips and fees)
 select strftime('%H:%M:%S', t_ms / 1000, 'unixepoch') time, substr(mint, 1, 8) mint, tier, round(cost / 1e9, 3) stake,

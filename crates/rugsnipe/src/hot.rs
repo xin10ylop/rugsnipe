@@ -253,8 +253,10 @@ pub struct HotCfg {
     /// `entry.leader_regions` as a mask by [`crate::leader::Region`]
     /// (`None` = any leader; an unknown region is always allowed).
     pub leader_allowed: Option<[bool; crate::leader::Region::COUNT]>,
-    /// `entry.dumper_skip`.
+    /// `entry.dumper_skip` and the hosts its skip applies to
+    /// (`entry.dumper_skip_hosts`, matched like `uri_allow`; empty = any).
     pub dumper_skip: rugsnipe_core::config::DumperSkip,
+    pub dumper_skip_hosts: Vec<String>,
     /// The pre-send entry gate (`entry.presend_model`, loaded at startup;
     /// `None`: off), its mode and cut, and the per-signer operator features
     /// the cold thread publishes from the outcome store.
@@ -378,6 +380,7 @@ impl HotCfg {
             },
             leader_allowed: leader_mask(&cfg.entry.leader_regions),
             dumper_skip: cfg.entry.dumper_skip,
+            dumper_skip_hosts: host_patterns(&cfg.entry.dumper_skip_hosts),
             require_bundle: cfg.entry.require_bundle,
             presend: None,
             presend_mode: cfg.entry.presend_mode,
@@ -2432,7 +2435,8 @@ impl HotLoop {
             }
         }
         // 5b: the operator-dump skip (entry.dumper_skip): the dev, the
-        // creator or a bundle wallet dumped an earlier launch
+        // creator or a bundle wallet dumped an earlier launch; the skip
+        // only on entry.dumper_skip_hosts when that is set
         if self.cfg.dumper_skip != rugsnipe_core::config::DumperSkip::Off {
             let d = self.dumpers.load();
             if !d.is_empty() {
@@ -2446,16 +2450,20 @@ impl HotLoop {
                 if dumper {
                     self.counters.dumper_hits += 1;
                     let k8 = key8(&hit.mint);
+                    let host = hit.tx_shape.uri_host();
+                    let skip = self.cfg.dumper_skip == rugsnipe_core::config::DumperSkip::Skip;
+                    let listed = uri_host_ok(&self.cfg.dumper_skip_hosts, &[], host);
                     journal(format_args!(
-                        "dumper {} {}",
+                        "dumper {} {} host {}",
                         std::str::from_utf8(&k8).unwrap_or("?"),
-                        if self.cfg.dumper_skip == rugsnipe_core::config::DumperSkip::Skip {
-                            "skipped"
-                        } else {
-                            "logged (would skip)"
-                        }
+                        match (skip, listed) {
+                            (true, true) => "skipped",
+                            (true, false) => "logged (other host)",
+                            (false, _) => "logged (would skip)",
+                        },
+                        host.unwrap_or("-")
                     ));
-                    if self.cfg.dumper_skip == rugsnipe_core::config::DumperSkip::Skip {
+                    if skip && listed {
                         return self.decision(
                             intent,
                             hit,

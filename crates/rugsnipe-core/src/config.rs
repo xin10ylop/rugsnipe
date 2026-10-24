@@ -1001,6 +1001,10 @@ pub struct EntryCfg {
     /// does neither. The set grows live from every bundled launch the feed
     /// shows and persists in `state.db` (`dumpers`).
     pub dumper_skip: DumperSkip,
+    /// The uri hosts `dumper_skip = "skip"` applies to (2026-10-24,
+    /// docs/15), matched like `uri_hosts`; empty = every host. A hit on
+    /// another host is journaled and fires, as under `log`.
+    pub dumper_skip_hosts: Vec<String>,
     pub filter: EntryFilter,
     /// The frozen P(take-profit) model of the entry filter
     /// (`data/reports/strategy/entry_filter_v1.json`, docs/04 section 2);
@@ -1165,6 +1169,7 @@ impl Default for EntryCfg {
             bundle_wait_ms: 2,
             bundle_wait_us: 0,
             dumper_skip: DumperSkip::Log,
+            dumper_skip_hosts: vec![],
             dev_buy_sol: vec![],
             dev_buy_tol_sol: 0.005,
             leader_regions: vec![],
@@ -2050,6 +2055,7 @@ impl Config {
             ("entry.uri_hosts", &self.entry.uri_hosts),
             ("entry.uri_hosts_deny", &self.entry.uri_hosts_deny),
             ("entry.tweet_hosts", &self.entry.tweet_hosts),
+            ("entry.dumper_skip_hosts", &self.entry.dumper_skip_hosts),
         ] {
             if list.iter().any(|h| !uri_host_pattern_ok(h)) {
                 inv(
