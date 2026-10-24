@@ -995,6 +995,12 @@ pub fn build(o: AppOpts) -> Result<App, String> {
                 workers: cfg.entry.tweet_workers as usize,
                 max_age_s: cfg.entry.tweet_max_age_s,
                 warm,
+                // next to state.db (none without one: a replay or dry run)
+                book_path: o
+                    .state_path
+                    .as_deref()
+                    .and_then(|p| p.parent())
+                    .map(|d| d.join("tweet_book.txt")),
             },
             tweet_fetch(cfg.entry.tweet_timeout_ms),
             req_rx,

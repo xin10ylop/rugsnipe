@@ -56,7 +56,7 @@ use crate::operators::{
 };
 use crate::setup::{min_tokens_out, min_tokens_out_at, op_armed, ArmState, Templates};
 use crate::stats::{code, HotStats};
-use crate::tweet::{TweetKind, TweetReq, TweetVerdict};
+use crate::tweet::{FailNote, TweetKind, TweetReq, TweetVerdict};
 use arc_swap::ArcSwap;
 use hdrhistogram::Histogram;
 use pump_codec::constants::{TOKEN_2022_PROGRAM_ID, WSOL_MINT};
@@ -2024,8 +2024,9 @@ impl HotLoop {
             }
         };
         let k8 = key8(&v.mint);
+        // an error says why after the decision ("(timeout)", "(http 404)")
         journal(format_args!(
-            "tweet {} {} rank {} age {}s sid {} fetch {}ms verdict {}ms slot+{} {}",
+            "tweet {} {} rank {} age {}s sid {} fetch {}ms verdict {}ms slot+{} {}{}",
             std::str::from_utf8(&k8).unwrap_or("?"),
             v.kind.as_str(),
             v.rank,
@@ -2034,7 +2035,8 @@ impl HotLoop {
             v.fetch_us / 1_000,
             us / 1_000,
             at,
-            what
+            what,
+            FailNote(v.fail, v.http)
         ));
     }
 

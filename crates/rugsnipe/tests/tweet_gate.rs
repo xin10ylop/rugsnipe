@@ -259,6 +259,8 @@ fn run_full(
         age_s: 4,
         push_ns: 0,
         fetch_us: 90_000,
+        fail: rugsnipe::tweet::FetchFail::None,
+        http: 200,
     });
     if let (Some(v), true) = (v, verdict_first) {
         out_tx.push(v).ok().unwrap();

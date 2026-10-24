@@ -9,11 +9,15 @@
 //! allocation-free ring and parks the launch; the lane fetches the metadata
 //! off the hot thread (keep-alive connections kept warm), ranks the coin
 //! among the coins seen on the same tweet (in create order, not fetch
-//! order) and answers through a second ring.
+//! order) and answers through a second ring. The coins seen per tweet are
+//! saved next to state.db every minute and at shutdown, so a restart (the
+//! deployer table's refresh restarts the bot) does not take the copies of
+//! a tweet seen before it for first coins.
 
 use pump_codec::create_hit::URI_MAX;
 use pump_codec::Pubkey;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
@@ -110,6 +114,65 @@ pub struct TweetVerdict {
     pub push_ns: u64,
     /// Time in the fetch itself (us).
     pub fetch_us: u32,
+    /// Why an [`TweetKind::Error`] failed ([`FetchFail::None`] otherwise).
+    pub fail: FetchFail,
+    /// The answer's HTTP status (0: no answer).
+    pub http: u16,
+}
+
+/// Why a fetch gave no verdict (journaled with the error).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum FetchFail {
+    None = 0,
+    /// No answer within `entry.tweet_timeout_ms`.
+    Timeout = 1,
+    /// Connect, TLS or read error.
+    Network = 2,
+    /// A non-2xx status.
+    Status = 3,
+    /// A 2xx body that is not JSON.
+    Body = 4,
+}
+
+impl FetchFail {
+    pub fn of(fetched: &Result<(u16, String), String>, kind: TweetKind) -> (Self, u16) {
+        let http = fetched.as_ref().map(|(s, _)| *s).unwrap_or(0);
+        let fail = match fetched {
+            _ if kind != TweetKind::Error => Self::None,
+            Err(e) if e.to_ascii_lowercase().contains("timeout") || e.contains("timed out") => {
+                Self::Timeout
+            }
+            Err(_) => Self::Network,
+            Ok((s, _)) if !(200..300).contains(s) => Self::Status,
+            Ok(_) => Self::Body,
+        };
+        (fail, http)
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "",
+            Self::Timeout => "timeout",
+            Self::Network => "network",
+            Self::Status => "http",
+            Self::Body => "not json",
+        }
+    }
+}
+
+/// An error verdict's reason for the journal line: ` (timeout)`,
+/// ` (http 404)`; nothing for other verdicts (formats without allocating).
+pub struct FailNote(pub FetchFail, pub u16);
+
+impl std::fmt::Display for FailNote {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            FetchFail::None => Ok(()),
+            FetchFail::Status => write!(f, " (http {})", self.1),
+            k => write!(f, " ({})", k.as_str()),
+        }
+    }
 }
 
 /// The tweet id of a status link (`.../status/<digits>`), if any.
@@ -172,6 +235,57 @@ impl TweetBook {
     pub fn is_empty(&self) -> bool {
         self.by_tweet.is_empty()
     }
+
+    /// One line per coin: `sid slot index mint`.
+    pub fn to_text(&self) -> String {
+        let mut out = String::with_capacity(self.by_tweet.len() * 96);
+        for (sid, v) in &self.by_tweet {
+            for (slot, index, mint) in v {
+                out.push_str(&format!("{sid} {slot} {index} {mint}\n"));
+            }
+        }
+        out
+    }
+
+    /// The book [`Self::to_text`] wrote (bad lines are skipped).
+    pub fn from_text(text: &str) -> Self {
+        let mut b = Self::default();
+        for l in text.lines() {
+            let mut f = l.split_ascii_whitespace();
+            let (Some(sid), Some(slot), Some(index), Some(mint)) = (
+                f.next().and_then(|x| x.parse::<u64>().ok()),
+                f.next().and_then(|x| x.parse::<u64>().ok()),
+                f.next().and_then(|x| x.parse::<u32>().ok()),
+                f.next().and_then(|x| x.parse::<Pubkey>().ok()),
+            ) else {
+                continue;
+            };
+            b.rank(sid, slot, index, mint);
+        }
+        b
+    }
+
+    /// Write the book to `path` (through a temporary file and a rename).
+    pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        let tmp = path.with_extension("tmp");
+        std::fs::write(&tmp, self.to_text())?;
+        std::fs::rename(&tmp, path)
+    }
+
+    /// The book saved at `path`, its old tweets dropped (empty if there is
+    /// none).
+    pub fn load(path: &Path, now_ms: u64) -> Self {
+        let mut b = std::fs::read_to_string(path)
+            .map(|t| Self::from_text(&t))
+            .unwrap_or_default();
+        b.prune(now_ms, KEEP_MS);
+        b
+    }
+
+    /// Coins remembered.
+    pub fn coins(&self) -> usize {
+        self.by_tweet.values().map(Vec::len).sum()
+    }
 }
 
 /// The verdict on one fetched body (`fetched`: `(status, body)` or the
@@ -215,6 +329,8 @@ pub struct TweetLaneCfg {
     /// Urls the warm thread GETs every [`WARM_EVERY`] (one per tweet host),
     /// so a create's fetch finds a connection with TLS done.
     pub warm: Vec<String>,
+    /// Where the book is saved and loaded from (none: kept in memory only).
+    pub book_path: Option<PathBuf>,
 }
 
 /// The lane's threads (they end once the hot loop drops its request ring).
@@ -238,7 +354,21 @@ pub fn spawn(
     mut requests: rtrb::Consumer<TweetReq>,
     verdicts: rtrb::Producer<TweetVerdict>,
 ) -> std::io::Result<TweetLane> {
-    let book = Arc::new(Mutex::new(TweetBook::default()));
+    let book = cfg
+        .book_path
+        .as_deref()
+        .map(|p| TweetBook::load(p, crate::now_ms()))
+        .unwrap_or_default();
+    if let Some(p) = &cfg.book_path {
+        eprintln!(
+            "tweet check: {} coins on {} tweets of the last {} h loaded from {}",
+            book.coins(),
+            book.len(),
+            KEEP_MS / 3_600_000,
+            p.display()
+        );
+    }
+    let book = Arc::new(Mutex::new(book));
     let out = Arc::new(Mutex::new(verdicts));
     let stop = Arc::new(AtomicBool::new(false));
     let (job_tx, job_rx) = mpsc::channel::<TweetReq>();
@@ -260,6 +390,7 @@ pub fn spawn(
                         let mut b = book.lock().unwrap_or_else(|e| e.into_inner());
                         judge(&fetched, &req, &mut b, max_age_s)
                     };
+                    let (fail, http) = FetchFail::of(&fetched, kind);
                     let v = TweetVerdict {
                         mint: req.mint,
                         slot: req.slot,
@@ -269,6 +400,8 @@ pub fn spawn(
                         age_s,
                         push_ns: req.push_ns,
                         fetch_us,
+                        fail,
+                        http,
                     };
                     // a full answer ring drops the verdict: the park then
                     // times out as tweet_late (the ring holds 1024)
@@ -277,7 +410,14 @@ pub fn spawn(
         );
     }
     {
-        let (book, stop) = (book.clone(), stop.clone());
+        let (book, stop, book_path) = (book.clone(), stop.clone(), cfg.book_path.clone());
+        let save = move |b: &TweetBook| {
+            if let Some(p) = &book_path {
+                if let Err(e) = b.save(p) {
+                    eprintln!("tweet check: saving {}: {e}", p.display());
+                }
+            }
+        };
         threads.push(
             std::thread::Builder::new()
                 .name("tweet-lane".into())
@@ -293,13 +433,14 @@ pub fn spawn(
                         }
                         if requests.is_abandoned() && requests.is_empty() {
                             stop.store(true, Relaxed);
+                            save(&book.lock().unwrap_or_else(|e| e.into_inner()));
                             return; // drops job_tx: the workers end
                         }
                         if last_prune.elapsed() > Duration::from_secs(60) {
                             last_prune = Instant::now();
-                            book.lock()
-                                .unwrap_or_else(|e| e.into_inner())
-                                .prune(crate::now_ms(), KEEP_MS);
+                            let mut b = book.lock().unwrap_or_else(|e| e.into_inner());
+                            b.prune(crate::now_ms(), KEEP_MS);
+                            save(&b);
                         }
                         if !any {
                             std::thread::sleep(POLL);
@@ -450,6 +591,54 @@ mod tests {
     }
 
     #[test]
+    fn the_book_survives_a_restart_and_drops_old_tweets_on_load() {
+        let dir = std::env::temp_dir().join(format!("tweet_book_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("tweet_book.txt");
+        let (a, c) = (Pubkey::new_unique(), Pubkey::new_unique());
+        let old_sid = SID - ((4 * 3_600_000u64) << 22); // 4 h older than SID
+        let mut b = TweetBook::default();
+        b.rank(SID, 100, 50, a);
+        b.rank(old_sid, 1, 1, c);
+        b.save(&path).unwrap();
+        assert_eq!(TweetBook::from_text(&b.to_text()).coins(), 2);
+        // a bad line is skipped
+        std::fs::write(&path, format!("{}garbage line\n", b.to_text())).unwrap();
+        let mut back = TweetBook::load(&path, tweet_ms(SID) + 60_000);
+        assert_eq!(
+            (back.len(), back.coins()),
+            (1, 1),
+            "the 4 h old tweet is dropped"
+        );
+        // a coin after the restart on the same tweet is a copy of the one before
+        assert_eq!(back.rank(SID, 103, 7, Pubkey::new_unique()), 2);
+        assert_eq!(back.rank(SID, 100, 50, a), 1);
+        // no file: an empty book
+        assert!(TweetBook::load(&dir.join("none.txt"), 0).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_failed_fetch_says_why() {
+        let k = TweetKind::Error;
+        let t: Result<(u16, String), String> = Err("timeout: global".into());
+        assert_eq!(FetchFail::of(&t, k), (FetchFail::Timeout, 0));
+        let n: Result<(u16, String), String> = Err("io: Connection reset by peer".into());
+        assert_eq!(FetchFail::of(&n, k), (FetchFail::Network, 0));
+        let h: Result<(u16, String), String> = Ok((404, "Not Found".into()));
+        assert_eq!(FetchFail::of(&h, k), (FetchFail::Status, 404));
+        let j: Result<(u16, String), String> = Ok((200, "<html>".into()));
+        assert_eq!(FetchFail::of(&j, k), (FetchFail::Body, 200));
+        assert_eq!(
+            FetchFail::of(&body(SID), TweetKind::First),
+            (FetchFail::None, 200)
+        );
+        assert_eq!(FailNote(FetchFail::Status, 404).to_string(), " (http 404)");
+        assert_eq!(FailNote(FetchFail::Timeout, 0).to_string(), " (timeout)");
+        assert_eq!(FailNote(FetchFail::None, 200).to_string(), "");
+    }
+
+    #[test]
     fn the_book_forgets_old_tweets() {
         let mut b = TweetBook::default();
         b.rank(SID, 1, 1, Pubkey::new_unique());
@@ -475,6 +664,7 @@ mod tests {
                 workers: 2,
                 max_age_s: 3600,
                 warm: vec![],
+                book_path: None,
             },
             fetch,
             req_rx,
