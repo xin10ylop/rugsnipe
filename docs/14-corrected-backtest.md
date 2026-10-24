@@ -92,3 +92,34 @@ schemes, not a forecast.
   quarter of our wins were at risk, for 0.3% saved. `bid.ab_by_tier` (commit c03c4cc) puts the odd half of the mints
   on a second ladder; `rugsnipe-check` shows land rate and P&L per bid. Proposed second ladder: 1.5M on tier 0 (his
   bid), 6M and 12M on tiers 1 and 2 (his 6-24M, where the coins are worth +5.9% and +10.9%).
+
+## 6. How he uses Twitter
+
+He does not use the tweet's status to buy or to hold:
+- on deployer-list tweet coins he attempts 55-56% of first coins and 40-43% of copies (Oct 23 and 24, 00-12 UTC);
+- his create + H is the same for copies and first coins.
+
+**His attempt rate rises only on first coins created 2 to 10 s after their tweet:**
+
+| first coins, tweet to coin | coins | he attempted | value, hold 10, net 1.2% |
+|---|---|---|---|
+| under 2 s | 461 | 51% | +7.57% |
+| **2-5 s** | 186 | **82%** | +6.10% |
+| **5-10 s** | 165 | **67%** | +4.71% |
+| 10-60 s | 255 | 49% | +1.67% |
+| 1-60 min | 61 | 38% | −0.82% |
+
+A metadata read would show him the under-2 s coins as well. A tweet feed with a lag of about 2 s explains it: a coin
+whose name or ticker is in a tweet of the last few seconds is a first coin. `tweetfeed.py` rebuilds that rule on the
+3,150 tweets behind the coins (fxtwitter; 498 deleted): with a 2 s lag and a 10 s window it calls 7 coins an hour,
+95% of them truly first, and he attempted 75% of them against 49% of the rest. So that is how he picks. But it finds
+only 21% of the first coins (31% with a 30 s window), and the coins it calls are worth +4.27% against +3.59% for
+the rest of the list: **+0.7 points on 7 coins an hour, not worth a paid feed and a build yet.** The coins that are
+first on their tweet are worth +5.1% against +1.5% (section 3), but that link is only in the metadata file, too late
+for the buy (docs/13 section 4). The one source that could give it at create time is the launch tools' own feed of
+the coins they deploy (uxento.io is itself a tweet-tracker site that deployers launch from).
+
+**Tweet authors.** Ranked on Oct 23 00-12 and scored on the later coins: the authors he took 70% or more of made
+**+6.44%** on their later coins (335; he took 79%), the ones he took 30% or less **+1.85%** (84). The frequent
+authors look like the deployers' own accounts, so this overlaps his deployer list, and it is known only from the
+metadata, after the buy, where holding to 10 still beats selling early.
