@@ -1113,8 +1113,10 @@ pub struct EntryCfg {
     /// and its delay, trading as without it; "on" also holds the parked
     /// create until the verdict and fires only on the first coin of a
     /// fresh tweet (`skip_tweet_copy` / `_stale` / `_none` / `_error` /
-    /// `_late` otherwise). "on" needs `require_bundle` (the park holds the
-    /// wait) and a real mode; paper journals only.
+    /// `_late` otherwise); "exit" fires without waiting and lets the
+    /// verdict cut a copy's hold to the next slot. "on" needs
+    /// `require_bundle` (the park holds the wait) and a real mode; paper
+    /// journals only.
     pub tweet_gate: TweetGate,
     /// Uri hosts whose metadata is fetched (matched like `uri_hosts`);
     /// empty = `uri_hosts`.
@@ -1186,8 +1188,15 @@ pub enum TweetGate {
     Off,
     /// Fetch, rank and journal; trade as without the check.
     Log,
-    /// Fire only on the first coin of a fresh tweet.
+    /// Fire only on the first coin of a fresh tweet (the parked create
+    /// waits for the verdict).
     On,
+    /// Fire at full speed (no wait); a verdict that is already in skips a
+    /// copy before the buy, a later one sells a copy at the next slot (a
+    /// first coin keeps its hold; a failed fetch keeps it too). docs/13
+    /// section 4: from Frankfurt the verdict takes 100-400 ms, too late for
+    /// the create-slot races `"on"` waits out.
+    Exit,
 }
 
 impl TweetGate {
@@ -1196,6 +1205,7 @@ impl TweetGate {
             Self::Off => "off",
             Self::Log => "log",
             Self::On => "on",
+            Self::Exit => "exit",
         }
     }
 }

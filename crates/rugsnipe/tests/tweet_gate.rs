@@ -106,7 +106,27 @@ struct Outcome {
     requests: Vec<TweetReq>,
     nonces_free: usize,
     open: u64,
+    /// The position's hold (`create + N`) after the verdict, if one opened.
+    hold: Option<u16>,
 }
+
+/// `[exit.default]` with every rule off but the hold to create + 10.
+const HOLD10: &str = r#"
+[exit.default]
+tp = []
+tp_slip_bps = 2500
+trail = { activate = 0.0, retrace_bps = 0 }
+phantom_sl = { after_ms = 0, drop = 0.0 }
+no_activity_ms = 0
+max_hold_ms = 0
+max_hold_slots = 0
+bundle_sell_min_lamports = 0
+insider_sell = "off"
+consolidation_pct = 0
+big_buy_lamports = [0, 0]
+sell_retry = { every_slots = 2, max_tries = 15, tip_mult = 2.0 }
+hold_to_create_slots = 10
+"#;
 
 /// The create, its bundle run (three buyers at CI+1..3, a sell by the
 /// first at CI+5: the run's last index), then `after` (events of later
@@ -116,6 +136,17 @@ fn run(
     gate: TweetGate,
     tweet_host_matches: bool,
     verdict: Option<TweetKind>,
+    after: &dyn Fn(&CreateHit, &mut CurveState) -> Vec<FeedEvent>,
+) -> Outcome {
+    run_full(gate, tweet_host_matches, verdict, false, after)
+}
+
+/// [`run`], with the verdict pushed before the create when `verdict_first`.
+fn run_full(
+    gate: TweetGate,
+    tweet_host_matches: bool,
+    verdict: Option<TweetKind>,
+    verdict_first: bool,
     after: &dyn Fn(&CreateHit, &mut CurveState) -> Vec<FeedEvent>,
 ) -> Outcome {
     let (tx, meta, hit) = fixture_hit();
@@ -138,6 +169,7 @@ fn run(
     }];
     cfg.entry.tweet_min_dev_sol = 0.0;
     cfg.entry.tweet_late_slots = 1;
+    cfg.exit = Config::from_toml_str(HOLD10).unwrap().exit;
     let v = cfg.validate(&good_env(&cfg));
     assert!(v.ok(), "{:?}", v.refusals);
     let senders = Arc::new(SenderSet::build(&cfg, &good_env(&cfg), &ApiKeys::default()).unwrap());
@@ -218,27 +250,32 @@ fn run(
         Box::new(VecFeed::new(evs)),
     ]);
     let mut buf = FeedBuf::with_capacity(64, 1 << 16);
+    let v = verdict.map(|kind| TweetVerdict {
+        mint: hit.mint,
+        slot: SLOT,
+        kind,
+        sid: 2_113_944_610_368_082_408,
+        rank: if kind == TweetKind::Copy { 2 } else { 1 },
+        age_s: 4,
+        push_ns: 0,
+        fetch_us: 90_000,
+    });
+    if let (Some(v), true) = (v, verdict_first) {
+        out_tx.push(v).ok().unwrap();
+        hot.step(&mut VecFeed::new(vec![]), &mut buf);
+    }
     let t_start = Instant::now();
     while hot.step(&mut feed, &mut buf) != FeedStatus::Ended {
         assert!(t_start.elapsed() < Duration::from_secs(10));
     }
     let requests: Vec<TweetReq> = std::iter::from_fn(|| req_rx.pop().ok()).collect();
-    if let Some(kind) = verdict {
-        out_tx
-            .push(TweetVerdict {
-                mint: hit.mint,
-                slot: SLOT,
-                kind,
-                sid: 2_113_944_610_368_082_408,
-                rank: if kind == TweetKind::Copy { 2 } else { 1 },
-                age_s: 4,
-                push_ns: 0,
-                fetch_us: 90_000,
-            })
-            .ok()
-            .unwrap();
+    if let (Some(v), false) = (v, verdict_first) {
+        out_tx.push(v).ok().unwrap();
         hot.step(&mut feed, &mut buf);
     }
+    let hold = hot
+        .position_of(&hit.mint)
+        .and_then(|p| p.policy.hold_to_create_slot);
     let intent = IntentId::new(&hit.mint, &owner).0;
     let fired = std::iter::from_fn(|| fire_rx.pop().ok()).any(|j| j.intent == intent);
     let nonces_free = nonces.free_count();
@@ -264,6 +301,7 @@ fn run(
         requests,
         nonces_free,
         open,
+        hold,
     }
 }
 
@@ -398,4 +436,44 @@ fn log_mode_trades_as_without_the_check() {
     let o = run(TweetGate::Log, true, Some(TweetKind::Copy), &none);
     assert!(o.fired);
     assert_eq!(label(&o), ["fire"]);
+}
+
+#[test]
+fn exit_mode_fires_without_waiting_and_a_copy_verdict_cuts_the_hold() {
+    // no verdict: fired at the run, the default hold (create + 10) kept
+    let o = run(TweetGate::Exit, true, None, &none);
+    assert_eq!(o.requests.len(), 1, "exit still asks");
+    assert!(o.fired, "{:?}", label(&o));
+    assert_eq!(label(&o), ["fire"]);
+    assert_eq!(o.hold, Some(10));
+    // a copy (or stale, or no tweet) after the fire: sold at this slot's close
+    for k in [TweetKind::Copy, TweetKind::Stale, TweetKind::NoTweet] {
+        let o = run(TweetGate::Exit, true, Some(k), &none);
+        assert!(o.fired, "{k:?}");
+        assert_eq!(
+            o.hold,
+            Some(1),
+            "{k:?}: cut to create + 1 (the verdict came in the create slot)"
+        );
+    }
+    // the first coin, or a failed fetch, keeps its hold
+    for k in [TweetKind::First, TweetKind::Error] {
+        assert_eq!(
+            run(TweetGate::Exit, true, Some(k), &none).hold,
+            Some(10),
+            "{k:?}"
+        );
+    }
+}
+
+#[test]
+fn exit_mode_skips_a_copy_whose_verdict_came_before_the_buy() {
+    let o = run_full(TweetGate::Exit, true, Some(TweetKind::Copy), true, &none);
+    assert!(!o.fired);
+    assert_eq!(label(&o), ["skip_tweet_copy"]);
+    assert_eq!((o.nonces_free, o.open), (8, 0));
+    // an early first verdict changes nothing: fired, hold kept
+    let o = run_full(TweetGate::Exit, true, Some(TweetKind::First), true, &none);
+    assert!(o.fired);
+    assert_eq!(o.hold, Some(10));
 }

@@ -31,6 +31,10 @@ Hold 10 slots after entry.
 
 - **Volume.** About 20 such coins an hour.
 - **By hour.** Positive in 18 of the 21 hours with enough coins to measure (5 or more).
+- **What the bot can run.** From Frankfurt the tweet verdict takes 100-400 ms, while most of these races are decided
+  in the create slot (section 4). So the bot cannot wait for condition 4 before buying. It buys every coin that meets
+  1-3 and 5 at full speed, then sells a copy one slot after entry (`tweet_gate = "exit"`): **+3.15% per trade**, 547
+  trades, all four half-days positive. The +5.0% above is the value if the verdict were free.
 - **Method.** The value is the realized position of the real first outside buyer after the dev bundle: sales so far
   plus the rest marked at that slot's price (docs/12 section 5). The samples are weighted to the whole universe. The
   brackets are 95% bootstrap intervals.
@@ -98,7 +102,7 @@ on the rule's coins:
 
   That is no better than the table of his landed trades, which the bot already has.
 
-## 4. Timing: the check has to fit before the buy
+## 4. Timing: why the bot cannot wait for the check
 
 Value of each real outside buyer on tweet-first coins, 8 slots after their entry, before costs:
 
@@ -120,9 +124,48 @@ Where the first outside buy lands:
 
 So the verdict must come back within about one slot of the create.
 
-**Fetch time.** The three tools serve metadata through Cloudflare without edge caching ("DYNAMIC"), so every fetch
-reaches the tool's own server. Measured from a US-East test machine over a warm connection, a fetch takes 49-78 ms.
-From Frankfurt it is not measured yet: the bot's `"log"` mode measures it before anything depends on it (section 6).
+**Fetch time from Frankfurt: too slow to wait for.** Public probe machines in Frankfurt (Globalping: Oracle, OVH,
+synlinq, PFWeb) timed a fetch of a file the Frankfurt edge did not hold yet. A new coin's file is in that state for
+whoever fetches it first. Time to first byte, after the connection was set up:
+
+| tool | Frankfurt | Ashburn (US East) |
+|---|---|---|
+| uxento (never cached) | 222-388 ms | 68-70 ms |
+| j7tracker (a file the edge did not hold) | 256-411 ms | 66-118 ms |
+| rapidlaunch | 105-112 ms | 14-132 ms |
+
+A file the Frankfurt edge already holds comes back in 9-25 ms. Most old files are held there, because others fetched
+them first.
+
+On his deployer-list coins:
+- The first outside buy lands in the create slot on 64% of launches, in the next slot on 33%.
+- In the create slot it lands tens of milliseconds after the create.
+- Our bot was first on 40 of the 125 of these launches it raced on Oct 24. 30 of the 40 were create-slot wins, a median
+  of about 83 block positions after the create.
+
+A buy that waits 100-400 ms for the verdict loses those races. So the bot buys at full speed and lets the verdict
+decide the hold (`tweet_gate = "exit"`).
+
+Net of our costs, hold 10, on his deployer-list coins:
+
+| | Oct 23 00-08 | Oct 23 08-12 | Oct 24 00-08 | Oct 24 08-12 | both days |
+|---|---|---|---|---|---|
+| wait for the verdict, buy only the first coin (`"on"`) | +4.0% | +5.1% | +5.7% | +4.8% | +5.0% (342) |
+| buy all at full speed, no tweet check | +2.9% | +1.9% | +3.6% | -0.4% | +2.75% (545) |
+| **buy all at full speed, sell a copy one slot after entry (`"exit"`)** | +2.5% | +2.2% | +4.7% | +0.3% | **+3.15%** (547) |
+
+`"on"` has the best per-trade value, but from Frankfurt it gives up most first spots. `"exit"` keeps them.
+
+**What paying could and could not fix:**
+- **A faster Twitter feed** (X API Pro, a crypto tweet tracker) does not help. The bot has to tie each new coin to
+  its tweet within about 20 ms of the create, and only the coin's metadata file holds that link. The coin's name or
+  ticker appears in its tweet's text, author or quoted tweet for 62% of tweet-first coins and for 53% of copies, so
+  name matching cannot tell them apart.
+- **A server next to the tool servers** (US East) fetches in about 70 ms, then needs about 40 ms more to reach
+  Frankfurt, and must see the create on its own feed first. That is still well over 20 ms.
+- **The launch tools' own live feeds** of the coins they deploy (mint plus tweet, as the tool sends the create) would
+  give the link instantly. No public API was found for j7tracker, uxento or rapidlaunch. If one sells subscriber or
+  API access, that is the one paid item that could make `"on"` work.
 
 **The late pass.** A pass that arrives after the create slot may still fire for `entry.tweet_late_slots` (1) more
 slots. The buy stays bound at the exact post-bundle state, so it lands only if nobody bought behind the bundle
@@ -130,15 +173,17 @@ meanwhile, and otherwise costs a failed attempt (about 15,000 lamports).
 
 ## 5. Expected result
 
-- About 20 rule coins an hour in 00-12 UTC. The other 12 hours are not measured.
-- At a 25-35% first-spot rate, as today's 33% of races, and 0.5 SOL stakes: 120-170 trades a day at +5.0% is about
-  **+3 to +4 SOL a day** at our costs, or +3.6 to +5 at his.
+- About 32 deployer-list coins an hour in 00-12 UTC (the tool, template and cap filters included). The other 12 hours
+  are not measured.
+- With `"exit"` at today's first-spot rate on these coins (32%) and 0.5 SOL stakes:
+  - about 10 trades an hour at +3.15%;
+  - if the rate holds all day, about **+3.8 SOL a day** at our costs, or +5 at his.
 - The tip is a fixed cost, so a 1 SOL stake roughly doubles that.
 
-The risks, all measured once the check runs:
-- The fetch time from Frankfurt may cost first spots.
+The risks:
 - The other 12 hours are unmeasured.
 - The deployer table needs a working refresh (section 6).
+- The `"exit"` cut relies on a sell landing about one slot after the verdict.
 
 ## 6. The bot (this branch)
 
@@ -148,13 +193,18 @@ What the tweet check does:
   - 4 worker threads share one keep-alive connection pool;
   - a warm thread touches each tool host every 20 s.
 - It ranks each coin on its tweet in create order (`TweetBook`).
-- The hot loop holds the parked create until the verdict:
+- With `"exit"` (use this one) the hot loop fires at full speed:
+  - A copy, stale or no-tweet verdict that is in before the buy skips it (`skip_tweet_*`).
+  - One that comes after the buy cuts the position's hold to the current slot, so it sells at the slot close
+    (`cut` in the status line).
+  - A first coin keeps its hold, and so does a failed fetch.
+- With `"on"` it holds the parked create until the verdict:
   - fires only on `first`;
   - otherwise skips as `skip_tweet_copy`, `skip_tweet_stale`, `skip_tweet_none`, `skip_tweet_error` or
     `skip_tweet_late`, with no nonce or risk taken.
 - It journals every verdict: `tweet <mint8> <verdict> rank .. age ..s sid .. fetch ..ms verdict ..ms slot+k <outcome>`.
 - The status line gets `tweet <mode> asked .. first .. copy .. stale .. none .. error .. at slot+0/+1/later ../../..
-  p50 ..ms p90 ..ms skipped .. late .. fired ..`.
+  p50 ..ms p90 ..ms skipped .. late .. fired .. cut ..`.
 - `check.sh` shows verdicts by kind with their delay, and today's closed trades by verdict.
 
 Config for the rule (`[entry]` keys; the rest of the operator setup stays):
@@ -171,7 +221,7 @@ dev_buy_ranges_sol = [[0.95, 1.05], [2.95, 4.05], [4.95, 5.05], [7.0, 1000.0]]
 max_post_bundle_sol = 40.0
 min_stake_tier = 0
 presend_mode = "log"                     # the rule was measured without the picks model
-tweet_gate = "log"                       # first: journal verdicts and their delay, trade as now; then "on"
+tweet_gate = "exit"                      # full speed; copies sold one slot after entry (section 4)
 tweet_max_age_s = 3600
 tweet_late_slots = 1
 
@@ -211,6 +261,8 @@ To switch the refresh:
 
    Then `sudo systemctl try-restart rugsnipe-hot`.
 
-**Order of steps:**
-1. `"log"` for a few hours. Check the verdict delay (p50 / p90) and how many verdicts come at slot+0 / +1.
-2. Then `"on"`.
+**Order of steps:** start with `"exit"`, which trades at today's speed. In `check.sh` read the verdict delay
+(p50 / p90) and today's trades by verdict.
+
+`"on"` is worth trying only if the delay from the box is under about 20 ms, so the verdict lands inside the create
+slot. The measurements say it will not be.

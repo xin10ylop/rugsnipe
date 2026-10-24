@@ -1022,7 +1022,7 @@ fn run(args: &[String]) -> Result<(), String> {
                     let k = c.tweet_kinds;
                     let a = c.tweet_at;
                     format!(
-                        " | tweet {mode} asked {} first {} copy {} stale {} none {} error {} at slot+0/+1/later {}/{}/{} p50 {p50}ms p90 {p90}ms skipped {} late {} fired {}{}",
+                        " | tweet {mode} asked {} first {} copy {} stale {} none {} error {} at slot+0/+1/later {}/{}/{} p50 {p50}ms p90 {p90}ms skipped {} late {} fired {} cut {}{}",
                         c.tweet_asked,
                         k[0],
                         k[1],
@@ -1035,6 +1035,7 @@ fn run(args: &[String]) -> Result<(), String> {
                         c.tweet_skipped,
                         c.tweet_late,
                         c.tweet_fired,
+                        c.tweet_cut,
                         if c.tweet_ring_full > 0 {
                             format!(" ring_full {}", c.tweet_ring_full)
                         } else {

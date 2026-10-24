@@ -28,3 +28,4 @@ Order:
 | Timing | `lateness.py`, `late2.py` (value by entry slot and order), `rivals_sel.py` (who is first, and how far behind the bundle) |
 | The result | `final.py 10` (each condition's step, hour by hour), `halves.py`, `whofirst.py`, `signer_key.py` |
 | Tweets (docs/12) | `tweets.py`, `tw_analysis.py`, `report.py` |
+| Speed (docs/13 section 4) | `speed.py` (race timing on his deployers' coins, full-speed exit vs waiting), `namematch.py` (can a tweet feed tie a coin to its tweet) |

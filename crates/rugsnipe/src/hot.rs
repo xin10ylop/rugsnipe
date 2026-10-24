@@ -1163,6 +1163,9 @@ pub struct LoopCounters {
     pub tweet_skipped: u64,
     pub tweet_late: u64,
     pub tweet_fired: u64,
+    /// `"exit"`: positions whose hold a copy / stale / no-tweet verdict cut
+    /// to the next slot.
+    pub tweet_cut: u64,
     /// Parked creates at the fire point by the park's bundle-wallet count
     /// (`operators::bundle_wallet_count`, 0..=5): what `entry.bundle_wallets`
     /// is checked against.
@@ -1843,6 +1846,17 @@ impl HotLoop {
             // the tweet check (on): a create the lane was not asked about has
             // no verdict to wait for; a verdict that already came decides now
             let mut tw = TW_OFF;
+            if self.cfg.tweet_gate == TweetGate::Exit {
+                if let Some(v) = self.take_early_verdict(&hit.mint) {
+                    if matches!(
+                        v.kind,
+                        TweetKind::Copy | TweetKind::Stale | TweetKind::NoTweet
+                    ) {
+                        self.counters.tweet_skipped += 1;
+                        return self.decision(intent, hit, tweet_code(v.kind), 0, 0, 0, 0, 0);
+                    }
+                }
+            }
             if self.cfg.tweet_gate == TweetGate::On {
                 if !asked {
                     self.counters.tweet_skipped += 1;
@@ -1950,6 +1964,25 @@ impl HotLoop {
             .iter()
             .position(|x| x.is_some_and(|p| p.hit.mint == v.mint && p.tw == TW_WAIT));
         let fired = self.fired_or_held(&v.mint);
+        let copy = matches!(
+            v.kind,
+            TweetKind::Copy | TweetKind::Stale | TweetKind::NoTweet
+        );
+        // "exit": a create still parked (its bundle run not complete) is
+        // skipped on a copy verdict; it fires without waiting otherwise
+        let exit_park = (self.cfg.tweet_gate == TweetGate::Exit && copy)
+            .then(|| {
+                self.parked
+                    .iter()
+                    .position(|x| x.is_some_and(|p| p.hit.mint == v.mint))
+            })
+            .flatten();
+        if let Some(i) = exit_park {
+            if let Some(p) = self.parked[i].take() {
+                self.counters.tweet_skipped += 1;
+                self.decision(p.intent, &p.hit, tweet_code(v.kind), 0, 0, 0, 0, 0);
+            }
+        }
         let what = match parked {
             Some(i) if v.kind == TweetKind::First => {
                 let mut p = self.parked[i].take().expect("parked");
@@ -1969,8 +2002,17 @@ impl HotLoop {
                 self.decision(p.intent, &p.hit, tweet_code(v.kind), 0, 0, 0, 0, 0);
                 "skip"
             }
+            None if exit_park.is_some() => "skip",
+            None if fired && self.cfg.tweet_gate == TweetGate::Exit => {
+                if copy && self.cut_hold(&v.mint) {
+                    self.counters.tweet_cut += 1;
+                    "ours, cut to this slot"
+                } else {
+                    "ours"
+                }
+            }
             None => {
-                if self.cfg.tweet_gate == TweetGate::On && !fired {
+                if matches!(self.cfg.tweet_gate, TweetGate::On | TweetGate::Exit) && !fired {
                     self.tw_early[self.tw_early_at % TW_EARLY] = Some(v);
                     self.tw_early_at = self.tw_early_at.wrapping_add(1);
                 }
@@ -1999,6 +2041,29 @@ impl HotLoop {
     /// A position (open or pending) on `mint`.
     fn fired_or_held(&self, mint: &Pubkey) -> bool {
         self.find_mint(mint).is_some()
+    }
+
+    /// `entry.tweet_gate = "exit"`: the hold of the position on `mint` ends
+    /// with the current slot (a pending buy sells once it opens): the exit
+    /// engine's hold-to rule then sells it all at dump bounds at the slot
+    /// close. `false` when there is no position or its hold already ends
+    /// as soon.
+    fn cut_hold(&mut self, mint: &Pubkey) -> bool {
+        let slot_now = self.slot_now;
+        let Some(s) = self.find_mint(mint).and_then(|i| self.slots[i].as_mut()) else {
+            return false;
+        };
+        let base = if s.pos.create_slot > 0 {
+            s.pos.create_slot
+        } else {
+            s.create_slot
+        };
+        let h = slot_now.saturating_sub(base).clamp(1, u16::MAX as u64) as u16;
+        if s.pos.policy.hold_to_create_slot.is_some_and(|cur| cur <= h) {
+            return false;
+        }
+        s.pos.policy.hold_to_create_slot = Some(h);
+        true
     }
 
     /// Park a create for the bundle gate; a full table drops its oldest
