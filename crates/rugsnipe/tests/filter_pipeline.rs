@@ -17,7 +17,7 @@ use pump_codec::curve::CurveState;
 use pump_codec::Pubkey;
 use rugsnipe::filter::{Feat, OutcomeStore};
 use rugsnipe::msgs::{HotIn, ShadowInfo};
-use rugsnipe_core::config::{Config, FilterMode};
+use rugsnipe_core::config::{Config, FilterMode, PresendCut, PresendMode};
 use rugsnipe_core::rslog::{Rec, ShadowOutcome};
 use rugsnipe_core::IntentId;
 use rugsnipe_feed::{FeedBuf, FeedMux, FeedStatus, Payload};
@@ -453,5 +453,160 @@ fn outcome_store_survives_sigkill() {
         .unwrap(),
     );
     assert_eq!(reloaded, store);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A one-split model on `dev_sol` (feature 2, the create's own buy in the
+/// bundle block): P = 0.12 at or below 0.5 SOL, 0.88 above; t1 0.3, t2 0.6.
+fn stump_model(dir: &Path) -> PathBuf {
+    let mut v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(report("entry_filter_v1.json")).unwrap())
+            .unwrap();
+    v["name"] = "presend_stump".into();
+    v["scaler"] = serde_json::Value::Null;
+    v["model"]["baseline"] = 0.0.into();
+    v["model"]["trees"] = serde_json::json!([[
+        {"leaf": false, "feature": 2, "threshold": 0.5, "left": 1, "right": 2, "missing_left": true},
+        {"leaf": true, "value": -2.0},
+        {"leaf": true, "value": 2.0}
+    ]]);
+    v["tertiles"] = serde_json::json!({"t1": 0.3, "t2": 0.6});
+    let p = dir.join("presend_stump.json");
+    std::fs::write(&p, v.to_string()).unwrap();
+    p
+}
+
+/// The pre-send gate at the fire point: `skip` sends nothing for the create
+/// scoring below the cut (`skip_presend`), sends the one above and the
+/// unscored one (no dev buy: no create trade); `log` sends all three. Both
+/// modes record every decision that reached the send (rslog `Presend`,
+/// state.db `presend` with the 60 features).
+#[test]
+fn presend_gate_skips_below_the_cut_and_log_mode_only_records() {
+    let s_low = 1.0 / (1.0 + 2f64.exp());
+    let s_high = 1.0 / (1.0 + (-2f64).exp());
+    for mode in [PresendMode::Skip, PresendMode::Log] {
+        let skip = mode == PresendMode::Skip;
+        let dir = tmpdir(&format!("presend-{mode:?}"));
+        let mut cfg = paper_cfg(&dir);
+        cfg.entry.presend_model = stump_model(&dir).display().to_string();
+        cfg.entry.presend_mode = mode;
+        cfg.entry.presend_cut = PresendCut::T2;
+        let dev = Pubkey::new_unique();
+        let mut app = build(cfg, armset(&[dev], &[]), &dir, 5_000, false);
+        assert_eq!(app.hot.presend_desc(), Some((mode.as_str(), "t2")));
+        // three creates by the watched dev, distinct nonce slots: a 0.2 SOL
+        // dev buy (low), 1 SOL (high), none (unscored)
+        let mut used = std::collections::HashSet::new();
+        let mut mints = vec![];
+        let mut events = vec![];
+        for (k, dev_buy) in [200_000_000u64, 1_000_000_000, 0].into_iter().enumerate() {
+            let mint = loop {
+                let m = Pubkey::new_unique();
+                if used.insert(xxhash_rust::xxh3::xxh3_64(m.as_ref()) % NONCE_POOL) {
+                    break m;
+                }
+            };
+            let (h, _) = create(mint, dev, S0, 10 + k as u64, dev_buy);
+            events.push(ev(S0, Payload::Hit(h)));
+            mints.push(mint);
+        }
+        let mut feed = FeedMux::new(vec![Box::new(VecFeed::new(events))]);
+        let mut buf = FeedBuf::with_capacity(64, 1 << 16);
+        let t0 = Instant::now();
+        while app.hot.step(&mut feed, &mut buf) != FeedStatus::Ended {
+            assert!(t0.elapsed() < Duration::from_secs(10));
+        }
+        let c = app.hot.counters;
+        assert_eq!(
+            (c.presend_scored, c.presend_unscored, c.presend_skipped),
+            (2, 1, skip as u64),
+            "{c:?}"
+        );
+        assert_eq!(c.presend_tertiles, [1, 0, 1]);
+        assert_eq!(c.intents, if skip { 2 } else { 3 }, "{c:?}");
+        assert_eq!(
+            app.stats.decision_count(rugsnipe::stats::code::PRESEND),
+            skip as u64
+        );
+        std::thread::sleep(Duration::from_millis(200));
+        let owner = app.owner;
+        let _ = app.shutdown(vec![]);
+        let ids: Vec<i64> = mints
+            .iter()
+            .map(|m| IntentId::new(m, &owner).0 as i64)
+            .collect();
+        let conn = rusqlite::Connection::open(dir.join("state.db")).unwrap();
+        // nothing of the skipped create reached the ledger's intents
+        let intent_rows = |id: i64| {
+            count(
+                &conn,
+                &format!("SELECT COUNT(*) FROM intents WHERE intent_id = {id}"),
+            )
+        };
+        assert_eq!(intent_rows(ids[0]), if skip { 0 } else { 1 });
+        assert_eq!((intent_rows(ids[1]), intent_rows(ids[2])), (1, 1));
+        type Row = (Option<f64>, Option<i64>, String, String, i64, String);
+        let row = |id: i64| -> Row {
+            conn.query_row(
+                "SELECT score, tertile, model, mode, skipped, features FROM presend WHERE intent_id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+            )
+            .unwrap()
+        };
+        assert_eq!(count(&conn, "SELECT COUNT(*) FROM presend"), 3);
+        let (lo, hi, un) = (row(ids[0]), row(ids[1]), row(ids[2]));
+        assert!((lo.0.unwrap() - s_low).abs() < 1e-12);
+        assert_eq!((lo.1, lo.4), (Some(0), skip as i64));
+        assert!((hi.0.unwrap() - s_high).abs() < 1e-12);
+        assert_eq!((hi.1, hi.4), (Some(2), 0));
+        assert_eq!((un.0, un.1, un.4), (None, None, 0));
+        for r in [&lo, &hi, &un] {
+            assert_eq!(
+                (r.2.as_str(), r.3.as_str()),
+                ("presend_stump", mode.as_str())
+            );
+        }
+        let x: Vec<f64> = serde_json::from_str(&lo.5).unwrap();
+        assert_eq!(x.len(), 60);
+        assert_eq!(x[2], 0.2, "dev_sol of the low create");
+        // rslog: one Presend record per decision that reached the send
+        let recs = rslog_records(&dir.join("rslog"));
+        let pre: Vec<(u8, u8, u8, u8)> = recs
+            .iter()
+            .filter_map(|r| match r {
+                Rec::Presend {
+                    tertile,
+                    mode,
+                    scored,
+                    skipped,
+                    ..
+                } => Some((*tertile, *mode, *scored, *skipped)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(pre.len(), 3);
+        let m = mode as u8;
+        assert!(pre.contains(&(0, m, 1, skip as u8)));
+        assert!(pre.contains(&(2, m, 1, 0)));
+        assert!(pre.contains(&(0, m, 0, 0)), "unscored: never skipped");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[test]
+fn presend_gate_without_a_model_is_refused() {
+    let dir = tmpdir("presend-nomodel");
+    let mut cfg = paper_cfg(&dir);
+    cfg.entry.presend_mode = PresendMode::Log;
+    let v = cfg.validate(&rugsnipe_core::config::ValidateEnv::default());
+    assert!(
+        v.refusals
+            .iter()
+            .any(|r| format!("{r:?}").contains("presend_model")),
+        "{:?}",
+        v.refusals
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

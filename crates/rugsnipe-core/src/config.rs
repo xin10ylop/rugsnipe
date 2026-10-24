@@ -704,6 +704,13 @@ pub struct BidCfg {
     /// us on contested launches paid a median 2.1M priority fee plus an
     /// 8.4M tip, about three times this default.
     pub lamports: u64,
+    /// The buy bid by the operator's confidence tier (docs/09 "stake tier",
+    /// 2026-10-24): lamports for tiers 0, 1 and 2, replacing `lamports` for
+    /// a listed signer's tier (an unlisted signer is tier 0); still bounded
+    /// by `risk.max_bid_lamports`. The copied wallet bids about 1.5M on its
+    /// tier-0 launches and 6-24M (about 1% of the stake) on tiers 1 and 2,
+    /// which is how it wins the contested ones. Empty = off.
+    pub by_tier: Vec<u64>,
     /// `[priority, tip]` fractions per leader class.
     pub split: BidSplit,
     /// `[priority, tip]` fractions per leader class for **sells** (unset =
@@ -776,6 +783,7 @@ impl Default for BidCfg {
         Self {
             quantile: 0.75,
             lamports: 0,
+            by_tier: vec![],
             split: BidSplit::default(),
             sell_split: None,
             min_priority_lamports: 10_000,
@@ -962,6 +970,30 @@ pub struct EntryCfg {
     /// hundred microseconds sees the whole bundle; the 2 ms default was
     /// measured as dead time on every attempt (2026-10-23).
     pub bundle_wait_us: u64,
+    /// Dev buys (SOL, the create transaction's own buy) a buy may fire on;
+    /// empty = any. The amount is an operator template marker: in the dry
+    /// run (2026-10-23, 2,645 launches, no sniper in the create slot, which
+    /// is the population this box lands) the launches with a dev buy of
+    /// 5.00, 2.96, 6.91 or 3.85 SOL averaged +3.7% under the LEAD policy,
+    /// positive in both halves of the data; the rest averaged -0.95%.
+    pub dev_buy_sol: Vec<f64>,
+    /// Tolerance around each listed dev buy, SOL (default 0.005).
+    pub dev_buy_tol_sol: f64,
+    /// Regions of the create slot's leader a buy may fire at (`eu`, `na`,
+    /// `asia`, `other`); empty = any. A leader not in the table counts as
+    /// reachable. 2026-10-23: from Frankfurt the buy landed in the create slot
+    /// 62% of the time with a European leader, 33% North America, 9% Asia.
+    pub leader_regions: Vec<String>,
+    /// The validator region table (`data/leader_regions.json`, installed to
+    /// `/var/lib/rugsnipe/data/`); required when `leader_regions` is set.
+    pub leader_regions_file: String,
+    /// The operator-dump skip (2026-10-23): a create whose dev, creator or
+    /// bundle wallets belong to an earlier launch whose insiders sold at
+    /// least half of their tokens within 3 slots of the create. `log`
+    /// records the hit and fires anyway, `skip` drops the create, `off`
+    /// does neither. The set grows live from every bundled launch the feed
+    /// shows and persists in `state.db` (`dumpers`).
+    pub dumper_skip: DumperSkip,
     pub filter: EntryFilter,
     /// The frozen P(take-profit) model of the entry filter
     /// (`data/reports/strategy/entry_filter_v1.json`, docs/04 section 2);
@@ -981,6 +1013,89 @@ pub struct EntryCfg {
     /// transaction stream). 2026-10-22: the first 10 stage-B attempts all
     /// hit launches with no bundle wallet and all exited on no_activity.
     pub require_bundle: bool,
+    /// The pre-send entry gate's model (an `entry_filter` export, the same
+    /// format as `filter_model`); empty = no gate. Scored at the fire point
+    /// on what is known before the send: the creation slot's trades of the
+    /// mint seen so far (the bundle run), the create transaction's wire
+    /// bytes, the signer's operator history, unknown funding, the time.
+    pub presend_model: String,
+    /// `off` (default): no gate; `log`: score and record every decision
+    /// that reaches the send, never skip; `skip`: also skip (`skip_presend`,
+    /// nothing sent) a create scoring below `presend_cut`.
+    pub presend_mode: PresendMode,
+    /// The cut `skip` applies: the model's `t1` (bottom tertile) or `t2`
+    /// (default: bottom two tertiles).
+    pub presend_cut: PresendCut,
+    /// The operator table (docs/09, `data/operators/*.json` from
+    /// `analysis/scripts/strategy/operators_from_rt.py`): a JSON object keyed
+    /// by the create transaction's signer (base58), each value
+    /// `{hold_slots, n, wins, pnl_sol, dev_sol, bundle_wallets}`. Loaded once
+    /// at startup; a listed signer's launches exit at `create + hold_slots`
+    /// (overriding `[exit.default] hold_to_create_slots`). `""` = no table.
+    pub operators_file: String,
+    /// Fire only on creates whose signer is in `operators_file`; any other
+    /// create is skipped as `skip_not_operator` (nothing parked or sent).
+    pub operators_only: bool,
+    /// The mirror of `operators_only` (2026-10-24, docs/09 "paper wide"):
+    /// fire only on creates whose signer is NOT in `operators_file`; a listed
+    /// signer is skipped as `skip_not_operator`. For the paper instance that
+    /// measures the launches the live bot leaves out, so the two never take
+    /// the same launch. Refused together with `operators_only`.
+    pub operators_exclude: bool,
+    /// Distinct bundle wallets a parked create may fire with (`[3]`, `[2,
+    /// 3, 4]`); empty = any. Counted at the fire point from the park: the
+    /// run's buyers outside the creator set (signer, creator, fee payer,
+    /// the create transaction's buyers), at most 5. Needs `require_bundle`
+    /// (the count comes from the parked run); a create outside the list is
+    /// skipped as `skip_bundle_shape`.
+    pub bundle_wallets: Vec<u32>,
+    /// Buy size by the operator's confidence tier (docs/09 "stake tier",
+    /// 2026-10-24): lamports for tiers 0, 1 and 2, the table's `stake_tier`
+    /// (an unlisted signer is tier 0). The size only narrows: the signed
+    /// ArmSet size and the risk cap stay the upper bound, so tier 2 is "the
+    /// full size" and tiers 0 and 1 are the fractions. Empty = off. The copied
+    /// wallet's own ladder is 0.4 / 0.8 / 1.6 SOL with returns of +2.3% /
+    /// +7.3% / +21.3% per trade by tier.
+    pub stake_by_tier: Vec<u64>,
+    /// The tier floor (docs/09 "stake tier", 2026-10-24): fire only on
+    /// signers whose table `stake_tier` is at least this (an unlisted signer
+    /// is tier 0), else `skip_low_tier` (0x5a) before the park. 0 = off. The
+    /// copied wallet's tier-0 trades earn +2.7% gross per trade, its tier 1
+    /// and 2 +8.9% and +23.3%: 74% of its profit on 23% of its trades. At our
+    /// fixed costs per round trip (about 3x its) tier 0 does not cover them
+    /// below a 0.5 SOL stake.
+    pub min_stake_tier: u8,
+    /// The pick template (docs/09, 2026-10-23): skip a create whose
+    /// post-bundle virtual SOL reserve exceeds this many SOL, as
+    /// `skip_bundle_too_big` (0x57); 0 = off. The reserve is the one the buy
+    /// is bound at: the parked run's last creator-set / bundle trade, or
+    /// without a run (`require_bundle` off, paper) the curve after the
+    /// create's own buy (V0). The curve starts at 30 virtual SOL, so a
+    /// value must be above 30. The copied wallet bought at about 37-47
+    /// (post-bundle mcap 36-65 SOL); the 2026-10-23 loss was bought at 58.
+    pub max_post_bundle_sol: f64,
+    /// Skip a create whose dev buy (the create transaction's own buys) plus
+    /// the parked run's creator-set and bundle buys exceed this many SOL, as
+    /// `skip_bundle_sol` (0x58); 0 = off. Without a run only the dev buy
+    /// counts. The copied wallet's dev + bundle: about 7 SOL, p90 17.
+    pub max_bundle_sol: f64,
+    /// An alternative to `dev_buy_sol`: the create's own buy may also be a
+    /// whole number of SOL (+- `dev_buy_tol_sol`) in `[dev_buy_round_min,
+    /// dev_buy_round_max]`. With `dev_buy_sol` also set a dev buy passes on
+    /// either; a create passing neither is `skip_dev_buy` (0x50).
+    pub dev_buy_round: bool,
+    pub dev_buy_round_min: f64,
+    pub dev_buy_round_max: f64,
+    /// The create's uri host (`https?://<host>/...`, as the wire decoder
+    /// keeps it: lower case, at most 64 bytes) must end in one of these
+    /// (case-insensitive, on a label boundary: `uxento.io` matches
+    /// `meta.uxento.io`, not `xuxento.io`); empty = any. A create with no
+    /// such host (`ipfs://`, no scheme, a host over 64 bytes) fails a
+    /// non-empty list. Else `skip_uri_host` (0x59), nothing parked.
+    pub uri_hosts: Vec<String>,
+    /// Hosts that skip a create the same way (`skip_uri_host`), matched
+    /// like `uri_hosts`; empty = none.
+    pub uri_hosts_deny: Vec<String>,
 }
 impl Default for EntryCfg {
     fn default() -> Self {
@@ -989,10 +1104,85 @@ impl Default for EntryCfg {
             bundle_lamports: 4_000_000_000,
             bundle_wait_ms: 2,
             bundle_wait_us: 0,
+            dumper_skip: DumperSkip::Log,
+            dev_buy_sol: vec![],
+            dev_buy_tol_sol: 0.005,
+            leader_regions: vec![],
+            leader_regions_file: String::new(),
             filter: EntryFilter::Any,
             filter_model: String::new(),
             filter_mode: FilterMode::Log,
             require_bundle: false,
+            presend_model: String::new(),
+            presend_mode: PresendMode::Off,
+            presend_cut: PresendCut::T2,
+            operators_file: String::new(),
+            operators_only: false,
+            operators_exclude: false,
+            bundle_wallets: vec![],
+            stake_by_tier: vec![],
+            min_stake_tier: 0,
+            max_post_bundle_sol: 0.0,
+            max_bundle_sol: 0.0,
+            dev_buy_round: false,
+            dev_buy_round_min: 1.0,
+            dev_buy_round_max: 6.0,
+            uri_hosts: vec![],
+            uri_hosts_deny: vec![],
+        }
+    }
+}
+
+/// An `entry.uri_hosts` / `uri_hosts_deny` entry: a host name or a suffix
+/// of one (letters, digits, `.`, `-`, `_`; a leading `.` is allowed), at
+/// most 64 bytes (the decoder's host limit), no scheme, path or port.
+pub fn uri_host_pattern_ok(s: &str) -> bool {
+    let h = s.trim_start_matches('.');
+    !h.is_empty()
+        && h.len() <= 64
+        && !h.ends_with('.')
+        && h.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'))
+}
+
+/// `entry.presend_mode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PresendMode {
+    #[default]
+    Off,
+    /// Score and record, never skip.
+    Log,
+    /// Skip a create scoring below the cut.
+    Skip,
+}
+
+impl PresendMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Log => "log",
+            Self::Skip => "skip",
+        }
+    }
+}
+
+/// `entry.presend_cut`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PresendCut {
+    /// The model's `t1`: skip the bottom tertile.
+    T1,
+    /// The model's `t2`: skip the bottom two tertiles.
+    #[default]
+    T2,
+}
+
+impl PresendCut {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::T1 => "t1",
+            Self::T2 => "t2",
         }
     }
 }
@@ -1005,6 +1195,18 @@ pub enum FilterMode {
     #[default]
     Log,
     /// Drop intents with `score < t1`.
+    Skip,
+}
+
+/// `entry.dumper_skip`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DumperSkip {
+    Off,
+    /// Count and journal the hit, fire anyway.
+    #[default]
+    Log,
+    /// Skip the create (`skip_dumper`).
     Skip,
 }
 
@@ -1352,6 +1554,18 @@ pub fn kill_dir_override() -> Option<String> {
         .map(|d| if d.ends_with('/') { d } else { format!("{d}/") })
 }
 
+/// Merge `over` into `base` (see [`Config::from_toml_strs`]).
+fn merge_tables(base: &mut toml::Table, over: toml::Table) {
+    for (k, v) in over {
+        match (base.get_mut(&k), v) {
+            (Some(toml::Value::Table(b)), toml::Value::Table(o)) => merge_tables(b, o),
+            (_, v) => {
+                base.insert(k, v);
+            }
+        }
+    }
+}
+
 impl Config {
     /// Parse TOML (unknown keys are an error). `[exit]` is kept raw for the
     /// exit engine (which refuses unknown keys inside `[exit.default]`), so
@@ -1359,6 +1573,27 @@ impl Config {
     /// would silently replace with the default exits) is refused here.
     pub fn from_toml_str(s: &str) -> Result<Self, String> {
         let cfg: Self = toml::from_str(s).map_err(|e| e.to_string())?;
+        Self::exit_tables_ok(cfg)
+    }
+
+    /// `base` with `overlay` merged over it (2026-10-24, `rugsnipe-hot
+    /// --overlay`): a table merges key by key, recursively (an inline table
+    /// is a table); any other overlay value replaces the base value; overlay
+    /// keys the base lacks are added. The result is checked exactly like
+    /// [`Config::from_toml_str`] (unknown keys refused). The paper-wide
+    /// instance runs the live config with a few keys replaced, so it tracks
+    /// every later change of the live gates.
+    pub fn from_toml_strs(base: &str, overlay: &str) -> Result<Self, String> {
+        let mut b: toml::Table = toml::from_str(base).map_err(|e| format!("base: {e}"))?;
+        let o: toml::Table = toml::from_str(overlay).map_err(|e| format!("overlay: {e}"))?;
+        merge_tables(&mut b, o);
+        let cfg: Self = toml::Value::Table(b)
+            .try_into()
+            .map_err(|e: toml::de::Error| e.to_string())?;
+        Self::exit_tables_ok(cfg)
+    }
+
+    fn exit_tables_ok(cfg: Self) -> Result<Self, String> {
         if let Some(k) = cfg.exit.keys().find(|k| k.as_str() != "default") {
             return Err(format!(
                 "unknown table [exit.{k}]: only [exit.default] is read"
@@ -1420,6 +1655,66 @@ impl Config {
         }
         if !(self.bid.quantile > 0.0 && self.bid.quantile <= 1.0) {
             inv(&mut r, "bid.quantile", "must be in (0, 1]");
+        }
+        if self
+            .entry
+            .dev_buy_sol
+            .iter()
+            .any(|v| !(*v > 0.0 && *v < 1_000.0))
+        {
+            inv(
+                &mut r,
+                "entry.dev_buy_sol",
+                "every value must be in (0, 1000) SOL",
+            );
+        }
+        if !(self.entry.dev_buy_tol_sol >= 0.0 && self.entry.dev_buy_tol_sol < 1.0) {
+            inv(&mut r, "entry.dev_buy_tol_sol", "must be in [0, 1) SOL");
+        }
+        let tiers_ok = |v: &[u64]| {
+            v.is_empty()
+                || (v.len() == 3 && v.iter().all(|&x| x > 0) && v.windows(2).all(|w| w[0] <= w[1]))
+        };
+        if !tiers_ok(&self.entry.stake_by_tier) {
+            inv(
+                &mut r,
+                "entry.stake_by_tier",
+                "must be empty or three non-decreasing sizes in lamports > 0 (tiers 0, 1, 2)",
+            );
+        }
+        if !tiers_ok(&self.bid.by_tier) {
+            inv(
+                &mut r,
+                "bid.by_tier",
+                "must be empty or three non-decreasing bids in lamports > 0 (tiers 0, 1, 2)",
+            );
+        }
+        if self
+            .entry
+            .leader_regions
+            .iter()
+            .any(|x| !matches!(x.as_str(), "eu" | "na" | "asia" | "other"))
+        {
+            inv(
+                &mut r,
+                "entry.leader_regions",
+                "values must be eu, na, asia or other",
+            );
+        }
+        if self.entry.presend_mode != PresendMode::Off && self.entry.presend_model.trim().is_empty()
+        {
+            inv(
+                &mut r,
+                "entry.presend_model",
+                "required when entry.presend_mode is log or skip (the gate needs a model)",
+            );
+        }
+        if !self.entry.leader_regions.is_empty() && self.entry.leader_regions_file.is_empty() {
+            inv(
+                &mut r,
+                "entry.leader_regions_file",
+                "required when entry.leader_regions is set (data/leader_regions.json)",
+            );
         }
         if self.bid.lamports > 0 {
             let max_bid = if self.risk.max_bid_lamports > 0 {
@@ -1551,8 +1846,85 @@ impl Config {
         if !(0.0..1.0).contains(&self.ab.skip_p) {
             inv(&mut r, "ab.skip_p", "must be in [0, 1)");
         }
+        // 0 is valid: min_tokens_out is then the exact post-bundle quote, so
+        // any buy ahead of ours fails it on chain (docs/09)
         if !(0.0..1.0).contains(&self.entry.max_premium) {
             inv(&mut r, "entry.max_premium", "must be in [0, 1)");
+        }
+        if self.entry.operators_only && self.entry.operators_file.is_empty() {
+            inv(
+                &mut r,
+                "entry.operators_only",
+                "needs entry.operators_file (the operator table)",
+            );
+        }
+        if self.entry.min_stake_tier > 2 {
+            inv(&mut r, "entry.min_stake_tier", "must be 0 (off), 1 or 2");
+        }
+        if self.entry.min_stake_tier > 0
+            && (self.entry.operators_file.is_empty() || self.entry.operators_exclude)
+        {
+            inv(
+                &mut r,
+                "entry.min_stake_tier",
+                "needs entry.operators_file (the tiers) and no entry.operators_exclude (every unlisted signer is tier 0)",
+            );
+        }
+        if self.entry.operators_exclude && self.entry.operators_only {
+            inv(
+                &mut r,
+                "entry.operators_exclude",
+                "cannot be set with entry.operators_only (one keeps the listed signers, the other drops them)",
+            );
+        }
+        if self.entry.operators_exclude && self.entry.operators_file.is_empty() {
+            inv(
+                &mut r,
+                "entry.operators_exclude",
+                "needs entry.operators_file (the operator table)",
+            );
+        }
+        if !self.entry.bundle_wallets.is_empty() && !self.entry.require_bundle {
+            inv(
+                &mut r,
+                "entry.bundle_wallets",
+                "needs entry.require_bundle = true (the count comes from the parked bundle run)",
+            );
+        }
+        let mp = self.entry.max_post_bundle_sol;
+        if !(mp == 0.0 || (mp > 30.0 && mp < 1_000.0)) {
+            inv(
+                &mut r,
+                "entry.max_post_bundle_sol",
+                "must be 0 (off) or in (30, 1000) SOL: the post-bundle virtual SOL reserve (the curve starts at 30)",
+            );
+        }
+        if !(self.entry.max_bundle_sol >= 0.0 && self.entry.max_bundle_sol < 1_000.0) {
+            inv(
+                &mut r,
+                "entry.max_bundle_sol",
+                "must be in [0, 1000) SOL (0 = off)",
+            );
+        }
+        let (lo, hi) = (self.entry.dev_buy_round_min, self.entry.dev_buy_round_max);
+        if !(lo >= 0.0 && lo <= hi && hi < 1_000.0) || lo.ceil() > hi.floor() {
+            inv(
+                &mut r,
+                "entry.dev_buy_round_min",
+                "dev_buy_round_min / dev_buy_round_max must satisfy 0 <= min <= max < 1000 SOL with a whole number between them",
+            );
+        }
+        for (field, list) in [
+            ("entry.uri_hosts", &self.entry.uri_hosts),
+            ("entry.uri_hosts_deny", &self.entry.uri_hosts_deny),
+        ] {
+            if list.iter().any(|h| !uri_host_pattern_ok(h)) {
+                inv(
+                    &mut r,
+                    field,
+                    "each entry must be a host or host suffix (letters, digits, '.', '-', '_'; at most 64 bytes; no scheme, path or port)",
+                );
+            }
         }
         if self.entry.bundle_wait_us > 200_000 {
             inv(

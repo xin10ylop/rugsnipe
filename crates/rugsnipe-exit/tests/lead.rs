@@ -375,6 +375,125 @@ fn insider_sell_off_disables_the_bundle_sell_trigger() {
     assert!(InsiderSell::Creator.creator_set() && !InsiderSell::Creator.bundle_wallets());
 }
 
+/// `[exit.default]` of the operator wave (docs/09): every LEAD rule off,
+/// sell everything at create + 6.
+const WAVE: &str = r#"
+tp = []
+tp_slip_bps = 2500
+trail = { activate = 0.0, retrace_bps = 0 }
+phantom_sl = { after_ms = 0, drop = 0.0 }
+no_activity_ms = 0
+max_hold_ms = 0
+max_hold_slots = 0
+bundle_sell_min_lamports = 0
+insider_sell = "off"
+consolidation_pct = 0
+big_buy_lamports = [0, 0]
+sell_retry = { every_slots = 2, max_tries = 15, tip_mult = 2.0 }
+hold_to_create_slots = 6
+"#;
+
+fn wave() -> ExitPolicy {
+    let c: ExitConfig = toml::from_str(WAVE).unwrap();
+    c.to_policy(20_000_000).unwrap()
+}
+
+#[test]
+fn hold_to_create_sells_everything_at_create_plus_h_and_not_before() {
+    // created at 99, landed at 100 (create + 1): the hold counts from the
+    // create, so the sell goes out at slot 105 = 99 + 6, whatever happens
+    // before it (a +60% pump, an insider dump, an idle stretch: all off)
+    let dev = Pubkey::new_unique();
+    let mut l = Lead::new(wave(), &[dev]);
+    l.pos = l.pos.with_create_slot(99);
+    assert_eq!(l.pos.hold_to_slot(), Some(105));
+    let opened = l.buy(500_000_000);
+    assert!(sells(&opened).is_empty(), "{opened:?}");
+    let tokens = l.pos.tokens;
+    for slot in 101..=104 {
+        l.slot = slot;
+        let v = if slot == 102 {
+            l.v * 13 / 10
+        } else {
+            l.v * 9 / 10
+        };
+        assert!(sells(&l.other(dev, v)).is_empty(), "slot {slot}");
+        assert!(sells(&l.tick(slot)).is_empty(), "slot {slot}");
+    }
+    let s = sells(&l.tick(105));
+    assert_eq!(s.len(), 1, "{s:?}");
+    assert_eq!(s[0].reason, ExitReason::HoldTo);
+    assert_eq!(s[0].tokens, tokens, "100% of the balance");
+    assert_eq!(s[0].kind, SellKind::Dump, "dump bounds: sells at any price");
+    assert!(!l.pos.dump_signalled, "a time exit is not a dump signal");
+    assert_eq!(ExitReason::HoldTo.label(), "hold_to");
+    // retries keep the reason (the order is re-sent, never doubled)
+    let r = sells(&l.tick(107));
+    assert_eq!(r.len(), 1);
+    assert_eq!((r[0].reason, r[0].try_no), (ExitReason::HoldTo, 2));
+
+    // per position: H = 10 from the operator table, the default stays 6
+    let mut p10 = wave();
+    p10.hold_to_create_slot = Some(10);
+    let mut l = Lead::new(p10, &[]);
+    l.pos = l.pos.with_create_slot(100);
+    l.buy(500_000_000);
+    for slot in 101..=109 {
+        assert!(sells(&l.tick(slot)).is_empty(), "slot {slot}");
+    }
+    assert_eq!(sells(&l.tick(110))[0].reason, ExitReason::HoldTo);
+
+    // the feed skipped slots: the first slot seen at or past create + H sells
+    let mut l = Lead::new(wave(), &[]);
+    l.pos = l.pos.with_create_slot(100);
+    l.buy(500_000_000);
+    assert!(sells(&l.tick(103)).is_empty());
+    assert_eq!(sells(&l.tick(108))[0].reason, ExitReason::HoldTo);
+
+    // a landing at or past the hold (H = 1, landed at create + 1) sells at once
+    let mut p1 = wave();
+    p1.hold_to_create_slot = Some(1);
+    let mut l = Lead::new(p1, &[]);
+    l.pos = l.pos.with_create_slot(99);
+    let s = sells(&l.buy(500_000_000));
+    assert_eq!(s.len(), 1, "{s:?}");
+    assert_eq!(s[0].reason, ExitReason::HoldTo);
+
+    // unknown create slot: counted from the landing
+    let mut l = Lead::new(wave(), &[]);
+    l.buy(500_000_000);
+    assert_eq!(l.pos.hold_to_slot(), Some(106));
+    assert!(sells(&l.tick(105)).is_empty());
+    assert_eq!(sells(&l.tick(106))[0].reason, ExitReason::HoldTo);
+
+    // off (the shipped default): the same position never sells on time
+    let mut off = wave();
+    off.hold_to_create_slot = None;
+    let mut l = Lead::new(off, &[]);
+    l.pos = l.pos.with_create_slot(99);
+    l.buy(500_000_000);
+    assert!(sells(&l.tick(500)).is_empty());
+}
+
+#[test]
+fn hold_to_create_coexists_with_the_lead_rules() {
+    // the LEAD exits stay on next to the hold: whichever comes first sells
+    let mut p = lead();
+    p.hold_to_create_slot = Some(3);
+    let mut l = Lead::new(p, &[]);
+    l.pos = l.pos.with_create_slot(100);
+    l.buy(500_000_000);
+    // steady trading (no idle exit), max_hold_slots 5 would be 105: the hold at 103 wins
+    for slot in 101..=102 {
+        l.slot = slot;
+        assert!(sells(&l.other(Pubkey::new_unique(), l.v + 10_000_000)).is_empty());
+    }
+    l.slot = 103;
+    let s = sells(&l.other(Pubkey::new_unique(), l.v + 10_000_000));
+    assert_eq!(s.len(), 1, "{s:?}");
+    assert_eq!(s[0].reason, ExitReason::HoldTo);
+}
+
 /// The probe-A sell bids of 2026-10-23: 3.4M per sell, tip x2 per retry,
 /// 20M of sell spend per position.
 fn probe_a() -> ExitPolicy {

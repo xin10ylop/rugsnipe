@@ -402,13 +402,10 @@ fn probe_attempts_open_only_on_our_own_trade_event_and_close_on_our_sell() {
     );
     let sell_tx = sent.lock().unwrap()[4].clone();
     let view = pump_codec::tx::TxView::parse(&sell_tx).unwrap();
-    // a final sell (the whole balance) rides the position's sell-pool nonce,
-    // not the lane's recent blockhash ([5; 32]): the mock seeds the eight
-    // buy nonces first ([1..=8; 32]), so sell nonce 0 holds [9; 32]
     assert_eq!(
         view.recent_blockhash(),
-        &[9u8; 32],
-        "a final sell rides the position's sell nonce"
+        &[5u8; 32],
+        "a real sell lives on a recent blockhash"
     );
     assert_eq!(app.hot.counters.closed, 0, "a send never closes a position");
     let mut cs = curve_b;

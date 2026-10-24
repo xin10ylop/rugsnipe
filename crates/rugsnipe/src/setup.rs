@@ -142,6 +142,14 @@ pub fn load_config(path: &Path) -> Result<Config, String> {
     Config::from_toml_str(&s).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// `path` with the TOML at `overlay` merged over it ([`Config::from_toml_strs`]).
+pub fn load_config_overlay(path: &Path, overlay: &Path) -> Result<Config, String> {
+    let s = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let o = std::fs::read_to_string(overlay).map_err(|e| format!("{}: {e}", overlay.display()))?;
+    Config::from_toml_strs(&s, &o)
+        .map_err(|e| format!("{} + {}: {e}", path.display(), overlay.display()))
+}
+
 /// `[exit.default]` as the integer policy (`max_sell_spend` from `[risk]`).
 pub fn exit_policy(cfg: &Config) -> Result<ExitPolicy, String> {
     let spend = if cfg.risk.max_sell_spend_lamports > 0 {
@@ -363,6 +371,27 @@ pub fn min_tokens_out(spend: u64, v_max: u64, creator: Pubkey, fees: FeeBps) -> 
     let t = (K_INITIAL / v_max as u128).min(u64::MAX as u128) as u64;
     CurveState {
         virtual_sol: v_max,
+        virtual_token: t,
+        real_sol: 0,
+        real_token: u64::MAX,
+        complete: false,
+        creator,
+    }
+    .quote_buy_exact_sol_in(spend, fees)
+    .map(|q| q.tokens)
+    .unwrap_or(u64::MAX)
+}
+
+/// `min_tokens_out` for spending `spend` on the curve state `(v, t)` as it
+/// is (the observed post-bundle reserves): the exact quote, so the buy
+/// fails on chain if any trade ahead of it moved the price up
+/// (`entry.max_premium = 0`, docs/09). `u64::MAX` if nothing can be bought.
+pub fn min_tokens_out_at(spend: u64, v: u64, t: u64, creator: Pubkey, fees: FeeBps) -> u64 {
+    if v == 0 || t == 0 {
+        return u64::MAX;
+    }
+    CurveState {
+        virtual_sol: v,
         virtual_token: t,
         real_sol: 0,
         real_token: u64::MAX,

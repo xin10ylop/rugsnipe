@@ -21,6 +21,8 @@ pub const CLOSE_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 /// One write for the writer thread.
 #[derive(Debug, Clone)]
 pub enum Write {
+    /// `INSERT OR IGNORE` (a wallet's first dump is the one kept).
+    Dumper(DumperRow),
     /// `INSERT OR IGNORE` (an intent is decided once per mint and mode).
     Intent(IntentRow),
     /// Move an intent to `to` if its current state allows it.
@@ -34,6 +36,8 @@ pub enum Write {
     Shadow(ShadowRow),
     /// Upsert by intent.
     Filter(FilterRow),
+    /// Upsert by intent.
+    Presend(PresendRow),
     /// Upsert by intent (the live outcome store).
     Outcome(OutcomeRow),
     /// Upsert by mint.
@@ -398,6 +402,23 @@ pub fn apply(c: &Connection, w: &Write) -> rusqlite::Result<bool> {
                 ],
             )?;
         }
+        Write::Presend(r) => {
+            c.execute(
+                "INSERT OR REPLACE INTO presend(intent_id, mint, model, score, tertile, mode, skipped, features, written_ms)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+                params![
+                    r.intent_id,
+                    r.mint.to_string(),
+                    r.model,
+                    r.score,
+                    r.tertile,
+                    r.mode,
+                    r.skipped as i64,
+                    r.features,
+                    r.written_ms as i64
+                ],
+            )?;
+        }
         Write::Outcome(r) => {
             let bw: Vec<String> = r.bundle_wallets.iter().map(|k| k.to_string()).collect();
             c.execute(
@@ -539,6 +560,18 @@ pub fn apply(c: &Connection, w: &Write) -> rusqlite::Result<bool> {
         }
         Write::KvDelete(k) => {
             c.execute("DELETE FROM kv WHERE k = ?1", params![k])?;
+        }
+        Write::Dumper(r) => {
+            c.execute(
+                "INSERT OR IGNORE INTO dumpers(wallet, mint, slot, sold_bps, written_ms) VALUES(?1,?2,?3,?4,?5)",
+                params![
+                    r.wallet.to_string(),
+                    r.mint.to_string(),
+                    r.slot as i64,
+                    r.sold_bps as i64,
+                    r.written_ms as i64
+                ],
+            )?;
         }
         Write::FeedBundle(r) => {
             c.execute(

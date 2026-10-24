@@ -305,6 +305,7 @@ fn a_real_decision_after_the_create_slot_is_refused() {
         stats,
         shared: Arc::new(Shared::default()),
         leaders: rugsnipe::leader::empty_snapshot(),
+        dumpers: rugsnipe::dumpers::snapshot_from(vec![]),
     });
     let grpc = |slot, payload| rugsnipe_feed::FeedEvent {
         src: FeedSrc::Grpc,
@@ -361,5 +362,188 @@ fn a_real_decision_after_the_create_slot_is_refused() {
     assert_eq!(
         rugsnipe::stats::decision_label(code::LATE_SLOT),
         "late_slot"
+    );
+}
+
+// ---- the pre-send entry gate at the real fire point ----
+
+/// A one-split model on `bsol` (feature 1, the bundle wallets' SOL outside
+/// the creator set): P = 0.12 at or below 0.5 SOL, 0.88 above; t1 0.3, t2 0.6.
+fn bsol_stump() -> Arc<rugsnipe::filter::Model> {
+    let p = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../data/reports/strategy/entry_filter_v1.json"
+    );
+    let mut v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
+    v["name"] = "bsol_stump".into();
+    v["model"]["baseline"] = 0.0.into();
+    v["model"]["trees"] = serde_json::json!([[
+        {"leaf": false, "feature": 1, "threshold": 0.5, "left": 1, "right": 2, "missing_left": true},
+        {"leaf": true, "value": -2.0},
+        {"leaf": true, "value": 2.0}
+    ]]);
+    v["tertiles"] = serde_json::json!({"t1": 0.3, "t2": 0.6});
+    Arc::new(rugsnipe::filter::Model::from_json(&v.to_string()).unwrap())
+}
+
+/// `entry.require_bundle` in live mode: a recorded mainnet create (the gRPC
+/// copy, transaction index 40) is parked and fires on a bundle buy at index
+/// 41 (a shreds quote, pre-execution). The pre-send gate scores it at that
+/// point: in `skip` mode a 0.3 SOL bundle (below t2) is never handed to the
+/// sender thread (no nonce, the risk reservation released, decision
+/// `skip_presend`) and a 1 SOL bundle is; `log` mode sends the 0.3 SOL one.
+/// Every fire writes its `Presend` cold message with the run's features.
+#[test]
+fn the_presend_gate_decides_at_the_real_fire_point() {
+    use rugsnipe::msgs::ColdMsg;
+    use rugsnipe_core::config::{PresendCut, PresendMode};
+    use rugsnipe_feed::wiremeta::{WireMeta, EMPTY_INNER, MAX_INNER};
+    const SLOT: u64 = 5_000;
+    const CI: u32 = 40;
+    let fx = codec_fixture("fresh_v0alt_create_v2_buy18");
+    let (tx, meta) = fixture_wire(&fx, CI);
+    // the create as the hot loop decodes it (signer for the watchlist)
+    let hit = {
+        let m = WireMeta::parse(&meta).unwrap();
+        let mut loaded = vec![Pubkey::default(); 256];
+        let mut inner = [EMPTY_INNER; MAX_INNER];
+        let (nl, ni) = (m.loaded_into(&mut loaded), m.inner_into(&mut inner));
+        let view = pump_codec::tx::TxView::parse(&tx).unwrap();
+        pump_codec::create_hit(&view, Some(&loaded[..nl]), &inner[..ni], FeeBps::DEFAULT)
+            .unwrap()
+            .unwrap()
+    };
+    for (mode, bundle_sol, sent) in [
+        (PresendMode::Skip, 300_000_000u64, false),
+        (PresendMode::Skip, 1_000_000_000, true),
+        (PresendMode::Log, 300_000_000, true),
+    ] {
+        let dir = tmpdir("presend-real");
+        let mut cfg = live_cfg(&dir);
+        cfg.entry.require_bundle = true;
+        cfg.entry.bundle_wait_ms = 0;
+        cfg.entry.presend_mode = mode;
+        cfg.entry.presend_cut = PresendCut::T2;
+        // (the hot loop gets the stump below; the config names a model)
+        cfg.entry.presend_model = "data/reports/strategy/entry_filter_v1.json".into();
+        let senders =
+            Arc::new(SenderSet::build(&cfg, &good_env(&cfg), &ApiKeys::default()).unwrap());
+        let signer = Arc::new(setup::throwaway_signer().unwrap());
+        let owner = signer.pubkey();
+        let nonces = Arc::new(setup::paper_nonce_pool(owner, 8));
+        let templates = setup::templates(&cfg, owner, &nonces).unwrap();
+        let mut set = armset(&[hit.user], &[]);
+        set.gate_passed = true;
+        let watch = Arc::new(Watchlist::new());
+        watch.load_armset(&set);
+        let arm = Arc::new(ArcSwap::from_pointee(ArmState::from_armset(&set, true, "")));
+        let risk = Arc::new(RiskGate::new(cfg.risk.clone()));
+        risk.set_hot_balance(2_000_000_000);
+        let (rslog, w) =
+            RslogWriter::spawn(dir.join("rslog"), "t-hot", box_id("t"), 1 << 12).unwrap();
+        let (cold_tx, mut cold_rx) = rtrb::RingBuffer::new(4_096);
+        let (_fills_tx, fills_rx) = rtrb::RingBuffer::new(64);
+        let (fire_tx, mut fire_rx) = rtrb::RingBuffer::<FireJob>::new(64);
+        let mut reg = prometheus_client::registry::Registry::default();
+        let stats = Arc::new(HotStats::new(&mut reg));
+        let mut hc = hot_cfg(&cfg);
+        hc.presend = Some(bsol_stump());
+        let mut hot = HotLoop::new(HotParts {
+            cfg: hc,
+            watch,
+            arm,
+            risk: risk.clone(),
+            fired: Arc::new(FiredSet::with_capacity(1 << 10)),
+            nonces: nonces.clone(),
+            signer,
+            templates,
+            senders,
+            rslog,
+            cold: cold_tx,
+            fills_in: fills_rx,
+            fire: fire_tx,
+            stats,
+            shared: Arc::new(Shared::default()),
+            leaders: rugsnipe::leader::empty_snapshot(),
+            dumpers: rugsnipe::dumpers::snapshot_from(vec![]),
+        });
+        let (v0, t0) = rugsnipe::convert::v0_of(&hit);
+        let bundle = rugsnipe_feed::TradeLite {
+            mint: hit.mint,
+            user: Pubkey::new_unique(),
+            is_buy: true,
+            sol_amount: bundle_sol,
+            token_amount: 10_000_000_000_000,
+            fee: 0,
+            virtual_sol_reserves: v0 + bundle_sol,
+            virtual_token_reserves: t0 - 10_000_000_000_000,
+            slot: SLOT,
+            sig: sig(77),
+            ordinal: 0,
+            index: CI + 1,
+        };
+        let mut feed = FeedMux::new(vec![
+            Box::new(WireFeed::new(vec![(SLOT, tx.clone(), meta.clone())])),
+            Box::new(VecFeed::new(vec![rugsnipe_feed::FeedEvent {
+                src: FeedSrc::Shreds,
+                ..ev(SLOT, Payload::Trade(bundle))
+            }])),
+        ]);
+        let mut buf = FeedBuf::with_capacity(64, 1 << 16);
+        let t_start = Instant::now();
+        while hot.step(&mut feed, &mut buf) != FeedStatus::Ended {
+            assert!(t_start.elapsed() < Duration::from_secs(10));
+        }
+        let c = hot.counters;
+        assert_eq!((c.parked, c.bundle_fired), (1, 1), "{c:?}");
+        let skip = !sent;
+        assert_eq!(
+            (c.presend_scored, c.presend_skipped, c.intents),
+            (1, skip as u64, sent as u64),
+            "{mode:?} {bundle_sol}: {c:?}"
+        );
+        let intent = IntentId::new(&hit.mint, &owner).0;
+        let jobs: Vec<u64> = std::iter::from_fn(|| fire_rx.pop().ok())
+            .map(|j| j.intent)
+            .collect();
+        assert_eq!(jobs.contains(&intent), sent, "{mode:?} {bundle_sol}");
+        assert_eq!(nonces.free_count(), if sent { 7 } else { 8 });
+        assert_eq!(risk.open_positions(), sent as u64);
+        // the cold message: the run's features as known at the fire point
+        let pre: Vec<(bool, bool, f64, f64)> = std::iter::from_fn(|| cold_rx.pop().ok())
+            .filter_map(|m| match m {
+                ColdMsg::Presend {
+                    intent: i,
+                    scored,
+                    skipped,
+                    feat,
+                    ..
+                } if i == intent => Some((scored, skipped, feat.x[0], feat.x[1])),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(pre, vec![(true, skip, 1.0, bundle_sol as f64 / 1e9)]);
+        drop(hot);
+        w.join().unwrap();
+        let codes: Vec<u8> = rslog_records(&dir.join("rslog"))
+            .iter()
+            .filter_map(|r| match r {
+                Rec::Decision {
+                    intent: i, code, ..
+                } if *i == intent => Some(*code),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            codes,
+            vec![if sent { code::FIRE } else { code::PRESEND }],
+            "{mode:?} {bundle_sol}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    assert_eq!(
+        rugsnipe::stats::decision_label(code::PRESEND),
+        "skip_presend"
     );
 }

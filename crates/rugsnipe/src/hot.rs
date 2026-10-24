@@ -7,6 +7,7 @@
 //! 4  class filters: SOL quote, not mayhem, Token-2022, not cashback
 //! 5  watchlist: signer / fee payer = live; creator_arg only = shadow
 //! 6  age <= max_age_slots
+//! 6b presend gate (entry.presend_mode): scored before risk; `skip` below the cut sends nothing
 //! 7  RiskGate.decide (paper: would_skip)
 //! 8  V0 (curve after every in-tx buy) < op.v_max; a real decision after the
 //!    create slot (slot_now > create slot) is refused (`late_slot`)
@@ -47,10 +48,13 @@
 //! ring, metrics are pre-created atomics (checked by `rugsnipe-replay`).
 
 use crate::convert::{hit_from_lite, trade_from_lite, v0_of};
-use crate::filter::{CreateRate, Feat, Model, S0Trade};
+use crate::filter::{presend_features, CreateRate, Feat, Model, OpStats, S0Trade};
 use crate::leader::{ClientClass, LeaderSnapshot, UNKNOWN as LEADER_UNKNOWN};
 use crate::msgs::{reason_code, reason_index, ColdMsg, FireJob, HotIn, ShadowInfo};
-use crate::setup::{min_tokens_out, op_armed, ArmState, Templates};
+use crate::operators::{
+    bundle_shape_ok, bundle_wallet_count, create_signer, in_creator_set, OpRule, Operators,
+};
+use crate::setup::{min_tokens_out, min_tokens_out_at, op_armed, ArmState, Templates};
 use crate::stats::{code, HotStats};
 use arc_swap::ArcSwap;
 use hdrhistogram::Histogram;
@@ -59,7 +63,9 @@ use pump_codec::create_hit::CreateHit;
 use pump_codec::curve::{CurveState, FeeBps};
 use pump_codec::{pda, Pubkey};
 use rugsnipe_core::bid::{BidPlan, BidPolicy, LeaderClass};
-use rugsnipe_core::config::{Config, EntryFilter, FillModel, FilterMode, LeaderMix, ProbeStage};
+use rugsnipe_core::config::{
+    Config, FillModel, FilterMode, LeaderMix, PresendCut, PresendMode, ProbeStage,
+};
 use rugsnipe_core::risk::{DecideInput, Decision, RiskGate};
 use rugsnipe_core::rslog::{CreateHitRec, Rec, RslogProducer, ShadowOutcome};
 use rugsnipe_core::watchlist::{Match, Via, Watchlist};
@@ -172,6 +178,11 @@ pub struct HotCfg {
     /// Base bid B (lamports) before the per-class split.
     pub bid_lamports: u64,
     pub max_bid: u64,
+    /// Buy size by the operator's confidence tier (`entry.stake_by_tier`,
+    /// lamports for tiers 0..=2; `None` = off): narrows the ArmSet size.
+    pub stake_by_tier: Option<[u64; 3]>,
+    /// Base bid by tier (`bid.by_tier`; `None` = `bid_lamports`).
+    pub bid_by_tier: Option<[u64; 3]>,
     /// Per-leader-class split, scheduling floor and failed-attempt cap
     /// (`[bid]`, docs/03 section 6 "Pay on success").
     pub bid_policy: BidPolicy,
@@ -223,11 +234,6 @@ pub struct HotCfg {
     /// `entry.require_bundle`: real buys fire only on another wallet's buy
     /// of the mint in the create slot (see [`Parked`]).
     pub require_bundle: bool,
-    /// `entry.filter = "multi_bundle"`: a parked create fires only with at
-    /// least one bundle wallet outside the creator set, the dry run's class
-    /// (`e1::Slot0::multi`); a run of creator-set buys only is
-    /// `skip_no_bundle`.
-    pub multi_bundle: bool,
     /// `entry.bundle_lamports`: the fallback expectation of the bundle's
     /// SOL outside the create transaction (`V_pb = V0 + this`) when the run
     /// was not observed.
@@ -235,6 +241,49 @@ pub struct HotCfg {
     /// `entry.bundle_wait_ms` in ns: how long a parked create waits after
     /// its first bundle buy for the rest of the run before firing anyway.
     pub bundle_wait_ns: u64,
+    /// `entry.dev_buy_sol` as lamport ranges `[lo, hi]`, plus the whole SOL
+    /// amounts of `entry.dev_buy_round` (empty = any).
+    pub dev_buy: Vec<(u64, u64)>,
+    /// `entry.leader_regions` as a mask by [`crate::leader::Region`]
+    /// (`None` = any leader; an unknown region is always allowed).
+    pub leader_allowed: Option<[bool; crate::leader::Region::COUNT]>,
+    /// `entry.dumper_skip`.
+    pub dumper_skip: rugsnipe_core::config::DumperSkip,
+    /// The pre-send entry gate (`entry.presend_model`, loaded at startup;
+    /// `None`: off), its mode and cut, and the per-signer operator features
+    /// the cold thread publishes from the outcome store.
+    pub presend: Option<Arc<Model>>,
+    pub presend_mode: PresendMode,
+    pub presend_cut: PresendCut,
+    pub presend_ops: crate::filter::OpSnapshot,
+    /// The operator table (`entry.operators_file`, loaded at startup;
+    /// `None`: no table): a listed create signer's positions exit at
+    /// `create + hold_slots` (docs/09).
+    pub operators: Option<Operators>,
+    /// `entry.operators_only`: skip (`skip_not_operator`) a create whose
+    /// signer is not in the table.
+    pub operators_only: bool,
+    /// `entry.operators_exclude`: skip (`skip_not_operator`) a create whose
+    /// signer IS in the table (the paper-wide instance, docs/09).
+    pub operators_exclude: bool,
+    /// `entry.min_stake_tier`: skip (`skip_low_tier`) a signer below it.
+    pub min_stake_tier: u8,
+    /// `entry.bundle_wallets`: the parked run's distinct bundle wallets a
+    /// fire needs (empty = any; `skip_bundle_shape`).
+    pub bundle_wallets: Vec<u32>,
+    /// The pick template (docs/09): `entry.max_post_bundle_sol` and
+    /// `entry.max_bundle_sol` in lamports (0 = off).
+    pub max_post_bundle: u64,
+    pub max_bundle: u64,
+    /// `entry.uri_hosts` / `entry.uri_hosts_deny`, lower case, without a
+    /// leading dot (empty = any / none).
+    pub uri_allow: Vec<String>,
+    pub uri_deny: Vec<String>,
+}
+
+/// Three per-tier lamport values (validated by the config), else `None`.
+fn tier3(v: &[u64]) -> Option<[u64; 3]> {
+    (v.len() == 3).then(|| [v[0], v[1], v[2]])
 }
 
 impl HotCfg {
@@ -258,6 +307,8 @@ impl HotCfg {
             }
             .min(max_bid),
             max_bid,
+            stake_by_tier: tier3(&cfg.entry.stake_by_tier),
+            bid_by_tier: tier3(&cfg.bid.by_tier),
             bid_policy: BidPolicy::from_cfg(&cfg.bid),
             leader_class: None,
             secondary_variant: true,
@@ -285,9 +336,64 @@ impl HotCfg {
             } else {
                 cfg.entry.bundle_wait_ms.saturating_mul(1_000_000)
             },
+            dev_buy: {
+                let e = &cfg.entry;
+                let mut r = dev_buy_ranges(&e.dev_buy_sol, e.dev_buy_tol_sol);
+                if e.dev_buy_round {
+                    r.extend(dev_buy_round_ranges(
+                        e.dev_buy_round_min,
+                        e.dev_buy_round_max,
+                        e.dev_buy_tol_sol,
+                    ));
+                }
+                r
+            },
+            leader_allowed: leader_mask(&cfg.entry.leader_regions),
+            dumper_skip: cfg.entry.dumper_skip,
             require_bundle: cfg.entry.require_bundle,
-            multi_bundle: cfg.entry.filter == EntryFilter::MultiBundle,
+            presend: None,
+            presend_mode: cfg.entry.presend_mode,
+            presend_cut: cfg.entry.presend_cut,
+            presend_ops: Arc::new(ArcSwap::from_pointee(Default::default())),
+            operators: None,
+            operators_only: cfg.entry.operators_only,
+            operators_exclude: cfg.entry.operators_exclude,
+            min_stake_tier: cfg.entry.min_stake_tier,
+            bundle_wallets: cfg.entry.bundle_wallets.clone(),
+            max_post_bundle: sol_lamports(cfg.entry.max_post_bundle_sol),
+            max_bundle: sol_lamports(cfg.entry.max_bundle_sol),
+            uri_allow: host_patterns(&cfg.entry.uri_hosts),
+            uri_deny: host_patterns(&cfg.entry.uri_hosts_deny),
         }
+    }
+
+    /// Any pick-template gate is on (`dev_buy` covers `entry.dev_buy_sol`
+    /// too): the status line's `template` fragment.
+    pub fn template_on(&self) -> bool {
+        self.max_post_bundle > 0
+            || self.max_bundle > 0
+            || !self.dev_buy.is_empty()
+            || !self.uri_allow.is_empty()
+            || !self.uri_deny.is_empty()
+    }
+
+    /// The operator table's rule for a create's signer ([`create_signer`]:
+    /// the fee payer, else the create's user); allocation-free.
+    #[inline]
+    pub fn operator_rule(&self, hit: &CreateHit) -> Option<OpRule> {
+        self.operators.as_deref()?.get(&create_signer(hit)).copied()
+    }
+
+    /// The exit policy of a position on `hit`: the configured one, with the
+    /// operator table's `hold_slots` as its `hold_to_create_slot` when the
+    /// create's signer is listed (docs/09).
+    #[inline]
+    pub fn policy_for(&self, rule: Option<OpRule>) -> ExitPolicy {
+        let mut p = self.policy;
+        if let Some(r) = rule {
+            p.hold_to_create_slot = Some(r.hold_slots);
+        }
+        p
     }
 
     /// The virtual SOL reserve the real buy's `min_tokens_out` is computed
@@ -493,17 +599,18 @@ pub struct Parked {
     pub parked_ns: u64,
     /// The create's transaction index in its block (`u32::MAX` unknown).
     pub create_index: u32,
-    /// The bundle run so far: post-trade reserves `(v, t)` of the
-    /// highest-index trade of the mint in the create slot (the state we
-    /// buy on), that index (0: none yet), when the first bundle buy was
-    /// seen and how many qualified ([`bundle_buy_triggers`]).
+    /// The bundle run so far ([`derive_run`], re-derived from `run` on
+    /// every trade): post-trade reserves `(v, t)` of the last creator-set
+    /// or bundle trade of the mint in the create slot (the post-bundle
+    /// state we buy on; never a trade by anyone else), that index (0: none
+    /// yet), when the first bundle buy was seen and how many qualified.
     pub pb: Option<(u64, u64)>,
     pub pb_index: u32,
     pub bundle_ns: u64,
     pub bundle_buys: u8,
-    /// The qualifying bundle buyers (distinct, at most one per run index):
-    /// they join the position's bundle set so the LEAD exit's insider-sell
-    /// rule sees their sells (the sim's bundle wallets).
+    /// The qualifying bundle buyers (distinct, at most 5): they join the
+    /// position's bundle set so the LEAD exit's insider-sell rule sees
+    /// their sells (the sim's bundle wallets).
     pub wallets: [Pubkey; RUN_MAX_AFTER as usize],
     pub n_wallets: u8,
     /// A trade of the mint beyond the run was delivered before any bundle
@@ -514,19 +621,25 @@ pub struct Parked {
     /// contiguous bundle (or a run the park could not hold): someone else
     /// bought ahead of us, the fire is `skip_not_first`.
     pub outside: bool,
-    /// Every trade of the mint inside the run as delivered ([`derive_run`]
-    /// re-derives the bundle from it on each trade).
+    /// Lamports into the curve of the run's creator-set and bundle buys
+    /// (`entry.max_bundle_sol`, with the create's own buy).
+    pub run_sol: u64,
+    /// Every trade of the mint inside the run as delivered (the pre-send
+    /// gate's bundle block).
     pub run: RunTrades,
 }
 
-/// Largest index step between consecutive buys of the bundle run behind
-/// the create (the gap-3 run of `filter::bundle_features`, the e1 lane and
-/// rt.json's `n_bw`: a gap of 3 ends it).
-pub const RUN_MAX_GAP: u32 = 2;
-
 /// Trades of the run a park keeps: three per run index (a bundle
-/// transaction can hold several wallets' buys of the mint).
+/// transaction can hold several wallets' buys of the mint). `PARK_RUN + 1`
+/// stays within `filter::SMALL_TRADES` (the pre-send gate's
+/// allocation-free path).
 pub const PARK_RUN: usize = 3 * RUN_MAX_AFTER as usize;
+const _: () = assert!(PARK_RUN < crate::filter::SMALL_TRADES);
+
+/// Largest index step between consecutive buys of the bundle run behind
+/// the create (the gap-3 run of `filter::bundle_features` and rt.json's
+/// `n_bw`: a gap of 3 ends it).
+pub const RUN_MAX_GAP: u32 = 2;
 
 /// The run's trades of a parked mint (fixed arrays, `Copy`: no heap on the
 /// create path), deduplicated by (transaction index, event ordinal).
@@ -535,7 +648,7 @@ pub struct RunTrades {
     pub t: [S0Trade; PARK_RUN],
     pub ord: [u8; PARK_RUN],
     pub n: u8,
-    /// A trade did not fit: the run cannot be checked.
+    /// A trade did not fit: the bundle block is incomplete (unscored).
     pub full: bool,
 }
 
@@ -564,13 +677,18 @@ impl RunTrades {
         self.n += 1;
     }
 
-    /// The run as seen so far, in block order (stable by index) into `out`;
-    /// the count.
-    pub fn collect(&self, out: &mut [S0Trade; PARK_RUN]) -> usize {
+    /// The creation slot as seen so far, in block order: the create's own
+    /// trade (if any) then the run's (stable by index) into `out`; the count.
+    pub fn collect(&self, create: Option<S0Trade>, out: &mut [S0Trade; PARK_RUN + 1]) -> usize {
         let mut k = 0;
+        if let Some(c) = create {
+            out[0] = c;
+            k = 1;
+        }
+        let start = k;
         for t in &self.t[..self.n as usize] {
             let mut j = k;
-            while j > 0 && out[j - 1].index > t.index {
+            while j > start && out[j - 1].index > t.index {
                 out[j] = out[j - 1];
                 j -= 1;
             }
@@ -579,17 +697,6 @@ impl RunTrades {
         }
         k
     }
-}
-
-/// `k` is in the create's creator set: the create's user (signer), its
-/// `creator` argument, the fee payer, a signer of the create transaction or
-/// a buyer inside it.
-pub fn in_creator_set(hit: &CreateHit, k: &Pubkey) -> bool {
-    *k == hit.user
-        || *k == hit.creator_arg
-        || hit.fee_payer == Some(*k)
-        || hit.signers.as_slice().contains(k)
-        || hit.intx_buyers.as_slice().contains(k)
 }
 
 /// The number of trades the hot loop keeps for mints that have no park
@@ -603,9 +710,10 @@ pub const PREPARK: usize = 16;
 pub enum ParkStep {
     /// Another slot, no block order, or at / before the create: nothing.
     Ignore,
-    /// Inside the run: recorded (the post-run state; a bundle buy counted),
-    /// still waiting for the run to complete. Also a trade beyond the run
-    /// on a park with no bundle buy yet (the park only remembers it).
+    /// Inside the run: recorded (the run re-derived: the post-bundle
+    /// anchor, the bundle buys, an outside buy), still waiting for the run
+    /// to complete. Also a trade beyond the run on a park with no bundle
+    /// buy yet (the park only remembers it).
     Hold,
     /// The run holds a bundle buy and cannot grow (a trade at its last
     /// possible index) or no wait is configured: fire now.
@@ -618,12 +726,16 @@ pub enum ParkStep {
     NoBundle,
 }
 
-/// A trade of the parked mint. The post-run state is the highest-index
-/// trade's reserves (buys and sells alike: it is the curve we buy on); a
-/// qualifying bundle buy arms the park. The park fires here when the run
-/// cannot grow (a trade at `create + RUN_MAX_AFTER`) or, with `wait_ns ==
-/// 0`, on the first bundle buy; otherwise the hot loop fires it on the
-/// stream's run-complete signal ([`RunDoneLite`]) or when [`park_due`].
+/// A trade of the parked mint: recorded in the run, which is re-derived
+/// ([`derive_run`]: the post-bundle anchor is the last creator-set or
+/// bundle trade, never anyone else's); the first bundle buy arms the park.
+/// The park fires here when the run cannot grow (a trade at `create +
+/// RUN_MAX_AFTER`) or, with `wait_ns == 0`, on the first bundle buy;
+/// otherwise the hot loop fires it on the stream's run-complete signal
+/// ([`RunDoneLite`]) or when [`park_due`]. A buy by an outside wallet
+/// inside the run marks the park `outside`; the fire then skips it as
+/// `skip_not_first` (decided at the fire, so a bundle trade delivered out
+/// of order still joins the run first).
 pub fn park_trade(
     p: &mut Parked,
     t: &TradeLite,
@@ -665,25 +777,28 @@ pub fn park_trade(
     }
 }
 
-/// The bundle run of a park, re-derived from every trade seen (in block
-/// order, so a bundle trade delivered out of order still joins first): the
-/// bundle is the creator set's trades ([`in_creator_set`]) and the buys
-/// chained behind the create at most [`RUN_MAX_GAP`] indices apart (within
-/// [`RUN_MAX_AFTER`]); a sell moves the anchor only when it is the creator
-/// set's or a bundle wallet's. The post-bundle anchor `pb` is the last
-/// bundle trade: the state the dry run's e1 lane enters at. Any other buy
-/// ends the run and marks the park `outside` (someone else bought first:
-/// the anchor never moves to its price), as does a run that did not fit the
-/// park. The bundle buys and wallets are the bundle's buys by wallets other
-/// than the signer and `creator` (ours never count). No allocation.
+/// Re-derive a park's bundle from every run trade seen so far, in block
+/// order (so a trade delivered out of order lands where it belongs). The
+/// bundle is the creator set's trades ([`in_creator_set`]: the signer,
+/// `creator`, the fee payer, the create transaction's signers and buyers)
+/// and the buys chained behind the create at most [`RUN_MAX_GAP`] indices
+/// apart (within [`RUN_MAX_AFTER`], the window [`bundle_buy_triggers`]
+/// checks); a sell moves the anchor only when it is the creator set's or a
+/// bundle wallet's. The post-bundle anchor `pb` is the last bundle trade.
+/// Any other buy ends the run and marks the park `outside` (someone else
+/// bought first: the anchor never moves to its price), as does a run that
+/// did not fit the park (it cannot be checked). The bundle buys and wallets
+/// are the bundle's buys by wallets other than the signer and `creator`
+/// (ours never count). No allocation.
 pub fn derive_run(p: &mut Parked, owner: &Pubkey) {
-    let mut buf = [S0Trade::default(); PARK_RUN];
-    let n = p.run.collect(&mut buf);
+    let mut buf = [S0Trade::default(); PARK_RUN + 1];
+    let n = p.run.collect(None, &mut buf);
     let mut prev = p.create_index;
     p.pb = None;
     p.pb_index = 0;
     p.bundle_buys = 0;
     p.n_wallets = 0;
+    p.run_sol = 0;
     p.outside = p.run.full;
     for t in &buf[..n] {
         if t.user == *owner {
@@ -696,6 +811,7 @@ pub fn derive_run(p: &mut Parked, owner: &Pubkey) {
                 break;
             }
             prev = prev.max(t.index);
+            p.run_sol = p.run_sol.saturating_add(t.sol);
             if t.user != p.hit.user && t.user != p.hit.creator_arg {
                 p.bundle_buys = p.bundle_buys.saturating_add(1);
                 let k = p.n_wallets as usize;
@@ -712,35 +828,135 @@ pub fn derive_run(p: &mut Parked, owner: &Pubkey) {
     }
 }
 
-/// Bundle wallets of a park outside the creator set: the dry run's
-/// `e1::Slot0::bundle_wallets` (0 = a run of the creator set's own buys).
-pub fn outside_bundle_wallets(p: &Parked) -> usize {
-    p.wallets[..p.n_wallets as usize]
-        .iter()
-        .filter(|w| !in_creator_set(&p.hit, w))
-        .count()
-}
-
-/// The dry run's class at the fire point: under `entry.filter =
-/// "multi_bundle"` a park needs at least one bundle wallet outside the
-/// creator set (`e1::Slot0::multi`); `"any"` takes every bundled run.
-pub fn in_class(p: &Parked, multi_bundle: bool) -> bool {
-    !multi_bundle || outside_bundle_wallets(p) > 0
-}
-
 /// The wait after the first bundle buy is over.
+/// `entry.dev_buy_sol` +- `tol` as lamport ranges.
+pub fn dev_buy_ranges(sol: &[f64], tol: f64) -> Vec<(u64, u64)> {
+    sol.iter()
+        .map(|v| {
+            let lo = ((v - tol).max(0.0) * 1e9).round() as u64;
+            let hi = ((v + tol) * 1e9).round() as u64;
+            (lo, hi)
+        })
+        .collect()
+}
+
+/// `entry.dev_buy_round`: every whole number of SOL in `[min, max]` +-
+/// `tol` as lamport ranges (empty when there is none).
+pub fn dev_buy_round_ranges(min: f64, max: f64, tol: f64) -> Vec<(u64, u64)> {
+    if !(min.is_finite() && max.is_finite()) || min.ceil() > max.floor() {
+        return vec![];
+    }
+    let (lo, hi) = (min.ceil().max(0.0) as u64, max.floor() as u64);
+    let whole: Vec<f64> = (lo..=hi).map(|k| k as f64).collect();
+    dev_buy_ranges(&whole, tol)
+}
+
+/// SOL as lamports (negative and NaN: 0).
+pub fn sol_lamports(sol: f64) -> u64 {
+    (sol.max(0.0) * 1e9).round() as u64
+}
+
+/// `entry.uri_hosts` entries as the hot loop matches them: trimmed, lower
+/// case, without a leading dot.
+pub fn host_patterns(hosts: &[String]) -> Vec<String> {
+    hosts
+        .iter()
+        .map(|h| h.trim().trim_start_matches('.').to_ascii_lowercase())
+        .filter(|h| !h.is_empty())
+        .collect()
+}
+
+/// `host` ends in `pat` on a label boundary (`uxento.io` matches
+/// `uxento.io` and `meta.uxento.io`, not `xuxento.io`), ASCII
+/// case-insensitive; a `:port` on the host is ignored. No allocation.
+#[inline]
+pub fn host_matches(host: &str, pat: &str) -> bool {
+    let h = host.as_bytes();
+    let h = match h.iter().position(|b| *b == b':') {
+        Some(i) => &h[..i],
+        None => h,
+    };
+    let p = pat.as_bytes();
+    if p.is_empty() || p.len() > h.len() {
+        return false;
+    }
+    let k = h.len() - p.len();
+    h[k..].eq_ignore_ascii_case(p) && (k == 0 || h[k - 1] == b'.')
+}
+
+/// `entry.uri_hosts` / `entry.uri_hosts_deny` on a create's uri host
+/// ([`pump_codec::create_hit::TxShape::uri_host`]): in the allow list
+/// (empty = any; a create without a host fails a non-empty list) and not
+/// in the deny list. No allocation.
+#[inline]
+pub fn uri_host_ok(allow: &[String], deny: &[String], host: Option<&str>) -> bool {
+    match host {
+        Some(h) => {
+            (allow.is_empty() || allow.iter().any(|p| host_matches(h, p)))
+                && !deny.iter().any(|p| host_matches(h, p))
+        }
+        None => allow.is_empty(),
+    }
+}
+
+/// `entry.max_bundle_sol`'s amount: the create's own buys plus the parked
+/// run's creator-set and bundle buys (lamports into the curve; without a
+/// park, the dev buy alone).
+#[inline]
+pub fn dev_and_bundle_lamports(hit: &CreateHit, parked: Option<&Parked>) -> u64 {
+    hit.intx_sol_in
+        .saturating_add(parked.map_or(0, |p| p.run_sol))
+}
+
+/// `entry.max_post_bundle_sol`'s reserve: the parked run's post-bundle
+/// anchor, else V0 (the curve after the create's own buy).
+#[inline]
+pub fn post_bundle_sol(hit: &CreateHit, parked: Option<&Parked>) -> u64 {
+    parked
+        .and_then(|p| p.pb)
+        .map_or_else(|| v0_of(hit).0, |(v, _)| v)
+}
+
+/// `entry.leader_regions` as an allow mask by region (`None` when empty);
+/// an unknown region is always allowed.
+pub fn leader_mask(regions: &[String]) -> Option<[bool; crate::leader::Region::COUNT]> {
+    if regions.is_empty() {
+        return None;
+    }
+    let mut m = [false; crate::leader::Region::COUNT];
+    for r in regions {
+        if let Some(reg) = crate::leader::Region::parse(r) {
+            m[reg as usize] = true;
+        }
+    }
+    m[crate::leader::Region::Unknown as usize] = true;
+    Some(m)
+}
+
+/// The create's dev buy (lamports) is one of the listed amounts (an empty
+/// list admits every create).
+#[inline]
+pub fn dev_buy_ok(ranges: &[(u64, u64)], lamports: u64) -> bool {
+    ranges.is_empty()
+        || ranges
+            .iter()
+            .any(|(lo, hi)| (*lo..=*hi).contains(&lamports))
+}
+
 pub fn park_due(p: &Parked, wait_ns: u64, now_ns: u64) -> bool {
     p.bundle_buys > 0 && now_ns.saturating_sub(p.bundle_ns) >= wait_ns
 }
 
-/// Whether `t` is the bundle buy a parked create waits for: a buy of the
-/// mint in the create slot, within [`RUN_MAX_AFTER`] transactions after the
-/// create in block order (the dev's bundle, the in-class launch:
+/// Whether `t` can be the bundle buy a parked create waits for: a buy of
+/// the mint in the create slot, within [`RUN_MAX_AFTER`] transactions after
+/// the create in block order (the dev's bundle, the in-class launch:
 /// `feed_bundle.bundle_wallets`), by a wallet that is neither ours nor the
 /// creator's (the create's signer or `creator` argument). A buy further
 /// down the block is another sniper, not the bundle: buying behind one is
 /// the entry the LEAD policy was not scored on. Unknown indices never
-/// trigger.
+/// trigger. The park also needs the buy chained to the run (at most
+/// [`RUN_MAX_GAP`] behind the previous bundle buy, [`derive_run`]): a buy
+/// in the window after a longer gap is an outside buyer ahead of us.
 pub fn bundle_buy_triggers(
     hit: &CreateHit,
     create_slot: u64,
@@ -799,6 +1015,18 @@ fn journal(args: core::fmt::Arguments<'_>) {
     let _ = std::io::stderr().write_all(&b.buf[..b.len + 1]);
 }
 
+/// The journal line of a pick-template skip at the fire point (rare: a
+/// parked create that reached its fire), allocation-free.
+fn template_line(what: &str, hit: &CreateHit, got: u64, cap: u64) {
+    let k8 = key8(&hit.mint);
+    journal(format_args!(
+        "template {} {what} {:.9} > {:.9} SOL",
+        std::str::from_utf8(&k8).unwrap_or("?"),
+        got as f64 / 1e9,
+        cap as f64 / 1e9
+    ));
+}
+
 /// Plain counters for reports (the metrics hold the same numbers).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
 pub struct LoopCounters {
@@ -824,6 +1052,8 @@ pub struct LoopCounters {
     pub run_done: u64,
     pub not_first: u64,
     pub bundle_wait_us: u64,
+    /// Creates whose dev, creator or a bundle wallet is a known dumper.
+    pub dumper_hits: u64,
     /// Real: zero-balance reports not trusted (node view not past the fill,
     /// or a missing account inside the grace window), `balance_is_trustworthy`.
     pub balance_ignored: u64,
@@ -844,13 +1074,23 @@ pub struct LoopCounters {
     pub sells_on_nonce: u64,
     pub sells_resolve: u64,
     pub sells_unsent: u64,
+    /// The pre-send entry gate: decisions scored (bundle block present) /
+    /// unscored, skipped (`skip` mode), and the scored ones per tertile
+    /// (low, mid, high).
+    pub presend_scored: u64,
+    pub presend_unscored: u64,
+    pub presend_skipped: u64,
+    pub presend_tertiles: [u64; 3],
+    /// The pick-template gates (docs/09): creates skipped as
+    /// `skip_bundle_too_big`, `skip_bundle_sol`, `skip_dev_buy`
+    /// (`entry.dev_buy_sol` or `entry.dev_buy_round`) and `skip_uri_host`.
+    pub skip_too_big: u64,
+    pub skip_bundle_sol: u64,
+    pub skip_dev_buy: u64,
+    pub skip_uri_host: u64,
     /// Parked creates at the fire point by the park's bundle-wallet count
-    /// (outside the creator set, 0..=5): read against the confirmed block's
-    /// `feed_bundle.bundle_wallets` to see whether the bound saw the whole
-    /// bundle (raise `entry.bundle_wait_us` if it often did not).
-    /// Parks that fired with only creator-set buyers in the run, skipped
-    /// under `entry.filter = "multi_bundle"` (`skip_no_bundle`).
-    pub creator_only: u64,
+    /// (`operators::bundle_wallet_count`, 0..=5): what `entry.bundle_wallets`
+    /// is checked against.
     pub fire_wallets: [u64; 6],
 }
 
@@ -873,6 +1113,8 @@ pub struct HotParts {
     pub shared: Arc<Shared>,
     /// The leader schedule (cold lane publishes; empty = unknown).
     pub leaders: LeaderSnapshot,
+    /// The operator-dump set (cold thread publishes).
+    pub dumpers: crate::dumpers::DumperSnapshot,
 }
 
 /// The hot loop.
@@ -914,6 +1156,7 @@ pub struct HotLoop {
     prepark: [Option<TradeLite>; PREPARK],
     prepark_at: usize,
     leaders: LeaderSnapshot,
+    dumpers: crate::dumpers::DumperSnapshot,
     /// Scratch for the ALT-loaded addresses of a wire event (no allocation).
     loaded: Box<[Pubkey]>,
     last_mark_ns: u64,
@@ -981,6 +1224,7 @@ impl HotLoop {
             prepark: [None; PREPARK],
             prepark_at: 0,
             leaders: p.leaders,
+            dumpers: p.dumpers,
             loaded: vec![Pubkey::default(); MAX_LOADED].into_boxed_slice(),
             last_mark_ns: 0,
             sell_tmpls: Vec::new(),
@@ -1264,6 +1508,109 @@ impl HotLoop {
         });
     }
 
+    /// The pre-send entry gate at the fire point (`entry.presend_mode` log
+    /// or skip): assemble the pre-send vector, score it, record it (rslog
+    /// `Presend`, cold `Presend` for the `presend` row) and say whether
+    /// `skip` drops the create (`score < cut`; an unscored create, one
+    /// without its own trade or with an overflowing run, is never dropped).
+    /// No allocation.
+    #[allow(clippy::too_many_arguments)]
+    fn presend_gate(
+        &mut self,
+        intent: u64,
+        hit: &CreateHit,
+        slot: u64,
+        create_index: u32,
+        rates: (Option<u32>, Option<u32>),
+        parked: Option<&Parked>,
+        now_ms: u64,
+    ) -> bool {
+        let mode = self.cfg.presend_mode;
+        if mode == PresendMode::Off || self.cfg.presend.is_none() {
+            return false;
+        }
+        let mut buf = [S0Trade::default(); PARK_RUN + 1];
+        let create = crate::filter::create_trade(hit, create_index);
+        let (n, full) = match parked {
+            Some(p) => (p.run.collect(create, &mut buf), p.run.full),
+            None => (RunTrades::default().collect(create, &mut buf), false),
+        };
+        let op = self
+            .cfg
+            .presend_ops
+            .load()
+            .get(&hit.user)
+            .copied()
+            .unwrap_or_else(|| OpStats::default().features());
+        let tx_index = (create_index != u32::MAX).then_some(create_index);
+        let (feat, bundle) = presend_features(
+            &buf[..n],
+            hit,
+            tx_index,
+            &op,
+            (now_ms / 1_000) as i64,
+            slot,
+            rates,
+        );
+        let scored = bundle && !full;
+        let Some(m) = self.cfg.presend.as_deref() else {
+            return false;
+        };
+        let score = m.score(&feat);
+        let tertile = m.tertile(score);
+        let cut = match self.cfg.presend_cut {
+            PresendCut::T1 => m.t1,
+            PresendCut::T2 => m.t2,
+        };
+        let skipped = mode == PresendMode::Skip && scored && score < cut;
+        let c = &mut self.counters;
+        if scored {
+            c.presend_scored += 1;
+            c.presend_tertiles[(tertile as usize).min(2)] += 1;
+        } else {
+            c.presend_unscored += 1;
+        }
+        c.presend_skipped += skipped as u64;
+        self.rslog.push(Rec::Presend {
+            intent,
+            mint: hit.mint,
+            score_bits: score.to_bits(),
+            tertile,
+            mode: mode as u8,
+            cut: match self.cfg.presend_cut {
+                PresendCut::T1 => 1,
+                PresendCut::T2 => 2,
+            },
+            scored: scored as u8,
+            skipped: skipped as u8,
+        });
+        self.send_cold(ColdMsg::Presend {
+            intent,
+            mint: hit.mint,
+            scored,
+            score,
+            tertile,
+            skipped,
+            feat,
+        });
+        skipped
+    }
+
+    /// The pick-template gates are on (status line `template` fragment).
+    pub fn template_on(&self) -> bool {
+        self.cfg.template_on()
+    }
+
+    /// `(mode, cut)` of the pre-send gate when it runs (status line).
+    pub fn presend_desc(&self) -> Option<(&'static str, &'static str)> {
+        (self.cfg.presend_mode != PresendMode::Off && self.cfg.presend.is_some()).then(|| {
+            (
+                self.cfg.presend_mode.as_str(),
+                self.cfg.presend_cut.as_str(),
+            )
+        })
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn on_create(
         &mut self,
@@ -1317,6 +1664,51 @@ impl HotLoop {
         {
             return self.decision(intent, hit, code::CLASS, 0, 0, 0, 0, 0);
         }
+        // 4a: the operator template filter (entry.dev_buy_sol): the create's
+        // own buy must be one of the listed amounts
+        // (entry.dev_buy_round adds the whole SOL amounts as an alternative)
+        if !dev_buy_ok(&self.cfg.dev_buy, hit.intx_sol_in) {
+            self.counters.skip_dev_buy += 1;
+            return self.decision(intent, hit, code::DEV_BUY, 0, 0, 0, 0, 0);
+        }
+        // 4a''': the uri host (entry.uri_hosts / entry.uri_hosts_deny), as
+        // the wire decoder kept it
+        if (!self.cfg.uri_allow.is_empty() || !self.cfg.uri_deny.is_empty())
+            && !uri_host_ok(
+                &self.cfg.uri_allow,
+                &self.cfg.uri_deny,
+                hit.tx_shape.uri_host(),
+            )
+        {
+            self.counters.skip_uri_host += 1;
+            return self.decision(intent, hit, code::URI_HOST, 0, 0, 0, 0, 0);
+        }
+        // 4a'': the operator table (entry.operators_only): only the launches
+        // of a listed create signer go on (nothing parked otherwise)
+        if self.cfg.operators_only && self.cfg.operator_rule(hit).is_none() {
+            return self.decision(intent, hit, code::NOT_OPERATOR, 0, 0, 0, 0, 0);
+        }
+        // its mirror (entry.operators_exclude, the paper-wide instance): only
+        // the launches the live bot leaves out
+        if self.cfg.operators_exclude && self.cfg.operator_rule(hit).is_some() {
+            return self.decision(intent, hit, code::NOT_OPERATOR, 0, 0, 0, 0, 0);
+        }
+        // the tier floor (entry.min_stake_tier, docs/09 "stake tier"): only
+        // the operators the copied wallet stakes at that tier or above
+        if self.cfg.min_stake_tier > 0
+            && self.cfg.operator_rule(hit).map_or(0, |r| r.stake_tier) < self.cfg.min_stake_tier
+        {
+            return self.decision(intent, hit, code::LOW_TIER, 0, 0, 0, 0, 0);
+        }
+        // 4a': the leader filter (entry.leader_regions): a create whose slot
+        // leader the box cannot reach in time is skipped, nothing sent
+        if let Some(allowed) = self.cfg.leader_allowed {
+            if let Some(r) = self.leaders.load().region_at(slot) {
+                if !allowed[r as usize] {
+                    return self.decision(intent, hit, code::FAR_LEADER, 0, 0, 0, 0, 0);
+                }
+            }
+        }
         // 4b: the bundle gate (real only): park until another wallet's buy
         // of the mint shows in the create slot and the bundle run is
         // complete, then fire at its post-trade state; the slot moving on
@@ -1343,11 +1735,23 @@ impl HotLoop {
                 n_wallets: 0,
                 behind: false,
                 outside: false,
+                run_sol: 0,
                 run: RunTrades::default(),
             });
             return;
         }
-        self.decide_from_watch(src, recv_ns, slot, bank_id, hit, t0, intent, rates, None);
+        self.decide_from_watch(
+            src,
+            recv_ns,
+            slot,
+            bank_id,
+            hit,
+            t0,
+            intent,
+            rates,
+            None,
+            create_index,
+        );
     }
 
     /// Park a create for the bundle gate; a full table drops its oldest
@@ -1487,15 +1891,7 @@ impl HotLoop {
             self.counters.not_first += 1;
             return self.decision(p.intent, &p.hit, code::NOT_FIRST, 0, 0, 0, 0, 0);
         }
-        let bw = outside_bundle_wallets(p);
-        self.counters.fire_wallets[bw.min(5)] += 1;
-        // the dry run's class (entry.filter = "multi_bundle"): a run whose
-        // only buyers are the creator set's own wallets is not a bundled
-        // launch the dry run traded
-        if !in_class(p, self.cfg.multi_bundle) {
-            self.counters.creator_only += 1;
-            return self.decision(p.intent, &p.hit, code::NO_BUNDLE, 0, 0, 0, 0, 0);
-        }
+        self.counters.fire_wallets[(bundle_wallet_count(p) as usize).min(5)] += 1;
         self.counters.bundle_fired += 1;
         self.counters.bundle_wait_us += now.saturating_sub(p.bundle_ns) / 1_000;
         self.decide_from_watch(
@@ -1508,6 +1904,7 @@ impl HotLoop {
             p.intent,
             p.rates,
             Some(p),
+            p.create_index,
         );
     }
 
@@ -1528,8 +1925,41 @@ impl HotLoop {
         intent: u64,
         rates: (Option<u32>, Option<u32>),
         parked: Option<&Parked>,
+        create_index: u32,
     ) {
         let pb = parked.and_then(|p| p.pb);
+        // 4c: the bundle shape (entry.bundle_wallets) at the fire point: the
+        // park's distinct bundle wallets outside the creator set
+        if let Some(p) = parked {
+            if !bundle_shape_ok(&self.cfg.bundle_wallets, bundle_wallet_count(p)) {
+                return self.decision(intent, hit, code::BUNDLE_SHAPE, 0, 0, 0, 0, 0);
+            }
+        }
+        // 4d: the pick template's size bounds at the fire point, before any
+        // risk or nonce: the post-bundle virtual SOL the buy would be bound
+        // at (entry.max_post_bundle_sol; the run's anchor, else V0) and the
+        // dev + bundle SOL (entry.max_bundle_sol)
+        if self.cfg.max_post_bundle > 0 {
+            let v = post_bundle_sol(hit, parked);
+            if v > self.cfg.max_post_bundle {
+                self.counters.skip_too_big += 1;
+                template_line(
+                    "skip_bundle_too_big post-bundle",
+                    hit,
+                    v,
+                    self.cfg.max_post_bundle,
+                );
+                return self.decision(intent, hit, code::TOO_BIG, 0, 0, 0, 0, 0);
+            }
+        }
+        if self.cfg.max_bundle > 0 {
+            let s = dev_and_bundle_lamports(hit, parked);
+            if s > self.cfg.max_bundle {
+                self.counters.skip_bundle_sol += 1;
+                template_line("skip_bundle_sol dev+bundle", hit, s, self.cfg.max_bundle);
+                return self.decision(intent, hit, code::BUNDLE_SOL, 0, 0, 0, 0, 0);
+            }
+        }
         // 5: watchlist
         let now_ms = crate::now_ms();
         let now_unix = now_ms / 1_000;
@@ -1562,6 +1992,58 @@ impl HotLoop {
         if cap > 0 && op.size > cap {
             op.size = cap;
         }
+        // the operator's confidence tier (docs/09 "stake tier"): the copied
+        // wallet's stake level on this signer (an unlisted signer is tier 0)
+        // picks the size and, below, the bid; the size only narrows, so the
+        // signed ArmSet and the risk cap stay the upper bound
+        let tier = self
+            .cfg
+            .operator_rule(hit)
+            .map_or(0usize, |r| r.stake_tier.min(2) as usize);
+        if let Some(t) = self.cfg.stake_by_tier {
+            if t[tier] > 0 && op.size > t[tier] {
+                op.size = t[tier];
+            }
+        }
+        // 5b: the operator-dump skip (entry.dumper_skip): the dev, the
+        // creator or a bundle wallet dumped an earlier launch
+        if self.cfg.dumper_skip != rugsnipe_core::config::DumperSkip::Off {
+            let d = self.dumpers.load();
+            if !d.is_empty() {
+                let dumper = d.contains(&hit.user)
+                    || d.contains(&hit.creator_arg)
+                    || parked.is_some_and(|p| {
+                        p.wallets[..p.n_wallets as usize]
+                            .iter()
+                            .any(|w| d.contains(w))
+                    });
+                if dumper {
+                    self.counters.dumper_hits += 1;
+                    let k8 = key8(&hit.mint);
+                    journal(format_args!(
+                        "dumper {} {}",
+                        std::str::from_utf8(&k8).unwrap_or("?"),
+                        if self.cfg.dumper_skip == rugsnipe_core::config::DumperSkip::Skip {
+                            "skipped"
+                        } else {
+                            "logged (would skip)"
+                        }
+                    ));
+                    if self.cfg.dumper_skip == rugsnipe_core::config::DumperSkip::Skip {
+                        return self.decision(
+                            intent,
+                            hit,
+                            code::DUMPER,
+                            0,
+                            op.size,
+                            op.v_max,
+                            0,
+                            0,
+                        );
+                    }
+                }
+            }
+        }
         let via_code = match (via, entry.dynamic) {
             (Via::Class, _) => 4,
             (_, true) => 3,
@@ -1579,13 +2061,32 @@ impl HotLoop {
         if self.slot_now.saturating_sub(slot) > self.cfg.max_age_slots {
             return self.decision(intent, hit, code::STALE, 0, op.size, op.v_max, 0, 0);
         }
+        // 6b: the pre-send entry gate (entry.presend_mode), before the risk
+        // gate so that every create reaching the decision is scored (log)
+        // and a skipped one never reserves risk or a nonce: the create
+        // scored on what is known now (the run seen so far, the create's
+        // wire bytes, the signer's outcomes, the time); `skip` below the
+        // cut sends nothing
+        if self.presend_gate(intent, hit, slot, create_index, rates, parked, now_ms) {
+            return self.decision(intent, hit, code::PRESEND, 0, op.size, op.v_max, 0, 0);
+        }
         // 7: risk
         let (v0, t0_tok) = v0_of(hit);
         // the reserve we buy at: the bundle run's post-trade state when the
         // gate observed it (the create's state otherwise; the bound below
         // then adds the expected bundle)
         let v_entry = pb.map_or(v0, |(v, _)| v);
-        let mut bid = self.cfg.bid_lamports.min(self.cfg.max_bid);
+        let mut bid = self
+            .cfg
+            .bid_by_tier
+            .map_or(self.cfg.bid_lamports, |t| {
+                if t[tier] > 0 {
+                    t[tier]
+                } else {
+                    self.cfg.bid_lamports
+                }
+            })
+            .min(self.cfg.max_bid);
         if op.ev_cap > 0 {
             bid = bid.min(op.ev_cap);
         }
@@ -1727,7 +2228,15 @@ impl HotLoop {
             Some((v, _)) => self.cfg.v_cap_at(v, op.v_max),
             None => self.cfg.v_cap(v0, op.v_max),
         };
-        let min_out = min_tokens_out(spend, v_cap, hit.creator_arg, self.cfg.fees);
+        let min_out = match pb {
+            // a zero premium binds at the exact post-bundle state the park
+            // observed (the quote before our own trade): any buy ahead of
+            // ours fails the buy on chain, cheaply (docs/09)
+            Some((v, t)) if self.cfg.max_premium_bps == 0 => {
+                min_tokens_out_at(spend, v, t, hit.creator_arg, self.cfg.fees)
+            }
+            _ => min_tokens_out(spend, v_cap, hit.creator_arg, self.cfg.fees),
+        };
         let min_out_e2 = min_tokens_out(spend, op.v_max, hit.creator_arg, self.cfg.fees);
         // 12: patch (keys and the per-mint CU limit were resolved before the claim)
         // per-class bid: the tip (after the buy, reverts on failure) carries
@@ -1933,16 +2442,31 @@ impl HotLoop {
                 bundle.insert(*w);
             }
         }
+        // the exit: the operator table's hold for a listed signer (docs/09),
+        // counted from the create slot
+        let rule = self.cfg.operator_rule(hit);
         let pos = Position::pending(
             hit.mint,
             self.owner,
             intent,
-            self.cfg.policy,
+            self.cfg.policy_for(rule),
             bundle,
             hit.creator_arg,
             self.cfg.fees,
             pump_codec::curve::TOKEN_TOTAL_SUPPLY,
-        );
+        )
+        .with_create_slot(slot);
+        if let Some(r) = rule {
+            let k8 = key8(&hit.mint);
+            journal(format_args!(
+                "operator {} hold_to create+{} (n {}, bundle_wallets {}, tier {})",
+                std::str::from_utf8(&k8).unwrap_or("?"),
+                r.hold_slots,
+                r.n,
+                r.bundle_wallets,
+                r.stake_tier
+            ));
+        }
         self.slots[free] = Some(Slot {
             pos,
             intent,
@@ -1994,6 +2518,9 @@ impl HotLoop {
         self.stats.trades_seen.inc();
         let Some(i) = self.find_mint(&t.mint) else {
             self.stats.trades_unmatched.inc();
+            // the first slots of a bundled launch we do not hold: the
+            // operator-dump tracker's input (cold thread)
+            self.send_cold(ColdMsg::MintTrade(t));
             return;
         };
         let s = self.slots[i].as_mut().expect("found");
@@ -3140,10 +3667,11 @@ impl HotLoop {
         }
     }
 
-    /// The lifetime of a real curve sell when the lane's blockhash is not
-    /// fresh: the position's sell-pool nonce (claimed on first need, kept for
-    /// every retry so at most one of them lands). `None`: no free nonce or
-    /// no nonce templates. Lock-free, no allocation.
+    /// The lifetime of a real curve sell on a sell-pool nonce (a final sell
+    /// first, any other when the lane's blockhash is not fresh): the
+    /// position's claim, made on first need and kept for every retry so at
+    /// most one of them lands. `None`: no free nonce or no nonce templates.
+    /// Lock-free, no allocation.
     fn sell_nonce(&mut self, i: usize) -> Option<(usize, [u8; 32])> {
         let pool = self.shared.sell_nonces.get()?.clone();
         if pool.is_empty() || self.sell_tmpls.len() < pool.len() {
@@ -3285,18 +3813,18 @@ impl HotLoop {
         // blockhash (300 ms budget, off the hot thread) before signing;
         // 4. no resolver either: not sent, the attempt is taken back
         // (rugsnipe_exit::unsent) and retried on the next slot.
+        // A final sell (whole balance, token account closed) swaps 1 and 2:
+        // it fans out as one variant per sender (sender::sell_fans_out), and
+        // on a recent blockhash every copy lands, the first sells the
+        // balance, the others fail on the closed account and each pays its
+        // fee (2026-10-24: three failed copies per exit, 3.4M lamports each
+        // on a priority-ordered leader, about 1.6% of a 0.25 SOL stake on
+        // average). On the position's sell nonce at most one copy (and one
+        // try) executes, as with the buys' nonce.
         let real_sell = self.cfg.mode.is_real()
             && self.slots[i]
                 .as_ref()
                 .is_some_and(|s| s.real && order.venue == Venue::Curve);
-        // A final sell (whole balance, token account closed) takes the
-        // position's sell nonce first: it fans out as one variant per sender
-        // (sender::sell_fans_out), and on a recent blockhash every copy lands,
-        // the first sells the balance, the others fail on the closed account
-        // and each pays its fee (2026-10-24: three failed copies per exit,
-        // 3.4M lamports each on a priority-ordered leader). On the position's
-        // sell nonce at most one copy (and one try) executes, as with the
-        // buys' nonce. A partial sell keeps the blockhash first.
         let mut nonce_k: Option<usize> = None;
         let nonce_first = order.close_account;
         let lifetime = if !real_sell {
@@ -3521,6 +4049,25 @@ fn sell_sig(o: SellOrder) -> [u8; 64] {
 
 #[cfg(test)]
 mod bundle_gate_tests {
+    #[test]
+    fn dev_buy_whitelist_matches_within_the_tolerance_only() {
+        let r = dev_buy_ranges(&[5.0, 2.96], 0.005);
+        assert_eq!(
+            r,
+            vec![
+                (4_995_000_000, 5_005_000_000),
+                (2_955_000_000, 2_965_000_000)
+            ]
+        );
+        assert!(dev_buy_ok(&r, 5_000_000_000));
+        assert!(dev_buy_ok(&r, 2_960_000_000));
+        assert!(dev_buy_ok(&r, 5_004_000_000));
+        assert!(!dev_buy_ok(&r, 5_010_000_000));
+        assert!(!dev_buy_ok(&r, 3_000_000_000));
+        assert!(!dev_buy_ok(&r, 0));
+        assert!(dev_buy_ok(&[], 123));
+    }
+
     use super::*;
     use crate::convert::hit_from_lite;
     use pump_codec::constants::TOKEN_2022_PROGRAM_ID;
@@ -3625,6 +4172,7 @@ mod bundle_gate_tests {
             n_wallets: 0,
             behind: false,
             outside: false,
+            run_sol: 0,
             run: RunTrades::default(),
         }
     }
@@ -3720,14 +4268,30 @@ mod bundle_gate_tests {
         assert_eq!(p.pb, Some((35_000_000_000, 1)));
         // the two bundle wallets, once each, for the position's bundle set
         // (three qualifying buys: +2, +3, +5; the late copy of +2 is the
-        // same trade)
+        // same trade), and the dev + bundle SOL: the dev's 1 SOL in the
+        // create, its 0.5 at +1 and three bundle buys of 0.5
         assert_eq!(
             (&p.wallets[..p.n_wallets as usize], p.bundle_buys),
             (&[w1, w2][..], 3)
         );
         assert!(!p.outside);
+        assert_eq!(p.run_sol, 2_000_000_000);
+        assert_eq!(dev_and_bundle_lamports(&h, Some(&p)), 3_000_000_000);
+        assert_eq!(dev_and_bundle_lamports(&h, None), 1_000_000_000);
+        assert_eq!(post_bundle_sol(&h, Some(&p)), 35_000_000_000);
+        assert_eq!(
+            post_bundle_sol(&h, None),
+            31_000_000_000,
+            "V0 without a run"
+        );
     }
 
+    /// The post-bundle anchor moves only on the creator set's and the
+    /// contiguous bundle's trades (2026-10-23, Sj3qBo: an outside 1.78 SOL
+    /// buy inside the run re-anchored the bound, +11.4% over the
+    /// post-bundle spot at max_premium = 0): a buy after a gap of 3 is an
+    /// outside buyer ahead of us, the anchor stays at the bundle's last
+    /// trade and the park is `outside` (the fire is `skip_not_first`).
     #[test]
     fn an_outside_buy_never_moves_the_anchor_and_marks_the_park() {
         let (owner, dev, creator, w1, w2, x) = (
@@ -3763,6 +4327,10 @@ mod bundle_gate_tests {
         assert_eq!(
             (&p.wallets[..p.n_wallets as usize], p.bundle_buys),
             (&[w1, w2][..], 2)
+        );
+        assert_eq!(
+            p.run_sol, 1_000_000_000,
+            "the outside buy is not bundle SOL"
         );
         // a trade of a bundle wallet behind the outside buy moves nothing
         let mut q = parked(&h, ci);
@@ -3832,7 +4400,7 @@ mod bundle_gate_tests {
         assert_eq!((o.outside, o.pb), (false, Some((33_000_000_000, 1))));
         // the limit of an index-only rule: an outside buy chained to the
         // bundle (gap <= 2) reads as a bundle wallet (rt.json's n_bw does
-        // the same)
+        // the same); entry.bundle_wallets / max_bundle_sol then see it
         let mut c = parked(&h, ci);
         park_trade(
             &mut c,
@@ -3852,48 +4420,55 @@ mod bundle_gate_tests {
     }
 
     #[test]
-    fn only_a_wallet_outside_the_creator_set_puts_a_run_in_the_dry_runs_class() {
-        // the dev signs the create with a second wallet that then buys in its
-        // own transaction right behind it: a bundled run, but of the creator
-        // set only (e1: no bundle wallet, not `multi`, never traded)
-        let (owner, dev, cosigner, outside) = (
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
-            Pubkey::new_unique(),
+    fn uri_hosts_match_on_a_label_boundary_and_round_dev_buys_are_whole_sol() {
+        let al = host_patterns(&["UXENTO.io".into(), ".j7tracker.io".into(), " gg.sc ".into()]);
+        assert_eq!(al, vec!["uxento.io", "j7tracker.io", "gg.sc"]);
+        assert!(host_matches("meta.uxento.io", "uxento.io"));
+        assert!(host_matches("uxento.io", "uxento.io"));
+        assert!(host_matches("META.UXENTO.IO", "uxento.io"));
+        assert!(host_matches("meta.uxento.io:443", "uxento.io"));
+        assert!(!host_matches("xuxento.io", "uxento.io"));
+        assert!(!host_matches("uxento.io.evil", "uxento.io"));
+        assert!(!host_matches("io", "uxento.io"));
+        assert!(!host_matches("uxento.io", ""));
+        let deny = host_patterns(&["ipfs.io".into()]);
+        assert!(uri_host_ok(&al, &[], Some("metadata.j7tracker.io")));
+        assert!(!uri_host_ok(&al, &[], Some("ipfs.io")));
+        assert!(!uri_host_ok(&al, &[], None), "no host fails an allow list");
+        assert!(uri_host_ok(&[], &deny, None), "and passes a deny list");
+        assert!(!uri_host_ok(&[], &deny, Some("ipfs.io")));
+        assert!(uri_host_ok(&[], &deny, Some("pump.mypinata.cloud")));
+        assert!(!uri_host_ok(
+            &al,
+            &host_patterns(&["meta.uxento.io".into()]),
+            Some("meta.uxento.io")
+        ));
+        assert!(uri_host_ok(&[], &[], None));
+        // 1..=6 whole SOL +- 0.005
+        let r = dev_buy_round_ranges(1.0, 6.0, 0.005);
+        assert_eq!(r.len(), 6);
+        for (lam, ok) in [
+            (1_000_000_000u64, true),
+            (995_000_000, true),
+            (994_999_999, false),
+            (1_005_000_000, true),
+            (1_005_000_001, false),
+            (3_000_000_000, true),
+            (2_500_000_000, false),
+            (6_005_000_000, true),
+            (7_000_000_000, false),
+            (500_000_000, false),
+            (0, false),
+        ] {
+            assert_eq!(dev_buy_ok(&r, lam), ok, "{lam}");
+        }
+        assert_eq!(dev_buy_round_ranges(1.5, 1.9, 0.005), vec![]);
+        assert_eq!(
+            dev_buy_round_ranges(1.5, 2.0, 0.0),
+            vec![(2_000_000_000, 2_000_000_000)]
         );
-        let mut h = hit(dev, dev);
-        h.signers.push(cosigner);
-        let ci = 7;
-        let mut p = parked(&h, ci);
-        park_trade(
-            &mut p,
-            &trade_v(h.mint, cosigner, true, ci + 1, 33_000_000_000),
-            &owner,
-            WAIT,
-            1_000,
-        );
-        assert_eq!(p.bundle_buys, 1, "the co-signer's buy arms the park");
-        assert_eq!(outside_bundle_wallets(&p), 0);
-        assert!(
-            !in_class(&p, true),
-            "multi_bundle: creator set only is out of class"
-        );
-        assert!(in_class(&p, false), "filter = any takes it");
-        // an outside wallet chained behind it makes the run multi-wallet
-        park_trade(
-            &mut p,
-            &trade_v(h.mint, outside, true, ci + 2, 34_000_000_000),
-            &owner,
-            WAIT,
-            1_000,
-        );
-        assert_eq!(outside_bundle_wallets(&p), 1);
-        assert!(in_class(&p, true));
-        assert!(
-            !p.outside,
-            "chained at gap 1: a bundle wallet, not someone ahead of us"
-        );
+        assert_eq!(sol_lamports(47.5), 47_500_000_000);
+        assert_eq!(sol_lamports(-1.0), 0);
     }
 
     #[test]
@@ -3982,6 +4557,349 @@ mod bundle_gate_tests {
         assert_eq!((r.bundle_buys, r.pb, u.bundle_buys), (0, None, 0));
     }
 
+    // ------------------------------------------------------------- pre-send gate
+
+    use crate::filter::{
+        bundle_features, create_trade, create_tx_features, create_tx_features_wire, create_uri,
+        funding_features, op_snapshot, time_features, Funding, OutcomeStore, BUNDLE, CREATE_TX,
+        FUNDING, N_BUNDLE, N_CREATE, N_FUNDING, N_OPERATOR, N_TIME, OPERATOR, TIME,
+    };
+    use pump_codec::events::InnerInstruction;
+    use pump_codec::tx::{TxVersion, TxView};
+    use serde_json::{json, Value};
+
+    /// A pump-codec transaction fixture (`getTransaction` base64 + meta).
+    struct Fx {
+        raw: Vec<u8>,
+        result: Value,
+        inner: Vec<(u8, u8, Vec<u8>, Vec<u8>)>,
+        loaded: Vec<Pubkey>,
+    }
+
+    impl Fx {
+        fn load(name: &str) -> Self {
+            use base64::Engine as _;
+            let p = format!(
+                "{}/../pump-codec/fixtures/tx/{name}",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let v: Value = serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
+            let result = v["result"].clone();
+            let raw = base64::engine::general_purpose::STANDARD
+                .decode(result["transaction"][0].as_str().unwrap())
+                .unwrap();
+            let meta = &result["meta"];
+            let mut inner = vec![];
+            for g in meta["innerInstructions"].as_array().into_iter().flatten() {
+                for ix in g["instructions"].as_array().unwrap() {
+                    inner.push((
+                        g["index"].as_u64().unwrap() as u8,
+                        ix["programIdIndex"].as_u64().unwrap() as u8,
+                        ix["accounts"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|a| a.as_u64().unwrap() as u8)
+                            .collect(),
+                        bs58::decode(ix["data"].as_str().unwrap())
+                            .into_vec()
+                            .unwrap(),
+                    ));
+                }
+            }
+            let mut loaded = vec![];
+            if let Some(la) = meta.get("loadedAddresses").filter(|x| !x.is_null()) {
+                for k in ["writable", "readonly"] {
+                    for a in la[k].as_array().unwrap() {
+                        loaded.push(a.as_str().unwrap().parse().unwrap());
+                    }
+                }
+            }
+            Self {
+                raw,
+                result,
+                inner,
+                loaded,
+            }
+        }
+        fn inner(&self) -> Vec<InnerInstruction<'_>> {
+            self.inner
+                .iter()
+                .map(|(o, p, a, d)| InnerInstruction {
+                    outer_index: *o,
+                    program_id_index: *p,
+                    accounts: a,
+                    data: d,
+                })
+                .collect()
+        }
+        fn loaded(&self) -> Option<&[Pubkey]> {
+            (!self.loaded.is_empty()).then_some(&self.loaded[..])
+        }
+        /// The create as the hot loop decodes it from the gRPC copy (wire
+        /// bytes + the meta's inner instructions and loaded addresses).
+        fn hit(&self) -> Option<CreateHit> {
+            let tx = TxView::parse(&self.raw).unwrap();
+            pump_codec::create_hit(&tx, self.loaded(), &self.inner(), FeeBps::DEFAULT)
+                .ok()
+                .flatten()
+        }
+        /// The jsonParsed `getTransaction` result `create_tx_features`
+        /// reads, built from the wire parse (System transfers parsed, every
+        /// other instruction raw; fee and logs from the fixture's meta).
+        fn json_parsed(&self) -> Value {
+            let tx = TxView::parse(&self.raw).unwrap();
+            let keys: Vec<Pubkey> = tx
+                .static_account_keys()
+                .iter()
+                .chain(&self.loaded)
+                .copied()
+                .collect();
+            let ix_json = |prog: Pubkey, accts: &[u8], data: &[u8]| -> Value {
+                let a: Vec<Pubkey> = accts.iter().map(|i| keys[*i as usize]).collect();
+                let u64_at = |o: usize| u64::from_le_bytes(data[o..o + 8].try_into().unwrap());
+                if prog == pump_codec::constants::SYSTEM_PROGRAM_ID && data.len() >= 12 {
+                    let tag = u32::from_le_bytes(data[..4].try_into().unwrap());
+                    let parsed = match tag {
+                        0 => Some(
+                            json!({"type": "createAccount", "info": {"source": a[0].to_string(),
+                            "newAccount": a[1].to_string(), "lamports": u64_at(4)}}),
+                        ),
+                        2 => Some(
+                            json!({"type": "transfer", "info": {"source": a[0].to_string(),
+                            "destination": a[1].to_string(), "lamports": u64_at(4)}}),
+                        ),
+                        3 => {
+                            let n = u64_at(36) as usize;
+                            Some(
+                                json!({"type": "createAccountWithSeed", "info": {"source": a[0].to_string(),
+                                "newAccount": a[1].to_string(), "lamports": u64_at(44 + n)}}),
+                            )
+                        }
+                        11 => Some(
+                            json!({"type": "transferWithSeed", "info": {"source": a[0].to_string(),
+                            "destination": a[2].to_string(), "lamports": u64_at(4)}}),
+                        ),
+                        _ => None,
+                    };
+                    if let Some(p) = parsed {
+                        return json!({"program": "system", "programId": prog.to_string(), "parsed": p});
+                    }
+                }
+                json!({"programId": prog.to_string(),
+                    "accounts": a.iter().map(|k| k.to_string()).collect::<Vec<_>>(),
+                    "data": bs58::encode(data).into_string()})
+            };
+            let nreq = tx.header().num_required_signatures as usize;
+            let account_keys: Vec<Value> = keys
+                .iter()
+                .enumerate()
+                .map(|(i, k)| json!({"pubkey": k.to_string(), "signer": i < nreq}))
+                .collect();
+            let instructions: Vec<Value> = tx
+                .instructions()
+                .map(|ix| ix_json(*tx.program_id(&ix), ix.accounts, ix.data))
+                .collect();
+            let mut groups: Vec<(u8, Vec<Value>)> = vec![];
+            for (o, p, a, d) in &self.inner {
+                let v = ix_json(keys[*p as usize], a, d);
+                match groups.last_mut() {
+                    Some((g, list)) if *g == *o => list.push(v),
+                    _ => groups.push((*o, vec![v])),
+                }
+            }
+            let sigs: Vec<String> = (0..tx.num_signatures())
+                .map(|i| bs58::encode(tx.signature(i).unwrap()).into_string())
+                .collect();
+            json!({
+                "version": match tx.version() {
+                    TxVersion::Legacy => json!("legacy"),
+                    TxVersion::V0 => json!(0),
+                    TxVersion::V1 => json!(1),
+                },
+                "meta": {
+                    "fee": self.result["meta"]["fee"],
+                    "logMessages": self.result["meta"]["logMessages"],
+                    "innerInstructions": groups.iter().map(|(g, l)| json!({"index": g, "instructions": l})).collect::<Vec<_>>(),
+                },
+                "transaction": {"signatures": sigs, "message": {
+                    "accountKeys": account_keys, "instructions": instructions}},
+            })
+        }
+    }
+
+    fn model() -> Model {
+        Model::load(&crate::filter::resolve_path(
+            "data/reports/strategy/entry_filter_v1.json",
+        ))
+        .unwrap()
+    }
+
+    /// `create_tx_features_wire` (the hot loop's decode) equals
+    /// `create_tx_features` (the jsonParsed path) on every create fixture
+    /// the decoder resolves, all 21 features (the uri block where the logs
+    /// carry the CreateEvent).
+    #[test]
+    fn wire_create_features_match_the_json_path_on_the_fixtures() {
+        let m = model();
+        let dir = format!("{}/../pump-codec/fixtures/tx", env!("CARGO_MANIFEST_DIR"));
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        let (mut n, mut tips, mut prio, mut uris, mut v1) = (0, 0, 0, 0, 0);
+        for name in &names {
+            let fx = Fx::load(name);
+            let Some(hit) = fx.hit() else { continue };
+            let j = fx.json_parsed();
+            let uri = create_uri(&j);
+            let want = create_tx_features(
+                &j,
+                Some(77),
+                &hit.creator_arg,
+                &hit.user,
+                &uri,
+                &m.tip_accounts,
+            );
+            let got = create_tx_features_wire(&hit, Some(77));
+            let k = if uri.is_empty() { 14 } else { N_CREATE };
+            assert_eq!(got[..k], want[..k], "{name}");
+            n += 1;
+            tips += (got[2] > 0.0) as u32;
+            prio += (got[4] > 0.0) as u32;
+            uris += !uri.is_empty() as u32;
+            v1 += (hit.version == Some(TxVersion::V1)) as u32;
+        }
+        assert!(n >= 20, "create fixtures decoded: {n}");
+        assert!(
+            tips >= 3 && prio >= 10 && uris >= 15 && v1 >= 5,
+            "exercised: {tips} tips, {prio} priority fees, {uris} uris, {v1} v1"
+        );
+    }
+
+    /// The pre-send vector of a fixture create and its bundle run, block
+    /// by block: the bundle block is `bundle_features` on the same trades
+    /// (delivered out of order, one twice), the create block the JSON
+    /// path's, funding the masked defaults, operator the snapshot entry,
+    /// time `time_features`.
+    #[test]
+    fn presend_vector_layout_on_a_fixture_create_and_run() {
+        let m = model();
+        let fx = Fx::load("fresh_v0alt_create_v2_buy18.json");
+        let h = fx.hit().expect("the fixture is a create");
+        assert!(h.intx_buys > 0 && h.tx_shape.tip_lamports > 0);
+        let (owner, w1, w2, w3) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let ci = 40;
+        let mut p = parked(&h, ci);
+        let (v0, t0) = crate::convert::v0_of(&h);
+        // the run: w1 at +1, w2 at +3 (delivered first), a sell at +2, w3
+        // at +4, the +1 copy again
+        let tr = |user, is_buy, index, sol: u64, k: u64| {
+            let mut t = trade(h.mint, user, is_buy, 100, index);
+            t.sol_amount = sol;
+            t.token_amount = sol * 31;
+            t.virtual_sol_reserves = v0 + k * 1_000_000_000;
+            t.virtual_token_reserves = t0 - k * 20_000_000_000_000;
+            t
+        };
+        let run = [
+            tr(w2, true, ci + 3, 750_000_000, 3),
+            tr(w1, true, ci + 1, 500_000_000, 1),
+            tr(w1, false, ci + 2, 100_000_000, 2),
+            tr(w3, true, ci + 4, 500_000_000, 4),
+            tr(w1, true, ci + 1, 500_000_000, 1),
+        ];
+        for t in &run {
+            park_trade(&mut p, t, &owner, WAIT, 1_000);
+        }
+        assert_eq!((p.run.n, p.run.full, p.bundle_buys), (4, false, 3));
+        let mut buf = [S0Trade::default(); PARK_RUN + 1];
+        let n = p.run.collect(create_trade(&h, ci), &mut buf);
+        // the same creation slot built independently, in block order
+        let s0 = |t: &TradeLite| S0Trade {
+            index: t.index,
+            is_create: false,
+            user: t.user,
+            is_buy: t.is_buy,
+            sol: t.sol_amount,
+            tok: t.token_amount,
+            v: t.virtual_sol_reserves,
+            t: t.virtual_token_reserves,
+        };
+        let mut slot0 = vec![S0Trade {
+            index: ci,
+            is_create: true,
+            user: h.user,
+            is_buy: true,
+            sol: h.intx_sol_in,
+            tok: h.intx_tokens_out,
+            v: v0,
+            t: t0,
+        }];
+        slot0.extend([&run[1], &run[2], &run[0], &run[3]].map(s0));
+        assert_eq!(&buf[..n], &slot0[..]);
+        // the signer's outcomes as the cold thread publishes them
+        let row = |intent, lead, ret| rugsnipe_state::rows::OutcomeRow {
+            intent_id: intent,
+            mint: Pubkey::new_unique(),
+            signer: h.user,
+            launch_ms: 0,
+            outcome: "filled".into(),
+            lead,
+            ret,
+            tp_hit: lead,
+            s0_third: Some(2),
+            bundle_wallets: vec![],
+            written_ms: 0,
+        };
+        let store = OutcomeStore::from_rows(&[row(1, true, 0.12), row(2, false, 0.0)]);
+        let snap = op_snapshot(&store);
+        let op = snap.load().get(&h.user).copied().unwrap();
+        assert_eq!(op, store.signer(&h.user).features());
+        assert_ne!(op, OpStats::default().features());
+        let (now, slot, rates) = (1_791_990_000i64, 456_794_475u64, (Some(41), None));
+        let (f, scored) = presend_features(&buf[..n], &h, Some(ci), &op, now, slot, rates);
+        assert!(scored);
+        let cset = [h.creator_arg, h.user, h.fee_payer.unwrap()];
+        let b = bundle_features(&slot0, &cset, None).unwrap();
+        assert_eq!(b.wallets, vec![w1, w2, w3]);
+        assert_eq!(f.x[BUNDLE..BUNDLE + N_BUNDLE], b.x);
+        let j = fx.json_parsed();
+        let want = create_tx_features(
+            &j,
+            Some(ci),
+            &h.creator_arg,
+            &h.user,
+            &create_uri(&j),
+            &m.tip_accounts,
+        );
+        assert_eq!(f.x[CREATE_TX..CREATE_TX + N_CREATE], want);
+        assert_eq!(
+            f.x[FUNDING..FUNDING + N_FUNDING],
+            funding_features(&Funding::default())
+        );
+        assert_eq!(f.x[FUNDING..FUNDING + N_FUNDING], [0.0; N_FUNDING]);
+        assert_eq!(f.x[OPERATOR..OPERATOR + N_OPERATOR], op);
+        assert_eq!(
+            f.x[TIME..TIME + N_TIME],
+            time_features(now, slot, Some(41), None)
+        );
+        assert!((0.0..=1.0).contains(&m.score(&f)));
+        // no create trade: the bundle block is zeros and the vector unscored
+        let mut no_dev = h;
+        no_dev.intx_buys = 0;
+        let n = p.run.collect(create_trade(&no_dev, ci), &mut buf);
+        let (f, scored) = presend_features(&buf[..n], &no_dev, Some(ci), &op, now, slot, rates);
+        assert!(!scored);
+        assert_eq!(f.x[BUNDLE..BUNDLE + N_BUNDLE], [0.0; N_BUNDLE]);
+    }
+
     #[test]
     fn no_wait_fires_on_the_first_bundle_buy() {
         let (owner, dev, creator, w1) = (
@@ -4015,5 +4933,37 @@ mod bundle_gate_tests {
             ParkStep::Fire
         );
         assert_eq!(p.pb, Some((33_000_000_000, 1)));
+    }
+
+    /// `entry.bundle_wallets` counts the park's buyers outside the creator
+    /// set (rt.json's `n_bw`): a buyer that is also a buyer or signer of the
+    /// create transaction, or its fee payer, is not a bundle wallet.
+    #[test]
+    fn bundle_wallets_are_counted_outside_the_creator_set() {
+        use crate::operators::{bundle_shape_ok, bundle_wallet_count};
+        let (dev, cre, cobuyer) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let mut h = hit(dev, cre);
+        h.intx_buyers.push(cobuyer);
+        let mut p = parked(&h, 10);
+        let owner = Pubkey::new_unique();
+        let (w1, w2) = (Pubkey::new_unique(), Pubkey::new_unique());
+        for (k, u) in [w1, w2, cobuyer, w1].iter().enumerate() {
+            let t = trade(h.mint, *u, true, 100, 11 + k as u32);
+            park_trade(&mut p, &t, &owner, 1_000_000, 0);
+        }
+        // the park keeps distinct buyers (dev and creator never trigger)
+        assert_eq!(p.n_wallets, 3);
+        assert_eq!(
+            bundle_wallet_count(&p),
+            2,
+            "the create tx's co-buyer is creator set"
+        );
+        assert!(bundle_shape_ok(&[2, 3, 4], 2));
+        assert!(!bundle_shape_ok(&[3], 2));
+        assert!(bundle_shape_ok(&[], 0), "empty = any");
     }
 }

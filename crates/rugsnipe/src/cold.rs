@@ -103,6 +103,9 @@ pub struct ColdCfg {
     /// assembles each E1 verdict's features and keeps the outcome store.
     pub filter: Option<Arc<crate::filter::Model>>,
     pub filter_mode: rugsnipe_core::config::FilterMode,
+    /// The pre-send entry gate's model and mode (the `presend` rows).
+    pub presend: Option<Arc<crate::filter::Model>>,
+    pub presend_mode: rugsnipe_core::config::PresendMode,
     /// Probe: the real fill lane and the signer of the keeper's burns.
     pub real: Option<RealCold>,
     /// Kill triggers and the persisted latch.
@@ -715,6 +718,11 @@ pub struct ColdParts {
     pub post_exec: Option<PostExecFeed>,
     /// The leader schedule (shared with the hot loop).
     pub leaders: LeaderSnapshot,
+    /// The operator-dump set (shared with the hot loop; seeded from `dumpers`).
+    pub dumpers: crate::dumpers::DumperSnapshot,
+    /// The outcome store's operator features per signer (shared with the
+    /// hot loop's pre-send gate; republished when the store changes).
+    pub presend_ops: crate::filter::OpSnapshot,
 }
 
 /// Start the cold thread; it returns when `shared.stop` is set and the
@@ -785,6 +793,8 @@ struct Cold {
     deadman: crate::deadman::DeadMan,
     /// Creator set of each pending intent's mint (feed bundle runs).
     mint_info: HashMap<Pubkey, (u64, Pubkey, Pubkey)>,
+    /// The operator-dump tracker (every bundled launch the feed shows).
+    dump: crate::dumpers::DumpTracker,
 }
 
 /// A burn not confirmed by a new nonce value after this many slots is re-sent.
@@ -805,6 +815,7 @@ fn pos_state(s: PositionState) -> Option<PosState> {
 
 impl Cold {
     fn new(p: ColdParts) -> Self {
+        let dumpers = p.dumpers.clone();
         let (e2_tx, e2_rx) = tokio::sync::mpsc::unbounded_channel();
         let (e1_tx, e1_rx) = tokio::sync::mpsc::unbounded_channel();
         let n = p.nonces.len();
@@ -858,6 +869,7 @@ impl Cold {
             hourly_at: now + 3_600,
             deadman,
             mint_info: HashMap::new(),
+            dump: crate::dumpers::DumpTracker::new(dumpers),
         }
     }
 
@@ -1270,6 +1282,13 @@ impl Cold {
     /// into the store and `state.db`.
     fn flush_outcomes(&mut self, all: bool) {
         let rows = self.lane.take_due(crate::now_ms(), all);
+        if !rows.is_empty() {
+            // the store changed: the hot loop's pre-send gate reads the new
+            // operator features (once a second at most: every_second)
+            self.p
+                .presend_ops
+                .store(Arc::new(self.lane.store.op_features()));
+        }
         if let Some(l) = &self.p.ledger {
             for r in rows {
                 l.writer().send(Write::Outcome(r));
@@ -1660,6 +1679,23 @@ impl Cold {
                 self.feed_watch(m, false);
                 self.marks.remove(&m);
             }
+            ColdMsg::MintTrade(t) => {
+                let rows = self.dump.on_trade(&t, crate::now_ms());
+                if !rows.is_empty() {
+                    eprintln!(
+                        "dumpers: {} wallets of mint {} marked (insiders sold within {} slots); set {}",
+                        rows.len(),
+                        t.mint,
+                        crate::dumpers::DUMP_SLOTS,
+                        self.dump.len()
+                    );
+                    if let Some(l) = &self.p.ledger {
+                        for r in rows {
+                            l.writer().send(Write::Dumper(r));
+                        }
+                    }
+                }
+            }
             ColdMsg::FeedSeen {
                 src,
                 sig_hash,
@@ -1849,6 +1885,35 @@ impl Cold {
                     l.writer().send(Write::Filter(row));
                 }
                 self.sync_filter();
+            }
+            ColdMsg::Presend {
+                intent,
+                mint,
+                scored,
+                score,
+                tertile,
+                skipped,
+                feat,
+            } => {
+                if let Some(l) = &ledger {
+                    l.writer().send(Write::Presend(PresendRow {
+                        intent_id: intent as i64,
+                        mint,
+                        model: self
+                            .p
+                            .cfg
+                            .presend
+                            .as_ref()
+                            .map(|m| m.name.clone())
+                            .unwrap_or_default(),
+                        score: scored.then_some(score),
+                        tertile: scored.then_some(tertile),
+                        mode: self.p.cfg.presend_mode.as_str().into(),
+                        skipped,
+                        features: serde_json::to_string(&feat.x.to_vec()).unwrap_or_default(),
+                        written_ms: crate::now_ms(),
+                    }));
+                }
             }
             ColdMsg::Shadow {
                 intent,
@@ -2552,6 +2617,8 @@ impl Cold {
     /// bundle features computed from the stream (`feed_bundle` row for a
     /// launch we decided on).
     fn on_bundle_run(&mut self, run: rugsnipe_feed::bundle::BundleRun) {
+        self.dump.on_run(&run);
+        self.dump.prune(run.slot);
         let info = self.mint_info.get(&run.mint).copied();
         let mut cset: Vec<Pubkey> = run
             .trades

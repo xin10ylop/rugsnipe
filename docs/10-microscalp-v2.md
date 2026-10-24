@@ -1,5 +1,9 @@
 # 10. Micro-scalp v2: the dry-run strategy rebuilt on the live plumbing (2026-10-24)
 
+> **Shelved (2026-10-24, 13:00 UTC).** The live box stays on the operator bot (docs/09, docs/11). The v2 code is in
+> commit 0f0d78a and is not on this branch any more: the branch's code is the live operator bot (3a79c22). The
+> deploy steps below apply only after restoring that commit.
+
 This replaces docs/09 (the operator wave) on the live box. The code is the dry run's own code (0aae91c) plus the
 live fixes that do not change the strategy. `deploy/bin/rugsnipe-microscalp-config` converts the box's config, and
 `deploy/bin/rugsnipe-check` judges a live day against the dry run.

@@ -251,7 +251,7 @@ fn ledger_flow_and_intent_state_machine() {
         Some("3")
     );
     let counts = rugsnipe_state::schema::row_counts(&c).unwrap();
-    assert_eq!(counts.len(), 15);
+    assert_eq!(counts.len(), rugsnipe_state::schema::TABLES.len());
     drop(c);
     // durable across reopen
     assert!(s.close() >= 8);
@@ -667,6 +667,69 @@ fn filter_rows_and_outcome_store_round_trip() {
         .unwrap();
     assert_eq!((score, tertile), (0.231, 2));
     assert_eq!(store::load_outcomes(&c).unwrap(), vec![o2, o]);
+}
+
+/// The pre-send entry gate's `presend` row: upsert by intent, an unscored
+/// decision keeps its features with a NULL score.
+#[test]
+fn presend_rows_upsert_by_intent() {
+    let (_tmp, p) = tmp_guarded("presend");
+    let s = StateStore::open(&p).unwrap();
+    let mint = Pubkey::new_unique();
+    let row = PresendRow {
+        intent_id: 9,
+        mint,
+        model: "entry_filter_v2".into(),
+        score: Some(0.125),
+        tertile: Some(0),
+        mode: "skip".into(),
+        skipped: true,
+        features: "[0.0,1.5]".into(),
+        written_ms: 1_791_990_000_000,
+    };
+    let w = s.writer();
+    w.send(Write::Presend(row.clone()));
+    w.send(Write::Presend(PresendRow {
+        intent_id: 10,
+        score: None,
+        tertile: None,
+        skipped: false,
+        ..row.clone()
+    }));
+    // the same intent again replaces its row
+    w.send(Write::Presend(PresendRow {
+        score: Some(0.25),
+        ..row
+    }));
+    assert!(s.flush());
+    let c = s.reader().unwrap();
+    assert_eq!(count(&c, "presend"), 2);
+    let got: (Option<f64>, Option<i64>, String, i64, String, i64) = c
+        .query_row(
+            "SELECT score, tertile, mode, skipped, features, written_ms FROM presend WHERE intent_id = 9",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        got,
+        (
+            Some(0.25),
+            Some(0),
+            "skip".into(),
+            1,
+            "[0.0,1.5]".into(),
+            1_791_990_000_000
+        )
+    );
+    let unscored: (Option<f64>, Option<i64>) = c
+        .query_row(
+            "SELECT score, tertile FROM presend WHERE intent_id = 10",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(unscored, (None, None));
 }
 
 #[test]

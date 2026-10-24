@@ -145,6 +145,8 @@ pub enum ExitReason {
     PhantomSl,
     NoActivity,
     MaxHold,
+    /// `hold_to_create_slot`: the slot reached create + H (docs/09).
+    HoldTo,
 }
 
 impl ExitReason {
@@ -167,6 +169,7 @@ impl ExitReason {
             ExitReason::PhantomSl => "phantom_sl".into(),
             ExitReason::NoActivity => "no_activity".into(),
             ExitReason::MaxHold => "max_hold".into(),
+            ExitReason::HoldTo => "hold_to".into(),
         }
     }
 }

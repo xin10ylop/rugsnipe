@@ -24,6 +24,8 @@
 //! walks fixed node arrays: no allocation, about a microsecond in release
 //! (`cargo run --release --example filter_bench`).
 
+use pump_codec::create_hit::CreateHit;
+use pump_codec::tx::TxVersion;
 use pump_codec::Pubkey;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -381,7 +383,7 @@ pub fn resolve_path(p: &str) -> std::path::PathBuf {
 // ----------------------------------------------------------------------------- bundle
 
 /// One trade of the creation slot (block order).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct S0Trade {
     /// Transaction index in the block.
     pub index: u32,
@@ -554,6 +556,143 @@ pub fn bundle_features(
     })
 }
 
+/// Trades [`bundle_x`] takes without allocating (the hot loop's park holds
+/// fewer).
+pub const SMALL_TRADES: usize = 16;
+
+/// The 17-vector of [`bundle_features`] (`me` from the post-bundle trade's
+/// reserves) without allocating, for the hot loop's pre-send gate: the same
+/// definitions, sums in the same order, on stack arrays. `trades` beyond
+/// [`SMALL_TRADES`] go to [`bundle_features`] (never on the hot path).
+pub fn bundle_x(trades: &[S0Trade], creator_set: &[Pubkey]) -> Option<[f64; N_BUNDLE]> {
+    const C: usize = SMALL_TRADES;
+    let n = trades.len();
+    if n > C {
+        return bundle_features(trades, creator_set, None).map(|b| b.x);
+    }
+    let in_c = |u: &Pubkey| creator_set.contains(u);
+    let ctx = trades.iter().find(|t| t.is_create)?.index;
+    let mut idx = [false; C];
+    for (i, t) in trades.iter().enumerate() {
+        if t.is_buy && (t.is_create || in_c(&t.user)) {
+            idx[i] = true;
+        }
+    }
+    let mut prev = ctx;
+    for (i, t) in trades.iter().enumerate() {
+        if t.index <= ctx {
+            continue;
+        }
+        if t.index - prev <= 2 && t.index - ctx <= 5 && t.is_buy {
+            idx[i] = true;
+            prev = t.index;
+        } else if t.index - prev > 2 || t.index - ctx > 5 {
+            break;
+        }
+    }
+    let pb = idx[..n].iter().rposition(|b| *b)?;
+    let mut wallets = [Pubkey::default(); C];
+    let mut nw = 0usize;
+    let (mut dev_sol, mut bsol) = (0.0f64, 0.0f64);
+    for (i, t) in trades.iter().enumerate() {
+        if !idx[i] {
+            continue;
+        }
+        let s = t.sol as f64 / 1e9;
+        if in_c(&t.user) {
+            dev_sol += s;
+        } else {
+            bsol += s;
+            if !wallets[..nw].contains(&t.user) {
+                wallets[nw] = t.user;
+                nw += 1;
+            }
+        }
+    }
+    let wallets = &wallets[..nw];
+    // the bundle wallets' slot-0 buys up to the post-bundle trade
+    let (mut sizes, mut toks) = ([0.0f64; C], [0.0f64; C]);
+    let mut nb = 0usize;
+    let mut per_w = [(Pubkey::default(), 0.0f64); C];
+    let mut npw = 0usize;
+    for t in &trades[..=pb] {
+        if !(t.is_buy && wallets.contains(&t.user)) {
+            continue;
+        }
+        sizes[nb] = t.sol as f64 / 1e9;
+        toks[nb] = t.tok as f64 / 1e6;
+        nb += 1;
+        match per_w[..npw].iter_mut().find(|(k, _)| *k == t.user) {
+            Some((_, s)) => *s += t.sol as f64 / 1e9,
+            None => {
+                per_w[npw] = (t.user, t.sol as f64 / 1e9);
+                npw += 1;
+            }
+        }
+    }
+    let (sizes, toks) = (&sizes[..nb], &toks[..nb]);
+    let mut wsz_buf = [0.0f64; C];
+    let wsz: &[f64] = if npw == 0 {
+        &wsz_buf[..1]
+    } else {
+        for (d, (_, s)) in wsz_buf.iter_mut().zip(&per_w[..npw]) {
+            *d = *s;
+        }
+        &wsz_buf[..npw]
+    };
+    let wmean = wsz.iter().sum::<f64>() / wsz.len() as f64;
+    let wmax = wsz.iter().cloned().fold(f64::MIN, f64::max);
+    let wmin = wsz.iter().cloned().fold(f64::MAX, f64::min);
+    let wstd = (wsz.iter().map(|x| (x - wmean).powi(2)).sum::<f64>() / wsz.len() as f64).sqrt();
+    let b_cv = if wmean > 0.0 && wsz.len() > 1 {
+        wstd / wmean
+    } else {
+        0.0
+    };
+    let b_round = if nb == 0 {
+        0.0
+    } else {
+        sizes.iter().filter(|x| roundish(**x)).count() as f64 / sizes.len() as f64
+    };
+    let tmax = toks.iter().cloned().fold(f64::MIN, f64::max);
+    let b_tok_eq = if nb > 0 && tmax > 0.0 {
+        toks.iter()
+            .filter(|x| (*x / tmax - 1.0).abs() < 0.002)
+            .count() as f64
+            / toks.len() as f64
+    } else {
+        0.0
+    };
+    let b_desc = sizes.len() > 1 && sizes.windows(2).all(|w| w[1] - w[0] <= 1e-9);
+    let tok_ins: f64 = trades[..=pb]
+        .iter()
+        .filter(|t| t.is_buy)
+        .map(|t| t.tok as f64 / 1e6)
+        .sum::<f64>()
+        / 1e9;
+    let me = mcap_sol(trades[pb].v, trades[pb].t);
+    let tot = bsol + dev_sol;
+    Some([
+        nw as f64,
+        bsol,
+        dev_sol,
+        tot,
+        me,
+        if tot > 0.0 { dev_sol / tot } else { 0.0 },
+        nb as f64,
+        wmax,
+        wmin,
+        wmean,
+        b_cv,
+        b_round,
+        b_tok_eq,
+        b_desc as u8 as f64,
+        (pb + 1) as f64,
+        (dev_sol > 0.0 && roundish(dev_sol)) as u8 as f64,
+        tok_ins,
+    ])
+}
+
 // ----------------------------------------------------------------------------- create tx
 
 /// `(source, destination, lamports)` of the System transfers of a jsonParsed
@@ -613,13 +752,15 @@ pub fn uri_host(uri: &str) -> Option<String> {
 
 /// The 7 uri features (`uri_ipfs`, one-hot host, `host_other`).
 pub fn uri_features(uri: &str) -> [f64; 7] {
+    uri_features_of(uri.contains("ipfs"), uri_host(uri).as_deref())
+}
+
+/// [`uri_features`] from the parts: the uri contains `ipfs`, its host
+/// (lower case, [`uri_host`]).
+pub fn uri_features_of(ipfs: bool, host: Option<&str>) -> [f64; 7] {
     let mut x = [0.0; 7];
-    x[0] = uri.contains("ipfs") as u8 as f64;
-    let host = uri_host(uri);
-    match host
-        .as_deref()
-        .and_then(|h| URI_HOSTS.iter().position(|k| *k == h))
-    {
+    x[0] = ipfs as u8 as f64;
+    match host.and_then(|h| URI_HOSTS.iter().position(|k| *k == h)) {
         Some(k) => x[1 + k] = 1.0,
         None => x[6] = 1.0,
     }
@@ -703,6 +844,48 @@ pub fn create_tx_features(
     x[12] = (*creator != d && *signer != d && creator != signer) as u8 as f64;
     x[13] = fee_payer.is_some_and(|f| *signer != d && f != *signer) as u8 as f64;
     x[14..].copy_from_slice(&uri_features(uri));
+    x
+}
+
+/// [`create_tx_features`] before the send, from the hot loop's decode of
+/// the create's wire bytes ([`CreateHit::tx_shape`]; no allocation). Every
+/// feature has the JSON path's definition; the differences:
+///
+/// * `prio_sol` / `prio_log`: the priority fee the compute-budget requests
+///   charge ([`pump_codec::create_hit::TxShape::priority_lamports`]) instead of `meta.fee - 5,000 x
+///   signatures` (equal unless the transaction pays for precompile
+///   signatures; without a `SetComputeUnitLimit` the runtime's default
+///   limit is modelled as 200,000 per instruction, 3,000 per System /
+///   ComputeBudget instruction, capped at 1.4M);
+/// * `jito_tip` / `tip_sol`: transfers to the Jito tip accounts the codec
+///   knows ([`pump_codec::constants::JITO_TIP_ACCOUNTS`], checked equal to
+///   the model's at load), by CPI only when the feed carries the inner
+///   instructions (gRPC; a shreds feed sees the top-level transfers only);
+/// * a logs-path hit (no wire bytes) has the JSON path's missing-field
+///   defaults: no tip, no priority, no compute budget, 0 instructions, not
+///   v0, 0 signers, payer = signer.
+pub fn create_tx_features_wire(hit: &CreateHit, tx_index: Option<u32>) -> [f64; N_CREATE] {
+    let s = &hit.tx_shape;
+    let prio = s.priority_lamports();
+    let txi = tx_index.map_or(DEFAULT_TX_INDEX, |i| i as f64);
+    let d = Pubkey::default();
+    let (creator, signer) = (hit.creator_arg, hit.user);
+    let mut x = [0.0; N_CREATE];
+    x[0] = txi;
+    x[1] = txi.ln_1p();
+    x[2] = (s.tip_lamports > 0) as u8 as f64;
+    x[3] = s.tip_lamports as f64 / 1e9;
+    x[4] = prio as f64 / 1e9;
+    x[5] = (1.0 + prio as f64).log10();
+    x[6] = s.cu_limit.is_some() as u8 as f64;
+    x[7] = s.cu_limit.unwrap_or(0) as f64 / 1e5;
+    x[8] = (1.0 + s.cu_price.unwrap_or(0) as f64).log10();
+    x[9] = s.n_ix as f64;
+    x[10] = (hit.version == Some(TxVersion::V0)) as u8 as f64;
+    x[11] = s.n_signers as f64;
+    x[12] = (creator != d && signer != d && creator != signer) as u8 as f64;
+    x[13] = hit.fee_payer.is_some_and(|f| signer != d && f != signer) as u8 as f64;
+    x[14..].copy_from_slice(&uri_features_of(s.uri_ipfs, s.uri_host()));
     x
 }
 
@@ -922,6 +1105,80 @@ pub fn assemble(
     f.x[OPERATOR..OPERATOR + N_OPERATOR].copy_from_slice(op);
     f.x[TIME..TIME + N_TIME].copy_from_slice(time);
     f
+}
+
+// ----------------------------------------------------------------------------- pre-send
+
+/// The operator features of every signer the outcome store knows, as the
+/// cold thread last published them (refreshed at most once a second after
+/// the store changes); the hot loop reads it at the fire point.
+pub type OpSnapshot = Arc<arc_swap::ArcSwap<HashMap<Pubkey, [f64; N_OPERATOR]>>>;
+
+impl OutcomeStore {
+    /// Every signer's operator features ([`OpSnapshot`]).
+    pub fn op_features(&self) -> HashMap<Pubkey, [f64; N_OPERATOR]> {
+        self.signers
+            .iter()
+            .map(|(k, s)| (*k, s.features()))
+            .collect()
+    }
+}
+
+/// An [`OpSnapshot`] of `store`.
+pub fn op_snapshot(store: &OutcomeStore) -> OpSnapshot {
+    Arc::new(arc_swap::ArcSwap::from_pointee(store.op_features()))
+}
+
+/// The funding block before the send: always unknown funding (the model
+/// is retrained with funding masked to exactly these values).
+pub fn masked_funding() -> [f64; N_FUNDING] {
+    funding_features(&Funding::default())
+}
+
+/// The create's own trade as the creation slot shows it: one trade with the
+/// create transaction's in-tx buy totals (`intx_*`; several in-tx buys are
+/// summed) at the curve after them, `None` without an in-tx buy.
+pub fn create_trade(hit: &CreateHit, index: u32) -> Option<S0Trade> {
+    if hit.intx_buys == 0 {
+        return None;
+    }
+    let (v, t) = crate::convert::v0_of(hit);
+    Some(S0Trade {
+        index,
+        is_create: true,
+        user: hit.user,
+        is_buy: true,
+        sol: hit.intx_sol_in,
+        tok: hit.intx_tokens_out,
+        v,
+        t,
+    })
+}
+
+/// The pre-send feature vector: the bundle block of `trades` (the creation
+/// slot's trades of the mint seen so far, block order, the create's own
+/// first; zeros when [`bundle_x`] has none: `scored = false`), the create
+/// transaction's wire features, the masked funding, the signer's operator
+/// features `op`, the time features at `now_unix`. No allocation.
+pub fn presend_features(
+    trades: &[S0Trade],
+    hit: &CreateHit,
+    tx_index: Option<u32>,
+    op: &[f64; N_OPERATOR],
+    now_unix: i64,
+    slot: u64,
+    rates: (Option<u32>, Option<u32>),
+) -> (Feat, bool) {
+    let cset = [hit.creator_arg, hit.user, hit.fee_payer.unwrap_or(hit.user)];
+    let b = bundle_x(trades, &cset);
+    let f = assemble(
+        &b.unwrap_or([0.0; N_BUNDLE]),
+        &create_tx_features_wire(hit, tx_index),
+        &masked_funding(),
+        op,
+        &time_features(now_unix, slot, rates.0, rates.1),
+    );
+    (f, b.is_some())
 }
 
 /// Creates seen in the last 60 / 600 s, for the hot thread: a fixed ring of
@@ -1185,6 +1442,83 @@ mod tests {
         lane.on_shadow(5, ShadowOutcome::Class, 0, now);
         assert_eq!(lane.take_due(u64::MAX, true).len(), 0);
         assert_eq!(lane.pending(), 1, "launch 3 still open");
+    }
+
+    /// The hot loop's allocation-free bundle block equals
+    /// `bundle_features` on the same trades: random creation slots (runs
+    /// with gaps, sells, repeat wallets, creator-set buys, the create's own
+    /// trade first or missing).
+    #[test]
+    fn bundle_x_matches_bundle_features() {
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+        let mut rnd = |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        let keys: Vec<Pubkey> = (0..6).map(|_| Pubkey::new_unique()).collect();
+        let (dev, creator) = (keys[0], keys[1]);
+        let mut n_some = 0;
+        for _ in 0..4_000 {
+            let n = 1 + rnd(SMALL_TRADES as u64) as usize;
+            let ci = 100 + rnd(3) as u32;
+            let mut idx = ci;
+            let mut trades = vec![];
+            for k in 0..n {
+                let is_create = k == 0 && rnd(8) != 0;
+                if !is_create {
+                    idx += rnd(3) as u32;
+                }
+                let sol = [500_000_000, 1_000_000_000, 123_456_789, 2_960_000_000][rnd(4) as usize];
+                trades.push(S0Trade {
+                    index: if is_create { ci } else { idx.max(ci) },
+                    is_create,
+                    user: if is_create {
+                        dev
+                    } else {
+                        keys[rnd(6) as usize]
+                    },
+                    is_buy: is_create || rnd(5) != 0,
+                    sol,
+                    tok: sol * (20 + rnd(3)),
+                    v: 30_000_000_000 + rnd(10) * 1_000_000_000,
+                    t: 1_000_000_000_000_000 - rnd(10) * 10_000_000_000_000,
+                });
+            }
+            let cset = [creator, dev, dev];
+            let want = bundle_features(&trades, &cset, None).map(|b| b.x);
+            assert_eq!(bundle_x(&trades, &cset), want, "{trades:?}");
+            n_some += want.is_some() as u32;
+        }
+        assert!(n_some > 2_000, "most draws have a bundle block: {n_some}");
+    }
+
+    /// The decoder's bounded uri fields give `uri_features` of the uri.
+    #[test]
+    fn wire_uri_parts_match_uri_features() {
+        let long = format!("https://{}.io/x", "a".repeat(70));
+        for uri in [
+            "https://ipfs.io/ipfs/QmX",
+            "https://Pump.MyPinata.cloud/ipfs/Qm",
+            "http://metadata.j7tracker.io/m/1",
+            "https://meta.uxento.io",
+            "https://m.rapidlaunch.io/x",
+            "HTTPS://ipfs.io/",
+            "ipfs://QmX",
+            "",
+            "https:///x",
+            "https://example.com/a/ipfs",
+            long.as_str(),
+        ] {
+            let mut s = pump_codec::create_hit::TxShape::default();
+            s.set_uri(uri);
+            assert_eq!(
+                uri_features_of(s.uri_ipfs, s.uri_host()),
+                uri_features(uri),
+                "{uri}"
+            );
+        }
     }
 
     #[test]

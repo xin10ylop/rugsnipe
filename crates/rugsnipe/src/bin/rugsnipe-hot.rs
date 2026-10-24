@@ -41,7 +41,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const USAGE: &str =
-    "usage: rugsnipe-hot --config <toml> [--mode paper|probe|live] [--live] [--probe-dry]
+    "usage: rugsnipe-hot --config <toml> [--overlay <toml>] [--mode paper|probe|live] [--live] [--probe-dry]
     [--armset <armset-V-SHA.json>] [--paper-unsigned-armset] [--regime <name>]
     [--state <state.db>] [--rslog-dir <dir>] [--duration-s N] [--record <dir>]
     [--max-watches N] [--rpc-url <https url>] [--no-e2] [--lane-rps R] [--no-metrics]
@@ -50,6 +50,8 @@ const USAGE: &str =
 
   --probe-dry  probe mode: load the real keys, sign with them, send nothing; print
                the first signed transaction (base64) and simulateTransaction results
+  --overlay    a TOML merged over --config (tables key by key; the paper-wide instance:
+               the live config with a few keys replaced, deploy/paper-wide.toml)
   --no-e2      no paper fill lane (every model falls back to E2 from buffered trades)
   --feed-wait-s  probe: how long the gRPC feed may take to deliver its first slot (default 20)
   --leader-schedule  paper: also run the leader schedule lane (probe always does)
@@ -172,7 +174,12 @@ fn install_panic_latch(kill_file: PathBuf, state: PathBuf) {
 
 fn run(args: &[String]) -> Result<(), String> {
     let cfg_path = opt(args, "--config").ok_or(format!("--config required\n{USAGE}"))?;
-    let mut cfg = rugsnipe::setup::load_config(&PathBuf::from(cfg_path))?;
+    let mut cfg = match opt(args, "--overlay") {
+        Some(o) => {
+            rugsnipe::setup::load_config_overlay(&PathBuf::from(cfg_path), &PathBuf::from(o))?
+        }
+        None => rugsnipe::setup::load_config(&PathBuf::from(cfg_path))?,
+    };
     if let Some(m) = opt(args, "--mode") {
         cfg.mode.mode = m.parse::<Mode>()?;
     }
@@ -966,20 +973,48 @@ fn run(args: &[String]) -> Result<(), String> {
                     .unwrap_or_default();
             let gate = if c.parked > 0 {
                 format!(
-                    " | gate parked {} fired {} run_done {} not_first {} creator_only {} wait_us {} wallets@fire 0-5 {}",
+                    " | gate parked {} fired {} run_done {} not_first {} wait_us {} wallets@fire 0-5 {}",
                     c.parked,
                     c.bundle_fired,
                     c.run_done,
                     c.not_first,
-                    c.creator_only,
                     c.bundle_wait_us / c.bundle_fired.max(1),
                     c.fire_wallets.map(|n| n.to_string()).join("/")
                 )
             } else {
                 String::new()
             };
+            let presend = app
+                .hot
+                .presend_desc()
+                .map(|(mode, cut)| {
+                    let t = c.presend_tertiles;
+                    format!(
+                        " | presend {mode} {cut} scored {} skipped {} low/mid/high {}/{}/{}{}",
+                        c.presend_scored,
+                        c.presend_skipped,
+                        t[0],
+                        t[1],
+                        t[2],
+                        if c.presend_unscored > 0 {
+                            format!(" unscored {}", c.presend_unscored)
+                        } else {
+                            String::new()
+                        }
+                    )
+                })
+                .unwrap_or_default();
+            // the pick-template gates (docs/09): skips by gate
+            let template = if app.hot.template_on() {
+                format!(
+                    " | template too_big {} bundle_sol {} dev_buy {} uri_host {}",
+                    c.skip_too_big, c.skip_bundle_sol, c.skip_dev_buy, c.skip_uri_host
+                )
+            } else {
+                String::new()
+            };
             eprintln!(
-                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {}{gate} | {kill}{g} | {} | {}",
+                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {}{gate}{presend}{template} | {kill}{g} | {} | {}",
                 t0.elapsed().as_secs(),
                 c.events,
                 c.creates,

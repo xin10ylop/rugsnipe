@@ -104,9 +104,7 @@ RUST_BINS=(rugsnipe-hot rugsnipe-guard rugsnipe-keeper rugsnipe-ctl rugsnipe-rep
 if [ "$ROLE" = hot ]; then
   UNITS=(rugsnipe-keeper.service rugsnipe-guard.service rugsnipe-hot.service rugsnipe-tune.service shredstream-proxy.service
          rugsnipe-operators.service rugsnipe-operators.timer rugsnipe-paper-wide.service)
-  # the operator-wave table refresh (rugsnipe-operators.timer) is installed but never enabled: the micro-scalp
-  # (docs/10) reads no table, and the timer try-restarts rugsnipe-hot every 4 h
-  ENABLE_UNITS=(rugsnipe-keeper.service rugsnipe-guard.service rugsnipe-hot.service rugsnipe.target)
+  ENABLE_UNITS=(rugsnipe-keeper.service rugsnipe-guard.service rugsnipe-hot.service rugsnipe-operators.timer rugsnipe.target)
 else
   UNITS=(rugsnipe-collector.service rugsnipe-discover.service rugsnipe-discover.timer)
   ENABLE_UNITS=(rugsnipe-collector.service rugsnipe-discover.timer rugsnipe.target)
@@ -592,7 +590,7 @@ else
   systemctl list-dependencies rugsnipe.target   # keeper, guard and hot must be listed
   sudo systemctl start rugsnipe.target
   sudo touch /run/rugsnipe/KILL                 # kill latch: buys stop, exits continue
-  # micro-scalp (docs/10): no operator table; if the operator-wave refresh timer is still on, turn it off
-  sudo systemctl disable --now rugsnipe-operators.timer
+  # operator wave (docs/09): with [entry] operators_file = "/etc/rugsnipe/operators.json",
+  sudo systemctl enable --now rugsnipe-operators.timer   # every 4 h at :50 UTC, then try-restart rugsnipe-hot
 EOF
 fi

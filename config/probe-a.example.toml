@@ -141,16 +141,41 @@ b = { max_probe_lamports = 250_000_000, max_probes_per_day = 300, max_open_posit
 kill = { min_landed = 100, min_attempts = 400, max_median_premium = 0.03, landing_attempts = 200 }
 [entry]
 require_bundle = true                              # 2026-10-22: a real buy fires only once another wallet's buy of the mint shows in the create slot (the launch is bundled: the LEAD policy's population, docs/04 section 2), right behind the bundle; a create slot that moves on without one is skipped as skip_no_bundle at no cost. Stage B's first 10 attempts were all unbundled launches (feed_bundle.bundle_wallets = 0) and all exited on no_activity at -2.5%. Needs feeds.grpc bundle_run = true
+dev_buy_sol = [5.0, 2.96, 6.91, 3.85]               # 2026-10-23: operator templates whose launches paid on the population this box lands (no sniper in the create slot): +3.7% in the dry run, both halves positive; the rest -0.95%. [] = any
+dev_buy_tol_sol = 0.005
+leader_regions = ["eu"]                             # 2026-10-23: fire only when the create slot's leader is in Europe (the box lands in the create slot 62% there, 33% North America, 9% Asia); [] = any
+leader_regions_file = "/var/lib/rugsnipe/data/leader_regions.json"   # installed from data/ by deploy/install.sh; regenerate with analysis/scripts/leader_regions.py
+dumper_skip = "log"                                 # 2026-10-23: a create whose dev, creator or bundle wallets dumped an earlier launch (insiders sold >= 50% of their tokens within 3 slots of the create; tracked live from every bundled launch the feed shows, persisted in state.db dumpers): "log" journals the hit and fires, "skip" drops it as skip_dumper, "off". The dry run: skipping such operators +0.6 points per fill out of sample (post-hoc rule, 52 launches): log first
 bundle_wait_us = 300                               # 2026-10-23: replaces bundle_wait_ms when set; the bundle's buys arrive within microseconds, the 2 ms wait was dead time (2-5 block positions) on every attempt
 bundle_wait_ms = 2                                 # 2026-10-22: the parked create waits this long after the first bundle buy for the rest of the run (the stream's run-complete signal or a trade at create+5 fires it earlier), then the buy is bound at the run's last trade: post-bundle price + max_premium, observed
 # probe-A: stated explicitly (these are the defaults). max_sol_cost = post-bundle price + 2%; bundle_lamports is only the fallback
 # when the run is not observed (require_bundle off). filter = "any" because this build cannot select bundled launches before it
 # sends (M4): the in-class read is afterwards
-max_premium = 0.02
+max_premium = 0.02                                 # 0.0 is valid (the operator wave, docs/09): min_tokens_out is then the exact quote at the run's last trade (the post-bundle state before our own buy), so any buy ahead of ours fails the buy on chain at base + priority fee (the tip reverts); our own impact is in the quote, never counted as premium. Paper: set paper.entry_premium = 0 with it, or every E1 attempt reads as a premium failure
 bundle_lamports = 4_000_000_000
 filter = "any"
 filter_model = ""
 filter_mode = "log"
+# The pre-send entry gate (off by default): the create scored at the fire point, before the send, on what is known then
+# (the bundle run seen so far, the create's wire bytes, the signer's outcomes, unknown funding, the time). "log" records
+# every decision that reaches the send (state.db presend, rslog Presend), "skip" also drops the ones scoring below the cut
+# (skip_presend). Use a model retrained with funding masked to unknown; log first.
+# presend_model = "/etc/rugsnipe/entry_filter_v2.json"
+# presend_mode = "log"                             # "off" | "log" | "skip"
+# presend_cut = "t2"                               # skip below the model's t1 (bottom tertile) or t2 (bottom two)
+# The operator wave (docs/09-operator-wave.md; every key off by default): the decoded rule set of the best wallet of 2026-10-23.
+# operators_file = "/var/lib/rugsnipe/data/operators/ahw-2026-10-23.json"   # the operator table: create signer (the create tx's fee payer) -> hold_slots (+ n, wins, pnl_sol, dev_sol, bundle_wallets); "" = none. Loaded once at start (refused if broken); a listed signer's position exits at create + hold_slots. Built by analysis/scripts/strategy/operators_from_rt.py
+# operators_only = true                            # false (default): every create, a listed signer gets its hold; true: skip any other create as skip_not_operator (nothing parked, nothing sent). Needs operators_file
+# bundle_wallets = [3]                             # [] (default) = any; else the parked run's distinct bundle wallets outside the creator set (signer, creator, fee payer, the create tx's buyers; at most 5 counted) must be listed, or skip_bundle_shape at no cost. Needs require_bundle = true. 69% of the copied trades had exactly 3
+# The pick template (docs/09-operator-wave.md "Picks"; every key off by default): what the copied wallet's buys look like
+# before the send. max_post_bundle_sol is the main one (its price / mcap bound).
+# max_post_bundle_sol = 47.0                       # 0 (default) = off; else skip_bundle_too_big (0x57) when the post-bundle virtual SOL the buy is bound at (the parked run's last creator-set / bundle trade; without a run V0, the curve after the dev buy) is above it, before risk or a nonce. Template ~37-47 (post-bundle mcap 36-65 SOL); the 2026-10-23 -58% loss was bought at ~58. Must be > 30 (the curve starts at 30)
+# max_bundle_sol = 17.0                            # 0 (default) = off; else skip_bundle_sol (0x58) when the dev buy + the run's creator-set and bundle buys exceed it (template ~7 SOL, p90 17; without a run the dev buy alone)
+# dev_buy_round = true                             # false (default); true: the dev buy may also be a whole number of SOL (+- dev_buy_tol_sol) in [dev_buy_round_min, dev_buy_round_max]; beside dev_buy_sol either passes, else skip_dev_buy (0x50) before the park. Set dev_buy_sol = [] for the round rule alone
+# dev_buy_round_min = 1.0                          # template: round dev buys of 1-6 SOL
+# dev_buy_round_max = 6.0
+# uri_hosts = ["uxento.io", "j7tracker.io", "gg.sc"]   # [] (default) = any; else the create's uri host must end in one (label boundary, any case: uxento.io matches meta.uxento.io), or skip_uri_host (0x59) before the park; a uri without an http(s) host fails a non-empty list
+# uri_hosts_deny = ["ipfs.io"]                     # [] (default) = none; hosts that skip the same way (the template disfavours ipfs.io)
 # probe-A: the LEAD exits of config/paper-lead.example.toml, NOT the 2x/3x example exits: the shadow being compared
 # with traded these, and with one position slot a 30-minute hold would block every attempt for minutes.
 [exit.default]                                     # docs/04 section 2, first of:
@@ -168,6 +193,7 @@ trail = { activate = 0.0, retrace_bps = 0 }        # off
 consolidation_pct = 0                              # off (needs a paid feed)
 big_buy_lamports = [0, 0]                          # off (not in the frozen policy)
 sell_retry = { every_slots = 2, max_tries = 15, tip_mult = 2.0 }
+# hold_to_create_slots = 6                         # the operator wave's exit (docs/09): sell 100% at create slot + N (not landing + N), at dump bounds, whatever the price; 0 (default) = off. The value is the hold of a signer NOT in entry.operators_file (6 or 10 at even odds in the sample); a listed signer's hold_slots replaces it per position. Coexists with the rules above (first trigger wins); the wave runs with them off: tp = [], insider_sell = "off", no_activity_ms = 0, phantom_sl = { after_ms = 0, drop = 0.0 }, max_hold_slots = 0
 # 2026-10-22 (night): the sell bid equals the buy bid. The shipped defaults (50,000 normal / 200,000 dump) put our sells at the
 # back of every priority-ordered leader's queue: 20 of 43 stage-B positions closed 3 to 8 slots after the policy's slot+5, and
 # one of them sold one slot after a 9.7 SOL dump (-44% instead of -3%). The dry run assumes the sell lands one slot after its
