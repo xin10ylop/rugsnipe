@@ -35,6 +35,13 @@ Steps
       signer through ``outcomes.signer`` (CreateEvent.user) when it is stored, reported as
       our_n / our_pnl_sol; positions without a stored signer are counted and skipped.
 
+``--source rpc`` (2026-10-24, for a box without Helius credits) reads (a) and (b) over standard JSON-RPC
+only, e.g. Triton (``--rpc-url``, else the ``--rpc-url-key`` line of --api-keys, default TRITON_URL):
+getSignaturesForAddress on the wallet then one getTransaction per landed trade, and per mint the oldest
+succeeded transaction before his first buy (the create: one getSignaturesForAddress, one getTransaction).
+It skips the failed attempts and leaves the bundle and dump facts empty (n_bw 0, no --drop-dumpers
+effect); the hot loop reads only hold_slots and stake_tier. About 140 calls per 2 hours of his history.
+
 The table is written atomically (tmp + fsync + rename) with --mode/--group, after checking
 every key is a 32-byte base58 pubkey and every hold_slots >= 1 (the hot loop refuses
 anything else). A window with fewer than --min-trades round trips aborts (exit 2) and leaves
@@ -154,8 +161,12 @@ class Api:
 
     def __init__(self, rpc_url: str, rps: float, cache_dir: str | None = None):
         self.rpc_url = rpc_url
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(rpc_url).query)
+        u = urllib.parse.urlparse(rpc_url)
+        q = urllib.parse.parse_qs(u.query)
         self.key = (q.get("api-key") or [""])[0]
+        # a token in the path (https://host/<token>, Triton) is redacted the same way
+        tail = u.path.rstrip("/").rsplit("/", 1)[-1]
+        self.path_token = tail if len(tail) >= 16 else ""
         self.gap = 1.0 / max(rps, 0.1)
         self.lock = threading.Lock()
         self.last = 0.0
@@ -166,7 +177,11 @@ class Api:
 
     def redact(self, s: Any) -> str:
         s = str(s)
-        return s.replace(self.key, "<key>") if self.key else s
+        if self.key:
+            s = s.replace(self.key, "<key>")
+        if self.path_token:
+            s = s.replace(self.path_token, "<key>")
+        return s
 
     def _throttle(self) -> None:
         with self.lock:
@@ -264,6 +279,17 @@ def read_rpc_url(path: str) -> str:
     if rpc_url:
         raise SystemExit(f"{path}: RPC_URL carries no api-key and there is no HELIUS_KEY line (the Enhanced API needs Helius)")
     raise SystemExit(f"no RPC_URL or HELIUS_KEY line in {path}")
+
+
+def read_named_url(path: str, name: str) -> str:
+    """The ``NAME = "https://..."`` line of the keys file (``--source rpc``: any standard JSON-RPC,
+    e.g. TRITON_URL)."""
+    with open(path) as f:
+        for line in f:
+            m = re.match(r'\s*' + re.escape(name) + r'\s*=\s*["\']([^"\']+)["\']', line)
+            if m:
+                return m.group(1)
+    raise SystemExit(f"no {name} line in {path}")
 
 
 # ------------------------------------------------------------------------------------ decoding
@@ -422,6 +448,87 @@ def pull_wallet(api: Api, w: str, cutoff: int, cache: bool) -> tuple[list[dict],
         if j[-1]["timestamp"] < cutoff:
             break
     return out, n_err, oldest or 0
+
+
+def parse_wallet_rpc_tx(tx: dict, w: str) -> dict | None:
+    """``parse_wallet_tx`` from a standard ``getTransaction`` (json encoding): the wallet's SOL
+    delta (fee included, plus its wrapped SOL), its one non-WSOL token leg and the slot guard."""
+    m, meta = tx["transaction"]["message"], tx.get("meta") or {}
+    la = meta.get("loadedAddresses") or {}
+    ks = list(m["accountKeys"]) + la.get("writable", []) + la.get("readonly", [])
+    if w not in ks:
+        return None
+    i = ks.index(w)
+    delta = meta["postBalances"][i] - meta["preBalances"][i]
+    pre = {b["accountIndex"]: b for b in meta.get("preTokenBalances") or []}
+    post = {b["accountIndex"]: b for b in meta.get("postTokenBalances") or []}
+    amt = lambda b: float(((b or {}).get("uiTokenAmount") or {}).get("uiAmount") or 0.0)  # noqa: E731
+    legs: dict[str, float] = collections.defaultdict(float)
+    wsol = 0.0
+    for k in set(pre) | set(post):
+        b = post.get(k) or pre.get(k)
+        if b.get("owner") != w:
+            continue
+        v = amt(post.get(k)) - amt(pre.get(k))
+        if b["mint"] == WSOL:
+            wsol += v
+        elif v:
+            legs[b["mint"]] += v
+    legs = {k: v for k, v in legs.items() if v}
+    if len(legs) != 1:
+        return None
+    (mint, v), = legs.items()
+    ixs = [{"programId": ks[ix["programIdIndex"]], "data": ix.get("data", "")} for ix in m["instructions"]]
+    return {"sig": tx["transaction"]["signatures"][0], "slot": tx["slot"], "ts": tx.get("blockTime") or 0,
+            "delta": delta + int(round(wsol * 1e9)), "mint": mint, "tok": v, "guard": slot_guard(ixs)}
+
+
+TX_OPTS = {"encoding": "json", "maxSupportedTransactionVersion": 1, "commitment": "confirmed"}
+
+
+def pull_wallet_rpc(api: Api, w: str, cutoff: int, cache: bool, workers: int) -> tuple[list[dict], int, int]:
+    """``pull_wallet`` over standard JSON-RPC (``--source rpc``): the wallet's signatures since
+    ``cutoff`` (getSignaturesForAddress, 1000 a page), then one getTransaction per landed one."""
+    sigs, before = [], None
+    for _ in range(100):
+        opt: dict[str, Any] = {"limit": 1000}
+        if before:
+            opt["before"] = before
+        page = api.rpc("getSignaturesForAddress", [w, opt]) or []
+        sigs += [x for x in page if (x.get("blockTime") or 0) >= cutoff]
+        if len(page) < 1000 or (page[-1].get("blockTime") or 0) < cutoff:
+            break
+        before = page[-1]["signature"]
+    ok = [x for x in sigs if x.get("err") is None]
+
+    def one(x):
+        tx = api.rpc("getTransaction", [x["signature"], TX_OPTS], cache=cache)
+        return parse_wallet_rpc_tx(tx, w) if tx else None
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+        out = [r for r in ex.map(one, ok) if r]
+    return out, len(sigs) - len(ok), min((x["slot"] for x in sigs), default=0)
+
+
+def curve_rows_rpc(api: Api, curve: str, before_sig: str, cache: bool) -> list[dict]:
+    """The create of a curve over standard JSON-RPC: the oldest succeeded transaction before
+    ``before_sig`` (his first buy, a slot or two after the create; up to two pages of 100), as a
+    one-row list. ``launch_facts`` then sees the create's own trades only: no bundle wallets and
+    no dump check on this source."""
+    before = before_sig
+    for _ in range(2):
+        sigs = api.rpc("getSignaturesForAddress", [curve, {"before": before, "limit": 100}], cache=cache) or []
+        ok = [x for x in sigs if x.get("err") is None]
+        if ok:
+            tx = api.rpc("getTransaction", [ok[-1]["signature"], TX_OPTS], cache=cache)
+            if tx:
+                r = norm_rpc_tx(tx)
+                if r["create"]:
+                    r["i"] = 0 if r["i"] is None else r["i"]
+                    return [r]
+        if len(sigs) < 100:
+            break
+        before = sigs[-1]["signature"]
+    return []
 
 
 def pull_attempts(api: Api, w: str, cutoff: int) -> list[dict]:
@@ -678,7 +785,11 @@ def summary(table: dict, old: dict, why: dict, top: int) -> str:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--api-keys", default="/etc/rugsnipe/keys/api-keys.toml", help="TOML with an RPC_URL line (Helius)")
-    ap.add_argument("--rpc-url", help="Helius RPC URL with ?api-key= (overrides --api-keys)")
+    ap.add_argument("--rpc-url", help="Helius RPC URL with ?api-key= (overrides --api-keys); with --source rpc any JSON-RPC URL")
+    ap.add_argument("--source", choices=("helius", "rpc"), default="helius",
+                    help="helius (default): Enhanced API + getTransactionsForAddress; rpc: standard JSON-RPC only "
+                         "(getSignaturesForAddress + getTransaction, e.g. Triton): no failed attempts, no bundle or dump facts")
+    ap.add_argument("--rpc-url-key", default="TRITON_URL", help="with --source rpc: the keys-file line holding the URL (default TRITON_URL)")
     ap.add_argument("--wallet", default=DEFAULT_WALLET, help="the copied wallet (default AHwJSnFN...)")
     ap.add_argument("--hours", type=float, default=24.0, help="history window (default 24)")
     ap.add_argument("--out", default="/etc/rugsnipe/operators.json", help="the table to write")
@@ -705,7 +816,11 @@ def main(argv: list[str] | None = None) -> int:
     log = lambda *x: print(*x, file=sys.stderr, flush=True)  # noqa: E731
 
     t0 = time.time()
-    url = a.rpc_url or read_rpc_url(a.api_keys)
+    if a.source == "rpc":
+        url = a.rpc_url or read_named_url(a.api_keys, a.rpc_url_key)
+        a.no_attempts = True  # failed attempts need getTransactionsForAddress
+    else:
+        url = a.rpc_url or read_rpc_url(a.api_keys)
     api = Api(url, a.rps, a.cache_dir)
     cache = bool(a.cache_dir)
     now = time.time()
@@ -713,7 +828,10 @@ def main(argv: list[str] | None = None) -> int:
     w = a.wallet
 
     # (a) landed trades and failed attempts
-    trades, n_enh_err, oldest_slot = pull_wallet(api, w, cutoff, cache)
+    if a.source == "rpc":
+        trades, n_enh_err, oldest_slot = pull_wallet_rpc(api, w, cutoff, cache, a.workers)
+    else:
+        trades, n_enh_err, oldest_slot = pull_wallet(api, w, cutoff, cache)
     per: dict[str, dict] = collections.OrderedDict()
     for p in sorted(trades, key=lambda p: p["slot"]):
         d = per.setdefault(p["mint"], {"buys": [], "sells": []})
@@ -736,7 +854,9 @@ def main(argv: list[str] | None = None) -> int:
                 b0 = d["buys"][0]
                 g = b0["guard"]  # the buy's slot window starts at the create slot
                 cs = g[0] if g and 0 < g[0] <= b0["slot"] else b0["slot"]
-                if a.curve_source == "gtfa":
+                if a.source == "rpc":
+                    rows = curve_rows_rpc(api, curve, b0["sig"], cache)
+                elif a.curve_source == "gtfa":
                     rows = curve_rows_gtfa(api, curve, cs + DUMP_SLOTS, cache)
                 else:
                     rows = curve_rows_enhanced(api, curve, (d["sells"][0]["sig"] if d["sells"] else None), cache)

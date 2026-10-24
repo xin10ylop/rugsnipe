@@ -107,8 +107,96 @@ class Refresh(unittest.TestCase):
         self.assertEqual(os.listdir(d), ["operators.json"])  # no tmp file left
 
 
-if __name__ == "__main__":
-    unittest.main()
+def create_ev(mint, user, creator):
+    """CreateEvent data (event-CPI tag + discriminator, borsh name/symbol/uri, then the keys)."""
+    body = b"".join(struct.pack("<I", len(x)) + x for x in (b"Coin", b"COIN", b"https://meta.uxento.io/data/x"))
+    body += op.b58d(mint) + op.b58d(B1) + op.b58d(user) + op.b58d(creator)
+    return op.b58e(op.EVENT_TAG + op.DISC_CREATE + body)
+
+
+def trade_ev(mint, user, buy, sol, tok):
+    body = op.b58d(mint) + struct.pack("<QQ", sol, tok) + bytes([1 if buy else 0]) + op.b58d(user)
+    body += struct.pack("<q", 1792700000) + struct.pack("<QQ", 31_000_000_000, 1_000_000_000_000_000)
+    return op.b58e(op.EVENT_TAG + op.DISC_TRADE + body)
+
+
+def rpc_tx(slot, keys, pre, post, tok_pre, tok_post, ixs, inner=(), sig="s1"):
+    return {"slot": slot, "blockTime": 1792700000 + slot,
+            "transaction": {"signatures": [sig], "message": {"accountKeys": keys, "header": {"numRequiredSignatures": 1},
+                                                             "instructions": ixs}},
+            "meta": {"err": None, "preBalances": pre, "postBalances": post, "preTokenBalances": tok_pre,
+                     "postTokenBalances": tok_post, "innerInstructions": [{"index": 0, "instructions": list(inner)}]}}
+
+
+def tb(i, mint, owner, ui):
+    return {"accountIndex": i, "mint": mint, "owner": owner, "uiTokenAmount": {"uiAmount": ui}}
+
+
+class FakeApi:
+    def __init__(self, sigs, txs):
+        self.sigs, self.txs, self.calls = sigs, txs, []
+
+    def rpc(self, method, params, cache=False):
+        self.calls.append(method)
+        if method == "getSignaturesForAddress":
+            return self.sigs
+        return self.txs.get(params[0])
+
+
+class StandardRpc(unittest.TestCase):
+    """--source rpc: the wallet's trades and each launch's create from plain JSON-RPC."""
+
+    def test_wallet_buy_and_sell_from_get_transaction(self):
+        guard = op.b58e(struct.pack("<QQ", 1000, 1001))
+        keys = [W, "ATA1", MINT, op.SLOT_GUARD, op.PUMP]
+        buy = rpc_tx(1000, keys, [2_000_000_000, 0, 0, 0, 0], [1_499_000_000, 0, 0, 0, 0], [],
+                     [tb(1, MINT, W, 1_000_000.0)], [{"programIdIndex": 3, "data": guard, "accounts": []}])
+        p = op.parse_wallet_rpc_tx(buy, W)
+        self.assertEqual((p["mint"], p["slot"], p["delta"], p["guard"]), (MINT, 1000, -501_000_000, (1000, 1001)))
+        self.assertGreater(p["tok"], 0)
+        # the sell closes the token account (no post balance) and pays back through wrapped SOL
+        keys2 = [W, "ATA1", "WSOLATA", MINT, op.PUMP]
+        sell = rpc_tx(1006, keys2, [1_499_000_000, 0, 0, 0, 0], [1_499_000_000, 0, 0, 0, 0],
+                      [tb(1, MINT, W, 1_000_000.0), tb(2, op.WSOL, W, 0.0)], [tb(2, op.WSOL, W, 0.52)], [])
+        q = op.parse_wallet_rpc_tx(sell, W)
+        self.assertEqual((q["mint"], q["delta"]), (MINT, 520_000_000))
+        self.assertLess(q["tok"], 0)
+        self.assertIsNone(q["guard"])
+        # someone else's transaction, or two token legs: not a trade of the wallet
+        self.assertIsNone(op.parse_wallet_rpc_tx(rpc_tx(1, ["X"], [0], [0], [], [], []), W))
+        two = rpc_tx(1, keys, [1, 0, 0, 0, 0], [1, 0, 0, 0, 0], [],
+                     [tb(1, MINT, W, 5.0), tb(2, "OtherMint", W, 5.0)], [])
+        self.assertIsNone(op.parse_wallet_rpc_tx(two, W))
+
+    def test_curve_create_is_the_oldest_signature_before_his_buy(self):
+        create = rpc_tx(1000, [DEV, MINT, op.PUMP], [0, 0, 0], [0, 0, 0], [], [], [],
+                        inner=[{"programIdIndex": 2, "data": create_ev(MINT, DEV, DEV)},
+                               {"programIdIndex": 2, "data": trade_ev(MINT, DEV, True, 3_000_000_000, 10**14)}], sig="C")
+        sigs = [{"signature": "B2", "err": None}, {"signature": "F", "err": {"x": 1}}, {"signature": "C", "err": None}]
+        api = FakeApi(sigs, {"C": create})
+        rows = op.curve_rows_rpc(api, op.bonding_curve(MINT), "HISBUY", False)
+        self.assertEqual(len(rows), 1)
+        f = op.launch_facts(rows, MINT, W)
+        self.assertEqual((f["signer"], f["cs"], f["n_bw"], f["dump"]), (DEV, 1000, 0, None))
+        self.assertAlmostEqual(f["dev_sol"], 3.0)
+        self.assertEqual(api.calls, ["getSignaturesForAddress", "getTransaction"])
+        # no create among the signatures: nothing
+        self.assertEqual(op.curve_rows_rpc(FakeApi(sigs[:1], {"B2": rpc_tx(1001, [W], [0], [0], [], [], [])}),
+                                           "curve", "HISBUY", False), [])
+
+    def test_named_url_line_and_path_token_redaction(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as f:
+            f.write('RPC_URL = "https://rpc.example/?api-key=TEST"\nTRITON_URL = "https://x.rpcpool.com/abcdefghijklmnopqrstuvwxyz0123"\n')
+        try:
+            u = op.read_named_url(f.name, "TRITON_URL")
+            self.assertEqual(u, "https://x.rpcpool.com/abcdefghijklmnopqrstuvwxyz0123")
+            api = op.Api(u, 5.0)
+            self.assertEqual(api.redact(f"failed {u}"), "failed https://x.rpcpool.com/<key>")
+            with self.assertRaises(SystemExit):
+                op.read_named_url(f.name, "NOPE")
+        finally:
+            os.unlink(f.name)
+
 
 
 class StakeTier(unittest.TestCase):
@@ -126,3 +214,6 @@ class StakeTier(unittest.TestCase):
         self.assertEqual(f["S"]["stake_tier"], 1)
         self.assertEqual(f["S"]["hold_slots"], 6)
 
+
+if __name__ == "__main__":
+    unittest.main()

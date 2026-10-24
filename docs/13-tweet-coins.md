@@ -179,11 +179,37 @@ tweet_late_slots = 1
 hold_to_create_slots = 10
 ```
 
-**The deployer table.** Rebuild it with a 7-day memory. In `rugsnipe-operators.service`, add
-`--keep-days 7 --decay 1.0 --min-n 1` to `ExecStart`, so a deployer stays listed for 7 days after his last trade on it.
+**The deployer table.** It must remember 7 days and be refreshed every 4 hours.
 
-The refresh reads his history through the Helius Enhanced API. With the Helius key at its usage limit the refresh
-fails and the old table stays: check `journalctl -u rugsnipe-operators` after each 4-hourly run.
+The refresh used to read his history only through the Helius Enhanced API. With the Helius key at its usage limit it
+fails and the old table stays. `operators_refresh.py --source rpc` reads it over standard JSON-RPC instead
+(getSignaturesForAddress plus getTransaction), so it runs on Triton:
+- about 140 calls for 2 hours of his history, about 20 s;
+- this source skips his failed attempts and the bundle and dump facts. The bot does not use them: it uses
+  `hold_slots` and `stake_tier`.
+
+To switch the refresh:
+
+1. Add the Triton URL to `/etc/rugsnipe/keys/api-keys.toml` as a line `TRITON_URL = "https://<endpoint>/<token>"`.
+2. Run `sudo systemctl edit rugsnipe-operators.service` and enter:
+
+   ```ini
+   [Service]
+   ExecStart=
+   ExecStart=/usr/bin/python3 -I /opt/rugsnipe/src/analysis/scripts/strategy/operators_refresh.py --source rpc --api-keys /etc/rugsnipe/keys/api-keys.toml --hours 4.5 --decay 1.0 --keep-days 7 --min-n 1 --out /etc/rugsnipe/operators.json --state /var/lib/rugsnipe/state.db --mode 0640 --group rugsnipe
+   ```
+
+   - Each run reads the last 4.5 hours and adds them to the table.
+   - A deployer stays listed for 7 days after his last trade on it.
+   - The `ExecStartPost` clock step still uses Helius. With `operator_holds = false` its clocks are unused, and it
+     fails harmlessly.
+3. Fill the 7 days once by hand. This takes about 11,000 calls and 25 minutes:
+
+   ```sh
+   sudo python3 -I /opt/rugsnipe/src/analysis/scripts/strategy/operators_refresh.py --source rpc --api-keys /etc/rugsnipe/keys/api-keys.toml --hours 168 --decay 1.0 --keep-days 7 --min-n 1 --out /etc/rugsnipe/operators.json --mode 0640 --group rugsnipe --rps 8
+   ```
+
+   Then `sudo systemctl try-restart rugsnipe-hot`.
 
 **Order of steps:**
 1. `"log"` for a few hours. Check the verdict delay (p50 / p90) and how many verdicts come at slot+0 / +1.

@@ -12,6 +12,8 @@
 # try-restart below (5-20 s; rugsnipe-guard holds the exits meanwhile; nothing is started if
 # rugsnipe-hot is not running). A failed or short pull (< 20 round trips) exits non-zero: the old
 # table stays and nothing is restarted. Point [entry] operators_file at /etc/rugsnipe/operators.json.
+# Without Helius credits: --source rpc reads the same history over standard JSON-RPC (Triton: a TRITON_URL line
+# in api-keys.toml; no failed attempts, bundle or dump facts); docs/13 has the override for the tweet-coin rule.
 # Run once by hand:  sudo systemctl start rugsnipe-operators.service; journalctl -u rugsnipe-operators
 # Dry run (stdout only):  sudo python3 -I /opt/rugsnipe/src/analysis/scripts/strategy/operators_refresh.py --dry-run
 [Unit]
