@@ -4,7 +4,8 @@
 Rebuilds ``entry.operators_file`` from the chain: the copied wallet's last ``--hours`` of round
 trips, each launch's create signer, decision offset H and bundle, merged with the existing
 table. Stdlib only; runs on the box as ``python3 -I``. No key is ever written or printed: the
-Helius URL (with its key) is read at runtime from ``--api-keys`` (the ``RPC_URL`` line) or
+Helius URL (with its key) is read at runtime from ``--api-keys`` (the ``RPC_URL`` line when it
+      carries ``api-key``, else ``HELIUS_KEY``) or
 ``--rpc-url``.
 
 Steps
@@ -239,14 +240,30 @@ class Api:
         return self._cache(f"enh {addr} {before}", go) if (cache and before) else go()
 
 
+HELIUS_RPC = "https://mainnet.helius-rpc.com/?api-key={key}"
+
+
 def read_rpc_url(path: str) -> str:
-    """The RPC_URL line of api-keys.toml (no TOML parser: Python 3.10 has none)."""
+    """A Helius RPC URL with its key from api-keys.toml (no TOML parser: Python 3.10 has none):
+    the ``RPC_URL`` line when its query carries ``api-key``, else the Helius URL built from the
+    ``HELIUS_KEY`` line (the box's RPC_URL may be another vendor's; the Enhanced API needs Helius,
+    2026-10-24)."""
+    rpc_url = helius_key = None
     with open(path) as f:
         for line in f:
             m = re.match(r'\s*RPC_URL\s*=\s*["\']([^"\']+)["\']', line)
             if m:
-                return m.group(1)
-    raise SystemExit(f"no RPC_URL line in {path}")
+                rpc_url = m.group(1)
+            m = re.match(r'\s*HELIUS_KEY\s*=\s*["\']([^"\']+)["\']', line)
+            if m:
+                helius_key = m.group(1)
+    if rpc_url and urllib.parse.parse_qs(urllib.parse.urlparse(rpc_url).query).get("api-key"):
+        return rpc_url
+    if helius_key:
+        return HELIUS_RPC.format(key=helius_key)
+    if rpc_url:
+        raise SystemExit(f"{path}: RPC_URL carries no api-key and there is no HELIUS_KEY line (the Enhanced API needs Helius)")
+    raise SystemExit(f"no RPC_URL or HELIUS_KEY line in {path}")
 
 
 # ------------------------------------------------------------------------------------ decoding

@@ -59,6 +59,14 @@ class Refresh(unittest.TestCase):
             f.write('# keys\nOTHER = "x"\nRPC_URL = "https://rpc.example/?api-key=TEST"\n')
         try:
             self.assertEqual(op.read_rpc_url(f.name), "https://rpc.example/?api-key=TEST")
+        # another vendor's RPC_URL: the Helius URL is built from HELIUS_KEY
+        with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as f:
+            f.write('RPC_URL = "https://other.vendor/x"\nHELIUS_KEY = "HK"\n')
+        self.assertEqual(op.read_rpc_url(f.name), "https://mainnet.helius-rpc.com/?api-key=HK")
+        with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as f:
+            f.write('RPC_URL = "https://other.vendor/x"\n')
+        with self.assertRaises(SystemExit):
+            op.read_rpc_url(f.name)
         finally:
             os.unlink(f.name)
 
