@@ -174,8 +174,14 @@ mod tests {
                 stake_tier: 1
             }
         );
-        assert_eq!(t.get(&b).map(|r| (r.hold_slots, r.n, r.stake_tier)), Some((6, 0, 0)));
-        assert!(OperatorTable::from_json(&format!(r#"{{"{A}": {{"hold_slots": 6, "stake_tier": 3}}}}"#)).is_err());
+        assert_eq!(
+            t.get(&b).map(|r| (r.hold_slots, r.n, r.stake_tier)),
+            Some((6, 0, 0))
+        );
+        assert!(OperatorTable::from_json(&format!(
+            r#"{{"{A}": {{"hold_slots": 6, "stake_tier": 3}}}}"#
+        ))
+        .is_err());
         assert!(t.get(&Pubkey::new_unique()).is_none());
         // from a file, and the refusals
         let dir = std::env::temp_dir().join(format!("ops-{}", std::process::id()));
