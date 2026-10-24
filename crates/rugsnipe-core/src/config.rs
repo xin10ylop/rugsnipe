@@ -995,6 +995,14 @@ pub struct EntryCfg {
     /// wallet's own ladder is 0.4 / 0.8 / 1.6 SOL with returns of +2.3% /
     /// +7.3% / +21.3% per trade by tier.
     pub stake_by_tier: Vec<u64>,
+    /// The tier floor (docs/09 "stake tier", 2026-10-24): fire only on
+    /// signers whose table `stake_tier` is at least this (an unlisted signer
+    /// is tier 0), else `skip_low_tier` (0x5a) before the park. 0 = off. The
+    /// copied wallet's tier-0 trades earn +2.7% gross per trade, its tier 1
+    /// and 2 +8.9% and +23.3%: 74% of its profit on 23% of its trades. At our
+    /// fixed costs per round trip (about 3x its) tier 0 does not cover them
+    /// below a 0.5 SOL stake.
+    pub min_stake_tier: u8,
     /// The pick template (docs/09, 2026-10-23): skip a create whose
     /// post-bundle virtual SOL reserve exceeds this many SOL, as
     /// `skip_bundle_too_big` (0x57); 0 = off. The reserve is the one the buy
@@ -1051,6 +1059,7 @@ impl Default for EntryCfg {
             operators_exclude: false,
             bundle_wallets: vec![],
             stake_by_tier: vec![],
+            min_stake_tier: 0,
             max_post_bundle_sol: 0.0,
             max_bundle_sol: 0.0,
             dev_buy_round: false,
@@ -1748,6 +1757,18 @@ impl Config {
                 &mut r,
                 "entry.operators_only",
                 "needs entry.operators_file (the operator table)",
+            );
+        }
+        if self.entry.min_stake_tier > 2 {
+            inv(&mut r, "entry.min_stake_tier", "must be 0 (off), 1 or 2");
+        }
+        if self.entry.min_stake_tier > 0
+            && (self.entry.operators_file.is_empty() || self.entry.operators_exclude)
+        {
+            inv(
+                &mut r,
+                "entry.min_stake_tier",
+                "needs entry.operators_file (the tiers) and no entry.operators_exclude (every unlisted signer is tier 0)",
             );
         }
         if self.entry.operators_exclude && self.entry.operators_only {

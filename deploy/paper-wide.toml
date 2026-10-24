@@ -37,3 +37,14 @@ enabled = false
 
 [feeds.logsws]
 enabled = false
+
+# PumpPortal allows ONE connection per IP (a second one would drop the live bot's), the raw
+# shreds receiver binds a fixed UDP port and the collector relay a socket the live bot holds
+[feeds.pumpportal]
+enabled = false
+
+[feeds.shreds]
+enabled = false
+
+[feeds.relay]
+enabled = false

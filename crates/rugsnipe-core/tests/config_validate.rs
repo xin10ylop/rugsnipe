@@ -1211,10 +1211,38 @@ fn the_shipped_paper_wide_overlay_validates_in_paper_mode() {
     let mut c = Config::from_toml_strs(&base, &overlay).unwrap();
     assert!(c.entry.operators_exclude && !c.entry.operators_only);
     assert!(!c.feeds.deshred.enabled && !c.feeds.entries.enabled && !c.feeds.logsws.enabled);
+    // shared-by-IP or bound resources: never opened twice on the box
+    assert!(!c.feeds.pumpportal.enabled && !c.feeds.shreds.enabled && !c.feeds.relay.enabled);
+    assert!(!c.feeds.grpc_b.enabled);
     assert!(c.obs.alert.telegram.is_empty() && !c.obs.alert.commands);
     assert_eq!(c.risk.kill_file, "/run/rugsnipe/KILL.paper-wide");
     c.mode.mode = Mode::Paper;
     c.entry.operators_file = "/etc/rugsnipe/operators.json".into();
     let v = c.validate(&ValidateEnv::default());
     assert!(v.ok(), "{:?}", v.refusals);
+}
+
+#[test]
+fn min_stake_tier_is_0_to_2_and_needs_the_table() {
+    let fields = |c: &Config| -> Vec<&'static str> {
+        c.validate(&ValidateEnv::default())
+            .refusals
+            .iter()
+            .filter_map(|r| match r {
+                Refusal::Invalid { field, .. } => Some(*field),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut c = example();
+    c.entry.operators_file = "/etc/rugsnipe/operators.json".into();
+    c.entry.min_stake_tier = 1;
+    assert!(!fields(&c).contains(&"entry.min_stake_tier"));
+    c.entry.min_stake_tier = 3;
+    assert!(fields(&c).contains(&"entry.min_stake_tier"));
+    c.entry.min_stake_tier = 1;
+    c.entry.operators_file.clear();
+    assert!(fields(&c).contains(&"entry.min_stake_tier"));
+    let c = Config::from_toml_str("[entry]\nmin_stake_tier = 1\n").unwrap();
+    assert_eq!(c.entry.min_stake_tier, 1);
 }

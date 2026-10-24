@@ -318,6 +318,58 @@ fn operators_exclude_skips_a_listed_signer_at_the_decision() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `entry.min_stake_tier`: a listed signer below the floor is skipped
+/// (`skip_low_tier`), one at or above it goes on.
+#[test]
+fn min_stake_tier_skips_a_signer_below_the_floor() {
+    let dir = tmpdir("wave-tier");
+    let (dev_a, dev_b) = (Pubkey::new_unique(), Pubkey::new_unique());
+    let mut m = serde_json::Map::new();
+    m.insert(
+        dev_a.to_string(),
+        serde_json::json!({"hold_slots": 6, "n": 5, "stake_tier": 1}),
+    );
+    m.insert(
+        dev_b.to_string(),
+        serde_json::json!({"hold_slots": 6, "n": 5, "stake_tier": 0}),
+    );
+    let ops = dir.join("operators.json");
+    std::fs::write(&ops, serde_json::Value::Object(m).to_string()).unwrap();
+    let mut cfg = wave_cfg(&dir, &ops, true);
+    cfg.entry.min_stake_tier = 1;
+    let v = cfg.validate(&ValidateEnv::default());
+    assert!(v.ok(), "{:?}", v.refusals);
+    let mut app = build(cfg, armset(&[dev_a, dev_b], &[]), &dir, 5_000, false);
+    let (m1, m2) = (Pubkey::new_unique(), Pubkey::new_unique());
+    let (h1, _) = create(m1, dev_a, S0, 1, 1_000_000_000);
+    let (h2, _) = create(m2, dev_b, S0, 2, 1_000_000_000);
+    // the tier-0 create first: once the tier-1 one decided, both were seen
+    decide_all(
+        &mut app,
+        vec![ev(S0, Payload::Hit(h2)), ev(S0, Payload::Hit(h1))],
+        1,
+    );
+    assert!(app.hot.position_of(&m1).is_some());
+    assert!(app.hot.position_of(&m2).is_none());
+    let owner = app.owner;
+    let _ = app.shutdown(vec![]);
+    let codes = |m: Pubkey| -> Vec<u8> {
+        let i = IntentId::new(&m, &owner).0;
+        rslog_records(&dir.join("rslog"))
+            .iter()
+            .filter_map(|r| match r {
+                Rec::Decision { intent, code, .. } if *intent == i => Some(*code),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(codes(m2), vec![code::LOW_TIER]);
+    assert_eq!(decision_label(code::LOW_TIER), "skip_low_tier");
+    assert_eq!(codes(m1).len(), 1);
+    assert_ne!(codes(m1)[0], code::LOW_TIER);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // ---- the real fire point (a hand-assembled live hot loop) ----
 
 fn live_cfg(dir: &std::path::Path) -> Config {

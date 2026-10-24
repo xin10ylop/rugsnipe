@@ -266,6 +266,8 @@ pub struct HotCfg {
     /// `entry.operators_exclude`: skip (`skip_not_operator`) a create whose
     /// signer IS in the table (the paper-wide instance, docs/09).
     pub operators_exclude: bool,
+    /// `entry.min_stake_tier`: skip (`skip_low_tier`) a signer below it.
+    pub min_stake_tier: u8,
     /// `entry.bundle_wallets`: the parked run's distinct bundle wallets a
     /// fire needs (empty = any; `skip_bundle_shape`).
     pub bundle_wallets: Vec<u32>,
@@ -356,6 +358,7 @@ impl HotCfg {
             operators: None,
             operators_only: cfg.entry.operators_only,
             operators_exclude: cfg.entry.operators_exclude,
+            min_stake_tier: cfg.entry.min_stake_tier,
             bundle_wallets: cfg.entry.bundle_wallets.clone(),
             max_post_bundle: sol_lamports(cfg.entry.max_post_bundle_sol),
             max_bundle: sol_lamports(cfg.entry.max_bundle_sol),
@@ -1689,6 +1692,13 @@ impl HotLoop {
         // the launches the live bot leaves out
         if self.cfg.operators_exclude && self.cfg.operator_rule(hit).is_some() {
             return self.decision(intent, hit, code::NOT_OPERATOR, 0, 0, 0, 0, 0);
+        }
+        // the tier floor (entry.min_stake_tier, docs/09 "stake tier"): only
+        // the operators the copied wallet stakes at that tier or above
+        if self.cfg.min_stake_tier > 0
+            && self.cfg.operator_rule(hit).map_or(0, |r| r.stake_tier) < self.cfg.min_stake_tier
+        {
+            return self.decision(intent, hit, code::LOW_TIER, 0, 0, 0, 0, 0);
         }
         // 4a': the leader filter (entry.leader_regions): a create whose slot
         // leader the box cannot reach in time is skipped, nothing sent
@@ -3655,10 +3665,11 @@ impl HotLoop {
         }
     }
 
-    /// The lifetime of a real curve sell when the lane's blockhash is not
-    /// fresh: the position's sell-pool nonce (claimed on first need, kept for
-    /// every retry so at most one of them lands). `None`: no free nonce or
-    /// no nonce templates. Lock-free, no allocation.
+    /// The lifetime of a real curve sell on a sell-pool nonce (a final sell
+    /// first, any other when the lane's blockhash is not fresh): the
+    /// position's claim, made on first need and kept for every retry so at
+    /// most one of them lands. `None`: no free nonce or no nonce templates.
+    /// Lock-free, no allocation.
     fn sell_nonce(&mut self, i: usize) -> Option<(usize, [u8; 32])> {
         let pool = self.shared.sell_nonces.get()?.clone();
         if pool.is_empty() || self.sell_tmpls.len() < pool.len() {
@@ -3679,7 +3690,7 @@ impl HotLoop {
         let intent = s.intent;
         let k8 = key8(&s.pos.mint);
         journal(format_args!(
-            "sell {} rides sell nonce {} (no fresh blockhash)",
+            "sell {} rides sell nonce {}",
             std::str::from_utf8(&k8).unwrap_or("?"),
             c.idx
         ));
@@ -3800,16 +3811,31 @@ impl HotLoop {
         // blockhash (300 ms budget, off the hot thread) before signing;
         // 4. no resolver either: not sent, the attempt is taken back
         // (rugsnipe_exit::unsent) and retried on the next slot.
+        // A final sell (whole balance, token account closed) swaps 1 and 2:
+        // it fans out as one variant per sender (sender::sell_fans_out), and
+        // on a recent blockhash every copy lands, the first sells the
+        // balance, the others fail on the closed account and each pays its
+        // fee (2026-10-24: three failed copies per exit, 3.4M lamports each
+        // on a priority-ordered leader, about 1.6% of a 0.25 SOL stake on
+        // average). On the position's sell nonce at most one copy (and one
+        // try) executes, as with the buys' nonce.
         let real_sell = self.cfg.mode.is_real()
             && self.slots[i]
                 .as_ref()
                 .is_some_and(|s| s.real && order.venue == Venue::Curve);
         let mut nonce_k: Option<usize> = None;
+        let nonce_first = order.close_account;
         let lifetime = if !real_sell {
             Some(PAPER_BLOCKHASH)
+        } else if let Some((k, v)) = (owned && nonce_first).then(|| self.sell_nonce(i)).flatten() {
+            nonce_k = Some(k);
+            Some(v)
         } else if let Some(h) = self.shared.fresh_blockhash() {
             Some(h)
-        } else if let Some((k, v)) = owned.then(|| self.sell_nonce(i)).flatten() {
+        } else if let Some((k, v)) = (owned && !nonce_first)
+            .then(|| self.sell_nonce(i))
+            .flatten()
+        {
             nonce_k = Some(k);
             Some(v)
         } else if self.cfg.sell_resolver {

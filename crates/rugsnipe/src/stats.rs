@@ -90,6 +90,10 @@ pub mod code {
     /// `entry.uri_hosts` / `entry.uri_hosts_deny`: the create's uri host is
     /// not an allowed one, or a denied one; nothing parked, nothing sent.
     pub const URI_HOST: u8 = 0x59;
+    /// `entry.min_stake_tier`: the create's signer is below the tier floor
+    /// (its table `stake_tier`; an unlisted signer is tier 0); nothing
+    /// parked, nothing sent.
+    pub const LOW_TIER: u8 = 0x5a;
     /// Metrics only: a paper decision that a real mode would have skipped
     /// (rslog keeps the RiskGate code and the `would_skip` reason).
     pub const PAPER_WOULD_SKIP: u8 = 0x1f;
@@ -140,6 +144,7 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (code::TOO_BIG, "skip_bundle_too_big"),
     (code::BUNDLE_SOL, "skip_bundle_sol"),
     (code::URI_HOST, "skip_uri_host"),
+    (code::LOW_TIER, "skip_low_tier"),
 ];
 
 /// Label of a decision code.

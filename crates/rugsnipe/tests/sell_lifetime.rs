@@ -236,6 +236,54 @@ fn a_stale_blockhash_sell_rides_a_sell_nonce_and_its_retries_reuse_it() {
     assert_eq!(pool.free_count(), 0);
 }
 
+/// A final sell (whole balance, token account closed) fans out as one
+/// variant per sender, and on a recent blockhash every copy can land: the
+/// first sells, the others fail on the closed account and each pays its fee
+/// (2026-10-24: three failed copies per exit). With a fresh blockhash AND a
+/// free sell nonce it rides the nonce (at most one copy executes); without a
+/// sell pool it still goes out on the fresh blockhash.
+#[test]
+fn a_final_sell_rides_the_sell_nonce_even_with_a_fresh_blockhash() {
+    let dir = tmpdir("sell-nonce-first");
+    let mut r = Rig::new(&dir, false, |_| {});
+    let pool = Arc::new(NoncePool::new(
+        r.owner,
+        &rugsnipe_tx::sysix::pool_addresses(&r.owner, "sell", 2),
+    ));
+    pool.on_value(1, [0x5a; 32], 10);
+    r.shared.sell_nonces.set(pool.clone()).unwrap();
+    let t = setup::sell_nonce_templates(&r.cfg, r.owner, &pool).unwrap();
+    r.hot.set_sell_nonce_templates(t);
+    r.shared.set_blockhash([0x33; 32], 1_000);
+    let mint = Pubkey::new_unique();
+    r.adopt(mint);
+    r.cold();
+    for s in 1_003..1_006 {
+        r.slot(s);
+    }
+    let jobs = r.jobs();
+    assert!(!jobs.is_empty(), "{:?}", r.hot.counters);
+    for j in &jobs {
+        assert!(j.real && rugsnipe::sender::sell_fans_out(j), "a final sell");
+        assert_eq!(
+            j.tmpl.lifetime(),
+            [0x5a; 32],
+            "the nonce, not the fresh blockhash"
+        );
+    }
+    assert!(r.hot.counters.sells_on_nonce >= 1);
+    // no sell pool: the same final sell goes out on the fresh blockhash
+    let dir2 = tmpdir("sell-bh-no-pool");
+    let mut r2 = Rig::new(&dir2, false, |_| {});
+    r2.shared.set_blockhash([0x33; 32], 1_000);
+    r2.adopt(Pubkey::new_unique());
+    r2.slot(1_003);
+    let jobs = r2.jobs();
+    assert_eq!(jobs.len(), 1, "{:?}", r2.hot.counters);
+    assert_eq!(jobs[0].tmpl.lifetime(), [0x33; 32]);
+    assert_eq!(r2.hot.counters.sells_on_nonce, 0);
+}
+
 #[test]
 fn without_a_nonce_the_sender_resolves_a_blockhash_within_its_budget() {
     let dir = tmpdir("sell-resolve");
