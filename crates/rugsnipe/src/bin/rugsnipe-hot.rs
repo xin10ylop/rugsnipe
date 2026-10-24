@@ -41,7 +41,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const USAGE: &str =
-    "usage: rugsnipe-hot --config <toml> [--mode paper|probe|live] [--live] [--probe-dry]
+    "usage: rugsnipe-hot --config <toml> [--overlay <toml>] [--mode paper|probe|live] [--live] [--probe-dry]
     [--armset <armset-V-SHA.json>] [--paper-unsigned-armset] [--regime <name>]
     [--state <state.db>] [--rslog-dir <dir>] [--duration-s N] [--record <dir>]
     [--max-watches N] [--rpc-url <https url>] [--no-e2] [--lane-rps R] [--no-metrics]
@@ -50,6 +50,8 @@ const USAGE: &str =
 
   --probe-dry  probe mode: load the real keys, sign with them, send nothing; print
                the first signed transaction (base64) and simulateTransaction results
+  --overlay    a TOML merged over --config (tables key by key; the paper-wide instance:
+               the live config with a few keys replaced, deploy/paper-wide.toml)
   --no-e2      no paper fill lane (every model falls back to E2 from buffered trades)
   --feed-wait-s  probe: how long the gRPC feed may take to deliver its first slot (default 20)
   --leader-schedule  paper: also run the leader schedule lane (probe always does)
@@ -172,7 +174,12 @@ fn install_panic_latch(kill_file: PathBuf, state: PathBuf) {
 
 fn run(args: &[String]) -> Result<(), String> {
     let cfg_path = opt(args, "--config").ok_or(format!("--config required\n{USAGE}"))?;
-    let mut cfg = rugsnipe::setup::load_config(&PathBuf::from(cfg_path))?;
+    let mut cfg = match opt(args, "--overlay") {
+        Some(o) => {
+            rugsnipe::setup::load_config_overlay(&PathBuf::from(cfg_path), &PathBuf::from(o))?
+        }
+        None => rugsnipe::setup::load_config(&PathBuf::from(cfg_path))?,
+    };
     if let Some(m) = opt(args, "--mode") {
         cfg.mode.mode = m.parse::<Mode>()?;
     }

@@ -263,6 +263,9 @@ pub struct HotCfg {
     /// `entry.operators_only`: skip (`skip_not_operator`) a create whose
     /// signer is not in the table.
     pub operators_only: bool,
+    /// `entry.operators_exclude`: skip (`skip_not_operator`) a create whose
+    /// signer IS in the table (the paper-wide instance, docs/09).
+    pub operators_exclude: bool,
     /// `entry.bundle_wallets`: the parked run's distinct bundle wallets a
     /// fire needs (empty = any; `skip_bundle_shape`).
     pub bundle_wallets: Vec<u32>,
@@ -352,6 +355,7 @@ impl HotCfg {
             presend_ops: Arc::new(ArcSwap::from_pointee(Default::default())),
             operators: None,
             operators_only: cfg.entry.operators_only,
+            operators_exclude: cfg.entry.operators_exclude,
             bundle_wallets: cfg.entry.bundle_wallets.clone(),
             max_post_bundle: sol_lamports(cfg.entry.max_post_bundle_sol),
             max_bundle: sol_lamports(cfg.entry.max_bundle_sol),
@@ -1679,6 +1683,11 @@ impl HotLoop {
         // 4a'': the operator table (entry.operators_only): only the launches
         // of a listed create signer go on (nothing parked otherwise)
         if self.cfg.operators_only && self.cfg.operator_rule(hit).is_none() {
+            return self.decision(intent, hit, code::NOT_OPERATOR, 0, 0, 0, 0, 0);
+        }
+        // its mirror (entry.operators_exclude, the paper-wide instance): only
+        // the launches the live bot leaves out
+        if self.cfg.operators_exclude && self.cfg.operator_rule(hit).is_some() {
             return self.decision(intent, hit, code::NOT_OPERATOR, 0, 0, 0, 0, 0);
         }
         // 4a': the leader filter (entry.leader_regions): a create whose slot

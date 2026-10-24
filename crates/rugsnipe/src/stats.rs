@@ -67,7 +67,8 @@ pub mod code {
     pub const PRESEND: u8 = 0x53;
     /// `entry.operators_only`: the create's signer (the fee payer, the
     /// first signer of the create transaction) is not in the operator table
-    /// (`entry.operators_file`); nothing parked, nothing sent.
+    /// (`entry.operators_file`); with `entry.operators_exclude` (the
+    /// paper-wide instance) it is in it; nothing parked, nothing sent.
     pub const NOT_OPERATOR: u8 = 0x54;
     /// `entry.bundle_wallets`: the parked bundle run's distinct buyers
     /// outside the creator set are not one of the listed counts; nothing

@@ -1,0 +1,48 @@
+# The paper-wide instance (docs/09 "Paper wide", 2026-10-24): rugsnipe-hot in paper mode on
+# the live config plus deploy/paper-wide.toml, taking only the launches of signers OUTSIDE
+# the operator table (entry.operators_exclude), the ones the live bot skips. It measures,
+# at no cost, what opening the live bot to unknown signers would earn:
+#   python3 -I /opt/rugsnipe/src/analysis/scripts/strategy/paper_wide_report.py
+# Nothing shared with the live process is written: its own state.db, rslog and kill-latch
+# file, no keys, no sends, no metrics, no Telegram; one extra gRPC stream (feeds.grpc).
+# /etc/rugsnipe/paper-wide.env holds ARMSET=<the live unit's --armset path> (docs/09).
+# Not enabled by the installer: sudo systemctl enable --now rugsnipe-paper-wide.service
+[Unit]
+Description=rugsnipe paper-wide (paper: the live gates on signers outside the operator table)
+Documentation=file:/opt/rugsnipe/src/docs/09-operator-wave.md
+PartOf=rugsnipe.target
+Wants=network-online.target
+After=network-online.target rugsnipe-hot.service
+ConditionPathExists=/etc/rugsnipe/rugsnipe.toml
+ConditionPathExists=/etc/rugsnipe/paper-wide.env
+StartLimitIntervalSec=600
+StartLimitBurst=10
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=rugsnipe
+Group=rugsnipe
+EnvironmentFile=/etc/rugsnipe/paper-wide.env
+ExecStartPre=+/usr/bin/install -d -o rugsnipe -g rugsnipe -m 0750 /var/lib/rugsnipe/paper-wide
+WorkingDirectory=/var/lib/rugsnipe/paper-wide
+Environment=RUST_BACKTRACE=1
+ExecStart=/opt/rugsnipe/bin/rugsnipe-hot --config /etc/rugsnipe/rugsnipe.toml --overlay /opt/rugsnipe/src/deploy/paper-wide.toml --mode paper --state /var/lib/rugsnipe/paper-wide/state.db --rslog-dir /var/lib/rugsnipe/paper-wide/rslog --no-metrics --lane-rps 1 --rpc-url cred:RPC_URL --paper-unsigned-armset --armset ${ARMSET}
+WatchdogSec=30
+TimeoutStartSec=180
+TimeoutStopSec=15
+Restart=on-failure
+RestartSec=10
+Nice=5
+OOMScoreAdjust=200
+UMask=0027
+CPUAffinity=6-9
+LoadCredential=api-keys:/etc/rugsnipe/keys/api-keys.toml
+SetCredential=api-keys:ABSENT
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/rugsnipe/paper-wide
+PrivateTmp=yes
+
+[Install]
+WantedBy=rugsnipe.target

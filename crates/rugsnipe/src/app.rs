@@ -512,8 +512,10 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     };
     // --- the operator table (entry.operators_file, docs/09): loaded once, refused if broken
     let operators = if cfg.entry.operators_file.is_empty() {
-        if cfg.entry.operators_only {
-            return Err("entry.operators_only needs entry.operators_file".into());
+        if cfg.entry.operators_only || cfg.entry.operators_exclude {
+            return Err(
+                "entry.operators_only / operators_exclude need entry.operators_file".into(),
+            );
         }
         None
     } else {
@@ -525,6 +527,8 @@ pub fn build(o: AppOpts) -> Result<App, String> {
             cfg.entry.operators_file,
             if cfg.entry.operators_only {
                 " (operators_only)"
+            } else if cfg.entry.operators_exclude {
+                " (operators_exclude: only unlisted signers)"
             } else {
                 ""
             }

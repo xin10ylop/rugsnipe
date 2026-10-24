@@ -27,7 +27,7 @@ Group=root
 WorkingDirectory=/var/lib/rugsnipe
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 -I /opt/rugsnipe/src/analysis/scripts/strategy/operators_refresh.py --api-keys /etc/rugsnipe/keys/api-keys.toml --hours 24 --out /etc/rugsnipe/operators.json --state /var/lib/rugsnipe/state.db --min-n 2 --drop-dumpers --mode 0640 --group rugsnipe
-ExecStartPost=/bin/systemctl try-restart rugsnipe-hot.service
+ExecStartPost=/bin/systemctl try-restart rugsnipe-hot.service rugsnipe-paper-wide.service
 TimeoutStartSec=20min
 Nice=10
 UMask=0027

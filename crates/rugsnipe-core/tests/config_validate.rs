@@ -1112,18 +1112,109 @@ fn stake_and_bid_tiers_are_three_non_decreasing_values_or_empty() {
     c.entry.stake_by_tier = vec![250_000_000, 500_000_000, 1_000_000_000];
     c.bid.by_tier = vec![6_000_000, 10_000_000, 20_000_000];
     let f = fields(&c);
-    assert!(!f.contains(&"entry.stake_by_tier") && !f.contains(&"bid.by_tier"), "{f:?}");
+    assert!(
+        !f.contains(&"entry.stake_by_tier") && !f.contains(&"bid.by_tier"),
+        "{f:?}"
+    );
     // two values, a zero, a decreasing ladder: each refused by its key
     c.entry.stake_by_tier = vec![250_000_000, 500_000_000];
     c.bid.by_tier = vec![6_000_000, 0, 20_000_000];
     let f = fields(&c);
-    assert!(f.contains(&"entry.stake_by_tier") && f.contains(&"bid.by_tier"), "{f:?}");
+    assert!(
+        f.contains(&"entry.stake_by_tier") && f.contains(&"bid.by_tier"),
+        "{f:?}"
+    );
     c.entry.stake_by_tier = vec![500_000_000, 250_000_000, 1_000_000_000];
     c.bid.by_tier = vec![];
     let f = fields(&c);
-    assert!(f.contains(&"entry.stake_by_tier") && !f.contains(&"bid.by_tier"), "{f:?}");
+    assert!(
+        f.contains(&"entry.stake_by_tier") && !f.contains(&"bid.by_tier"),
+        "{f:?}"
+    );
     // the TOML keys parse
     let c = Config::from_toml_str("[entry]\nstake_by_tier = [250_000_000, 500_000_000, 1_000_000_000]\n[bid]\nby_tier = [6_000_000, 10_000_000, 20_000_000]\n").unwrap();
     assert_eq!(c.entry.stake_by_tier.len(), 3);
     assert_eq!(c.bid.by_tier, vec![6_000_000, 10_000_000, 20_000_000]);
+}
+
+#[test]
+fn an_overlay_merges_over_the_base_and_operators_exclude_validates() {
+    let base = r#"
+[mode]
+mode = "probe"
+[entry]
+operators_file = "/etc/rugsnipe/operators.json"
+operators_only = true
+max_bundle_sol = 17.0
+[obs]
+alert = { telegram = "TG_TOKEN", chat = "TG_CHAT", commands = true }
+[feeds.deshred]
+enabled = true
+url = "https://deshred.example"
+[exit.default]
+hold_to_create_slots = 6
+"#;
+    let overlay = r#"
+[entry]
+operators_only = false
+operators_exclude = true
+[risk]
+kill_file = "/run/rugsnipe/KILL.paper-wide"
+[obs.alert]
+telegram = ""
+commands = false
+[feeds.deshred]
+enabled = false
+"#;
+    let c = Config::from_toml_strs(base, overlay).unwrap();
+    // replaced
+    assert!(!c.entry.operators_only && c.entry.operators_exclude);
+    assert!(!c.feeds.deshred.enabled);
+    assert_eq!(c.risk.kill_file, "/run/rugsnipe/KILL.paper-wide");
+    assert!(c.obs.alert.telegram.is_empty() && !c.obs.alert.commands);
+    // kept from the base (an inline table merges key by key)
+    assert_eq!(c.entry.operators_file, "/etc/rugsnipe/operators.json");
+    assert_eq!(c.entry.max_bundle_sol, 17.0);
+    assert_eq!(c.feeds.deshred.url, "https://deshred.example");
+    assert_eq!(c.obs.alert.chat, "TG_CHAT");
+    assert!(c.exit.contains_key("default"));
+    // an unknown overlay key is refused like in the base
+    assert!(Config::from_toml_strs(base, "[entry]\noperators_exclud = true\n").is_err());
+    assert!(Config::from_toml_strs(base, "[exit.defualt]\nmax_hold_slots = 5\n").is_err());
+    // both switches together, or exclude without a table: refused by key
+    let fields = |c: &Config| -> Vec<&'static str> {
+        c.validate(&ValidateEnv::default())
+            .refusals
+            .iter()
+            .filter_map(|r| match r {
+                Refusal::Invalid { field, .. } => Some(*field),
+                _ => None,
+            })
+            .collect()
+    };
+    assert!(!fields(&c).contains(&"entry.operators_exclude"));
+    let mut both = c.clone();
+    both.entry.operators_only = true;
+    assert!(fields(&both).contains(&"entry.operators_exclude"));
+    let mut no_file = c.clone();
+    no_file.entry.operators_file.clear();
+    assert!(fields(&no_file).contains(&"entry.operators_exclude"));
+}
+
+/// The shipped paper-wide overlay (deploy/paper-wide.toml) parses over the
+/// shipped example config, and the result validates in paper mode.
+#[test]
+fn the_shipped_paper_wide_overlay_validates_in_paper_mode() {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+    let base = std::fs::read_to_string(format!("{root}/config/rugsnipe.example.toml")).unwrap();
+    let overlay = std::fs::read_to_string(format!("{root}/deploy/paper-wide.toml")).unwrap();
+    let mut c = Config::from_toml_strs(&base, &overlay).unwrap();
+    assert!(c.entry.operators_exclude && !c.entry.operators_only);
+    assert!(!c.feeds.deshred.enabled && !c.feeds.entries.enabled && !c.feeds.logsws.enabled);
+    assert!(c.obs.alert.telegram.is_empty() && !c.obs.alert.commands);
+    assert_eq!(c.risk.kill_file, "/run/rugsnipe/KILL.paper-wide");
+    c.mode.mode = Mode::Paper;
+    c.entry.operators_file = "/etc/rugsnipe/operators.json".into();
+    let v = c.validate(&ValidateEnv::default());
+    assert!(v.ok(), "{:?}", v.refusals);
 }

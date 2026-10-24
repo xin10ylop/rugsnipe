@@ -142,6 +142,14 @@ pub fn load_config(path: &Path) -> Result<Config, String> {
     Config::from_toml_str(&s).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// `path` with the TOML at `overlay` merged over it ([`Config::from_toml_strs`]).
+pub fn load_config_overlay(path: &Path, overlay: &Path) -> Result<Config, String> {
+    let s = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let o = std::fs::read_to_string(overlay).map_err(|e| format!("{}: {e}", overlay.display()))?;
+    Config::from_toml_strs(&s, &o)
+        .map_err(|e| format!("{} + {}: {e}", path.display(), overlay.display()))
+}
+
 /// `[exit.default]` as the integer policy (`max_sell_spend` from `[risk]`).
 pub fn exit_policy(cfg: &Config) -> Result<ExitPolicy, String> {
     let spend = if cfg.risk.max_sell_spend_lamports > 0 {

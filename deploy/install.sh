@@ -103,7 +103,7 @@ RUST_BINS=(rugsnipe-hot rugsnipe-guard rugsnipe-keeper rugsnipe-ctl rugsnipe-rep
 
 if [ "$ROLE" = hot ]; then
   UNITS=(rugsnipe-keeper.service rugsnipe-guard.service rugsnipe-hot.service rugsnipe-tune.service shredstream-proxy.service
-         rugsnipe-operators.service rugsnipe-operators.timer)
+         rugsnipe-operators.service rugsnipe-operators.timer rugsnipe-paper-wide.service)
   ENABLE_UNITS=(rugsnipe-keeper.service rugsnipe-guard.service rugsnipe-hot.service rugsnipe-operators.timer rugsnipe.target)
 else
   UNITS=(rugsnipe-collector.service rugsnipe-discover.service rugsnipe-discover.timer)

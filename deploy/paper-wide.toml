@@ -1,0 +1,39 @@
+# Overlay for rugsnipe-paper-wide.service (docs/09 "Paper wide"): merged over the live
+# /etc/rugsnipe/rugsnipe.toml (`rugsnipe-hot --overlay`, tables key by key), so the paper
+# instance always runs the live gates (picks model, template, holds, tiers) with only these
+# keys replaced. Paper mode is set on the command line (--mode paper): no keys, no sends,
+# no nonces, its own state.db, rslog and kill latch.
+
+[entry]
+# the mirror of the live table filter: only the signers the live bot skips, so the two
+# never take the same launch and the paper P&L measures exactly what opening would add
+operators_only = false
+operators_exclude = true
+
+[risk]
+# its own latch file: the live /run/rugsnipe/KILL neither stops it nor is ever written by it
+kill_file = "/run/rugsnipe/KILL.paper-wide"
+
+[obs]
+metrics_listen = []
+
+[obs.alert]
+# no Telegram: the live bot owns the bot token and its /kill polling (two getUpdates
+# pollers on one token conflict)
+telegram = ""
+commands = false
+hourly = false
+
+# one post-execution stream (feeds.grpc, kept) is enough for paper decisions and exits;
+# no second Triton deshred, shredstream, B-endpoint or websocket subscription
+[feeds.deshred]
+enabled = false
+
+[feeds.entries]
+enabled = false
+
+[feeds.grpc_b]
+enabled = false
+
+[feeds.logsws]
+enabled = false

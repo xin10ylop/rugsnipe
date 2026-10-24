@@ -276,6 +276,48 @@ fn operators_only_skips_an_unlisted_signer_at_the_decision() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `entry.operators_exclude` (the paper-wide instance): the mirror of
+/// `operators_only`, a listed signer is skipped (`skip_not_operator`) and an
+/// unlisted one goes on.
+#[test]
+fn operators_exclude_skips_a_listed_signer_at_the_decision() {
+    let dir = tmpdir("wave-exclude");
+    let (dev_a, dev_b) = (Pubkey::new_unique(), Pubkey::new_unique());
+    let ops = ops_file(&dir, &[(dev_a, 10)]);
+    let mut cfg = wave_cfg(&dir, &ops, false);
+    cfg.entry.operators_exclude = true;
+    let v = cfg.validate(&ValidateEnv::default());
+    assert!(v.ok(), "{:?}", v.refusals);
+    let mut app = build(cfg, armset(&[dev_a, dev_b], &[]), &dir, 5_000, false);
+    let (m1, m2) = (Pubkey::new_unique(), Pubkey::new_unique());
+    let (h1, _) = create(m1, dev_a, S0, 1, 1_000_000_000);
+    let (h2, _) = create(m2, dev_b, S0, 2, 1_000_000_000);
+    // the listed create first: once the unlisted one decided, both were seen
+    decide_all(
+        &mut app,
+        vec![ev(S0, Payload::Hit(h1)), ev(S0, Payload::Hit(h2))],
+        1,
+    );
+    assert!(app.hot.position_of(&m2).is_some());
+    assert!(app.hot.position_of(&m1).is_none());
+    let owner = app.owner;
+    let _ = app.shutdown(vec![]);
+    let codes = |m: Pubkey| -> Vec<u8> {
+        let i = IntentId::new(&m, &owner).0;
+        rslog_records(&dir.join("rslog"))
+            .iter()
+            .filter_map(|r| match r {
+                Rec::Decision { intent, code, .. } if *intent == i => Some(*code),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(codes(m1), vec![code::NOT_OPERATOR]);
+    assert_eq!(codes(m2).len(), 1);
+    assert_ne!(codes(m2)[0], code::NOT_OPERATOR);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // ---- the real fire point (a hand-assembled live hot loop) ----
 
 fn live_cfg(dir: &std::path::Path) -> Config {

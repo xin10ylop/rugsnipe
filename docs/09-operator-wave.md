@@ -179,3 +179,40 @@ merges tonight's table, whose window overlaps the new one by ~17 h: its counts a
 4. Watch `rugsnipe_decisions{outcome="skip_not_operator" | "skip_bundle_shape" | "fire"}`,
    `rugsnipe_exits{reason="hold_to"}`, the journal's `operator <mint> hold_to create+H` and `sell ... reason HoldTo`
    lines, and `fills.fail_reason`.
+
+## Paper wide (2026-10-24)
+
+The live bot trades only signers in the operator table (`entry.operators_only`). The copied wallet takes about a
+third of its trades on signers it has never traded, so opening the table is the volume lever, but it needs a
+measured edge first: projected from the picks model's out-of-sample precision (0.30 at t1, 0.44 at t2 on
+unknown signers), the follower-rich share of the added launches comes out at 36-41% against a break-even of
+about 52%. `rugsnipe-paper-wide.service` measures it live at no cost.
+
+* **What it runs.** `rugsnipe-hot --mode paper` on the live `/etc/rugsnipe/rugsnipe.toml` with
+  `deploy/paper-wide.toml` merged over it (`--overlay`: tables key by key, so every later change of the live
+  gates applies to both). The overlay sets `entry.operators_exclude = true` (the mirror of `operators_only`:
+  only the signers the live bot skips, so the two never take the same launch), its own kill-latch file, no
+  Telegram (the live bot owns the token and its `/kill` polling), no metrics, and keeps only the
+  post-execution `feeds.grpc` stream. Paper mode: no keys, no sends, no nonces, its own
+  `/var/lib/rugsnipe/paper-wide/state.db` and rslog. Unlisted signers get `[exit.default]
+  hold_to_create_slots` and tier 0.
+* **Costs.** One extra gRPC stream on the `feeds.grpc` provider, the E1 fill lane at 1 req/s on `RPC_URL`,
+  CPUs 6-9 (the live hot is pinned to 2-5).
+* **Setup** (once): the paper instance loads the live unit's ArmSet (`--paper-unsigned-armset`: an ArmSet past
+  its age still loads in paper):
+
+```sh
+A=$(systemctl show -p ExecStart --value rugsnipe-hot | grep -o -- '--armset [^ ;]*' | head -1 | cut -d' ' -f2)
+[ -n "$A" ] && echo "ARMSET=$A" | sudo tee /etc/rugsnipe/paper-wide.env && sudo chmod 0640 /etc/rugsnipe/paper-wide.env \
+  && sudo chgrp rugsnipe /etc/rugsnipe/paper-wide.env && sudo systemctl daemon-reload && sudo systemctl enable --now rugsnipe-paper-wide.service
+```
+
+* **Read it.** `sudo python3 -I /opt/rugsnipe/src/analysis/scripts/strategy/paper_wide_report.py` prints the
+  paper trades (closed, per hour, win rate, mean and median return, net SOL, halves) next to the live bot's over
+  the same window, and the verdict.
+* **The rule.** After 150 or more closed paper trades: OPEN (`entry.operators_only = false` on the live bot)
+  only if the paper mean return per trade is at least +3% and both halves are positive; otherwise keep the
+  table. The bar is above zero because paper books every launch where we would have been first as landed,
+  while live we land about 55% and lose the contested ones to higher bids. The 4-hourly table refresh restarts
+  both instances (`ExecStartPost`), so each reloads the table it excludes or keeps.
+* **Stop.** `sudo systemctl disable --now rugsnipe-paper-wide.service`.

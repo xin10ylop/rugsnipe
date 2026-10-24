@@ -974,6 +974,12 @@ pub struct EntryCfg {
     /// Fire only on creates whose signer is in `operators_file`; any other
     /// create is skipped as `skip_not_operator` (nothing parked or sent).
     pub operators_only: bool,
+    /// The mirror of `operators_only` (2026-10-24, docs/09 "paper wide"):
+    /// fire only on creates whose signer is NOT in `operators_file`; a listed
+    /// signer is skipped as `skip_not_operator`. For the paper instance that
+    /// measures the launches the live bot leaves out, so the two never take
+    /// the same launch. Refused together with `operators_only`.
+    pub operators_exclude: bool,
     /// Distinct bundle wallets a parked create may fire with (`[3]`, `[2,
     /// 3, 4]`); empty = any. Counted at the fire point from the park: the
     /// run's buyers outside the creator set (signer, creator, fee payer,
@@ -1042,6 +1048,7 @@ impl Default for EntryCfg {
             presend_cut: PresendCut::T2,
             operators_file: String::new(),
             operators_only: false,
+            operators_exclude: false,
             bundle_wallets: vec![],
             stake_by_tier: vec![],
             max_post_bundle_sol: 0.0,
@@ -1476,6 +1483,18 @@ pub fn kill_dir_override() -> Option<String> {
         .map(|d| if d.ends_with('/') { d } else { format!("{d}/") })
 }
 
+/// Merge `over` into `base` (see [`Config::from_toml_strs`]).
+fn merge_tables(base: &mut toml::Table, over: toml::Table) {
+    for (k, v) in over {
+        match (base.get_mut(&k), v) {
+            (Some(toml::Value::Table(b)), toml::Value::Table(o)) => merge_tables(b, o),
+            (_, v) => {
+                base.insert(k, v);
+            }
+        }
+    }
+}
+
 impl Config {
     /// Parse TOML (unknown keys are an error). `[exit]` is kept raw for the
     /// exit engine (which refuses unknown keys inside `[exit.default]`), so
@@ -1483,6 +1502,27 @@ impl Config {
     /// would silently replace with the default exits) is refused here.
     pub fn from_toml_str(s: &str) -> Result<Self, String> {
         let cfg: Self = toml::from_str(s).map_err(|e| e.to_string())?;
+        Self::exit_tables_ok(cfg)
+    }
+
+    /// `base` with `overlay` merged over it (2026-10-24, `rugsnipe-hot
+    /// --overlay`): a table merges key by key, recursively (an inline table
+    /// is a table); any other overlay value replaces the base value; overlay
+    /// keys the base lacks are added. The result is checked exactly like
+    /// [`Config::from_toml_str`] (unknown keys refused). The paper-wide
+    /// instance runs the live config with a few keys replaced, so it tracks
+    /// every later change of the live gates.
+    pub fn from_toml_strs(base: &str, overlay: &str) -> Result<Self, String> {
+        let mut b: toml::Table = toml::from_str(base).map_err(|e| format!("base: {e}"))?;
+        let o: toml::Table = toml::from_str(overlay).map_err(|e| format!("overlay: {e}"))?;
+        merge_tables(&mut b, o);
+        let cfg: Self = toml::Value::Table(b)
+            .try_into()
+            .map_err(|e: toml::de::Error| e.to_string())?;
+        Self::exit_tables_ok(cfg)
+    }
+
+    fn exit_tables_ok(cfg: Self) -> Result<Self, String> {
         if let Some(k) = cfg.exit.keys().find(|k| k.as_str() != "default") {
             return Err(format!(
                 "unknown table [exit.{k}]: only [exit.default] is read"
@@ -1707,6 +1747,20 @@ impl Config {
             inv(
                 &mut r,
                 "entry.operators_only",
+                "needs entry.operators_file (the operator table)",
+            );
+        }
+        if self.entry.operators_exclude && self.entry.operators_only {
+            inv(
+                &mut r,
+                "entry.operators_exclude",
+                "cannot be set with entry.operators_only (one keeps the listed signers, the other drops them)",
+            );
+        }
+        if self.entry.operators_exclude && self.entry.operators_file.is_empty() {
+            inv(
+                &mut r,
+                "entry.operators_exclude",
                 "needs entry.operators_file (the operator table)",
             );
         }
