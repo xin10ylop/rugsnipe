@@ -4,7 +4,8 @@
 # Rebuilds /etc/rugsnipe/operators.json (0640 root:rugsnipe, written to a tmp file and renamed)
 # from the copied wallet's last 24 h on chain (Helius Enhanced API + getTransactionsForAddress,
 # ~1.2 calls per launch at <= 5 req/s, ~7 min), merged with the previous table; signers whose
-# creator set dumped >= 2 launches within 3 slots drop out. The Helius key is the RPC_URL line
+# creator set dumped >= 2 launches within 3 slots drop out. Then operator_clock.py (~2,000 calls at
+# 4 req/s, ~9 min) sets the exit clocks. The Helius key is the RPC_URL line
 # of /etc/rugsnipe/keys/api-keys.toml, read at run time and never logged.
 #
 # THE HOT LOOP READS entry.operators_file ONLY AT START: the new table takes effect through the
@@ -27,8 +28,12 @@ Group=root
 WorkingDirectory=/var/lib/rugsnipe
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 -I /opt/rugsnipe/src/analysis/scripts/strategy/operators_refresh.py --api-keys /etc/rugsnipe/keys/api-keys.toml --hours 24 --out /etc/rugsnipe/operators.json --state /var/lib/rugsnipe/state.db --min-n 2 --drop-dumpers --mode 0640 --group rugsnipe
+# exit clocks (docs/09 "Exit clocks"): signers whose hold rests on < 5 of the wallet's round trips get their own
+# sell clock's hold where it beat the wallet's in both halves of their last 48 h of launches; a failure ('-')
+# leaves the wallet's holds and still restarts
+ExecStartPost=-/usr/bin/python3 -I /opt/rugsnipe/src/analysis/scripts/strategy/operator_clock.py --api-keys /etc/rugsnipe/keys/api-keys.toml --table /etc/rugsnipe/operators.json --mode 0640 --group rugsnipe
 ExecStartPost=/bin/systemctl try-restart rugsnipe-hot.service
-TimeoutStartSec=20min
+TimeoutStartSec=45min
 Nice=10
 UMask=0027
 

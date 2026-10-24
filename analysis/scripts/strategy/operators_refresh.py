@@ -286,8 +286,11 @@ def trade_event(raw: bytes) -> dict | None:
     if raw[:8] != EVENT_TAG or raw[8:16] != DISC_TRADE or len(raw) < 16 + 89:
         return None
     d = raw[16:]
-    return {"mint": b58e(d[0:32]), "sol": struct.unpack_from("<Q", d, 32)[0], "tok": struct.unpack_from("<Q", d, 40)[0],
-            "b": d[48] == 1, "u": b58e(d[49:81])}
+    t = {"mint": b58e(d[0:32]), "sol": struct.unpack_from("<Q", d, 32)[0], "tok": struct.unpack_from("<Q", d, 40)[0],
+         "b": d[48] == 1, "u": b58e(d[49:81])}
+    if len(d) >= 105:  # the curve's virtual reserves after the trade (after the i64 timestamp at 81)
+        t["v"], t["t"] = struct.unpack_from("<QQ", d, 89)
+    return t
 
 
 def create_event(raw: bytes) -> dict | None:
@@ -548,7 +551,8 @@ def merge(fresh: dict[str, dict], old: dict[str, dict], old_mtime: float, now: f
             if v["n"] + on > 0:
                 e["dev_sol"] = round((v["dev_sol"] * v["n"] + float(o.get("dev_sol", 0.0)) * on) / (v["n"] + on), 4)
             if not v["_hold_from_data"] and int(o.get("hold_slots", 0)) >= 1:
-                e["hold_slots"] = int(o["hold_slots"])
+                # the wallet's own hold: operator_clock.py keeps it as hold_his when it set a clock hold
+                e["hold_slots"] = int(o.get("hold_his", o["hold_slots"]))
             if v["n"] == 0:
                 e["bundle_wallets"] = int(o.get("bundle_wallets", 0))
                 e["stake_tier"] = int(o.get("stake_tier", 0))

@@ -146,6 +146,38 @@ sudo systemctl enable --now rugsnipe-operators.timer  # daily from tonight
 systemctl list-timers rugsnipe-operators.timer
 ```
 
+### Exit clocks
+
+Each operator sells on its own clock, and it repeats: the slot after the create at which its creator set (the
+create's signers, `user`, `creator` and the bundle run's wallets) has sold 25% of the tokens it bought in the run.
+DRXPafDu sells at slot 12 / 11.5 on 95% / 91% of its launches on two consecutive days, ENskGQev at 12 / 12,
+F5XvCe42 at 8 / 7. The table's hold is the copied wallet's modal hold, and for some signers it rests on two or three
+of his round trips: F5XvCe42's hold 1 came from 2. After every table refresh,
+`analysis/scripts/strategy/operator_clock.py` (an `ExecStartPost` of `rugsnipe-operators.service`) pulls the
+last 48 h of launches of every signer whose `n` is below 5, measures its clock on the bundled ones, and replays a
+0.5 SOL buy in the first spot behind the bundle at every hold 1..15. The clock hold (median sell slot - 1, within
+2..15; at least 10 bundled launches, a third of them showing the sell) replaces the wallet's hold only when it made
+more in each half of those launches on its own. The wallet's hold is kept as `hold_his` and comes back when the
+clock no longer qualifies; `clock_slot`, `clock_share` and `clock_launches` record the evidence. A failed run leaves
+the wallet's holds.
+
+**Evidence (2026-10-24, 48 h, the first-spot P&L after our costs).** Read on two of three 16 h periods and scored
+on the third, three rotations: the wallet's holds +13.78 / +9.07 / +18.18 SOL, the clock with the both-periods check
++16.99 / +13.50 / +19.47. F5XvCe42 (59 launches) made +0.33 / +0.43 at hold 1 and +4.62 / +3.79 at hold 7 on the two
+days. What did not work: the clock for every operator without the check (it lost on most of the operators it
+moved: 9ncm3Mfx, 8YcbyX92, BADxcCcz, DRXPafDu), each operator's best hold fitted on one day (lost on the other day in
+both directions: +6.71 against +9.00, +4.51 against +6.14), selling at the typical peak, and every exit that reacts
+during the hold: a sell on the creator set's first sell, on a big outside buy or when no followers come, take-profits
+and stop-losses (a rug is one block: the creator set sells together in one slot, so the reaction is late, and every
+early exit also cuts the winners).
+
+```bash
+sudo python3 -I /opt/rugsnipe/src/analysis/scripts/strategy/operator_clock.py --dry-run   # the decisions, nothing written
+journalctl -u rugsnipe-operators -n 40 --no-pager                                          # after a refresh: "operator_clock: ..."
+```
+
+Test: `python3 analysis/scripts/strategy/test_operator_clock.py`.
+
 **Check (2026-10-23, 6 h window, `data/operators/ahw-2026-10-23b.json`):** 132 round trips on 132 mints + 369
 attempted-only launches, 501 launches resolved with 0 errors, L - create in {1, 3, 6, 10} on 132/132; on the 28 mints
 also in rt.json the signer, create slot, H, `n_bw` and `dev_sol` match 28/28. The table (min-n 2, drop-dumpers) has
