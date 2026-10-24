@@ -118,6 +118,24 @@ impl core::fmt::Debug for RealOpts {
 pub const SELL_BLOCKHASH_BUDGET_MS: u64 = 300;
 
 /// A running process minus the hot loop.
+/// The tweet lane's GET (keep-alive, a `timeout_ms` budget per fetch); a
+/// binary without chain reads answers every fetch with an error.
+fn tweet_fetch(timeout_ms: u64) -> crate::tweet::FetchFn {
+    #[cfg(feature = "rpc")]
+    {
+        let c = rugsnipe_tx::rpc::HttpGet::new(
+            std::time::Duration::from_millis(timeout_ms),
+            crate::tweet::MAX_BODY,
+        );
+        Arc::new(move |u: &str| c.get(u))
+    }
+    #[cfg(not(feature = "rpc"))]
+    {
+        let _ = timeout_ms;
+        Arc::new(|_: &str| Err("built without the rpc feature: no metadata fetch".to_string()))
+    }
+}
+
 pub struct App {
     pub hot: HotLoop,
     pub shared: Arc<Shared>,
@@ -147,6 +165,8 @@ pub struct App {
     /// The chain source of recovery (probe), kept for the shutdown: a sell
     /// sent before the stop is resolved on chain and booked ([`crate::inflight`]).
     chain: Option<Arc<dyn ChainRead + Send + Sync>>,
+    /// The tweet check's metadata lane (`entry.tweet_gate` != off).
+    tweet: Option<crate::tweet::TweetLane>,
 }
 
 impl core::fmt::Debug for App {
@@ -955,6 +975,45 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         leaders: leaders.clone(),
         dumpers: dumpers.clone(),
     });
+    // the tweet check (entry.tweet_gate, docs/13): the metadata lane
+    let tweet = if cfg.entry.tweet_gate != rugsnipe_core::config::TweetGate::Off {
+        let (req_tx, req_rx) = rtrb::RingBuffer::<crate::tweet::TweetReq>::new(1_024);
+        let (out_tx, out_rx) = rtrb::RingBuffer::<crate::tweet::TweetVerdict>::new(1_024);
+        let hosts = if cfg.entry.tweet_hosts.is_empty() {
+            &cfg.entry.uri_hosts
+        } else {
+            &cfg.entry.tweet_hosts
+        };
+        // a listed suffix ("uxento.io") names no one host to keep warm
+        let warm = hosts
+            .iter()
+            .filter(|h| !h.starts_with('.') && h.matches('.').count() >= 2)
+            .map(|h| crate::tweet::warm_url(h))
+            .collect();
+        let lane = crate::tweet::spawn(
+            crate::tweet::TweetLaneCfg {
+                workers: cfg.entry.tweet_workers as usize,
+                max_age_s: cfg.entry.tweet_max_age_s,
+                warm,
+            },
+            tweet_fetch(cfg.entry.tweet_timeout_ms),
+            req_rx,
+            out_tx,
+        )
+        .map_err(|e| format!("tweet lane: {e}"))?;
+        hot.set_tweet_lane(req_tx, out_rx);
+        eprintln!(
+            "tweet check: {} (hosts {}, max age {} s, late slots {}, {} workers)",
+            cfg.entry.tweet_gate.as_str(),
+            hosts.join(","),
+            cfg.entry.tweet_max_age_s,
+            cfg.entry.tweet_late_slots,
+            cfg.entry.tweet_workers
+        );
+        Some(lane)
+    } else {
+        None
+    };
     // probe: every token balance recovery found gets an exit owner (I2/I6)
     if mode.is_real() {
         if let Some(rep) = &recovery {
@@ -1007,6 +1066,7 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         sender: Some(sender),
         writers,
         chain,
+        tweet,
     })
 }
 
@@ -1143,9 +1203,13 @@ impl App {
             writers,
             state_path,
             chain,
+            tweet,
             ..
         } = self;
         drop(hot); // drops the fire producer, the hot rslog producer and the cold ring producer
+        if let Some(t) = tweet {
+            t.join(); // its dispatcher ends with the hot loop's request ring
+        }
         let sender_thread_sends = sender
             .map(|h| {
                 // the sender exits when its ring is abandoned and empty

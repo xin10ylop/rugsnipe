@@ -1013,8 +1013,38 @@ fn run(args: &[String]) -> Result<(), String> {
             } else {
                 String::new()
             };
+            // the tweet check (docs/13): requests, verdicts by kind, when
+            // they came (create slot / next / later), the gate's skips/fires
+            let tweet = app
+                .hot
+                .tweet_desc()
+                .map(|(mode, p50, p90)| {
+                    let k = c.tweet_kinds;
+                    let a = c.tweet_at;
+                    format!(
+                        " | tweet {mode} asked {} first {} copy {} stale {} none {} error {} at slot+0/+1/later {}/{}/{} p50 {p50}ms p90 {p90}ms skipped {} late {} fired {}{}",
+                        c.tweet_asked,
+                        k[0],
+                        k[1],
+                        k[2],
+                        k[3],
+                        k[4],
+                        a[0],
+                        a[1],
+                        a[2],
+                        c.tweet_skipped,
+                        c.tweet_late,
+                        c.tweet_fired,
+                        if c.tweet_ring_full > 0 {
+                            format!(" ring_full {}", c.tweet_ring_full)
+                        } else {
+                            String::new()
+                        }
+                    )
+                })
+                .unwrap_or_default();
             eprintln!(
-                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {}{gate}{presend}{template} | {kill}{g} | {} | {}",
+                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {}{gate}{presend}{template}{tweet} | {kill}{g} | {} | {}",
                 t0.elapsed().as_secs(),
                 c.events,
                 c.creates,

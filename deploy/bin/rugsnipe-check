@@ -3,7 +3,7 @@
 #   bash ~/check.sh
 # Reads only: the hot unit's journal (status line, operator/tier lines), /etc/rugsnipe/rugsnipe.toml and
 # /var/lib/rugsnipe/state.db (read-only). Needs sudo for the journal and the config.
-# Test hooks: CHECK_STATUS (a status line instead of the journal's), CHECK_TIERS (operator lines),
+# Test hooks: CHECK_STATUS (a status line instead of the journal's), CHECK_TIERS (operator lines), CHECK_TWEETS (tweet lines),
 # CHECK_DB (another state.db), CHECK_PRINT_SQL=1 (print the SQL and stop).
 DB=${CHECK_DB:-/var/lib/rugsnipe/state.db}
 CFG=/etc/rugsnipe/rugsnipe.toml
@@ -29,10 +29,18 @@ if [ -n "${CHECK_TIERS+x}" ]; then OPL=$CHECK_TIERS; else
 fi
 TIERS=$(awk 'NF >= 2 { t = $NF; gsub(/[^0-9]/, "", t); if (t != "") printf "%s(\x27%s\x27,%s)", (n++ ? "," : ""), $2, t }' <<<"$OPL")
 [ -n "$TIERS" ] || TIERS="('',-1)"
+# ---- the tweet check's verdict lines (entry.tweet_gate, docs/13) of today: mint8 -> verdict, delay, slot offset
+if [ -n "${CHECK_TWEETS+x}" ]; then TWL=$CHECK_TWEETS; else
+  TWL=$(sudo journalctl -u rugsnipe-hot -o cat --since "@$D0" 2>/dev/null | grep -E '^tweet [1-9A-HJ-NP-Za-km-z]{8} [a-z_]+ rank ')
+fi
+TWEETS=$(awk '{ ms = $13; gsub(/[^0-9]/, "", ms); so = $14; gsub(/[^0-9]/, "", so); if (ms != "") printf "%s(\x27%s\x27,\x27%s\x27,%s,%s)", (n++ ? "," : ""), $2, $3, ms, (so == "" ? 0 : so) }' <<<"$TWL")
+[ -n "$TWEETS" ] || TWEETS="('','',0,0)"
 
 SQL="
 create temp table tiers(m8 text, tier int);
 insert into tiers values $TIERS;
+create temp table tweets(m8 text, kind text, ms int, slot_off int);
+insert into tweets values $TWEETS;
 create temp view pos0 as
   select p.mint, p.cost, p.state, p.opened_slot, p.closed_slot, min(s.sent_unix_ms) t_ms,
          coalesce((select sum(e.sol_delta) from exits e where e.mint = p.mint), 0) ex,
@@ -80,6 +88,16 @@ select tier, count(*) trades, sum(net > 0) wins, round(100.0 * avg(net * 1.0 / c
        round(sum(net) / 1e9, 4) net_sol, round(avg(cost) / 1e9, 3) avg_stake
 from pos where state = 'closed' and cost > 0 and t_ms >= $D0 * 1000 group by tier order by tier;
 .print
+.print == tweet check today (entry.tweet_gate): verdicts by kind, how fast they came, and our closed trades by verdict
+with k as (select kind, ms, slot_off, row_number() over (partition by kind order by ms) rn,
+                  count(*) over (partition by kind) n from tweets where m8 <> '')
+select kind verdict, max(n) creates, sum(slot_off = 0) in_create_slot, sum(slot_off = 1) next_slot, sum(slot_off >= 2) later,
+       max(case when rn = (n + 1) / 2 then ms end) median_ms
+from k group by kind order by creates desc;
+select coalesce((select t.kind from tweets t where t.m8 = substr(p.mint, 1, 8) limit 1), 'not fetched') verdict,
+       count(*) trades, sum(net > 0) wins, round(100.0 * avg(net * 1.0 / cost), 1) mean_pct, round(sum(net) / 1e9, 4) net_sol
+from pos p where state = 'closed' and cost > 0 and t_ms >= $D0 * 1000 group by verdict order by trades desc;
+.print
 .print == last 10 trades, newest first (pct and net_sol after tips and fees)
 select strftime('%H:%M:%S', t_ms / 1000, 'unixepoch') time, substr(mint, 1, 8) mint, tier, round(cost / 1e9, 3) stake,
        case when state = 'closed' then round(100.0 * net / max(cost, 1), 1) end pct,
@@ -119,6 +137,8 @@ echo "   wallet change: today $(dsol "$w_day" "$wallet") SOL (from $( [ -n "$w_d
 echo "   config: min tier $(q "$(cfgv min_stake_tier)")  stake by tier $(q "$(list_sol "$(cfgv stake_by_tier)")") SOL  bid by tier $(q "$(list_m "$(cfgv by_tier)")")M  picks $(q "$(cfgv presend_mode | tr -d '"')") (cut $(q "$(cfgv presend_cut | tr -d '"')"))  daily stop $(sol "$(tr -d '_' <<<"$(cfgv max_daily_loss_lamports)")") SOL  sell bid: hold_to + dump $(q "$(list_m "$(cfgv dump_tip_lamports)")")M, other $(q "$(list_m "$(cfgv sell_tip_lamports)")")M"
 echo "   feeds: grpc reconnects $(q "$grpc_rc") last frame $(q "$grpc_age") ms  deshred reconnects $(q "$desh_rc")"
 echo "   gates: $(q "$(g 'gate parked [0-9]+ fired [0-9]+')")  $(g 'presend skip t[12] scored [0-9]+ skipped [0-9]+' | sed 's/presend skip /picks /')  $(g 'template too_big [0-9]+ bundle_sol [0-9]+ dev_buy [0-9]+ uri_host [0-9]+')"
+tw=$(g 'tweet (log|on) asked [0-9]+ .* fired [0-9]+( ring_full [0-9]+)?')
+[ -n "$tw" ] && echo "   $tw"
 echo "   sends: $(q "$(g 'probe attempts [0-9]+ landed [0-9]+ failed [0-9]+ dropped [0-9]+' | sed 's/probe //')")  failed cost $( [ -n "$failc" ] && sol "$failc" || echo '?') SOL"
 echo "== this process (since $(date -u -d "@$T0" +%H:%M) UTC) and today (since 00:00 UTC)"
 printf '%s\n' "$SQL" | sudo -u rugsnipe sqlite3 -readonly -header -column "$DB"

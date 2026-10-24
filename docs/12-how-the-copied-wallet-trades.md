@@ -149,6 +149,10 @@ day without his volume and capital.
 
 ## 7. The implementable rule (for the operator bot)
 
+**Superseded by docs/13.** The rule backtested on two days is his deployer list (the last 7 days) plus the tweet check
+(the first coin on a fresh tweet) on the three launch tools: +5.0% per trade net of our costs, positive in all four
+half-days. The tweet check alone and the deployer list alone do not hold.
+
 1. **Deployer list from his attempts, live.** Subscribe to his wallet in the gRPC feed, failed transactions included.
    His failed buy shows in our own block, a median 19 transactions behind ours, on 51 of the 57 trades where he fired.
    Then:

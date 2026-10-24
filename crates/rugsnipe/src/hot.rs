@@ -56,6 +56,7 @@ use crate::operators::{
 };
 use crate::setup::{min_tokens_out, min_tokens_out_at, op_armed, ArmState, Templates};
 use crate::stats::{code, HotStats};
+use crate::tweet::{TweetKind, TweetReq, TweetVerdict};
 use arc_swap::ArcSwap;
 use hdrhistogram::Histogram;
 use pump_codec::constants::{TOKEN_2022_PROGRAM_ID, WSOL_MINT};
@@ -64,7 +65,7 @@ use pump_codec::curve::{CurveState, FeeBps};
 use pump_codec::{pda, Pubkey};
 use rugsnipe_core::bid::{BidPlan, BidPolicy, LeaderClass};
 use rugsnipe_core::config::{
-    Config, FillModel, FilterMode, LeaderMix, PresendCut, PresendMode, ProbeStage,
+    Config, FillModel, FilterMode, LeaderMix, PresendCut, PresendMode, ProbeStage, TweetGate,
 };
 use rugsnipe_core::risk::{DecideInput, Decision, RiskGate};
 use rugsnipe_core::rslog::{CreateHitRec, Rec, RslogProducer, ShadowOutcome};
@@ -266,6 +267,9 @@ pub struct HotCfg {
     /// `entry.operators_exclude`: skip (`skip_not_operator`) a create whose
     /// signer IS in the table (the paper-wide instance, docs/09).
     pub operators_exclude: bool,
+    /// `entry.operator_holds`: a listed signer's table hold replaces the
+    /// default exit's `hold_to_create_slot` (false: the default for all).
+    pub operator_holds: bool,
     /// `entry.min_stake_tier`: skip (`skip_low_tier`) a signer below it.
     pub min_stake_tier: u8,
     /// `entry.bundle_wallets`: the parked run's distinct bundle wallets a
@@ -279,6 +283,15 @@ pub struct HotCfg {
     /// leading dot (empty = any / none).
     pub uri_allow: Vec<String>,
     pub uri_deny: Vec<String>,
+    /// The tweet check (`entry.tweet_gate`, docs/13): off / log / on, the
+    /// hosts whose creates are fetched (`entry.tweet_hosts`, else
+    /// `entry.uri_hosts`; matched like `uri_allow`), the smallest dev buy
+    /// fetched (lamports) and the slots after the create slot a passed
+    /// verdict may still fire the buy.
+    pub tweet_gate: TweetGate,
+    pub tweet_hosts: Vec<String>,
+    pub tweet_min_dev: u64,
+    pub tweet_late_slots: u64,
 }
 
 /// Three per-tier lamport values (validated by the config), else `None`.
@@ -346,6 +359,11 @@ impl HotCfg {
                         e.dev_buy_tol_sol,
                     ));
                 }
+                r.extend(
+                    e.dev_buy_ranges_sol
+                        .iter()
+                        .map(|[lo, hi]| (sol_lamports(*lo), sol_lamports(*hi))),
+                );
                 r
             },
             leader_allowed: leader_mask(&cfg.entry.leader_regions),
@@ -358,12 +376,21 @@ impl HotCfg {
             operators: None,
             operators_only: cfg.entry.operators_only,
             operators_exclude: cfg.entry.operators_exclude,
+            operator_holds: cfg.entry.operator_holds,
             min_stake_tier: cfg.entry.min_stake_tier,
             bundle_wallets: cfg.entry.bundle_wallets.clone(),
             max_post_bundle: sol_lamports(cfg.entry.max_post_bundle_sol),
             max_bundle: sol_lamports(cfg.entry.max_bundle_sol),
             uri_allow: host_patterns(&cfg.entry.uri_hosts),
             uri_deny: host_patterns(&cfg.entry.uri_hosts_deny),
+            tweet_gate: cfg.entry.tweet_gate,
+            tweet_hosts: host_patterns(if cfg.entry.tweet_hosts.is_empty() {
+                &cfg.entry.uri_hosts
+            } else {
+                &cfg.entry.tweet_hosts
+            }),
+            tweet_min_dev: sol_lamports(cfg.entry.tweet_min_dev_sol),
+            tweet_late_slots: cfg.entry.tweet_late_slots,
         }
     }
 
@@ -386,11 +413,11 @@ impl HotCfg {
 
     /// The exit policy of a position on `hit`: the configured one, with the
     /// operator table's `hold_slots` as its `hold_to_create_slot` when the
-    /// create's signer is listed (docs/09).
+    /// create's signer is listed (docs/09) and `entry.operator_holds` is on.
     #[inline]
     pub fn policy_for(&self, rule: Option<OpRule>) -> ExitPolicy {
         let mut p = self.policy;
-        if let Some(r) = rule {
+        if let Some(r) = rule.filter(|_| self.operator_holds) {
             p.hold_to_create_slot = Some(r.hold_slots);
         }
         p
@@ -583,6 +610,13 @@ const OWN_SIGS: usize = 8;
 pub const PARK_SLOTS: usize = 64;
 /// A parked create older than this is skipped even without a slot event.
 pub const PARK_MAX_NS: u64 = 1_000_000_000;
+/// [`Parked::tw`]: no tweet check on this park / waiting for the verdict /
+/// the verdict passed (the first coin of a fresh tweet).
+pub const TW_OFF: u8 = 0;
+pub const TW_WAIT: u8 = 1;
+pub const TW_PASS: u8 = 2;
+/// Verdicts kept for creates not parked yet when they came.
+const TW_EARLY: usize = 16;
 
 /// A create held by the bundle gate: everything `decide_from_watch` needs,
 /// `Copy` (no heap on the create path).
@@ -627,6 +661,11 @@ pub struct Parked {
     /// Every trade of the mint inside the run as delivered (the pre-send
     /// gate's bundle block).
     pub run: RunTrades,
+    /// The tweet check (`entry.tweet_gate = "on"`): [`TW_OFF`], [`TW_WAIT`]
+    /// or [`TW_PASS`]; `run_ready`: the run is complete but the verdict has
+    /// not come (the fire waits for it).
+    pub tw: u8,
+    pub run_ready: bool,
 }
 
 /// Trades of the run a park keeps: three per run index (a bundle
@@ -743,6 +782,19 @@ pub fn park_trade(
     wait_ns: u64,
     now_ns: u64,
 ) -> ParkStep {
+    // the tweet check's wait runs past the create slot: a later buy by a
+    // wallet outside the creator set and the bundle is ahead of ours
+    if p.tw != TW_OFF && t.mint == p.hit.mint && t.slot > p.slot {
+        let outside = t.is_buy
+            && t.user != *owner
+            && !in_creator_set(&p.hit, &t.user)
+            && !p.wallets[..p.n_wallets as usize].contains(&t.user);
+        return if outside && p.bundle_buys > 0 {
+            ParkStep::NotFirst
+        } else {
+            ParkStep::Ignore
+        };
+    }
     if t.mint != p.hit.mint
         || t.slot != p.slot
         || p.create_index == u32::MAX
@@ -933,6 +985,17 @@ pub fn leader_mask(regions: &[String]) -> Option<[bool; crate::leader::Region::C
     Some(m)
 }
 
+/// The skip code of a tweet verdict that does not pass.
+pub fn tweet_code(k: TweetKind) -> u8 {
+    match k {
+        TweetKind::First => code::FIRE,
+        TweetKind::Copy => code::TWEET_COPY,
+        TweetKind::Stale => code::TWEET_STALE,
+        TweetKind::NoTweet => code::TWEET_NONE,
+        TweetKind::Error => code::TWEET_ERROR,
+    }
+}
+
 /// The create's dev buy (lamports) is one of the listed amounts (an empty
 /// list admits every create).
 #[inline]
@@ -1088,6 +1151,18 @@ pub struct LoopCounters {
     pub skip_bundle_sol: u64,
     pub skip_dev_buy: u64,
     pub skip_uri_host: u64,
+    /// The tweet check (`entry.tweet_gate`): creates handed to the lane,
+    /// and not handed for a full ring; verdicts by kind (`TweetKind`
+    /// order: first, copy, stale, no_tweet, error); verdicts that came in
+    /// the create slot / the next / later; gated parks skipped on a verdict
+    /// or for want of one, and fired on a pass.
+    pub tweet_asked: u64,
+    pub tweet_ring_full: u64,
+    pub tweet_kinds: [u64; TweetKind::COUNT],
+    pub tweet_at: [u64; 3],
+    pub tweet_skipped: u64,
+    pub tweet_late: u64,
+    pub tweet_fired: u64,
     /// Parked creates at the fire point by the park's bundle-wallet count
     /// (`operators::bundle_wallet_count`, 0..=5): what `entry.bundle_wallets`
     /// is checked against.
@@ -1151,7 +1226,7 @@ pub struct HotLoop {
     rates: CreateRate,
     /// `entry.require_bundle`: creates waiting for a bundle buy (fixed
     /// table: no allocation on the create path).
-    parked: [Option<Parked>; PARK_SLOTS],
+    parked: Box<[Option<Parked>]>,
     /// Recent trades of mints with no park and no position ([`PREPARK`]).
     prepark: [Option<TradeLite>; PREPARK],
     prepark_at: usize,
@@ -1166,6 +1241,14 @@ pub struct HotLoop {
     bh_fresh_ms: u64,
     /// Buys paused for want of any sell lifetime (see [`HotCfg::max_blockhash_age_ms`]).
     sell_blocked: bool,
+    /// The tweet lane's rings (`entry.tweet_gate` != off; `None`: no lane).
+    tweet_req: Option<rtrb::Producer<TweetReq>>,
+    tweet_in: Option<rtrb::Consumer<TweetVerdict>>,
+    /// Verdicts that came before their create was parked.
+    tw_early: [Option<TweetVerdict>; TW_EARLY],
+    tw_early_at: usize,
+    /// Verdict delay: the request's push to the verdict's pop (us).
+    hist_tweet: Histogram<u64>,
 }
 
 impl core::fmt::Debug for HotLoop {
@@ -1220,7 +1303,10 @@ impl HotLoop {
             hist_event: hist(),
             counters: LoopCounters::default(),
             rates: CreateRate::new(crate::now_ms()),
-            parked: [None; PARK_SLOTS],
+            // on the heap (PARK_SLOTS entries of a few KB each, allocated
+            // once here): the loop itself stays small enough to build and
+            // move on a 2 MB thread stack
+            parked: vec![None; PARK_SLOTS].into_boxed_slice(),
             prepark: [None; PREPARK],
             prepark_at: 0,
             leaders: p.leaders,
@@ -1230,7 +1316,39 @@ impl HotLoop {
             sell_tmpls: Vec::new(),
             bh_fresh_ms: 0,
             sell_blocked: false,
+            tweet_req: None,
+            tweet_in: None,
+            tw_early: [None; TW_EARLY],
+            tw_early_at: 0,
+            hist_tweet: hist(),
         }
+    }
+
+    /// Connect the tweet lane (`entry.tweet_gate` != off): the requests the
+    /// hot loop pushes and the verdicts it pops ([`crate::tweet::spawn`]).
+    pub fn set_tweet_lane(
+        &mut self,
+        req: rtrb::Producer<TweetReq>,
+        verdicts: rtrb::Consumer<TweetVerdict>,
+    ) {
+        self.tweet_req = Some(req);
+        self.tweet_in = Some(verdicts);
+    }
+
+    /// The tweet check's mode and its verdict delay p50 / p90 (ms), for the
+    /// status line (`None`: off).
+    pub fn tweet_desc(&self) -> Option<(&'static str, u64, u64)> {
+        (self.cfg.tweet_gate != TweetGate::Off).then(|| {
+            let h = &self.hist_tweet;
+            let q = |p: f64| {
+                if h.is_empty() {
+                    0
+                } else {
+                    h.value_at_quantile(p) / 1_000
+                }
+            };
+            (self.cfg.tweet_gate.as_str(), q(0.5), q(0.9))
+        })
     }
 
     /// Classes of the leaders of `slot` and `slot + 1` (schedule lookup:
@@ -1322,6 +1440,9 @@ impl HotLoop {
         }
         while let Ok(m) = self.fills_in.pop() {
             self.on_hot_in(m);
+        }
+        while let Some(v) = self.tweet_in.as_mut().and_then(|c| c.pop().ok()) {
+            self.on_tweet(v);
         }
         // The feed's slot updates keep the clock moving when no event does:
         // the exit engine evaluates at slot close, and a held mint that goes
@@ -1654,6 +1775,9 @@ impl HotLoop {
         if self.find_mint(&hit.mint).is_some() {
             return self.decision(intent, hit, code::ALREADY_FIRED, 0, 0, 0, 0, 0);
         }
+        // the tweet check's request (entry.tweet_gate): before any skip, so
+        // every coin of a tweet host ranks on its tweet, skipped or not
+        let asked = self.ask_tweet(hit, slot, create_index);
         // creates of the last 60 / 600 s, before this one (entry filter)
         let rates = self.rates.on_create(crate::now_ms());
         // 4: class filters
@@ -1716,6 +1840,23 @@ impl HotLoop {
         // LEAD policy's population is the bundled launch, entered right
         // behind the whole bundle, bound at that price + max_premium)
         if self.cfg.require_bundle && self.cfg.mode.is_real() && src_class(src) != FREE_CLASS {
+            // the tweet check (on): a create the lane was not asked about has
+            // no verdict to wait for; a verdict that already came decides now
+            let mut tw = TW_OFF;
+            if self.cfg.tweet_gate == TweetGate::On {
+                if !asked {
+                    self.counters.tweet_skipped += 1;
+                    return self.decision(intent, hit, code::TWEET_NONE, 0, 0, 0, 0, 0);
+                }
+                tw = TW_WAIT;
+                if let Some(v) = self.take_early_verdict(&hit.mint) {
+                    if v.kind != TweetKind::First {
+                        self.counters.tweet_skipped += 1;
+                        return self.decision(intent, hit, tweet_code(v.kind), 0, 0, 0, 0, 0);
+                    }
+                    tw = TW_PASS;
+                }
+            }
             self.park(Parked {
                 hit: *hit,
                 src,
@@ -1737,6 +1878,8 @@ impl HotLoop {
                 outside: false,
                 run_sol: 0,
                 run: RunTrades::default(),
+                tw,
+                run_ready: false,
             });
             return;
         }
@@ -1752,6 +1895,110 @@ impl HotLoop {
             None,
             create_index,
         );
+    }
+
+    /// Hand a create to the tweet lane (`entry.tweet_gate` != off): a
+    /// tweet host's uri, kept whole, and a dev buy of at least
+    /// `entry.tweet_min_dev_sol`. `true` when the request went out.
+    fn ask_tweet(&mut self, hit: &CreateHit, slot: u64, create_index: u32) -> bool {
+        if self.tweet_req.is_none()
+            || hit.intx_sol_in < self.cfg.tweet_min_dev
+            || hit.tx_shape.uri_len == 0
+            || !uri_host_ok(&self.cfg.tweet_hosts, &[], hit.tx_shape.uri_host())
+        {
+            return false;
+        }
+        let req = TweetReq {
+            mint: hit.mint,
+            slot,
+            index: create_index,
+            uri: hit.tx_shape.uri,
+            uri_len: hit.tx_shape.uri_len,
+            seen_ms: crate::now_ms(),
+            push_ns: mono_ns(),
+        };
+        if self.tweet_req.as_mut().is_some_and(|r| r.push(req).is_ok()) {
+            self.counters.tweet_asked += 1;
+            true
+        } else {
+            self.counters.tweet_ring_full += 1;
+            false
+        }
+    }
+
+    /// A verdict that came before its create was parked, taken.
+    fn take_early_verdict(&mut self, mint: &Pubkey) -> Option<TweetVerdict> {
+        let i = self
+            .tw_early
+            .iter()
+            .position(|v| v.is_some_and(|v| v.mint == *mint))?;
+        self.tw_early[i].take()
+    }
+
+    /// A verdict from the tweet lane: counted and journaled; with the gate
+    /// on it decides its park (fire on a pass once the run is complete,
+    /// `skip_tweet_*` otherwise).
+    fn on_tweet(&mut self, v: TweetVerdict) {
+        let now = mono_ns();
+        let us = now.saturating_sub(v.push_ns) / 1_000;
+        self.hist_tweet.saturating_record(us.max(1));
+        self.counters.tweet_kinds[v.kind as usize] += 1;
+        let at = self.slot_now.saturating_sub(v.slot);
+        self.counters.tweet_at[(at as usize).min(2)] += 1;
+        let parked = self
+            .parked
+            .iter()
+            .position(|x| x.is_some_and(|p| p.hit.mint == v.mint && p.tw == TW_WAIT));
+        let fired = self.fired_or_held(&v.mint);
+        let what = match parked {
+            Some(i) if v.kind == TweetKind::First => {
+                let mut p = self.parked[i].take().expect("parked");
+                p.tw = TW_PASS;
+                if p.run_ready || self.slot_now > p.slot {
+                    self.counters.tweet_fired += 1;
+                    self.fire_parked(&p, now);
+                    "fire"
+                } else {
+                    self.parked[i] = Some(p);
+                    "pass, waiting for the run"
+                }
+            }
+            Some(i) => {
+                let p = self.parked[i].take().expect("parked");
+                self.counters.tweet_skipped += 1;
+                self.decision(p.intent, &p.hit, tweet_code(v.kind), 0, 0, 0, 0, 0);
+                "skip"
+            }
+            None => {
+                if self.cfg.tweet_gate == TweetGate::On && !fired {
+                    self.tw_early[self.tw_early_at % TW_EARLY] = Some(v);
+                    self.tw_early_at = self.tw_early_at.wrapping_add(1);
+                }
+                if fired {
+                    "ours"
+                } else {
+                    "-"
+                }
+            }
+        };
+        let k8 = key8(&v.mint);
+        journal(format_args!(
+            "tweet {} {} rank {} age {}s sid {} fetch {}ms verdict {}ms slot+{} {}",
+            std::str::from_utf8(&k8).unwrap_or("?"),
+            v.kind.as_str(),
+            v.rank,
+            v.age_s,
+            v.sid,
+            v.fetch_us / 1_000,
+            us / 1_000,
+            at,
+            what
+        ));
+    }
+
+    /// A position (open or pending) on `mint`.
+    fn fired_or_held(&self, mint: &Pubkey) -> bool {
+        self.find_mint(mint).is_some()
     }
 
     /// Park a create for the bundle gate; a full table drops its oldest
@@ -1793,7 +2040,28 @@ impl HotLoop {
     fn expire_parked(&mut self) {
         let now = mono_ns();
         for i in 0..PARK_SLOTS {
-            let Some(p) = self.parked[i] else { continue };
+            let Some(mut p) = self.parked[i] else {
+                continue;
+            };
+            // the tweet check: a bundled park whose verdict has not come
+            // waits up to entry.tweet_late_slots past its slot (the run ended
+            // with the slot); one whose verdict passed fires at the run seen
+            if p.tw != TW_OFF && p.slot < self.slot_now && p.bundle_buys > 0 && !p.outside {
+                let late = self.slot_now > p.slot.saturating_add(self.cfg.tweet_late_slots)
+                    || now.saturating_sub(p.parked_ns) > PARK_MAX_NS;
+                if p.tw == TW_PASS && !late {
+                    self.parked[i] = None;
+                    self.fire_parked(&p, now);
+                } else if late {
+                    self.parked[i] = None;
+                    self.counters.tweet_late += 1;
+                    self.decision(p.intent, &p.hit, code::TWEET_LATE, 0, 0, 0, 0, 0);
+                } else {
+                    p.run_ready = true;
+                    self.parked[i] = Some(p);
+                }
+                continue;
+            }
             if p.slot < self.slot_now && p.bundle_buys > 0 {
                 self.parked[i] = None;
                 let c = if p.outside {
@@ -1830,6 +2098,11 @@ impl HotLoop {
         match park_trade(&mut p, t, &self.owner, self.cfg.bundle_wait_ns, now) {
             ParkStep::Ignore => {}
             ParkStep::Hold => self.parked[i] = Some(p),
+            ParkStep::Fire if p.tw == TW_WAIT => {
+                // the run is complete: the fire waits for the tweet verdict
+                p.run_ready = true;
+                self.parked[i] = Some(p);
+            }
             ParkStep::Fire => {
                 self.parked[i] = None;
                 self.fire_parked(&p, now);
@@ -1864,6 +2137,10 @@ impl HotLoop {
         if self.parked[i].is_some_and(|p| p.bundle_buys == 0) {
             return;
         }
+        if let Some(p) = self.parked[i].as_mut().filter(|p| p.tw == TW_WAIT) {
+            p.run_ready = true;
+            return;
+        }
         if let Some(p) = self.parked[i].take() {
             self.fire_parked(&p, mono_ns());
         }
@@ -1875,8 +2152,13 @@ impl HotLoop {
         for i in 0..PARK_SLOTS {
             if self.parked[i]
                 .as_ref()
-                .is_some_and(|p| park_due(p, self.cfg.bundle_wait_ns, now))
+                .is_some_and(|p| !p.run_ready && park_due(p, self.cfg.bundle_wait_ns, now))
             {
+                if let Some(p) = self.parked[i].as_mut().filter(|p| p.tw == TW_WAIT) {
+                    // the wait is over: the fire waits for the tweet verdict
+                    p.run_ready = true;
+                    continue;
+                }
                 if let Some(p) = self.parked[i].take() {
                     self.fire_parked(&p, now);
                 }
@@ -2143,7 +2425,15 @@ impl HotLoop {
         // land behind the bundle any more: refused, never sent. (Paper keeps
         // scoring: a free feed is slot+1 by construction and E1 models the
         // creation slot from history.)
-        if real && self.slot_now > slot {
+        // The tweet check's pass may come after the create slot: the buy
+        // stays bound at the post-bundle state, so it lands only if nobody
+        // bought behind the bundle in the meantime.
+        let late_ok = if parked.is_some_and(|p| p.tw == TW_PASS) {
+            self.cfg.tweet_late_slots
+        } else {
+            0
+        };
+        if real && self.slot_now > slot.saturating_add(late_ok) {
             self.risk.release_unfilled();
             return self.decision(intent, hit, code::LATE_SLOT, 0, op.size, op.v_max, 0, 0);
         }
@@ -2243,8 +2533,9 @@ impl HotLoop {
         // the bid where the leader orders by it; the priority fee stays at the
         // floor there and is clamped by bid.failed_attempt_lamports_max elsewhere
         let n_sigs = self.tmpl.buys[claim.idx].table.n_sigs.clamp(1, 2) as u8;
-        // the leaders of the create slot and the next one (schedule)
-        let (lc0, lc1) = self.leader_classes(slot);
+        // the leaders of the create slot and the next one (schedule); a late
+        // tweet-check fire bids for the leaders of the current slot and the next
+        let (lc0, lc1) = self.leader_classes(slot.max(self.slot_now));
         let leader0 = lc0.map_or(LEADER_UNKNOWN, |c| c as u8);
         let leader1 = lc1.or(lc0).map_or(LEADER_UNKNOWN, |c| c as u8);
         let (plan0, plan1) = self.cfg.bid_plans_at(
@@ -4174,6 +4465,8 @@ mod bundle_gate_tests {
             outside: false,
             run_sol: 0,
             run: RunTrades::default(),
+            tw: TW_OFF,
+            run_ready: false,
         }
     }
 

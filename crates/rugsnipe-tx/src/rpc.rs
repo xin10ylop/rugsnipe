@@ -114,3 +114,44 @@ impl RpcClient {
             .ok_or_else(|| format!("{method}: no result"))
     }
 }
+
+/// A small-body HTTP GET client with keep-alive (the tweet check's metadata
+/// fetches, `entry.tweet_gate`): one agent (connection pool) shared by the
+/// caller's threads, a global timeout per request, bodies capped at
+/// `max_body` bytes. Same TLS roots and proxy handling as [`RpcClient`].
+#[derive(Debug, Clone)]
+pub struct HttpGet {
+    agent: ureq::Agent,
+    max_body: u64,
+}
+
+impl HttpGet {
+    pub fn new(timeout: Duration, max_body: u64) -> Self {
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(timeout))
+            .http_status_as_error(false)
+            .max_idle_age(Duration::from_secs(300))
+            .tls_config(TlsConfig::builder().root_certs(roots()).build())
+            .build()
+            .into();
+        Self { agent, max_body }
+    }
+
+    /// GET `url`; returns `(status, body)`.
+    pub fn get(&self, url: &str) -> Result<(u16, String), String> {
+        let mut resp = self
+            .agent
+            .get(url)
+            .header("Accept", "application/json")
+            .call()
+            .map_err(|e| e.to_string())?;
+        let status = resp.status().as_u16();
+        let text = resp
+            .body_mut()
+            .with_config()
+            .limit(self.max_body)
+            .read_to_string()
+            .map_err(|e| e.to_string())?;
+        Ok((status, text))
+    }
+}

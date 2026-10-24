@@ -1042,6 +1042,11 @@ pub struct EntryCfg {
     /// measures the launches the live bot leaves out, so the two never take
     /// the same launch. Refused together with `operators_only`.
     pub operators_exclude: bool,
+    /// A listed signer's position exits at its table `hold_slots` (true,
+    /// default; docs/09); false: every position keeps `[exit.default]`
+    /// (the tweet coins' rule holds 10 slots for all, docs/13: on those
+    /// coins the first buyer's value grows to about 8-10 slots).
+    pub operator_holds: bool,
     /// Distinct bundle wallets a parked create may fire with (`[3]`, `[2,
     /// 3, 4]`); empty = any. Counted at the fire point from the park: the
     /// run's buyers outside the creator set (signer, creator, fee payer,
@@ -1096,6 +1101,37 @@ pub struct EntryCfg {
     /// Hosts that skip a create the same way (`skip_uri_host`), matched
     /// like `uri_hosts`; empty = none.
     pub uri_hosts_deny: Vec<String>,
+    /// More dev-buy alternatives (2026-10-24, docs/13): `[lo, hi]` SOL
+    /// ranges the create's own buy may fall in (inclusive); beside
+    /// `dev_buy_sol` and `dev_buy_round` any one passes, else
+    /// `skip_dev_buy`. The tweet coins' template: `[[0.95, 1.05], [2.95,
+    /// 4.05], [4.95, 5.05], [7.0, 1000.0]]`.
+    pub dev_buy_ranges_sol: Vec<[f64; 2]>,
+    /// The tweet check (docs/13): "off" (default); "log" fetches the
+    /// metadata of every `tweet_hosts` create with a dev buy of at least
+    /// `tweet_min_dev_sol`, ranks it on its tweet and journals the verdict
+    /// and its delay, trading as without it; "on" also holds the parked
+    /// create until the verdict and fires only on the first coin of a
+    /// fresh tweet (`skip_tweet_copy` / `_stale` / `_none` / `_error` /
+    /// `_late` otherwise). "on" needs `require_bundle` (the park holds the
+    /// wait) and a real mode; paper journals only.
+    pub tweet_gate: TweetGate,
+    /// Uri hosts whose metadata is fetched (matched like `uri_hosts`);
+    /// empty = `uri_hosts`.
+    pub tweet_hosts: Vec<String>,
+    /// A tweet older than this at the create is stale (s).
+    pub tweet_max_age_s: u64,
+    /// Creates with a smaller dev buy are not fetched (they are not in the
+    /// research's coin set, so they do not rank on a tweet either).
+    pub tweet_min_dev_sol: f64,
+    /// Slots after the create slot a verdict may still fire the buy (the
+    /// buy stays bound at the post-bundle state, so a later buy ahead of
+    /// ours fails it at the failed-attempt cost). 0..=2.
+    pub tweet_late_slots: u64,
+    /// One metadata fetch's whole budget (ms).
+    pub tweet_timeout_ms: u64,
+    /// Fetch threads.
+    pub tweet_workers: u32,
 }
 impl Default for EntryCfg {
     fn default() -> Self {
@@ -1119,6 +1155,7 @@ impl Default for EntryCfg {
             operators_file: String::new(),
             operators_only: false,
             operators_exclude: false,
+            operator_holds: true,
             bundle_wallets: vec![],
             stake_by_tier: vec![],
             min_stake_tier: 0,
@@ -1129,6 +1166,36 @@ impl Default for EntryCfg {
             dev_buy_round_max: 6.0,
             uri_hosts: vec![],
             uri_hosts_deny: vec![],
+            dev_buy_ranges_sol: vec![],
+            tweet_gate: TweetGate::Off,
+            tweet_hosts: vec![],
+            tweet_max_age_s: 3_600,
+            tweet_min_dev_sol: 0.95,
+            tweet_late_slots: 1,
+            tweet_timeout_ms: 1_500,
+            tweet_workers: 4,
+        }
+    }
+}
+
+/// `entry.tweet_gate`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TweetGate {
+    #[default]
+    Off,
+    /// Fetch, rank and journal; trade as without the check.
+    Log,
+    /// Fire only on the first coin of a fresh tweet.
+    On,
+}
+
+impl TweetGate {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Log => "log",
+            Self::On => "on",
         }
     }
 }
@@ -1917,6 +1984,7 @@ impl Config {
         for (field, list) in [
             ("entry.uri_hosts", &self.entry.uri_hosts),
             ("entry.uri_hosts_deny", &self.entry.uri_hosts_deny),
+            ("entry.tweet_hosts", &self.entry.tweet_hosts),
         ] {
             if list.iter().any(|h| !uri_host_pattern_ok(h)) {
                 inv(
@@ -1925,6 +1993,62 @@ impl Config {
                     "each entry must be a host or host suffix (letters, digits, '.', '-', '_'; at most 64 bytes; no scheme, path or port)",
                 );
             }
+        }
+        if self
+            .entry
+            .dev_buy_ranges_sol
+            .iter()
+            .any(|[lo, hi]| !(*lo >= 0.0 && lo <= hi && *hi <= 1_000.0))
+        {
+            inv(
+                &mut r,
+                "entry.dev_buy_ranges_sol",
+                "each range must be [lo, hi] SOL with 0 <= lo <= hi <= 1000",
+            );
+        }
+        let e = &self.entry;
+        if e.tweet_gate != TweetGate::Off {
+            if e.tweet_hosts.is_empty() && e.uri_hosts.is_empty() {
+                inv(
+                    &mut r,
+                    "entry.tweet_hosts",
+                    "the tweet check needs the hosts whose metadata it fetches (tweet_hosts, or uri_hosts)",
+                );
+            }
+            if !(1..=86_400).contains(&e.tweet_max_age_s) {
+                inv(&mut r, "entry.tweet_max_age_s", "must be in 1..=86400 s");
+            }
+            if !(e.tweet_min_dev_sol >= 0.0 && e.tweet_min_dev_sol < 1_000.0) {
+                inv(
+                    &mut r,
+                    "entry.tweet_min_dev_sol",
+                    "must be in [0, 1000) SOL",
+                );
+            }
+            if e.tweet_late_slots > 2 {
+                inv(
+                    &mut r,
+                    "entry.tweet_late_slots",
+                    "must be 0, 1 or 2 (a buy 2+ slots behind the bundle is rarely first)",
+                );
+            }
+            if !(100..=10_000).contains(&e.tweet_timeout_ms) {
+                inv(
+                    &mut r,
+                    "entry.tweet_timeout_ms",
+                    "must be in 100..=10000 ms",
+                );
+            }
+            if !(1..=16).contains(&e.tweet_workers) {
+                inv(&mut r, "entry.tweet_workers", "must be in 1..=16");
+            }
+        }
+        if e.tweet_gate == TweetGate::On && !e.require_bundle {
+            inv(
+                &mut r,
+                "entry.tweet_gate",
+                "\"on\" holds the create in the bundle park until the verdict: set entry.require_bundle = true",
+            );
         }
         if self.entry.bundle_wait_us > 200_000 {
             inv(

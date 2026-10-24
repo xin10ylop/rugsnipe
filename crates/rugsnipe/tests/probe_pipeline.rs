@@ -402,10 +402,12 @@ fn probe_attempts_open_only_on_our_own_trade_event_and_close_on_our_sell() {
     );
     let sell_tx = sent.lock().unwrap()[4].clone();
     let view = pump_codec::tx::TxView::parse(&sell_tx).unwrap();
+    // a final sell (the whole balance, account closed) rides the position's
+    // sell nonce, so at most one of its copies executes (91573e9)
     assert_eq!(
         view.recent_blockhash(),
-        &[5u8; 32],
-        "a real sell lives on a recent blockhash"
+        &[9u8; 32],
+        "a real final sell lives on the position's sell nonce"
     );
     assert_eq!(app.hot.counters.closed, 0, "a send never closes a position");
     let mut cs = curve_b;

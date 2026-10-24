@@ -106,6 +106,9 @@ impl<const N: usize> KeyList<N> {
 
 /// Bytes of the create's uri host kept in a [`TxShape`].
 pub const URI_HOST_MAX: usize = 64;
+/// Bytes of the whole create uri kept in a [`TxShape`] (the tweet check,
+/// `entry.tweet_gate`, fetches it; the launch tools' uris are 30-60 bytes).
+pub const URI_MAX: usize = 160;
 /// The runtime's default compute-unit limit per non-builtin instruction,
 /// per builtin one (System, ComputeBudget), and the cap (when the
 /// transaction sets no limit).
@@ -142,6 +145,10 @@ pub struct TxShape {
     /// longer than [`URI_HOST_MAX`] (none of the filter's hosts).
     pub uri_host: [u8; URI_HOST_MAX],
     pub uri_host_len: u8,
+    /// The whole uri as given (not lower-cased), when it has such a host
+    /// and fits in [`URI_MAX`] bytes; `uri_len == 0`: not kept.
+    pub uri: [u8; URI_MAX],
+    pub uri_len: u8,
 }
 
 impl Default for TxShape {
@@ -157,6 +164,8 @@ impl Default for TxShape {
             uri_ipfs: false,
             uri_host: [0; URI_HOST_MAX],
             uri_host_len: 0,
+            uri: [0; URI_MAX],
+            uri_len: 0,
         }
     }
 }
@@ -166,6 +175,7 @@ impl TxShape {
     pub fn set_uri(&mut self, uri: &str) {
         self.uri_ipfs = uri.contains("ipfs");
         self.uri_host_len = 0;
+        self.uri_len = 0;
         let Some(rest) = uri
             .strip_prefix("https://")
             .or_else(|| uri.strip_prefix("http://"))
@@ -180,6 +190,19 @@ impl TxShape {
             *d = b.to_ascii_lowercase();
         }
         self.uri_host_len = host.len() as u8;
+        if uri.len() <= URI_MAX {
+            self.uri[..uri.len()].copy_from_slice(uri.as_bytes());
+            self.uri_len = uri.len() as u8;
+        }
+    }
+
+    /// The whole uri (the `uri` field), if kept.
+    pub fn uri_str(&self) -> Option<&str> {
+        let n = self.uri_len as usize;
+        if n == 0 {
+            return None;
+        }
+        core::str::from_utf8(&self.uri[..n]).ok()
     }
 
     /// The uri host (lower case), if any.
@@ -938,6 +961,26 @@ pub const CREATE_DISCRIMINATORS: [[u8; 8]; 2] = [disc::CREATE, disc::CREATE_V2];
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn set_uri_keeps_the_host_lower_case_and_the_whole_uri_as_given() {
+        let mut s = TxShape::default();
+        s.set_uri("https://Metadata.J7tracker.io/metadata/qxtvmbCFDM.json");
+        assert_eq!(s.uri_host(), Some("metadata.j7tracker.io"));
+        assert_eq!(
+            s.uri_str(),
+            Some("https://Metadata.J7tracker.io/metadata/qxtvmbCFDM.json")
+        );
+        // too long for the buffer: the host stays, the uri is not kept
+        let long = format!("https://meta.uxento.io/data/{}", "x".repeat(URI_MAX));
+        s.set_uri(&long);
+        assert_eq!(s.uri_host(), Some("meta.uxento.io"));
+        assert_eq!(s.uri_str(), None);
+        // no http(s) host: neither
+        s.set_uri("ipfs://bafkreicze4mkc5faqjzqq6rxgmlurz26cr6mknsmekyd6abtwmjqelh5ei");
+        assert_eq!((s.uri_host(), s.uri_str()), (None, None));
+        assert!(s.uri_ipfs);
+    }
 
     #[test]
     fn keylist_dedups_and_counts_overflow() {

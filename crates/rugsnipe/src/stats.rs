@@ -94,6 +94,21 @@ pub mod code {
     /// (its table `stake_tier`; an unlisted signer is tier 0); nothing
     /// parked, nothing sent.
     pub const LOW_TIER: u8 = 0x5a;
+    /// `entry.tweet_gate = "on"` (docs/13): an earlier coin links the same
+    /// tweet; nothing sent, no risk or nonce taken.
+    pub const TWEET_COPY: u8 = 0x5b;
+    /// The tweet is older than `entry.tweet_max_age_s`.
+    pub const TWEET_STALE: u8 = 0x5c;
+    /// The metadata names no tweet, or the create was not fetched (its uri
+    /// host is not a tweet host, its dev buy is below
+    /// `entry.tweet_min_dev_sol`, its uri was too long to keep, or the
+    /// lane's ring was full).
+    pub const TWEET_NONE: u8 = 0x5d;
+    /// The metadata fetch failed (network, timeout, HTTP status, not JSON).
+    pub const TWEET_ERROR: u8 = 0x5e;
+    /// No verdict before the slot moved past the create slot +
+    /// `entry.tweet_late_slots` (or the park's 1 s).
+    pub const TWEET_LATE: u8 = 0x5f;
     /// Metrics only: a paper decision that a real mode would have skipped
     /// (rslog keeps the RiskGate code and the `would_skip` reason).
     pub const PAPER_WOULD_SKIP: u8 = 0x1f;
@@ -145,6 +160,11 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (code::BUNDLE_SOL, "skip_bundle_sol"),
     (code::URI_HOST, "skip_uri_host"),
     (code::LOW_TIER, "skip_low_tier"),
+    (code::TWEET_COPY, "skip_tweet_copy"),
+    (code::TWEET_STALE, "skip_tweet_stale"),
+    (code::TWEET_NONE, "skip_tweet_none"),
+    (code::TWEET_ERROR, "skip_tweet_error"),
+    (code::TWEET_LATE, "skip_tweet_late"),
 ];
 
 /// Label of a decision code.
