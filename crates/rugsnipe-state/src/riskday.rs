@@ -2,7 +2,9 @@
 //!
 //! * [`day_seed`]: what today already spent, recomputed from the ledger at
 //!   start: failed real attempts' `fills.fail_cost`, the P&L of real
-//!   positions whose buy was sent today and are closed, today's real buys
+//!   positions whose buy was sent today and are closed, the execution those
+//!   positions paid beyond it (the filled buy's `fills.fee` + `fills.tip`,
+//!   each filled sell's priority + tip + base fee from `sends`), today's real buys
 //!   (all, this hour's, per operator), the operators' persisted
 //!   consecutive-loss latches (`op_risk`) and the persisted `risk` row of
 //!   the day (the gate's own running total, written by the cold thread).
@@ -22,6 +24,9 @@ pub struct DaySeed {
     pub failed_cost: u64,
     /// Closed real positions bought today: exits' proceeds minus cost.
     pub closed_pnl: i64,
+    /// Today's real buys that filled and their filled sells: what the
+    /// transactions cost beyond the curve P&L (fees and tips).
+    pub tx_cost: u64,
     /// Real buys sent today / this hour.
     pub real_buys: u64,
     pub real_buys_hour: u64,
@@ -39,7 +44,8 @@ impl DaySeed {
     pub fn realized(&self) -> i64 {
         let computed = self
             .closed_pnl
-            .saturating_sub(self.failed_cost.min(i64::MAX as u64) as i64);
+            .saturating_sub(self.failed_cost.min(i64::MAX as u64) as i64)
+            .saturating_sub(self.tx_cost.min(i64::MAX as u64) as i64);
         match self.persisted_realized {
             Some(p) => p.min(computed),
             None => computed,
@@ -77,6 +83,18 @@ pub fn day_seed(
             "SELECT COALESCE(SUM(COALESCE((SELECT SUM(e.sol_delta) FROM exits e WHERE e.mint = p.mint), 0) - COALESCE(p.cost, 0)), 0) \
              FROM positions p JOIN ({first}) b ON b.intent_id = p.intent_id \
              WHERE b.t >= ?1 AND p.state = 'closed'"
+        ),
+        params![day_start_ms as i64],
+        |r| r.get(0),
+    )?;
+    // a sell's base fee (one signature) is not in `sends`
+    let tx_cost: i64 = c.query_row(
+        &format!(
+            "SELECT COALESCE((SELECT SUM(COALESCE(f.fee, 0) + COALESCE(f.tip, 0)) FROM fills f \
+               JOIN ({first}) b ON b.intent_id = f.intent_id WHERE b.t >= ?1 AND f.fail_reason IS NULL), 0) \
+             + COALESCE((SELECT SUM(COALESCE(s.prio, 0) + COALESCE(s.tip, 0) + 5000) FROM exits e \
+               JOIN sends s ON s.sig = e.sig JOIN positions p ON p.mint = e.mint \
+               JOIN ({first}) b ON b.intent_id = p.intent_id WHERE b.t >= ?1), 0)"
         ),
         params![day_start_ms as i64],
         |r| r.get(0),
@@ -129,6 +147,7 @@ pub fn day_seed(
     Ok(DaySeed {
         failed_cost: failed_cost.max(0) as u64,
         closed_pnl,
+        tx_cost: tx_cost.max(0) as u64,
         real_buys,
         real_buys_hour,
         op_buys,
@@ -215,7 +234,9 @@ mod tests {
         c.execute_batch(&format!(
             "INSERT INTO intents(intent_id, mint, op_id, mode, state) VALUES(1,'m1',7,'probe','failed'),(2,'m2',7,'probe','landed'),(3,'m3',7,'probe','failed'),(4,'m4',7,'paper','paper');
              INSERT INTO sends(sig, intent_id, sent_unix_ms, kind) VALUES('s1',1,{t1},'buy'),('s2',2,{t1},'buy'),('s3',3,{y},'buy'),('s4',4,{t1},'buy');
-             INSERT INTO fills(sig, intent_id, fail_cost) VALUES('f1',1,600000),('f3',3,900000),('f4',4,5000000);
+             INSERT INTO fills(sig, intent_id, fail_cost, fail_reason) VALUES('f1',1,600000,'slippage'),('f3',3,900000,'slippage'),('f4',4,5000000,'slippage');
+             INSERT INTO fills(sig, intent_id, fee, tip) VALUES('s2',2,15000,6000000);
+             INSERT INTO sends(sig, intent_id, prio, tip, sent_unix_ms, kind) VALUES('e2',2,10000,3400000,{t1},'sell'),('e2b',2,10000,3400000,{t1},'sell');
              INSERT INTO positions(mint, intent_id, cost, state) VALUES('m2',2,20000000,'closed');
              INSERT INTO exits(sig, mint, sol_delta) VALUES('e2','m2',15000000);
              INSERT INTO risk(day, realized) VALUES('2023-11-15', -9000000);",
@@ -229,8 +250,21 @@ mod tests {
             "yesterday's and paper costs excluded"
         );
         assert_eq!(s.closed_pnl, -5_000_000);
+        assert_eq!(
+            s.tx_cost,
+            15_000 + 6_000_000 + 10_000 + 3_400_000 + 5_000,
+            "the filled buy's fee + tip and the landed sell variant only"
+        );
         assert_eq!((s.real_buys, s.real_buys_hour), (2, 2));
         assert_eq!(s.op_buys, vec![(7, 2)]);
-        assert_eq!(s.realized(), -9_000_000, "the persisted total is lower");
+        assert_eq!(
+            s.realized(),
+            -5_000_000 - 600_000 - 9_430_000,
+            "the recomputation, execution included, is lower"
+        );
+        c.execute("UPDATE risk SET realized = -20000000", [])
+            .unwrap();
+        let s = day_seed(&c, day0, day0 + 3_600_000, "2023-11-15").unwrap();
+        assert_eq!(s.realized(), -20_000_000, "the persisted total is lower");
     }
 }
