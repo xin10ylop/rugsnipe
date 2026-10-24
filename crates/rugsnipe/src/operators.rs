@@ -45,6 +45,12 @@ pub struct OpRule {
     /// Modal distinct bundle wallets outside the creator set.
     #[serde(default)]
     pub bundle_wallets: u32,
+    /// The copied wallet's confidence tier on this signer's launches, 0..=2:
+    /// its modal stake level (0.4 SOL x 2^tier, docs/09 "stake tier"). The
+    /// hot loop sizes the buy (`entry.stake_by_tier`) and the bid
+    /// (`bid.by_tier`) by it; an unlisted signer is tier 0.
+    #[serde(default)]
+    pub stake_tier: u8,
 }
 
 /// Signer -> rule. Built once; shared behind an `Arc`.
@@ -69,6 +75,9 @@ impl OperatorTable {
                 .map_err(|e| format!("operator table: key {k:?} is not a pubkey: {e}"))?;
             if r.hold_slots == 0 {
                 return Err(format!("operator table: {k}: hold_slots must be >= 1"));
+            }
+            if r.stake_tier > 2 {
+                return Err(format!("operator table: {k}: stake_tier must be 0..=2"));
             }
             map.insert(key, r);
         }
@@ -146,7 +155,7 @@ mod tests {
     fn the_table_loads_and_looks_up_by_signer() {
         let b = Pubkey::new_unique();
         let js = format!(
-            r#"{{"{A}": {{"hold_slots": 10, "n": 48, "wins": 23, "pnl_sol": 0.93, "dev_sol": 4.03, "bundle_wallets": 3}},
+            r#"{{"{A}": {{"hold_slots": 10, "n": 48, "wins": 23, "pnl_sol": 0.93, "dev_sol": 4.03, "bundle_wallets": 3, "stake_tier": 1}},
                 "{b}": {{"hold_slots": 6}}}}"#
         );
         let t = OperatorTable::from_json(&js).unwrap();
@@ -161,10 +170,12 @@ mod tests {
                 wins: 23,
                 pnl_sol: 0.93,
                 dev_sol: 4.03,
-                bundle_wallets: 3
+                bundle_wallets: 3,
+                stake_tier: 1
             }
         );
-        assert_eq!(t.get(&b).map(|r| (r.hold_slots, r.n)), Some((6, 0)));
+        assert_eq!(t.get(&b).map(|r| (r.hold_slots, r.n, r.stake_tier)), Some((6, 0, 0)));
+        assert!(OperatorTable::from_json(&format!(r#"{{"{A}": {{"hold_slots": 6, "stake_tier": 3}}}}"#)).is_err());
         assert!(t.get(&Pubkey::new_unique()).is_none());
         // from a file, and the refusals
         let dir = std::env::temp_dir().join(format!("ops-{}", std::process::id()));

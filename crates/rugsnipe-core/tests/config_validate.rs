@@ -1095,3 +1095,35 @@ uri_hosts_deny = ["ipfs.io"]
         "unknown key"
     );
 }
+
+#[test]
+fn stake_and_bid_tiers_are_three_non_decreasing_values_or_empty() {
+    let fields = |c: &Config| -> Vec<&'static str> {
+        c.validate(&ValidateEnv::default())
+            .refusals
+            .iter()
+            .filter_map(|r| match r {
+                Refusal::Invalid { field, .. } => Some(*field),
+                _ => None,
+            })
+            .collect()
+    };
+    let mut c = example();
+    c.entry.stake_by_tier = vec![250_000_000, 500_000_000, 1_000_000_000];
+    c.bid.by_tier = vec![6_000_000, 10_000_000, 20_000_000];
+    let f = fields(&c);
+    assert!(!f.contains(&"entry.stake_by_tier") && !f.contains(&"bid.by_tier"), "{f:?}");
+    // two values, a zero, a decreasing ladder: each refused by its key
+    c.entry.stake_by_tier = vec![250_000_000, 500_000_000];
+    c.bid.by_tier = vec![6_000_000, 0, 20_000_000];
+    let f = fields(&c);
+    assert!(f.contains(&"entry.stake_by_tier") && f.contains(&"bid.by_tier"), "{f:?}");
+    c.entry.stake_by_tier = vec![500_000_000, 250_000_000, 1_000_000_000];
+    c.bid.by_tier = vec![];
+    let f = fields(&c);
+    assert!(f.contains(&"entry.stake_by_tier") && !f.contains(&"bid.by_tier"), "{f:?}");
+    // the TOML keys parse
+    let c = Config::from_toml_str("[entry]\nstake_by_tier = [250_000_000, 500_000_000, 1_000_000_000]\n[bid]\nby_tier = [6_000_000, 10_000_000, 20_000_000]\n").unwrap();
+    assert_eq!(c.entry.stake_by_tier.len(), 3);
+    assert_eq!(c.bid.by_tier, vec![6_000_000, 10_000_000, 20_000_000]);
+}

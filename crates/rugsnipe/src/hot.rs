@@ -178,6 +178,11 @@ pub struct HotCfg {
     /// Base bid B (lamports) before the per-class split.
     pub bid_lamports: u64,
     pub max_bid: u64,
+    /// Buy size by the operator's confidence tier (`entry.stake_by_tier`,
+    /// lamports for tiers 0..=2; `None` = off): narrows the ArmSet size.
+    pub stake_by_tier: Option<[u64; 3]>,
+    /// Base bid by tier (`bid.by_tier`; `None` = `bid_lamports`).
+    pub bid_by_tier: Option<[u64; 3]>,
     /// Per-leader-class split, scheduling floor and failed-attempt cap
     /// (`[bid]`, docs/03 section 6 "Pay on success").
     pub bid_policy: BidPolicy,
@@ -271,6 +276,11 @@ pub struct HotCfg {
     pub uri_deny: Vec<String>,
 }
 
+/// Three per-tier lamport values (validated by the config), else `None`.
+fn tier3(v: &[u64]) -> Option<[u64; 3]> {
+    (v.len() == 3).then(|| [v[0], v[1], v[2]])
+}
+
 impl HotCfg {
     /// From the TOML. `bid_lamports` is `bid.lamports`, defaulting to the
     /// measured median first-winner bid (docs/03 section 6: 0.0034 SOL),
@@ -292,6 +302,8 @@ impl HotCfg {
             }
             .min(max_bid),
             max_bid,
+            stake_by_tier: tier3(&cfg.entry.stake_by_tier),
+            bid_by_tier: tier3(&cfg.bid.by_tier),
             bid_policy: BidPolicy::from_cfg(&cfg.bid),
             leader_class: None,
             secondary_variant: true,
@@ -1961,6 +1973,19 @@ impl HotLoop {
         if cap > 0 && op.size > cap {
             op.size = cap;
         }
+        // the operator's confidence tier (docs/09 "stake tier"): the copied
+        // wallet's stake level on this signer (an unlisted signer is tier 0)
+        // picks the size and, below, the bid; the size only narrows, so the
+        // signed ArmSet and the risk cap stay the upper bound
+        let tier = self
+            .cfg
+            .operator_rule(hit)
+            .map_or(0usize, |r| r.stake_tier.min(2) as usize);
+        if let Some(t) = self.cfg.stake_by_tier {
+            if t[tier] > 0 && op.size > t[tier] {
+                op.size = t[tier];
+            }
+        }
         // 5b: the operator-dump skip (entry.dumper_skip): the dev, the
         // creator or a bundle wallet dumped an earlier launch
         if self.cfg.dumper_skip != rugsnipe_core::config::DumperSkip::Off {
@@ -2032,7 +2057,17 @@ impl HotLoop {
         // gate observed it (the create's state otherwise; the bound below
         // then adds the expected bundle)
         let v_entry = pb.map_or(v0, |(v, _)| v);
-        let mut bid = self.cfg.bid_lamports.min(self.cfg.max_bid);
+        let mut bid = self
+            .cfg
+            .bid_by_tier
+            .map_or(self.cfg.bid_lamports, |t| {
+                if t[tier] > 0 {
+                    t[tier]
+                } else {
+                    self.cfg.bid_lamports
+                }
+            })
+            .min(self.cfg.max_bid);
         if op.ev_cap > 0 {
             bid = bid.min(op.ev_cap);
         }
@@ -2403,11 +2438,12 @@ impl HotLoop {
         if let Some(r) = rule {
             let k8 = key8(&hit.mint);
             journal(format_args!(
-                "operator {} hold_to create+{} (n {}, bundle_wallets {})",
+                "operator {} hold_to create+{} (n {}, bundle_wallets {}, tier {})",
                 std::str::from_utf8(&k8).unwrap_or("?"),
                 r.hold_slots,
                 r.n,
-                r.bundle_wallets
+                r.bundle_wallets,
+                r.stake_tier
             ));
         }
         self.slots[free] = Some(Slot {

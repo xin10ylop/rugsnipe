@@ -1,0 +1,488 @@
+{
+ "FqM4a3ZaWF2WG63QU5w7HrqHquvX12VnZKRoDvMyyD5j": {
+  "hold_slots": 10,
+  "n": 48,
+  "wins": 23,
+  "pnl_sol": 0.927203,
+  "dev_sol": 4.0296,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "8ZN71XTdVo8yRovnGLmNgW3Tgniw6A4J3JGLvPD686FP": {
+  "hold_slots": 10,
+  "n": 29,
+  "wins": 12,
+  "pnl_sol": 2.534071,
+  "dev_sol": 16.9883,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "5jo9YaBkaE4W4GFeQvSqnwwneQ7w5ktG4BXwud1J9b9M": {
+  "hold_slots": 10,
+  "n": 24,
+  "wins": 12,
+  "pnl_sol": 0.37206,
+  "dev_sol": 4.0296,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "ENskGQev2bXPjaCYPV9bUcPLv3635Y18BWzLN95x4soC": {
+  "hold_slots": 6,
+  "n": 19,
+  "wins": 11,
+  "pnl_sol": 1.653949,
+  "dev_sol": 7.2,
+  "bundle_wallets": 3,
+  "stake_tier": 1
+ },
+ "7vepJFBcB97svTKoDVCnciWeE7UHS4Zt9Qxvhkouu9eo": {
+  "hold_slots": 10,
+  "n": 19,
+  "wins": 12,
+  "pnl_sol": 0.289503,
+  "dev_sol": 4.0296,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "xxrr85qsW5No1cvn9vk4kzTiz2y1t7jMN8pf3Xo47f7": {
+  "hold_slots": 6,
+  "n": 17,
+  "wins": 5,
+  "pnl_sol": 0.155277,
+  "dev_sol": 11.8519,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "CyHxAoTujrw2afv8vzYUptxyko6Nzfo5rqHWZogLwpQw": {
+  "hold_slots": 6,
+  "n": 10,
+  "wins": 6,
+  "pnl_sol": 0.497146,
+  "dev_sol": 12.3457,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "AufH68UFBGSVVRL9D7u5W6NySCrukL4fWfSRTxDcJC6u": {
+  "hold_slots": 6,
+  "n": 8,
+  "wins": 5,
+  "pnl_sol": 0.202809,
+  "dev_sol": 7.5,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "Db9dgy5FHTCGKKEzBPmTnbJDrHnP8rjTf9UDsW52sBYv": {
+  "hold_slots": 3,
+  "n": 8,
+  "wins": 5,
+  "pnl_sol": 0.126631,
+  "dev_sol": 10.1613,
+  "bundle_wallets": 3,
+  "stake_tier": 1
+ },
+ "J5gXAFL5BdeXJQzLxHzWUxSPivJKA3GRp74orsAm4kkU": {
+  "hold_slots": 10,
+  "n": 7,
+  "wins": 6,
+  "pnl_sol": 0.325949,
+  "dev_sol": 4.0296,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "FFdBLYqL9rs5fUT38ArE8GV2L3BziEgG5LJUu6sshfkF": {
+  "hold_slots": 6,
+  "n": 7,
+  "wins": 0,
+  "pnl_sol": -0.09353,
+  "dev_sol": 11.7471,
+  "bundle_wallets": 2,
+  "stake_tier": 0
+ },
+ "JDQKDrc1TQgBRvdFh56tkta5sYcDj1SoP52Eiu64rSrT": {
+  "hold_slots": 6,
+  "n": 6,
+  "wins": 1,
+  "pnl_sol": 0.296634,
+  "dev_sol": 11.0,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "G3eWaBWuboTjBARo2otA6o3GEg9LFkd1Pf7N3yw8sSz1": {
+  "hold_slots": 6,
+  "n": 6,
+  "wins": 1,
+  "pnl_sol": -0.129104,
+  "dev_sol": 6.8642,
+  "bundle_wallets": 0,
+  "stake_tier": 1
+ },
+ "7naFFwuEJWeWwWYQUkgAWHsxYKg3KctEuUj42JdAMidP": {
+  "hold_slots": 6,
+  "n": 5,
+  "wins": 4,
+  "pnl_sol": 2.444798,
+  "dev_sol": 12.5,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "DqeVuNmymZEqzNQmFUvMGAL6xaB49TN7yCmx3h3FpYaK": {
+  "hold_slots": 10,
+  "n": 5,
+  "wins": 3,
+  "pnl_sol": 0.471549,
+  "dev_sol": 8.96,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "8NJ7Ujpji8uMF2675mqaTSEm2DCbfJA7fiRKtiaqkaLN": {
+  "hold_slots": 6,
+  "n": 5,
+  "wins": 4,
+  "pnl_sol": 0.338046,
+  "dev_sol": 5.8,
+  "bundle_wallets": 2,
+  "stake_tier": 1
+ },
+ "5RQ1UWATaMjjXC34BW6UusEUdEoCuNRECBW8nnHPiCGH": {
+  "hold_slots": 10,
+  "n": 5,
+  "wins": 3,
+  "pnl_sol": 0.324853,
+  "dev_sol": 6.4,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "EUA3BRvTAWPKEcxhm7tCEppuNoevSBMCfKLaXAiAPNKA": {
+  "hold_slots": 10,
+  "n": 5,
+  "wins": 5,
+  "pnl_sol": 0.313918,
+  "dev_sol": 8.66,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "95ZCf3jKMHeFYvPXVZW3Ek6AEPDyjebosqnc7eNioVMo": {
+  "hold_slots": 6,
+  "n": 5,
+  "wins": 3,
+  "pnl_sol": 0.310046,
+  "dev_sol": 9.9,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "D9gQ6RhKEpnobPBUdWY5bPQt2p3zGk3iVz6ChpUi2ArA": {
+  "hold_slots": 10,
+  "n": 5,
+  "wins": 3,
+  "pnl_sol": 0.276922,
+  "dev_sol": 8.2074,
+  "bundle_wallets": 3,
+  "stake_tier": 1
+ },
+ "9rDMVCH7mQ9N2PkyHw8KT8wraMhF8tyMz9R631yyL1df": {
+  "hold_slots": 10,
+  "n": 5,
+  "wins": 3,
+  "pnl_sol": 0.106656,
+  "dev_sol": 7.34,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "grok1r9rhYXqniD79L3eeBB6bBLd8ytGrhDRa6kgRNt": {
+  "hold_slots": 6,
+  "n": 5,
+  "wins": 3,
+  "pnl_sol": 0.02742,
+  "dev_sol": 11.8519,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "9ncm3MfxC3b2HYxP8NrijRZSeE36vFfxgJvGRd16Buwi": {
+  "hold_slots": 6,
+  "n": 4,
+  "wins": 3,
+  "pnl_sol": 0.134049,
+  "dev_sol": 8.7901,
+  "bundle_wallets": 2,
+  "stake_tier": 1
+ },
+ "CHTQJThdDKQvRsdYv6Aubi7kbhUEKzUzumUncv2XoKL1": {
+  "hold_slots": 10,
+  "n": 4,
+  "wins": 2,
+  "pnl_sol": 0.025398,
+  "dev_sol": 4.0296,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "HynmnmoVhCfT8b7BK1U22Fxzxn1xnNzudbFhRnMvdAVj": {
+  "hold_slots": 6,
+  "n": 4,
+  "wins": 1,
+  "pnl_sol": -0.028466,
+  "dev_sol": 7.95,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "8YcbyX92UHTU23HZv3ccP9o13qibErQkKaUjoxqxd7SJ": {
+  "hold_slots": 6,
+  "n": 3,
+  "wins": 3,
+  "pnl_sol": 2.064196,
+  "dev_sol": 6.0,
+  "bundle_wallets": 2,
+  "stake_tier": 2
+ },
+ "CAbU87nMNh3LDvLkWaScnfYd4kyA9CxoY13UybkCz7HB": {
+  "hold_slots": 6,
+  "n": 3,
+  "wins": 3,
+  "pnl_sol": 0.255485,
+  "dev_sol": 4.4247,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "29yFzeBZgxf5zqrAkKXwgZtQehRf4pL8WbV2nRJikbw8": {
+  "hold_slots": 6,
+  "n": 3,
+  "wins": 2,
+  "pnl_sol": 0.043494,
+  "dev_sol": 8.02,
+  "bundle_wallets": 2,
+  "stake_tier": 1
+ },
+ "BADxcCczKSRuKNn5oMsrGrXepo23bwHgzgGuTeZYw6RQ": {
+  "hold_slots": 6,
+  "n": 3,
+  "wins": 1,
+  "pnl_sol": 0.025113,
+  "dev_sol": 3.5,
+  "bundle_wallets": 2,
+  "stake_tier": 0
+ },
+ "CugxmV7YKY7zt389Yvd4xiiYGWfuE6n21zUKx5UKfsHy": {
+  "hold_slots": 10,
+  "n": 3,
+  "wins": 1,
+  "pnl_sol": 0.019849,
+  "dev_sol": 10.2215,
+  "bundle_wallets": 0,
+  "stake_tier": 0
+ },
+ "3gJVrzZP1c3263CMZ5or66weywPXNaDXhKTCrvm666jQ": {
+  "hold_slots": 6,
+  "n": 3,
+  "wins": 1,
+  "pnl_sol": -0.008184,
+  "dev_sol": 11.6872,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "G7NvZKjoVqBDWciSYtWWgUPB7DA1iJavdvH5jty2FAmM": {
+  "hold_slots": 6,
+  "n": 3,
+  "wins": 0,
+  "pnl_sol": -0.023795,
+  "dev_sol": 5.0,
+  "bundle_wallets": 0,
+  "stake_tier": 0
+ },
+ "VAMP1iq1fN6ia2RZauWREdmGHrYhfJvhbvNvoG3MHbu": {
+  "hold_slots": 10,
+  "n": 3,
+  "wins": 0,
+  "pnl_sol": -0.706119,
+  "dev_sol": 7.0,
+  "bundle_wallets": 4,
+  "stake_tier": 0
+ },
+ "4Lm2uqHgauVS1gzzNCd1F4FeGNwzUp6dXp5uqHxmrnDX": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 2,
+  "pnl_sol": 0.628484,
+  "dev_sol": 8.5,
+  "bundle_wallets": 0,
+  "stake_tier": 0
+ },
+ "F5XvCe4233m6mHRbkkq2ZsFvqrPAnRrDBExeQy2fwagQ": {
+  "hold_slots": 1,
+  "n": 2,
+  "wins": 2,
+  "pnl_sol": 0.316179,
+  "dev_sol": 7.2,
+  "bundle_wallets": 6,
+  "stake_tier": 2
+ },
+ "5MTjkAZMe1ur64ADTgnaYFN1ByTapu2RqcKYUdQNaE2E": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 1,
+  "pnl_sol": 0.241435,
+  "dev_sol": 5.2,
+  "bundle_wallets": 2,
+  "stake_tier": 1
+ },
+ "DhQgrgabU9FuiEHZc2xVZ8X8s26mBcUs1ME8cytYGtvc": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 2,
+  "pnl_sol": 0.224098,
+  "dev_sol": 8.5,
+  "bundle_wallets": 3,
+  "stake_tier": 1
+ },
+ "JBuzPMEoXgPQTzcavYzMKxcuJKmGpeToBuGYTiJ6vY3y": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 1,
+  "pnl_sol": 0.216708,
+  "dev_sol": 5.88,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "DRXPafDunsHAMoo6hqyak9J5LfqT1MKBQEp5iUJMFvb7": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 1,
+  "pnl_sol": 0.145865,
+  "dev_sol": 11.24,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "FT1ygzSaXKZtPqzrmke9XPy3hJzbboBpQke7omRN8RW4": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 2,
+  "pnl_sol": 0.129949,
+  "dev_sol": 15.4684,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "7gTjFWmQCvvTK2MSKAv1C1doeMYjvNwrB5np77z7uGJ4": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 2,
+  "pnl_sol": 0.111404,
+  "dev_sol": 4.3513,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "BSRVNXtJCheRxG1DVhh9H86w7qfCcB1bySJ8hj6voebp": {
+  "hold_slots": 10,
+  "n": 2,
+  "wins": 2,
+  "pnl_sol": 0.090521,
+  "dev_sol": 11.1571,
+  "bundle_wallets": 0,
+  "stake_tier": 0
+ },
+ "4zyH4wYrrY1HzAyBLAZqbyWfQaVMxdMZemHDfduu1GCo": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 1,
+  "pnl_sol": 0.085045,
+  "dev_sol": 5.03,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "36A6mEN5rYJdVTb6fMqVvG6ez8g2mTYdr1omWcQ1kDKG": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 2,
+  "pnl_sol": 0.039662,
+  "dev_sol": 6.3012,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "GqpjYV88bTzxYxHEskudyWZ9T5kxtBpehXdkQS2KKJiM": {
+  "hold_slots": 10,
+  "n": 2,
+  "wins": 2,
+  "pnl_sol": 0.015191,
+  "dev_sol": 11.1465,
+  "bundle_wallets": 0,
+  "stake_tier": 0
+ },
+ "FF3dsqNCpT8gxFGHPzcswEU5GFvERZXMbYTHPQ6iiQro": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 1,
+  "pnl_sol": 0.002634,
+  "dev_sol": 9.15,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "6Q2QPD6DP3q9sYJbZ9qjpdZDLvjTHqzG2MNJhhVKkGFX": {
+  "hold_slots": 10,
+  "n": 2,
+  "wins": 0,
+  "pnl_sol": -0.031011,
+  "dev_sol": 2.0247,
+  "bundle_wallets": 0,
+  "stake_tier": 0
+ },
+ "28U7RcqyuF7oHzQhhF7x7NwHD1ySgMALHhKpedHnyx28": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 0,
+  "pnl_sol": -0.041506,
+  "dev_sol": 7.503,
+  "bundle_wallets": 1,
+  "stake_tier": 1
+ },
+ "3F8m5wT8umEvfjwwdKq1YEuR39U1U1tPUj4Kcq6YhBQs": {
+  "hold_slots": 10,
+  "n": 2,
+  "wins": 0,
+  "pnl_sol": -0.100798,
+  "dev_sol": 9.7024,
+  "bundle_wallets": 0,
+  "stake_tier": 0
+ },
+ "3c3ejG5Ak7JyogDpwLYh3g2y8xiGRZe4nAEhNdWBe8zR": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 0,
+  "pnl_sol": -0.127909,
+  "dev_sol": 0.0109,
+  "bundle_wallets": 0,
+  "stake_tier": 1
+ },
+ "AHgCuUFmnmVVenAeyREHb4DGht5HvyTBwJoYXx9qBCrv": {
+  "hold_slots": 3,
+  "n": 2,
+  "wins": 1,
+  "pnl_sol": -0.345745,
+  "dev_sol": 9.1537,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "78N177fzNJpp8pG49xDv1efYcTMSzo9tPTKEA9mAVkh2": {
+  "hold_slots": 10,
+  "n": 2,
+  "wins": 0,
+  "pnl_sol": -0.529057,
+  "dev_sol": 8.8,
+  "bundle_wallets": 3,
+  "stake_tier": 1
+ },
+ "CmwFWFQsK2tuNpz3HAbjoxDVSf5miY5vbP425UTRg5Rd": {
+  "hold_slots": 10,
+  "n": 2,
+  "wins": 0,
+  "pnl_sol": -0.588498,
+  "dev_sol": 9.8272,
+  "bundle_wallets": 3,
+  "stake_tier": 0
+ },
+ "FDfyqqenHVySjjyo4etCgBzxZNfUXUMaZo8ifKpDJGUf": {
+  "hold_slots": 6,
+  "n": 2,
+  "wins": 0,
+  "pnl_sol": -0.724148,
+  "dev_sol": 6.4,
+  "bundle_wallets": 3,
+  "stake_tier": 1
+ }
+}

@@ -683,6 +683,13 @@ pub struct BidCfg {
     /// us on contested launches paid a median 2.1M priority fee plus an
     /// 8.4M tip, about three times this default.
     pub lamports: u64,
+    /// The buy bid by the operator's confidence tier (docs/09 "stake tier",
+    /// 2026-10-24): lamports for tiers 0, 1 and 2, replacing `lamports` for
+    /// a listed signer's tier (an unlisted signer is tier 0); still bounded
+    /// by `risk.max_bid_lamports`. The copied wallet bids about 1.5M on its
+    /// tier-0 launches and 6-24M (about 1% of the stake) on tiers 1 and 2,
+    /// which is how it wins the contested ones. Empty = off.
+    pub by_tier: Vec<u64>,
     /// `[priority, tip]` fractions per leader class.
     pub split: BidSplit,
     /// Header priority fee of every variant (the scheduling floor): what a
@@ -716,6 +723,7 @@ impl Default for BidCfg {
         Self {
             quantile: 0.75,
             lamports: 0,
+            by_tier: vec![],
             split: BidSplit::default(),
             min_priority_lamports: 10_000,
             failed_attempt_lamports_max: 1_000_000,
@@ -973,6 +981,14 @@ pub struct EntryCfg {
     /// (the count comes from the parked run); a create outside the list is
     /// skipped as `skip_bundle_shape`.
     pub bundle_wallets: Vec<u32>,
+    /// Buy size by the operator's confidence tier (docs/09 "stake tier",
+    /// 2026-10-24): lamports for tiers 0, 1 and 2, the table's `stake_tier`
+    /// (an unlisted signer is tier 0). The size only narrows: the signed
+    /// ArmSet size and the risk cap stay the upper bound, so tier 2 is "the
+    /// full size" and tiers 0 and 1 are the fractions. Empty = off. The copied
+    /// wallet's own ladder is 0.4 / 0.8 / 1.6 SOL with returns of +2.3% /
+    /// +7.3% / +21.3% per trade by tier.
+    pub stake_by_tier: Vec<u64>,
     /// The pick template (docs/09, 2026-10-23): skip a create whose
     /// post-bundle virtual SOL reserve exceeds this many SOL, as
     /// `skip_bundle_too_big` (0x57); 0 = off. The reserve is the one the buy
@@ -1027,6 +1043,7 @@ impl Default for EntryCfg {
             operators_file: String::new(),
             operators_only: false,
             bundle_wallets: vec![],
+            stake_by_tier: vec![],
             max_post_bundle_sol: 0.0,
             max_bundle_sol: 0.0,
             dev_buy_round: false,
@@ -1542,6 +1559,24 @@ impl Config {
         }
         if !(self.entry.dev_buy_tol_sol >= 0.0 && self.entry.dev_buy_tol_sol < 1.0) {
             inv(&mut r, "entry.dev_buy_tol_sol", "must be in [0, 1) SOL");
+        }
+        let tiers_ok = |v: &[u64]| {
+            v.is_empty()
+                || (v.len() == 3 && v.iter().all(|&x| x > 0) && v.windows(2).all(|w| w[0] <= w[1]))
+        };
+        if !tiers_ok(&self.entry.stake_by_tier) {
+            inv(
+                &mut r,
+                "entry.stake_by_tier",
+                "must be empty or three non-decreasing sizes in lamports > 0 (tiers 0, 1, 2)",
+            );
+        }
+        if !tiers_ok(&self.bid.by_tier) {
+            inv(
+                &mut r,
+                "bid.by_tier",
+                "must be empty or three non-decreasing bids in lamports > 0 (tiers 0, 1, 2)",
+            );
         }
         if self
             .entry

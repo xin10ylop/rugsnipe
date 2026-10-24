@@ -7,7 +7,7 @@ loads from ``entry.operators_file``: a JSON object keyed by the create
 transaction's signer (``csig_signer``, the fee payer), each value
 
     {"hold_slots": 10, "n": 48, "wins": 23, "pnl_sol": 0.93,
-     "dev_sol": 4.03, "bundle_wallets": 3}
+     "dev_sol": 4.03, "bundle_wallets": 3, "stake_tier": 0}
 
 * ``n``: round trips on the signer's launches; ``wins``: those with pnl > 0;
   ``pnl_sol``: their summed pnl (SOL); ``dev_sol``: mean bundle SOL (the
@@ -31,8 +31,12 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import os
 import sys
 from typing import Any
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from operators_refresh import stake_tier_of  # noqa: E402  (the ladder decode shared with the refresh)
 
 HOLDS = (1, 3, 6, 10)
 
@@ -76,6 +80,10 @@ def build(rows: list[dict[str, Any]], min_n: int = 1, default_hold: int = 6) -> 
             "pnl_sol": round(sum(r.get("pnl") or 0.0 for r in rs), 6),
             "dev_sol": round(sum(r.get("dev_sol") or 0.0 for r in rs) / n, 4),
             "bundle_wallets": int(modal([(int(r.get("n_bw") or 0), int(r["cs"])) for r in rs]) or 0),
+            # the wallet's confidence tier: its modal stake level on this signer (rt.json ``mx`` = 1.01 x the
+            # spend, else ``sol``), docs/09 "stake tier"
+            "stake_tier": int(modal([(t, int(r["cs"])) for r in rs
+                                     if (t := stake_tier_of((r["mx"] / 1.01e9) if r.get("mx") else r.get("sol"))) is not None]) or 0),
         }
     return dict(sorted(out.items(), key=lambda kv: (-kv[1]["n"], -kv[1]["pnl_sol"], kv[0])))
 

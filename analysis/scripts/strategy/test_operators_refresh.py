@@ -96,3 +96,20 @@ class Refresh(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StakeTier(unittest.TestCase):
+    def test_ladder_decode(self):
+        # 0.4 x 1.5^a x 2^b: a is jitter, b is the tier; fees never move a buy to the next point
+        for sol, tier in ((0.4, 0), (0.6, 0), (0.9, 0), (0.8, 1), (1.2, 1), (1.8, 1), (1.6, 2), (2.4, 2), (3.6, 2),
+                          (0.395, 0), (0.61, 0), (1.23, 1), (2.45, 2), (0.0, None), (None, None)):
+            self.assertEqual(op.stake_tier_of(sol), tier, sol)
+
+    def test_signer_stats_carries_the_modal_tier(self):
+        rts = [{"signer": "S", "cs": 10, "H": 6, "pnl": 0.1, "dev_sol": 4.0, "n_bw": 3, "buy_sol": 0.81},
+               {"signer": "S", "cs": 20, "H": 6, "pnl": -0.02, "dev_sol": 4.0, "n_bw": 3, "buy_sol": 1.22},
+               {"signer": "S", "cs": 30, "H": 6, "pnl": 0.05, "dev_sol": 4.0, "n_bw": 3, "buy_sol": 0.61}]
+        f = op.signer_stats(rts, {}, 6)
+        self.assertEqual(f["S"]["stake_tier"], 1)
+        self.assertEqual(f["S"]["hold_slots"], 6)
+

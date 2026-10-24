@@ -24,7 +24,8 @@ Steps
   (c) per signer: n (landed round trips), wins (pnl > 0), pnl_sol, mean dev_sol (the create's
       dev buy plus the bundle run, as rt.json), modal bundle_wallets (distinct run buyers
       outside the creator set, rt.json n_bw), modal H as hold_slots (ties: latest launch;
-      n < 2: --default-hold), attempts, dumps, last_seen_slot / last_seen_unix.
+      n < 2: --default-hold), stake_tier (the wallet's modal stake level 0..2 on the signer:
+      0.4 SOL x 2^tier, docs/09 "stake tier"), attempts, dumps, last_seen_slot / last_seen_unix.
   (d) merge with the existing table (--merge, default --out): a signer seen now gets its fresh
       stats plus --decay x its old n/wins/pnl; one not seen now is kept, decayed, while last
       seen within --keep-days; then --min-n applies; --drop-dumpers drops every signer with
@@ -49,6 +50,7 @@ import argparse
 import collections
 import hashlib
 import json
+import math
 import os
 import re
 import sqlite3
@@ -73,6 +75,24 @@ DISC_CREATE = bytes.fromhex("1b72a94ddeeb6376")
 BUY_IX = {bytes.fromhex(h) for h in ("66063d1201daebea", "38fc74089edfcd5f", "b817ee6167c5d33d",
                                      "c2ab1c46684d5b2f", "07051dc4f5176550", "e1f7501ed5b38488")}
 HOLDS = (1, 3, 6, 10)
+# The copied wallet's stake ladder (2026-10-24 decode of 1,546 attempts): 0.4 SOL x 1.5^a x 2^b with
+# a, b in {0, 1, 2}. a is jitter (two fair coin flips, no information); b is its confidence tier:
+# landed returns +2.3% / +7.3% / +21.3% by tier, 82% of a signer's attempts at the signer's modal tier.
+STAKE_BASE_SOL = 0.4
+
+
+def stake_tier_of(buy_sol: float | None) -> int | None:
+    """b of the ladder point nearest (in log distance) to a buy of ``buy_sol`` SOL (the wallet's
+    SOL delta: the spend plus fees, which never move a buy to the next point), 0..2; None if unusable."""
+    if not buy_sol or buy_sol <= 0:
+        return None
+    best: tuple[float, int] | None = None
+    for a in range(3):
+        for b in range(3):
+            d = abs(math.log(buy_sol / (STAKE_BASE_SOL * 1.5 ** a * 2 ** b)))
+            if best is None or d < best[0]:
+                best = (d, b)
+    return best[1] if best else None
 DUMP_SLOTS = 3
 U64_MAX = 2**64 - 1
 
@@ -485,6 +505,7 @@ def signer_stats(rts: list[dict], launches: dict[str, dict], default_hold: int) 
             "pnl_sol": round(sum(r["pnl"] for r in rs), 6),
             "dev_sol": round(sum(r["dev_sol"] for r in rs) / n, 4) if n else 0.0,
             "bundle_wallets": int(modal([(r["n_bw"], r["cs"]) for r in rs]) or 0) if n else 0,
+            "stake_tier": int(modal([(t, r["cs"]) for r in rs if (t := stake_tier_of(r.get("buy_sol"))) is not None]) or 0) if n else 0,
             "attempts": sum(1 for v in ls if v.get("attempted")),
             "launches": len(ls),
             "dumps": sum(1 for v in ls if v.get("dump") is not None),
@@ -513,6 +534,7 @@ def merge(fresh: dict[str, dict], old: dict[str, dict], old_mtime: float, now: f
                 e["hold_slots"] = int(o["hold_slots"])
             if v["n"] == 0:
                 e["bundle_wallets"] = int(o.get("bundle_wallets", 0))
+                e["stake_tier"] = int(o.get("stake_tier", 0))
         table[s] = e
     for s, o in old.items():
         if s in fresh:
@@ -624,10 +646,10 @@ def summary(table: dict, old: dict, why: dict, top: int) -> str:
     lines = [f"table: {len(table)} signers (added {len(added)}, kept {len(kept)}, dropped {len(dropped)} of {len(old)} old"
              + (f": {dict(reasons)}" if dropped else "") + ")",
              f"holds {dict(sorted(collections.Counter(v['hold_slots'] for v in table.values()).items()))}",
-             f"{'signer':<44} {'n':>4} {'wins':>4} {'pnl_sol':>8} {'dev_sol':>7} {'bw':>2} {'hold':>4} {'att':>4} {'dmp':>3} new"]
+             f"{'signer':<44} {'n':>4} {'wins':>4} {'pnl_sol':>8} {'dev_sol':>7} {'bw':>2} {'hold':>4} {'tier':>4} {'att':>4} {'dmp':>3} new"]
     for k, v in list(table.items())[:top]:
         lines.append(f"{k:<44} {v['n']:>4} {v['wins']:>4} {v['pnl_sol']:>8.3f} {v['dev_sol']:>7.2f} {v['bundle_wallets']:>2} "
-                     f"{v['hold_slots']:>4} {v.get('attempts', 0):>4} {v.get('dumps', 0):>3} {'*' if k not in old else ''}")
+                     f"{v['hold_slots']:>4} {v.get('stake_tier', 0):>4} {v.get('attempts', 0):>4} {v.get('dumps', 0):>3} {'*' if k not in old else ''}")
     return "\n".join(lines)
 
 
