@@ -1156,8 +1156,11 @@ pub struct EntryCfg {
     pub tweet_feed: TweetFeed,
     /// The feed's websocket (TweetStream outside the USA by default).
     pub tweet_feed_url: String,
-    /// The feed key's name in the `api-keys` credential (`NAME = "key"`).
-    pub tweet_feed_key: String,
+    /// The feed keys' names in the `api-keys` credential (`NAME = "key"`):
+    /// one connection per key (an account follows its own handles), all
+    /// into one index of posts. A name missing from the credential is
+    /// skipped; none found leaves the feed off.
+    pub tweet_feed_keys: Vec<String>,
     /// How far back a post may match (s).
     pub tweet_feed_window_s: u64,
 }
@@ -1205,7 +1208,7 @@ impl Default for EntryCfg {
             tweet_workers: 4,
             tweet_feed: TweetFeed::Off,
             tweet_feed_url: "wss://ws-global.tweetstream.io/ws".into(),
-            tweet_feed_key: "TWEETSTREAM_KEY".into(),
+            tweet_feed_keys: vec!["TWEETSTREAM_KEY".into()],
             tweet_feed_window_s: 1_800,
         }
     }
@@ -2129,11 +2132,17 @@ impl Config {
                     "must be a ws:// or wss:// url",
                 );
             }
-            if e.tweet_feed_key.is_empty() {
+            let mut names = e.tweet_feed_keys.clone();
+            names.sort();
+            names.dedup();
+            if e.tweet_feed_keys.is_empty()
+                || e.tweet_feed_keys.iter().any(|k| k.is_empty())
+                || names.len() != e.tweet_feed_keys.len()
+            {
                 inv(
                     &mut r,
-                    "entry.tweet_feed_key",
-                    "must name the key's line in the api-keys credential",
+                    "entry.tweet_feed_keys",
+                    "must name one or more distinct key lines of the api-keys credential",
                 );
             }
             if !(10..=86_400).contains(&e.tweet_feed_window_s) {

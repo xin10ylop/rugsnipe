@@ -1051,9 +1051,11 @@ fn run(args: &[String]) -> Result<(), String> {
                     use std::sync::atomic::Ordering::Relaxed;
                     let k = c.feed_calls;
                     format!(
-                        " | feed {} {} posts {n} (seen {}, last {}ms) first {} copy {} none {} skipped {}",
+                        " | feed {} {} {}/{} posts {n} (seen {}, last {}ms) first {} copy {} none {} skipped {}",
                         app.cfg_tweet_feed(),
-                        if fs.connected.load(Relaxed) { "up" } else { "down" },
+                        if fs.up.load(Relaxed) > 0 { "up" } else { "down" },
+                        fs.up.load(Relaxed),
+                        fs.lanes.load(Relaxed),
                         fs.posts.load(Relaxed),
                         fs.last_lat_ms.load(Relaxed),
                         k[1],

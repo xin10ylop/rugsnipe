@@ -73,7 +73,10 @@ Copies are where our own big losses come from: both live -40% trades were copies
 sold at + 3 (backtest) and -7.75% (live), against +1.5% for the rivals' copies (we win the copies they pass on). The
 feed can skip a copy before the buy, but only when its author is followed and its ticker or name is in the tweet: 52%
 of copies name their coin in the text. The 50 accounts with the most copies on Oct 23 wrote 35% of Oct 24's copies, 19%
-of them matchable. **Expect the feed to catch about one copy in five.** For the 50-account plan, follow the accounts
+of them matchable. **Expect the feed to catch about one copy in five.** A second 5-handle account (a second key,
+`entry.tweet_feed_keys = ["TWEETSTREAM_KEY", "TWEETSTREAM_KEY2"]`) adds most with Pojimonkor, elonmusk, toly,
+grok12_john and TomTheDogdevs (picked greedily on the simulated feed beside the first five: correct copy calls on the
+rule coins 104 -> 147 over the 36 h, big losses among them 2 -> 6; `next5.py`). For the 50-account plan, follow the accounts
 that spawn the most copies (Oct 23-24, most first):
 
 devvvooooor, igetsjiggy6767, Thedev1738, elonmusk, ddddddd8a, bwenews, solana, Polymarket, Pojimonkor, gettindevvy,

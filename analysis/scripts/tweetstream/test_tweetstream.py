@@ -26,6 +26,15 @@ class Logger(unittest.TestCase):
         self.assertEqual(L.read_key(f.name), "abc123")
         os.unlink(f.name)
 
+    def test_a_second_accounts_key_is_read_by_its_name(self):
+        with tempfile.NamedTemporaryFile("w", delete=False) as f:
+            f.write('TWEETSTREAM_KEY2 = "second"\nTWEETSTREAM_KEY = "first"\n')
+        os.environ.pop("TWEETSTREAM_API_KEY", None)
+        self.assertEqual(L.read_key(f.name), "first")
+        self.assertEqual(L.read_key(f.name, "TWEETSTREAM_KEY2"), "second")
+        self.assertEqual(L.read_key(f.name, "TWEETSTREAM_KEY3"), "")
+        os.unlink(f.name)
+
 
 class Lead(unittest.TestCase):
     def test_a_post_before_the_create_has_a_positive_lead(self):

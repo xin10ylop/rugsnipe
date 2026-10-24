@@ -167,9 +167,9 @@ pub struct App {
     chain: Option<Arc<dyn ChainRead + Send + Sync>>,
     /// The tweet check's metadata lane (`entry.tweet_gate` != off).
     tweet: Option<crate::tweet::TweetLane>,
-    /// The tweet feed (`entry.tweet_feed` != off and its key found) and its
-    /// counters (the status line).
-    tweet_feed: Option<crate::tweetfeed::FeedLane>,
+    /// The tweet feed's lanes (`entry.tweet_feed` != off: one per key found)
+    /// and their counters (the status line).
+    tweet_feed: Vec<crate::tweetfeed::FeedLane>,
     pub tweet_feed_stats: Option<Arc<crate::tweetfeed::FeedStats>>,
 }
 
@@ -1034,47 +1034,58 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     } else {
         None
     };
-    // the tweet feed's copy check (entry.tweet_feed, docs/14 section 7): a
-    // missing key leaves the feed off and the bot trading as without it
+    // the tweet feed's copy check (entry.tweet_feed, docs/14 section 7): one
+    // lane per key found, all into one index of posts; no key found leaves
+    // the feed off and the bot trading as without it
     let (tweet_feed, tweet_feed_stats) = if cfg.entry.tweet_feed
         != rugsnipe_core::config::TweetFeed::Off
     {
-        let key = crate::keys::credentials_dir()
-            .ok()
-            .and_then(|d| crate::keys::named_secret(&cfg, &d, &cfg.entry.tweet_feed_key).ok())
-            .flatten();
-        match key {
-            None => {
-                eprintln!(
-                    "tweet feed: {} is in neither the api-keys credential nor $CREDENTIALS_DIRECTORY: the feed stays off",
-                    cfg.entry.tweet_feed_key
-                );
-                (None, None)
-            }
-            Some(key) => {
-                let posts = crate::tweetfeed::new_posts();
-                let stats = Arc::new(crate::tweetfeed::FeedStats::default());
-                let window_ms = cfg.entry.tweet_feed_window_s.saturating_mul(1_000);
-                let lane = crate::tweetfeed::spawn(
-                    cfg.entry.tweet_feed_url.clone(),
-                    key,
-                    window_ms,
-                    posts.clone(),
-                    stats.clone(),
-                )
-                .map_err(|e| format!("tweet feed: {e}"))?;
-                hot.set_tweet_feed(posts);
-                eprintln!(
-                    "tweet feed: {} ({}, window {} s)",
-                    cfg.entry.tweet_feed.as_str(),
-                    cfg.entry.tweet_feed_url,
-                    cfg.entry.tweet_feed_window_s
-                );
-                (Some(lane), Some(stats))
+        let dir = crate::keys::credentials_dir().ok();
+        let mut keys = vec![];
+        for name in &cfg.entry.tweet_feed_keys {
+            match dir
+                .as_ref()
+                .and_then(|d| crate::keys::named_secret(&cfg, d, name).ok())
+                .flatten()
+            {
+                Some(k) => keys.push((name.clone(), k)),
+                None => eprintln!(
+                    "tweet feed: {name} is in neither the api-keys credential nor $CREDENTIALS_DIRECTORY: that connection stays off"
+                ),
             }
         }
+        if keys.is_empty() {
+            (vec![], None)
+        } else {
+            let posts = crate::tweetfeed::new_posts();
+            let stats = Arc::new(crate::tweetfeed::FeedStats::default());
+            let window_ms = cfg.entry.tweet_feed_window_s.saturating_mul(1_000);
+            let mut lanes = vec![];
+            for (name, key) in keys {
+                lanes.push(
+                    crate::tweetfeed::spawn(
+                        cfg.entry.tweet_feed_url.clone(),
+                        name,
+                        key,
+                        window_ms,
+                        posts.clone(),
+                        stats.clone(),
+                    )
+                    .map_err(|e| format!("tweet feed: {e}"))?,
+                );
+            }
+            hot.set_tweet_feed(posts);
+            eprintln!(
+                "tweet feed: {} ({}, {} connection(s), window {} s)",
+                cfg.entry.tweet_feed.as_str(),
+                cfg.entry.tweet_feed_url,
+                lanes.len(),
+                cfg.entry.tweet_feed_window_s
+            );
+            (lanes, Some(stats))
+        }
     } else {
-        (None, None)
+        (vec![], None)
     };
     // probe: every token balance recovery found gets an exit owner (I2/I6)
     if mode.is_real() {
@@ -1275,7 +1286,7 @@ impl App {
         if let Some(t) = tweet {
             t.join(); // its dispatcher ends with the hot loop's request ring
         }
-        if let Some(f) = tweet_feed {
+        for f in tweet_feed {
             f.stop_and_join();
         }
         let sender_thread_sends = sender

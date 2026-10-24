@@ -4,7 +4,8 @@
 One JSON line per post event (tweet/content and tweet/update) to --out:
   {"rx": receipt unix ms, "op": "content"|"update", "id": tweet id, "pub": publish unix ms (from the id),
    "author": handle, "text": ..., "kind": ..., "ref": {"type", "author", "text"} or null}
-The key comes from TWEETSTREAM_API_KEY or the TWEETSTREAM_KEY line of --api-keys and is never printed.
+The key comes from TWEETSTREAM_API_KEY or the --key-name line (default TWEETSTREAM_KEY) of --api-keys and is never
+printed; a second account's key runs a second logger (--key-name TWEETSTREAM_KEY2, its own --out).
 
     python3 -m venv ~/tsvenv && ~/tsvenv/bin/pip install 'websockets>=14'
     sudo systemd-run --unit tweetlog --property=Restart=always \\
@@ -16,12 +17,12 @@ WS_URL = "wss://ws-global.tweetstream.io/ws"   # outside the USA (docs: connecti
 TWITTER_EPOCH_MS = 1288834974657
 
 
-def read_key(path):
+def read_key(path, name="TWEETSTREAM_KEY"):
     key = os.environ.get("TWEETSTREAM_API_KEY", "").strip()
     if key or not path:
         return key
     for line in open(path):
-        m = re.match(r'\s*TWEETSTREAM_KEY\s*=\s*"([^"]+)"', line)
+        m = re.match(r'\s*' + re.escape(name) + r'\s*=\s*"([^"]+)"', line)
         if m:
             return m.group(1).strip()
     return ""
@@ -93,10 +94,11 @@ def main():
     ap.add_argument("--api-keys", default="/etc/rugsnipe/keys/api-keys.toml")
     ap.add_argument("--out", required=True)
     ap.add_argument("--url", default=WS_URL)
+    ap.add_argument("--key-name", default="TWEETSTREAM_KEY")
     a = ap.parse_args()
-    key = read_key(a.api_keys)
+    key = read_key(a.api_keys, a.key_name)
     if not key:
-        sys.exit(f"no key: set TWEETSTREAM_API_KEY or add TWEETSTREAM_KEY = \"...\" to {a.api_keys}")
+        sys.exit(f"no key: set TWEETSTREAM_API_KEY or add {a.key_name} = \"...\" to {a.api_keys}")
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     asyncio.run(run(key, a.out, a.url))
 

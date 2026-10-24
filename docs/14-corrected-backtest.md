@@ -144,8 +144,9 @@ copy call to work. Only then build the copy skip into the hot loop and take the 
 ## 8. The copy skip in the bot (`entry.tweet_feed`)
 
 - **Feed lane** (`rugsnipe/src/tweetfeed.rs`, `rugsnipe-feed/src/ws/tweetstream.rs`): TweetStream at
-  `entry.tweet_feed_url`, the key from the `entry.tweet_feed_key` line of the api-keys credential
-  (`TWEETSTREAM_KEY`), as a websocket subprotocol. Each post becomes a match blob (text, author, quoted text and
+  `entry.tweet_feed_url`, one connection per key named in `entry.tweet_feed_keys` (lines of the api-keys credential,
+  default `["TWEETSTREAM_KEY"]`; a second account's key adds its 5 handles), each key as a websocket subprotocol,
+  all into one index of posts. Each post becomes a match blob (text, author, quoted text and
   author: ASCII letters and digits, lower case) in an index of the last `entry.tweet_feed_window_s` (1,800 s) that the
   hot loop reads without a lock. A missing key leaves the feed off and the bot trading as without it.
 - **The call**, at every tweet-host create with a dev buy of at least `tweet_min_dev_sol` (the coins the tweet check

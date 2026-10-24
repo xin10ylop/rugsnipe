@@ -177,34 +177,38 @@ pub fn parse_frame(raw: &str, rx_ms: u64) -> Option<Post> {
     })
 }
 
-/// Add `p` to `posts` (a later frame of the same post replaces its blob and
-/// keeps its receipt time and taken mark), dropping posts published more
-/// than `window_ms` + 60 s before `now_ms` and the oldest past
-/// [`MAX_POSTS`].
+/// Add `p` to `posts` (a later frame of the same post, from either lane,
+/// replaces its blob and keeps the first receipt time and the taken mark),
+/// dropping posts published more than `window_ms` + 60 s before `now_ms`
+/// and the oldest past [`MAX_POSTS`]. Two lanes may insert at once: the
+/// swap retries on a lost race (`rcu`), so no post is dropped.
 pub fn insert(posts: &Posts, p: Post, now_ms: u64, window_ms: u64) {
-    let cur = posts.load();
     let keep_after = now_ms.saturating_sub(window_ms.saturating_add(60_000));
-    let mut next: Vec<Arc<Post>> = cur
-        .iter()
-        .filter(|q| q.pub_ms >= keep_after && q.id != p.id)
-        .cloned()
-        .collect();
-    let p = match cur.iter().find(|q| q.id == p.id) {
-        Some(old) => Post {
-            rx_ms: old.rx_ms,
-            used: AtomicBool::new(old.used.load(Relaxed)),
-            ..p
-        },
-        None => p,
-    };
-    // oldest first by publish time (frames can come out of order)
-    let at = next.partition_point(|q| q.pub_ms <= p.pub_ms);
-    next.insert(at, Arc::new(p));
-    if next.len() > MAX_POSTS {
-        let cut = next.len() - MAX_POSTS;
-        next.drain(..cut);
-    }
-    posts.store(Arc::new(next));
+    posts.rcu(|cur| {
+        let mut next: Vec<Arc<Post>> = cur
+            .iter()
+            .filter(|q| q.pub_ms >= keep_after && q.id != p.id)
+            .cloned()
+            .collect();
+        let old = cur.iter().find(|q| q.id == p.id);
+        let q = Post {
+            id: p.id,
+            pub_ms: p.pub_ms,
+            rx_ms: old.map_or(p.rx_ms, |o| o.rx_ms.min(p.rx_ms)),
+            blob: p.blob.clone(),
+            used: AtomicBool::new(
+                old.is_some_and(|o| o.used.load(Relaxed)) || p.used.load(Relaxed),
+            ),
+        };
+        // oldest first by publish time (frames can come out of order)
+        let at = next.partition_point(|r| r.pub_ms <= q.pub_ms);
+        next.insert(at, Arc::new(q));
+        if next.len() > MAX_POSTS {
+            let cut = next.len() - MAX_POSTS;
+            next.drain(..cut);
+        }
+        next
+    });
 }
 
 /// Lane counters (the status line).
@@ -215,7 +219,9 @@ pub struct FeedStats {
     pub drops: AtomicU64,
     /// The last post's publish-to-receipt time (ms).
     pub last_lat_ms: AtomicU64,
-    pub connected: AtomicBool,
+    /// Lanes started and lanes connected now.
+    pub lanes: AtomicU64,
+    pub up: AtomicU64,
 }
 
 /// The lane's thread.
@@ -233,9 +239,12 @@ impl FeedLane {
     }
 }
 
-/// Start the lane: TweetStream at `url` with `key`, posts into `posts`.
+/// Start a lane: TweetStream at `url` with the key `name` names (journal
+/// lines only, never the key), posts into `posts`; lanes may share `posts`
+/// and `stats`.
 pub fn spawn(
     url: String,
+    name: String,
     key: zeroize::Zeroizing<String>,
     window_ms: u64,
     posts: Posts,
@@ -243,10 +252,12 @@ pub fn spawn(
 ) -> std::io::Result<FeedLane> {
     let stop = Arc::new(AtomicBool::new(false));
     let stop2 = stop.clone();
+    let n = stats.lanes.fetch_add(1, Relaxed);
     let thread = std::thread::Builder::new()
-        .name("tweet-feed".into())
+        .name(format!("tweet-feed-{n}"))
         .spawn(move || {
             let st = stats.clone();
+            let mut was_up = false;
             rugsnipe_feed::ws::tweetstream::run_blocking(
                 &url,
                 &key,
@@ -254,13 +265,19 @@ pub fn spawn(
                 &mut |s| match s {
                     rugsnipe_feed::ws::tweetstream::Status::Connected => {
                         st.connects.fetch_add(1, Relaxed);
-                        st.connected.store(true, Relaxed);
-                        eprintln!("tweet feed: connected {url}");
+                        if !was_up {
+                            st.up.fetch_add(1, Relaxed);
+                            was_up = true;
+                        }
+                        eprintln!("tweet feed: connected {url} ({name})");
                     }
                     rugsnipe_feed::ws::tweetstream::Status::Closed(why) => {
                         st.drops.fetch_add(1, Relaxed);
-                        st.connected.store(false, Relaxed);
-                        eprintln!("tweet feed: {why}; reconnecting");
+                        if was_up {
+                            st.up.fetch_sub(1, Relaxed);
+                            was_up = false;
+                        }
+                        eprintln!("tweet feed: {why} ({name}); reconnecting");
                     }
                 },
                 &mut |raw, rx_ms| {
@@ -386,5 +403,32 @@ mod tests {
         );
         let snap = posts.load();
         assert_eq!(snap.iter().map(|p| p.id).collect::<Vec<_>>(), vec![later]);
+    }
+
+    #[test]
+    fn two_lanes_inserting_at_once_lose_no_post() {
+        let posts = new_posts();
+        let t = pub_ms(ID);
+        let lanes: Vec<_> = (0..2u64)
+            .map(|lane| {
+                let posts = posts.clone();
+                std::thread::spawn(move || {
+                    for k in 0..300u64 {
+                        let id = ID + ((2 * k + lane) << 22);
+                        let p = parse_frame(&frame(id, "x", "a"), t + 1_000).unwrap();
+                        insert(&posts, p, t + 1_000, 600_000);
+                    }
+                })
+            })
+            .collect();
+        for l in lanes {
+            l.join().unwrap();
+        }
+        // the same post from both accounts is one post, with the first receipt
+        let p = parse_frame(&frame(ID, "x", "a"), t + 50).unwrap();
+        insert(&posts, p, t + 1_000, 600_000);
+        let snap = posts.load();
+        assert_eq!(snap.len(), 600);
+        assert_eq!(snap.iter().find(|p| p.id == ID).unwrap().rx_ms, t + 50);
     }
 }
