@@ -375,6 +375,16 @@ impl RiskGate {
     /// is the expected failure mode and never latches the operator.
     pub fn on_attempt_failed(&self, cost: u64, now_unix: u64) {
         self.release_unfilled();
+        self.on_tx_cost(cost, now_unix);
+    }
+
+    /// What a landed transaction cost beyond the curve P&L of its position:
+    /// a filled buy's or sell's `meta.fee` plus the tip it carried, a failed
+    /// sell's `meta.fee`. The position's P&L books only curve SOL and pump's
+    /// fees, so without this the daily loss misses every trade's execution
+    /// (about 9M lamports per round trip on 2026-10-24). Counts toward the
+    /// daily loss (kills at the cap); no position slot, no operator latch.
+    pub fn on_tx_cost(&self, cost: u64, now_unix: u64) {
         if cost == 0 {
             return;
         }
@@ -832,6 +842,35 @@ mod tests {
         assert!(g.decide(&i).is_fire());
         g.on_attempt_failed(600_000, now);
         assert!(g.is_killed(), "the daily loss cap latches the kill");
+    }
+
+    #[test]
+    fn landed_transaction_costs_count_toward_the_daily_loss_only() {
+        let mut caps = caps();
+        caps.max_daily_loss_lamports = 20_000_000;
+        caps.max_consec_losses_per_op = 1;
+        let g = RiskGate::new(caps);
+        g.set_hot_balance(3_000_000_000);
+        let i = inp(Mode::Live);
+        let now = i.now_unix;
+        assert!(g.decide(&i).is_fire());
+        // the buy landed (fee + tip), then the sell (fee + tip): the position stays open
+        g.on_tx_cost(6_015_000, now);
+        g.on_tx_cost(3_415_000, now);
+        assert_eq!(g.open_positions(), 1, "a cost is not a closed position");
+        assert_eq!(g.realized_today(now), -9_430_000);
+        g.on_position_closed(1, 4_000_000, now);
+        assert_eq!(g.realized_today(now), -5_430_000);
+        assert_eq!(g.op_consec_losses(1), 0, "the curve P&L was a win");
+        g.on_tx_cost(0, now);
+        assert_eq!(g.realized_today(now), -5_430_000);
+        assert!(!g.is_killed());
+        g.on_tx_cost(14_570_000, now);
+        assert!(g.is_killed(), "costs alone reach the cap");
+        // a new UTC day starts from zero
+        let tomorrow = now + 86_400;
+        g.on_tx_cost(1_000, tomorrow);
+        assert_eq!(g.realized_today(tomorrow), -1_000);
     }
 
     #[test]

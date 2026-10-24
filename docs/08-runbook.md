@@ -848,7 +848,7 @@ back killed: the start prints `KILL latch restored from state.db: …`, and the 
 | `clock` | `chronyc -c tracking` offset above 50 ms (start is refused above 5 ms or when chrony is unreadable as the service user) | `kill_clock_offset_ms` |
 | `drift` | the gRPC feed's slot trails `getSlot` (processed) by more than 8 slots (every 10 s) | `max_slot_drift` |
 | `feed_stale` | no data message from the gRPC feed for more than its `stale_ms` | `[feeds] grpc.stale_ms` |
-| `daily_loss` | closed P&L + failed attempts' `meta.fee` + open positions at their current sell quote below minus the daily cap (the stage's cap in probe); also at start, from today's rows in `state.db` | `max_daily_loss_lamports` |
+| `daily_loss` | closed P&L + failed attempts' `meta.fee` + every landed buy's and sell's `meta.fee` + tip and every failed sell's `meta.fee` (`RiskGate::on_tx_cost`, from 2026-10-24: before, a position's P&L booked only curve SOL and pump's fees, and the gate missed about 9.4M lamports per round trip: −0.016 SOL on the risk row against −0.127 SOL on chain that morning) + open positions at their current sell quote below minus the daily cap (the stage's cap in probe); also at start, from today's rows in `state.db` (the more conservative of the recomputation and the persisted `risk.realized`, which carries the costs) | `max_daily_loss_lamports` |
 | `crash_loop` | the 3rd start within an hour that follows an unclean exit (crash, SIGKILL, watchdog, panic: `kv.run_open` was still set; `kv.unclean_starts` lists them) | |
 | `panic` | a panic anywhere in a probe/live process: the hook writes the kill file and `kv.kill_latch`, then aborts (release builds use `panic = "abort"`); systemd restarts it killed | |
 

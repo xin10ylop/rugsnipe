@@ -1475,6 +1475,7 @@ impl Cold {
                                     mint,
                                     sig,
                                     slot: self.p.shared.slot_now.load(Relaxed),
+                                    tip,
                                 })
                             }
                             rugsnipe_tx::senders::VariantKind::Burn => {}
@@ -2122,14 +2123,21 @@ impl Cold {
                 slot,
                 mint,
                 trade,
+                fee,
+                tip,
             } => {
                 if !trade.is_buy {
                     lock(&self.p.report).probe.sells_landed += 1;
+                    // the sell's execution: the position books only curve SOL
+                    self.p
+                        .risk
+                        .on_tx_cost(fee.saturating_add(tip), crate::now_unix());
                 }
                 let t = crate::real::trade_of(&trade, mint, self.p.cfg.owner, slot);
                 self.to_hot_q.push_back(HotIn::RealTrade { sig, trade: t });
             }
             E::SellFailed { sig, fee, reason } => {
+                self.p.risk.on_tx_cost(fee, crate::now_unix());
                 let mut r = lock(&self.p.report);
                 r.probe.sells_failed += 1;
                 r.probe
@@ -2239,6 +2247,14 @@ impl Cold {
         let ledger = self.p.ledger.clone();
         let ok = l.fail.is_none();
         let var = l.var;
+        if ok {
+            // the filled buy's execution (a failed one's fee reaches the gate
+            // through the hot path's `real_failed`)
+            self.p.risk.on_tx_cost(
+                l.fee.saturating_add(var.map_or(0, |v| v.tip)),
+                crate::now_unix(),
+            );
+        }
         let tokens = l.trade.map_or(0, |t| t.tokens);
         let sol_delta = if ok {
             -(l.trade.map_or(0, |t| t.sol.saturating_add(t.fee)) as i64)

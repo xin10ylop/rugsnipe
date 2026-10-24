@@ -276,6 +276,7 @@ fn landed_failed_and_dropped_attempts_sells_and_balances() {
         mint,
         sig: sig(20),
         slot: S + 2,
+        tip: 3_400_000,
     })
     .unwrap();
     ctx.send(LaneCmd::Held { intent: 1, mint }).unwrap();

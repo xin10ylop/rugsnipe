@@ -105,11 +105,12 @@ pub enum LaneCmd {
         intent: u64,
         var: SentVar,
     },
-    /// A sell variant a real sender accepted.
+    /// A sell variant a real sender accepted (`tip`: the tip it carries).
     SellSent {
         mint: Pubkey,
         sig: [u8; 64],
         slot: u64,
+        tip: u64,
     },
     /// Poll this mint's token balance (a real position is held).
     Held {
@@ -199,12 +200,15 @@ pub enum LaneEvent {
         primary: Option<SentVar>,
         burned: bool,
     },
-    /// Our own trade (a sell, or a buy on a held mint) from a landed sell.
+    /// Our own trade (a sell, or a buy on a held mint) from a landed sell;
+    /// `fee` is its `meta.fee` and `tip` the tip of the landed variant.
     OwnTrade {
         sig: [u8; 64],
         slot: u64,
         mint: Pubkey,
         trade: OwnTrade,
+        fee: u64,
+        tip: u64,
     },
     /// A sell landed and failed (fee paid, position untouched).
     SellFailed {
@@ -689,6 +693,7 @@ struct Attempt {
 struct SellWatch {
     mint: Pubkey,
     sent_slot: u64,
+    tip: u64,
 }
 
 /// Run the lane until `cmds` closes.
@@ -729,8 +734,8 @@ pub async fn run(
                             }
                         }
                     }
-                    LaneCmd::SellSent { mint, sig, slot } => {
-                        sells.insert(sig, SellWatch { mint, sent_slot: slot.max(slot_now) });
+                    LaneCmd::SellSent { mint, sig, slot, tip } => {
+                        sells.insert(sig, SellWatch { mint, sent_slot: slot.max(slot_now), tip });
                     }
                     LaneCmd::Held { intent, mint } => { held.insert(mint, intent); }
                     LaneCmd::Released { mint } => { held.remove(&mint); }
@@ -882,6 +887,8 @@ async fn poll(
                                     slot,
                                     mint: w.mint,
                                     trade: t,
+                                    fee: tx["meta"]["fee"].as_u64().unwrap_or(0),
+                                    tip: w.tip,
                                 });
                             }
                             None => {
