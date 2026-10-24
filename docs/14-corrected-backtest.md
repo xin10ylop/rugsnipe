@@ -140,3 +140,26 @@ them attempted by him), @igetsjiggy6767 (100), @thedev1738 (66), @ddddddd8a (57)
 Plan: the 3-day, 5-account trial on those five, with a logger on the box (not the bot) that records each post's
 receipt time, then compare with the creates of their coins: a post must arrive before its coins' creates for the
 copy call to work. Only then build the copy skip into the hot loop and take the 50-account plan.
+
+## 8. The copy skip in the bot (`entry.tweet_feed`)
+
+- **Feed lane** (`rugsnipe/src/tweetfeed.rs`, `rugsnipe-feed/src/ws/tweetstream.rs`): TweetStream at
+  `entry.tweet_feed_url`, the key from the `entry.tweet_feed_key` line of the api-keys credential
+  (`TWEETSTREAM_KEY`), as a websocket subprotocol. Each post becomes a match blob (text, author, quoted text and
+  author: ASCII letters and digits, lower case) in an index of the last `entry.tweet_feed_window_s` (1,800 s) that the
+  hot loop reads without a lock. A missing key leaves the feed off and the bot trading as without it.
+- **The call**, at every tweet-host create with a dev buy of at least `tweet_min_dev_sol` (the coins the tweet check
+  fetches): the coin's ticker (3+ characters) or name (4+), from the create itself, looked up in the posts received
+  before it. `first`: it matched a post no earlier coin had taken; `copy`: all its matched posts were taken; `none`.
+  Every matched post is marked taken, as in the backtest.
+- **Modes:** `"log"` journals `tweetfeed <mint8> <call> posts N post <id> age <ms>` and trades as without it; `"on"`
+  also skips a copy before the bundle park (`skip_tweetfeed_copy`, 0x60).
+- **Status line:** `feed <mode> up|down posts N (seen S, last Lms) first a copy b none c skipped d`.
+- **check.sh:** "tweet feed today": the calls against the tweet check's verdict on the same coin, and our closed
+  trades by call. Turn on `"on"` once the copy calls are mostly real copies and the trades they would have skipped
+  lose.
+
+```toml
+[entry]
+tweet_feed = "log"        # then "on"
+```

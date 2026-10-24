@@ -245,6 +245,47 @@ pub async fn ws_connect(url: &str, timeout: Duration) -> io::Result<Ws> {
     Ok(ws)
 }
 
+/// [`ws_connect`] offering websocket subprotocols (`Sec-WebSocket-Protocol`);
+/// a server that answers with one of them is accepted. TweetStream takes its
+/// key this way (`tweetstream.v1`, `tweetstream.auth.token.<key>`), so the
+/// error never echoes the request.
+pub async fn ws_connect_protocols(
+    url: &str,
+    protocols: &[&str],
+    timeout: Duration,
+) -> io::Result<Ws> {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let u = Url::parse(url)?;
+    let mut req = u.ws_string().into_client_request().map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("websocket request: {e}"),
+        )
+    })?;
+    let value = protocols.join(", ");
+    req.headers_mut().insert(
+        "Sec-WebSocket-Protocol",
+        value.parse().map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidInput, "bad websocket subprotocol")
+        })?,
+    );
+    let stream = connect_stream(&u, timeout).await?;
+    let (ws, _resp) = tokio::time::timeout(timeout, tokio_tungstenite::client_async(req, stream))
+        .await
+        .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "websocket handshake timeout"))?
+        .map_err(|e| {
+            // a refused upgrade: the status only (401 key rejected, 403 not active, 429 no free connection)
+            let msg = match &e {
+                tokio_tungstenite::tungstenite::Error::Http(r) => {
+                    format!("HTTP {}", r.status().as_u16())
+                }
+                _ => "handshake failed".to_string(),
+            };
+            io::Error::other(format!("websocket handshake: {msg}"))
+        })?;
+    Ok(ws)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

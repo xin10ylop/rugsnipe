@@ -109,6 +109,11 @@ pub const URI_HOST_MAX: usize = 64;
 /// Bytes of the whole create uri kept in a [`TxShape`] (the tweet check,
 /// `entry.tweet_gate`, fetches it; the launch tools' uris are 30-60 bytes).
 pub const URI_MAX: usize = 160;
+/// Longest name key kept ([`TxShape::name_key`]); a longer name keeps its
+/// first bytes.
+pub const NAME_KEY_MAX: usize = 32;
+/// Longest ticker key kept ([`TxShape::sym_key`]).
+pub const SYM_KEY_MAX: usize = 16;
 /// The runtime's default compute-unit limit per non-builtin instruction,
 /// per builtin one (System, ComputeBudget), and the cap (when the
 /// transaction sets no limit).
@@ -149,6 +154,13 @@ pub struct TxShape {
     /// and fits in [`URI_MAX`] bytes; `uri_len == 0`: not kept.
     pub uri: [u8; URI_MAX],
     pub uri_len: u8,
+    /// The create's name and ticker as match keys: ASCII letters and digits
+    /// only, lower case (`"Dog Wif Hat!"` -> `dogwifhat`); the tweet feed
+    /// looks for them in recent posts (entry.tweet_feed, docs/14 section 7).
+    pub name_key: [u8; NAME_KEY_MAX],
+    pub name_key_len: u8,
+    pub sym_key: [u8; SYM_KEY_MAX],
+    pub sym_key_len: u8,
 }
 
 impl Default for TxShape {
@@ -166,8 +178,26 @@ impl Default for TxShape {
             uri_host_len: 0,
             uri: [0; URI_MAX],
             uri_len: 0,
+            name_key: [0; NAME_KEY_MAX],
+            name_key_len: 0,
+            sym_key: [0; SYM_KEY_MAX],
+            sym_key_len: 0,
         }
     }
+}
+
+/// `src`'s ASCII letters and digits, lower case, into `dst` (the rest is
+/// dropped); returns the length written.
+fn match_key(src: &str, dst: &mut [u8]) -> u8 {
+    let mut n = 0;
+    for b in src.bytes().filter(u8::is_ascii_alphanumeric) {
+        if n == dst.len() {
+            break;
+        }
+        dst[n] = b.to_ascii_lowercase();
+        n += 1;
+    }
+    n as u8
 }
 
 impl TxShape {
@@ -194,6 +224,22 @@ impl TxShape {
             self.uri[..uri.len()].copy_from_slice(uri.as_bytes());
             self.uri_len = uri.len() as u8;
         }
+    }
+
+    /// Set the name and ticker match keys from the create's arguments.
+    pub fn set_names(&mut self, name: &str, symbol: &str) {
+        self.name_key_len = match_key(name, &mut self.name_key);
+        self.sym_key_len = match_key(symbol, &mut self.sym_key);
+    }
+
+    /// The name key (may be empty).
+    pub fn name_key(&self) -> &[u8] {
+        &self.name_key[..self.name_key_len as usize]
+    }
+
+    /// The ticker key (may be empty).
+    pub fn sym_key(&self) -> &[u8] {
+        &self.sym_key[..self.sym_key_len as usize]
     }
 
     /// The whole uri (the `uri` field), if kept.
@@ -807,7 +853,11 @@ pub fn create_hit(
         curve_after,
         launcher,
         logs_truncated: false,
-        tx_shape: tx_shape(tx, loaded, inner, cr.args.uri),
+        tx_shape: {
+            let mut s = tx_shape(tx, loaded, inner, cr.args.uri);
+            s.set_names(cr.args.name, cr.args.symbol);
+            s
+        },
     }))
 }
 
@@ -905,6 +955,7 @@ pub fn from_logs<S: AsRef<str>>(
                         tx_shape: {
                             let mut s = TxShape::default();
                             s.set_uri(ev.uri);
+                            s.set_names(ev.name, ev.symbol);
                             s
                         },
                     });
@@ -961,6 +1012,21 @@ pub const CREATE_DISCRIMINATORS: [[u8; 8]; 2] = [disc::CREATE, disc::CREATE_V2];
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_name_and_ticker_keys_keep_lower_case_letters_and_digits() {
+        let mut s = TxShape::default();
+        s.set_names("Dog Wif Hat! 2", "$WIF");
+        assert_eq!(
+            (s.name_key(), s.sym_key()),
+            (&b"dogwifhat2"[..], &b"wif"[..])
+        );
+        // non-ASCII is dropped; a long name keeps its first NAME_KEY_MAX bytes
+        s.set_names("狗 Doge 🐶", "ドージ");
+        assert_eq!((s.name_key(), s.sym_key()), (&b"doge"[..], &b""[..]));
+        s.set_names(&"a".repeat(50), "X");
+        assert_eq!(s.name_key().len(), NAME_KEY_MAX);
+    }
 
     #[test]
     fn set_uri_keeps_the_host_lower_case_and_the_whole_uri_as_given() {

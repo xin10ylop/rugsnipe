@@ -2539,6 +2539,7 @@ dependencies = [
  "ed25519-dalek",
  "hdrhistogram",
  "libc",
+ "memchr",
  "prometheus-client",
  "pump-codec",
  "rtrb",

@@ -51,6 +51,7 @@ pub mod setup;
 pub mod stats;
 pub mod triggers;
 pub mod tweet;
+pub mod tweetfeed;
 
 /// Wall-clock milliseconds since the Unix epoch.
 pub fn now_ms() -> u64 {

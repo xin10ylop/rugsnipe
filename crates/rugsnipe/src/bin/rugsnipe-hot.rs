@@ -1044,8 +1044,28 @@ fn run(args: &[String]) -> Result<(), String> {
                     )
                 })
                 .unwrap_or_default();
+            // the tweet feed (entry.tweet_feed): connected, posts held, the
+            // last post's delay to this box, the calls and the copies skipped
+            let feed = match (&app.tweet_feed_stats, app.hot.feed_posts_len()) {
+                (Some(fs), Some(n)) => {
+                    use std::sync::atomic::Ordering::Relaxed;
+                    let k = c.feed_calls;
+                    format!(
+                        " | feed {} {} posts {n} (seen {}, last {}ms) first {} copy {} none {} skipped {}",
+                        app.cfg_tweet_feed(),
+                        if fs.connected.load(Relaxed) { "up" } else { "down" },
+                        fs.posts.load(Relaxed),
+                        fs.last_lat_ms.load(Relaxed),
+                        k[1],
+                        k[2],
+                        k[0],
+                        c.feed_skipped
+                    )
+                }
+                _ => String::new(),
+            };
             eprintln!(
-                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {}{gate}{presend}{template}{tweet} | {kill}{g} | {} | {}",
+                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {}{gate}{presend}{template}{tweet}{feed} | {kill}{g} | {} | {}",
                 t0.elapsed().as_secs(),
                 c.events,
                 c.creates,

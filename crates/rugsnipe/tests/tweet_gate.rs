@@ -25,7 +25,8 @@ use rugsnipe::msgs::FireJob;
 use rugsnipe::setup::{self, ArmState};
 use rugsnipe::stats::{code, decision_label, HotStats};
 use rugsnipe::tweet::{TweetKind, TweetReq, TweetVerdict};
-use rugsnipe_core::config::{ArmSetGate, Config, TweetGate, ValidateEnv};
+use rugsnipe::tweetfeed::{new_posts, Post, Posts};
+use rugsnipe_core::config::{ArmSetGate, Config, TweetFeed, TweetGate, ValidateEnv};
 use rugsnipe_core::risk::RiskGate;
 use rugsnipe_core::rslog::{box_id, Rec, RslogWriter};
 use rugsnipe_core::watchlist::Watchlist;
@@ -160,6 +161,7 @@ fn run_full(
         verdict_first,
         after,
         &|_| {},
+        None,
     )
 }
 
@@ -170,6 +172,7 @@ fn run_full_with(
     verdict_first: bool,
     after: &dyn Fn(&CreateHit, &mut CurveState) -> Vec<FeedEvent>,
     tweak: &dyn Fn(&mut Config),
+    feed: Option<Posts>,
 ) -> Outcome {
     let (tx, meta, hit) = fixture_hit();
     let host = hit
@@ -236,6 +239,9 @@ fn run_full_with(
         dumpers: rugsnipe::dumpers::snapshot_from(vec![]),
     });
     hot.set_tweet_lane(req_tx, out_rx);
+    if let Some(posts) = feed {
+        hot.set_tweet_feed(posts);
+    }
     let (v0, t0) = rugsnipe::convert::v0_of(&hit);
     let mut c = CurveState {
         virtual_sol: v0,
@@ -523,6 +529,7 @@ fn the_bid_ab_sends_the_odd_mints_on_the_second_arm() {
                 c.bid.lamports = 3_000_000;
                 c.bid.ab_by_tier = ab.clone();
             },
+            None,
         )
     };
     let base = run(vec![]);
@@ -539,4 +546,54 @@ fn the_bid_ab_sends_the_odd_mints_on_the_second_arm() {
         "odd {odd}: {:?}",
         ab.bids
     );
+}
+
+/// One post received 4 s ago whose blob is `key`, already taken by an earlier
+/// coin or not.
+fn feed_with(key: &[u8], taken: bool) -> Posts {
+    let now = rugsnipe::now_ms();
+    let pub_ms = now - 5_000;
+    let p = Post {
+        id: (pub_ms - 1_288_834_974_657) << 22,
+        pub_ms,
+        rx_ms: now - 4_000,
+        blob: key.to_vec().into_boxed_slice(),
+        used: std::sync::atomic::AtomicBool::new(taken),
+    };
+    let posts = new_posts();
+    posts.store(Arc::new(vec![Arc::new(p)]));
+    posts
+}
+
+#[test]
+fn the_tweet_feed_on_skips_a_copy_and_log_only_journals() {
+    let (_, _, hit) = fixture_hit();
+    let key = if hit.tx_shape.sym_key().len() >= 3 {
+        hit.tx_shape.sym_key().to_vec()
+    } else {
+        hit.tx_shape.name_key().to_vec()
+    };
+    assert!(key.len() >= 3, "the fixture has a ticker or name to match");
+    let run = |mode: TweetFeed, taken: bool| {
+        run_full_with(
+            TweetGate::Off,
+            true,
+            None,
+            false,
+            &none,
+            &move |c: &mut Config| c.entry.tweet_feed = mode,
+            Some(feed_with(&key, taken)),
+        )
+    };
+    // on: the post was taken by an earlier coin, so this one is a copy
+    let o = run(TweetFeed::On, true);
+    assert!(
+        !o.fired && o.decisions.iter().any(|d| d.0 == code::TWEETFEED_COPY),
+        "{:?}",
+        label(&o)
+    );
+    // on: a fresh post makes it the first coin, which fires
+    assert!(run(TweetFeed::On, false).fired);
+    // log: a copy call never stops the buy
+    assert!(run(TweetFeed::Log, true).fired);
 }

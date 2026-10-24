@@ -167,6 +167,17 @@ pub struct App {
     chain: Option<Arc<dyn ChainRead + Send + Sync>>,
     /// The tweet check's metadata lane (`entry.tweet_gate` != off).
     tweet: Option<crate::tweet::TweetLane>,
+    /// The tweet feed (`entry.tweet_feed` != off and its key found) and its
+    /// counters (the status line).
+    tweet_feed: Option<crate::tweetfeed::FeedLane>,
+    pub tweet_feed_stats: Option<Arc<crate::tweetfeed::FeedStats>>,
+}
+
+impl App {
+    /// `entry.tweet_feed` as configured (the status line).
+    pub fn cfg_tweet_feed(&self) -> &'static str {
+        self.hot.tweet_feed_mode()
+    }
 }
 
 impl core::fmt::Debug for App {
@@ -1023,6 +1034,48 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     } else {
         None
     };
+    // the tweet feed's copy check (entry.tweet_feed, docs/14 section 7): a
+    // missing key leaves the feed off and the bot trading as without it
+    let (tweet_feed, tweet_feed_stats) = if cfg.entry.tweet_feed
+        != rugsnipe_core::config::TweetFeed::Off
+    {
+        let key = crate::keys::credentials_dir()
+            .ok()
+            .and_then(|d| crate::keys::named_secret(&cfg, &d, &cfg.entry.tweet_feed_key).ok())
+            .flatten();
+        match key {
+            None => {
+                eprintln!(
+                    "tweet feed: {} is in neither the api-keys credential nor $CREDENTIALS_DIRECTORY: the feed stays off",
+                    cfg.entry.tweet_feed_key
+                );
+                (None, None)
+            }
+            Some(key) => {
+                let posts = crate::tweetfeed::new_posts();
+                let stats = Arc::new(crate::tweetfeed::FeedStats::default());
+                let window_ms = cfg.entry.tweet_feed_window_s.saturating_mul(1_000);
+                let lane = crate::tweetfeed::spawn(
+                    cfg.entry.tweet_feed_url.clone(),
+                    key,
+                    window_ms,
+                    posts.clone(),
+                    stats.clone(),
+                )
+                .map_err(|e| format!("tweet feed: {e}"))?;
+                hot.set_tweet_feed(posts);
+                eprintln!(
+                    "tweet feed: {} ({}, window {} s)",
+                    cfg.entry.tweet_feed.as_str(),
+                    cfg.entry.tweet_feed_url,
+                    cfg.entry.tweet_feed_window_s
+                );
+                (Some(lane), Some(stats))
+            }
+        }
+    } else {
+        (None, None)
+    };
     // probe: every token balance recovery found gets an exit owner (I2/I6)
     if mode.is_real() {
         if let Some(rep) = &recovery {
@@ -1076,6 +1129,8 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         writers,
         chain,
         tweet,
+        tweet_feed,
+        tweet_feed_stats,
     })
 }
 
@@ -1213,11 +1268,15 @@ impl App {
             state_path,
             chain,
             tweet,
+            tweet_feed,
             ..
         } = self;
         drop(hot); // drops the fire producer, the hot rslog producer and the cold ring producer
         if let Some(t) = tweet {
             t.join(); // its dispatcher ends with the hot loop's request ring
+        }
+        if let Some(f) = tweet_feed {
+            f.stop_and_join();
         }
         let sender_thread_sends = sender
             .map(|h| {

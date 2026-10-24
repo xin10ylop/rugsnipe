@@ -57,6 +57,7 @@ use crate::operators::{
 use crate::setup::{min_tokens_out, min_tokens_out_at, op_armed, ArmState, Templates};
 use crate::stats::{code, HotStats};
 use crate::tweet::{FailNote, TriesNote, TweetKind, TweetReq, TweetVerdict};
+use crate::tweetfeed::{Classified, FeedCall, Posts};
 use arc_swap::ArcSwap;
 use hdrhistogram::Histogram;
 use pump_codec::constants::{TOKEN_2022_PROGRAM_ID, WSOL_MINT};
@@ -65,7 +66,8 @@ use pump_codec::curve::{CurveState, FeeBps};
 use pump_codec::{pda, Pubkey};
 use rugsnipe_core::bid::{BidPlan, BidPolicy, LeaderClass};
 use rugsnipe_core::config::{
-    Config, FillModel, FilterMode, LeaderMix, PresendCut, PresendMode, ProbeStage, TweetGate,
+    Config, FillModel, FilterMode, LeaderMix, PresendCut, PresendMode, ProbeStage, TweetFeed,
+    TweetGate,
 };
 use rugsnipe_core::risk::{DecideInput, Decision, RiskGate};
 use rugsnipe_core::rslog::{CreateHitRec, Rec, RslogProducer, ShadowOutcome};
@@ -295,6 +297,10 @@ pub struct HotCfg {
     pub tweet_hosts: Vec<String>,
     pub tweet_min_dev: u64,
     pub tweet_late_slots: u64,
+    /// The tweet feed's copy check (`entry.tweet_feed`, docs/14 section 7)
+    /// and how far back a post may match (ms).
+    pub tweet_feed: TweetFeed,
+    pub tweet_feed_window_ms: u64,
 }
 
 /// Three per-tier lamport values (validated by the config), else `None`.
@@ -395,6 +401,8 @@ impl HotCfg {
             }),
             tweet_min_dev: sol_lamports(cfg.entry.tweet_min_dev_sol),
             tweet_late_slots: cfg.entry.tweet_late_slots,
+            tweet_feed: cfg.entry.tweet_feed,
+            tweet_feed_window_ms: cfg.entry.tweet_feed_window_s.saturating_mul(1_000),
         }
     }
 
@@ -1170,6 +1178,10 @@ pub struct LoopCounters {
     /// `"exit"`: positions whose hold a copy / stale / no-tweet verdict cut
     /// to the next slot.
     pub tweet_cut: u64,
+    /// The tweet feed (`entry.tweet_feed`): calls by kind (`FeedCall`
+    /// order: none, first, copy) and copies skipped (`"on"`).
+    pub feed_calls: [u64; 3],
+    pub feed_skipped: u64,
     /// Parked creates at the fire point by the park's bundle-wallet count
     /// (`operators::bundle_wallet_count`, 0..=5): what `entry.bundle_wallets`
     /// is checked against.
@@ -1256,6 +1268,8 @@ pub struct HotLoop {
     tw_early_at: usize,
     /// Verdict delay: the request's push to the verdict's pop (us).
     hist_tweet: Histogram<u64>,
+    /// The tweet feed's posts (`entry.tweet_feed` != off; `None`: no feed).
+    feed_posts: Option<Posts>,
 }
 
 impl core::fmt::Debug for HotLoop {
@@ -1328,7 +1342,23 @@ impl HotLoop {
             tw_early: [None; TW_EARLY],
             tw_early_at: 0,
             hist_tweet: hist(),
+            feed_posts: None,
         }
+    }
+
+    /// Connect the tweet feed's post index (`entry.tweet_feed` != off).
+    pub fn set_tweet_feed(&mut self, posts: Posts) {
+        self.feed_posts = Some(posts);
+    }
+
+    /// `entry.tweet_feed` as configured.
+    pub fn tweet_feed_mode(&self) -> &'static str {
+        self.cfg.tweet_feed.as_str()
+    }
+
+    /// Posts in the tweet feed's index (`None`: no feed).
+    pub fn feed_posts_len(&self) -> Option<usize> {
+        self.feed_posts.as_ref().map(|p| p.load().len())
     }
 
     /// Connect the tweet lane (`entry.tweet_gate` != off): the requests the
@@ -1785,6 +1815,9 @@ impl HotLoop {
         // the tweet check's request (entry.tweet_gate): before any skip, so
         // every coin of a tweet host ranks on its tweet, skipped or not
         let asked = self.ask_tweet(hit, slot, create_index);
+        // the tweet feed's call (entry.tweet_feed), on the same coins and for
+        // the same reason: every coin takes the posts it matches
+        let feed = self.feed_call(hit);
         // creates of the last 60 / 600 s, before this one (entry filter)
         let rates = self.rates.on_create(crate::now_ms());
         // 4: class filters
@@ -1850,6 +1883,13 @@ impl HotLoop {
             // the tweet check (on): a create the lane was not asked about has
             // no verdict to wait for; a verdict that already came decides now
             let mut tw = TW_OFF;
+            // the tweet feed (on): a coin on posts an earlier coin took is a copy
+            if self.cfg.tweet_feed == TweetFeed::On
+                && feed.is_some_and(|c| c.call == FeedCall::Copy)
+            {
+                self.counters.feed_skipped += 1;
+                return self.decision(intent, hit, code::TWEETFEED_COPY, 0, 0, 0, 0, 0);
+            }
             if self.cfg.tweet_gate == TweetGate::Exit {
                 if let Some(v) = self.take_early_verdict(&hit.mint) {
                     if matches!(
@@ -1918,12 +1958,44 @@ impl HotLoop {
     /// Hand a create to the tweet lane (`entry.tweet_gate` != off): a
     /// tweet host's uri, kept whole, and a dev buy of at least
     /// `entry.tweet_min_dev_sol`. `true` when the request went out.
+    /// A create the tweet check fetches and the tweet feed matches: a tweet
+    /// host's coin with a dev buy of at least `entry.tweet_min_dev_sol`.
+    fn tweet_candidate(&self, hit: &CreateHit) -> bool {
+        hit.intx_sol_in >= self.cfg.tweet_min_dev
+            && hit.tx_shape.uri_len != 0
+            && uri_host_ok(&self.cfg.tweet_hosts, &[], hit.tx_shape.uri_host())
+    }
+
+    /// The tweet feed's call on a candidate create (`None`: no feed, or not
+    /// a candidate), counted and journaled
+    /// (`tweetfeed <mint8> <call> posts N post <id> age <ms>`).
+    fn feed_call(&mut self, hit: &CreateHit) -> Option<Classified> {
+        if self.feed_posts.is_none() || !self.tweet_candidate(hit) {
+            return None;
+        }
+        let posts = self.feed_posts.as_ref()?.load();
+        let c = crate::tweetfeed::classify(
+            &posts,
+            hit.tx_shape.sym_key(),
+            hit.tx_shape.name_key(),
+            crate::now_ms(),
+            self.cfg.tweet_feed_window_ms,
+        );
+        self.counters.feed_calls[c.call as usize] += 1;
+        let k8 = key8(&hit.mint);
+        journal(format_args!(
+            "tweetfeed {} {} posts {} post {} age {}ms",
+            std::str::from_utf8(&k8).unwrap_or("?"),
+            c.call.as_str(),
+            c.matched,
+            c.post,
+            c.post_age_ms
+        ));
+        Some(c)
+    }
+
     fn ask_tweet(&mut self, hit: &CreateHit, slot: u64, create_index: u32) -> bool {
-        if self.tweet_req.is_none()
-            || hit.intx_sol_in < self.cfg.tweet_min_dev
-            || hit.tx_shape.uri_len == 0
-            || !uri_host_ok(&self.cfg.tweet_hosts, &[], hit.tx_shape.uri_host())
-        {
+        if self.tweet_req.is_none() || !self.tweet_candidate(hit) {
             return false;
         }
         let req = TweetReq {

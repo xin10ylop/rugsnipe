@@ -4,6 +4,7 @@
 # Reads only: the hot unit's journal (status line, operator/tier lines), /etc/rugsnipe/rugsnipe.toml and
 # /var/lib/rugsnipe/state.db (read-only). Needs sudo for the journal and the config.
 # Test hooks: CHECK_STATUS (a status line instead of the journal's), CHECK_TIERS (operator lines), CHECK_TWEETS (tweet lines),
+# CHECK_FEED (tweetfeed lines),
 # CHECK_RULE_T0 (the tweet rule's start, unix s; empty = none),
 # CHECK_DB (another state.db), CHECK_PRINT_SQL=1 (print the SQL and stop).
 DB=${CHECK_DB:-/var/lib/rugsnipe/state.db}
@@ -41,12 +42,20 @@ if [ -n "${CHECK_TWEETS+x}" ]; then TWL=$CHECK_TWEETS; else
 fi
 TWEETS=$(awk '{ ms = $13; gsub(/[^0-9]/, "", ms); so = $14; gsub(/[^0-9]/, "", so); if (ms != "") printf "%s(\x27%s\x27,\x27%s\x27,%s,%s)", (n++ ? "," : ""), $2, $3, ms, (so == "" ? 0 : so) }' <<<"$TWL")
 [ -n "$TWEETS" ] || TWEETS="('','',0,0)"
+# ---- the tweet feed's calls (entry.tweet_feed, docs/14 section 7) of today: mint8 -> first / copy / none
+if [ -n "${CHECK_FEED+x}" ]; then FDL=$CHECK_FEED; else
+  FDL=$(sudo journalctl -u rugsnipe-hot -o cat --since "@$D0" 2>/dev/null | grep -E '^tweetfeed [1-9A-HJ-NP-Za-km-z]{8} [a-z]+ posts ')
+fi
+FEEDS=$(awk '{ printf "%s(\x27%s\x27,\x27%s\x27)", (n++ ? "," : ""), $2, $3 }' <<<"$FDL")
+[ -n "$FEEDS" ] || FEEDS="('','')"
 
 SQL="
 create temp table tiers(m8 text, tier int);
 insert into tiers values $TIERS;
 create temp table tweets(m8 text, kind text, ms int, slot_off int);
 insert into tweets values $TWEETS;
+create temp table feeds(m8 text, call text);
+insert into feeds values $FEEDS;
 create temp view pos0 as
   select p.mint, p.cost, p.state, p.opened_slot, p.closed_slot, min(s.sent_unix_ms) t_ms, max(s.bid) bid,
          coalesce((select sum(e.sol_delta) from exits e where e.mint = p.mint), 0) ex,
@@ -115,6 +124,15 @@ from k group by kind order by creates desc;
 select coalesce((select t.kind from tweets t where t.m8 = substr(p.mint, 1, 8) limit 1), 'not fetched') verdict,
        count(*) trades, sum(net > 0) wins, round(100.0 * avg(net * 1.0 / cost), 1) mean_pct, round(sum(net) / 1e9, 4) net_sol
 from pos p where state = 'closed' and cost > 0 and t_ms >= ${TR:-$D0} * 1000 group by verdict order by trades desc;
+.print
+.print == tweet feed today (entry.tweet_feed): its calls against the tweet check's verdict on the same coin, and our closed trades by call
+select f.call, count(*) creates, coalesce(sum(t.kind = 'first'), 0) first, coalesce(sum(t.kind = 'copy'), 0) copy,
+       coalesce(sum(t.kind = 'stale'), 0) stale, coalesce(sum(t.kind = 'no_tweet'), 0) no_tweet,
+       coalesce(sum(t.kind = 'error'), 0) error, sum(t.kind is null) no_verdict
+from feeds f left join tweets t on t.m8 = f.m8 where f.m8 <> '' group by f.call order by creates desc;
+select coalesce((select f.call from feeds f where f.m8 = substr(p.mint, 1, 8) limit 1), 'not called') call,
+       count(*) trades, sum(net > 0) wins, round(100.0 * avg(net * 1.0 / cost), 1) mean_pct, round(sum(net) / 1e9, 4) net_sol
+from pos p where state = 'closed' and cost > 0 and t_ms >= ${TR:-$D0} * 1000 group by call order by trades desc;
 .print
 .print == last 10 trades, newest first (pct and net_sol after tips and fees)
 select strftime('%H:%M:%S', t_ms / 1000, 'unixepoch') time, substr(mint, 1, 8) mint, tier, round(cost / 1e9, 3) stake,

@@ -1141,6 +1141,21 @@ pub struct EntryCfg {
     pub tweet_timeout_ms: u64,
     /// Fetch threads.
     pub tweet_workers: u32,
+    /// The tweet feed's copy check (docs/14 section 7): a live feed of posts
+    /// (TweetStream) and, at each tweet-host create with a dev buy of at
+    /// least `tweet_min_dev_sol`, the coin's ticker (3+ letters/digits) or
+    /// name (4+) looked up in the posts of the last `tweet_feed_window_s`.
+    /// A coin whose matched posts were all taken by an earlier coin is a
+    /// copy. "log" journals the call (`tweetfeed <mint8> first|copy|none`)
+    /// and trades as without it; "on" also skips a copy before the bundle
+    /// park (`skip_tweetfeed_copy`).
+    pub tweet_feed: TweetFeed,
+    /// The feed's websocket (TweetStream outside the USA by default).
+    pub tweet_feed_url: String,
+    /// The feed key's name in the `api-keys` credential (`NAME = "key"`).
+    pub tweet_feed_key: String,
+    /// How far back a post may match (s).
+    pub tweet_feed_window_s: u64,
 }
 impl Default for EntryCfg {
     fn default() -> Self {
@@ -1183,6 +1198,32 @@ impl Default for EntryCfg {
             tweet_late_slots: 1,
             tweet_timeout_ms: 1_500,
             tweet_workers: 4,
+            tweet_feed: TweetFeed::Off,
+            tweet_feed_url: "wss://ws-global.tweetstream.io/ws".into(),
+            tweet_feed_key: "TWEETSTREAM_KEY".into(),
+            tweet_feed_window_s: 1_800,
+        }
+    }
+}
+
+/// `entry.tweet_feed`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TweetFeed {
+    #[default]
+    Off,
+    /// Match and journal; trade as without it.
+    Log,
+    /// Also skip a copy before the bundle park.
+    On,
+}
+
+impl TweetFeed {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Log => "log",
+            Self::On => "on",
         }
     }
 }
@@ -2065,6 +2106,36 @@ impl Config {
             }
             if !(1..=16).contains(&e.tweet_workers) {
                 inv(&mut r, "entry.tweet_workers", "must be in 1..=16");
+            }
+        }
+        if e.tweet_feed != TweetFeed::Off {
+            if e.tweet_hosts.is_empty() && e.uri_hosts.is_empty() {
+                inv(
+                    &mut r,
+                    "entry.tweet_feed",
+                    "the feed matches the coins of the tweet hosts: set entry.tweet_hosts (or uri_hosts)",
+                );
+            }
+            if !(e.tweet_feed_url.starts_with("wss://") || e.tweet_feed_url.starts_with("ws://")) {
+                inv(
+                    &mut r,
+                    "entry.tweet_feed_url",
+                    "must be a ws:// or wss:// url",
+                );
+            }
+            if e.tweet_feed_key.is_empty() {
+                inv(
+                    &mut r,
+                    "entry.tweet_feed_key",
+                    "must name the key's line in the api-keys credential",
+                );
+            }
+            if !(10..=86_400).contains(&e.tweet_feed_window_s) {
+                inv(
+                    &mut r,
+                    "entry.tweet_feed_window_s",
+                    "must be in 10..=86400 s",
+                );
             }
         }
         if e.tweet_gate == TweetGate::On && !e.require_bundle {
