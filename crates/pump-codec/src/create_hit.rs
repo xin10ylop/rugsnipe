@@ -104,190 +104,6 @@ impl<const N: usize> KeyList<N> {
     }
 }
 
-/// Bytes of the create's uri host kept in a [`TxShape`].
-pub const URI_HOST_MAX: usize = 64;
-/// The runtime's default compute-unit limit per non-builtin instruction,
-/// per builtin one (System, ComputeBudget), and the cap (when the
-/// transaction sets no limit).
-pub const DEFAULT_IX_CU: u64 = 200_000;
-pub const BUILTIN_IX_CU: u64 = 3_000;
-pub const MAX_CU_LIMIT: u64 = 1_400_000;
-
-/// The create transaction's shape (`Copy`, bounded): what the entry
-/// filter's create-transaction and uri features read before the send
-/// (`filter::create_tx_features_wire`). Wire path only, except the uri,
-/// which the logs path fills from the `CreateEvent`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TxShape {
-    /// Top-level instructions.
-    pub n_ix: u16,
-    /// Top-level System and ComputeBudget instructions (the default
-    /// compute-unit limit reserves [`BUILTIN_IX_CU`] for each).
-    pub n_builtin_ix: u16,
-    /// Required signatures (message header).
-    pub n_signers: u8,
-    /// The last top-level `SetComputeUnitLimit` / `SetComputeUnitPrice`
-    /// (micro-lamports per CU) instruction; none on a v1 transaction.
-    pub cu_limit: Option<u32>,
-    pub cu_price: Option<u64>,
-    /// A v1 transaction's total priority fee (lamports, message config).
-    pub v1_priority: Option<u64>,
-    /// Lamports of the System transfers / account creations (top level and,
-    /// with meta, by CPI) into a [`c::JITO_TIP_ACCOUNTS`] account.
-    pub tip_lamports: u64,
-    /// The create's uri contains `ipfs`.
-    pub uri_ipfs: bool,
-    /// Host of the uri (`https?://` prefix, up to the first `/`, ASCII lower
-    /// case); `uri_host_len == 0`: no such prefix, an empty host, or one
-    /// longer than [`URI_HOST_MAX`] (none of the filter's hosts).
-    pub uri_host: [u8; URI_HOST_MAX],
-    pub uri_host_len: u8,
-}
-
-impl Default for TxShape {
-    fn default() -> Self {
-        Self {
-            n_ix: 0,
-            n_builtin_ix: 0,
-            n_signers: 0,
-            cu_limit: None,
-            cu_price: None,
-            v1_priority: None,
-            tip_lamports: 0,
-            uri_ipfs: false,
-            uri_host: [0; URI_HOST_MAX],
-            uri_host_len: 0,
-        }
-    }
-}
-
-impl TxShape {
-    /// Set the uri fields from a create's uri (no allocation).
-    pub fn set_uri(&mut self, uri: &str) {
-        self.uri_ipfs = uri.contains("ipfs");
-        self.uri_host_len = 0;
-        let Some(rest) = uri
-            .strip_prefix("https://")
-            .or_else(|| uri.strip_prefix("http://"))
-        else {
-            return;
-        };
-        let host = rest.split('/').next().unwrap_or("").as_bytes();
-        if host.is_empty() || host.len() > URI_HOST_MAX {
-            return;
-        }
-        for (d, b) in self.uri_host.iter_mut().zip(host) {
-            *d = b.to_ascii_lowercase();
-        }
-        self.uri_host_len = host.len() as u8;
-    }
-
-    /// The uri host (lower case), if any.
-    pub fn uri_host(&self) -> Option<&str> {
-        let n = self.uri_host_len as usize;
-        if n == 0 {
-            return None;
-        }
-        core::str::from_utf8(&self.uri_host[..n]).ok()
-    }
-
-    /// The priority fee the runtime charges (lamports): the v1 total, else
-    /// `ceil(price * limit / 1e6)` with the requested limit (capped at
-    /// [`MAX_CU_LIMIT`]) or, without one, the default limit; 0 without a
-    /// price.
-    pub fn priority_lamports(&self) -> u64 {
-        if let Some(p) = self.v1_priority {
-            return p;
-        }
-        let Some(price) = self.cu_price else {
-            return 0;
-        };
-        let limit = match self.cu_limit {
-            Some(l) => (l as u64).min(MAX_CU_LIMIT),
-            None => {
-                let other = self.n_ix.saturating_sub(self.n_builtin_ix) as u64;
-                (other * DEFAULT_IX_CU + self.n_builtin_ix as u64 * BUILTIN_IX_CU).min(MAX_CU_LIMIT)
-            }
-        };
-        u64::try_from((price as u128 * limit as u128).div_ceil(1_000_000)).unwrap_or(u64::MAX)
-    }
-}
-
-/// `(destination, lamports)` of a System transfer or account creation
-/// (`transfer`, `transferWithSeed`, `createAccount`, `createAccountWithSeed`).
-fn system_credit<A: AccountLookup + ?Sized>(data: &[u8], a: &A) -> Option<(Pubkey, u64)> {
-    let u64_at = |o: usize| {
-        data.get(o..o + 8)
-            .map(|b| u64::from_le_bytes(b.try_into().unwrap()))
-    };
-    let tag = u32::from_le_bytes(data.get(..4)?.try_into().ok()?);
-    let (dst, lamports) = match tag {
-        // CreateAccount { lamports, space, owner } / Transfer { lamports }: [from, to]
-        0 | 2 => (a.account(1)?, u64_at(4)?),
-        // CreateAccountWithSeed { base, seed, lamports, .. }: [from, to, base?]
-        3 => {
-            let n = u64_at(36)? as usize;
-            (a.account(1)?, u64_at(44usize.checked_add(n)?)?)
-        }
-        // TransferWithSeed { lamports, .. }: [from, base, to]
-        11 => (a.account(2)?, u64_at(4)?),
-        _ => return None,
-    };
-    (lamports > 0 && a.account(0).is_some()).then_some((dst, lamports))
-}
-
-/// The shape of a create transaction (see [`TxShape`]); `uri` is the
-/// create's argument.
-pub fn tx_shape(
-    tx: &TxView<'_>,
-    loaded: Option<&[Pubkey]>,
-    inner: &[InnerInstruction<'_>],
-    uri: &str,
-) -> TxShape {
-    let mut s = TxShape {
-        n_ix: tx.num_instructions().min(u16::MAX as usize) as u16,
-        n_signers: tx.header().num_required_signatures,
-        v1_priority: tx.v1_config().and_then(|c| c.priority_fee_lamports),
-        ..TxShape::default()
-    };
-    s.set_uri(uri);
-    let tip = |k: &Pubkey| c::JITO_TIP_ACCOUNTS.contains(k);
-    for ix in tx.instructions() {
-        let p = tx.program_id(&ix);
-        if *p == c::COMPUTE_BUDGET_PROGRAM_ID {
-            s.n_builtin_ix = s.n_builtin_ix.saturating_add(1);
-            let d = ix.data;
-            match d.first() {
-                Some(2) if d.len() >= 5 => {
-                    s.cu_limit = Some(u32::from_le_bytes(d[1..5].try_into().unwrap()))
-                }
-                Some(3) if d.len() >= 9 => {
-                    s.cu_price = Some(u64::from_le_bytes(d[1..9].try_into().unwrap()))
-                }
-                _ => {}
-            }
-        } else if *p == c::SYSTEM_PROGRAM_ID {
-            s.n_builtin_ix = s.n_builtin_ix.saturating_add(1);
-            if let Some((d, l)) = system_credit(ix.data, &tx.instruction_accounts(&ix, loaded)) {
-                if tip(&d) {
-                    s.tip_lamports = s.tip_lamports.saturating_add(l);
-                }
-            }
-        }
-    }
-    for inn in inner {
-        if tx.account_key(inn.program_id_index as usize, loaded) != Some(c::SYSTEM_PROGRAM_ID) {
-            continue;
-        }
-        if let Some((d, l)) = system_credit(inn.data, &tx.indexed_accounts(inn.accounts, loaded)) {
-            if tip(&d) {
-                s.tip_lamports = s.tip_lamports.saturating_add(l);
-            }
-        }
-    }
-    s
-}
-
 /// Everything the hot path needs about one create (`Copy`, no heap).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CreateHit {
@@ -343,8 +159,6 @@ pub struct CreateHit {
     pub launcher: Launcher,
     /// Logs path: the runtime truncated the logs, buys may be missing.
     pub logs_truncated: bool,
-    /// The create transaction's shape (entry-filter features before the send).
-    pub tx_shape: TxShape,
 }
 
 impl CreateHit {
@@ -784,7 +598,6 @@ pub fn create_hit(
         curve_after,
         launcher,
         logs_truncated: false,
-        tx_shape: tx_shape(tx, loaded, inner, cr.args.uri),
     }))
 }
 
@@ -879,11 +692,6 @@ pub fn from_logs<S: AsRef<str>>(
                         },
                         launcher,
                         logs_truncated: false,
-                        tx_shape: {
-                            let mut s = TxShape::default();
-                            s.set_uri(ev.uri);
-                            s
-                        },
                     });
                 }
                 PumpEvent::Trade(t) => {

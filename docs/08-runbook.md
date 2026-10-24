@@ -8,6 +8,11 @@ Background: `docs/04-strategy.md` (what we trade and the go/no-go rule, §7), `d
 (where and how to send, §4 and §6.1), `docs/06-architecture.md` (config, §6), `docs/07-deploy.md` and
 `deploy/frankfurt-checklist.md` (install details).
 
+**2026-10-24: the hot path in this repository is micro-scalp v2** (the operator wave is gone). Deploy, config
+conversion, monitoring and rollback are in `docs/10-microscalp-v2.md` (section 6 onwards), which takes precedence
+over the operator-wave steps here. Read its section 2 first: on the races we actually win, the dry run's exits lost
+money Oct 21-23.
+
 **Placeholders.** In the command blocks, UPPERCASE words such as `FRA1_IP`, `SHA`, `ARMSET_PUBKEY` or
 `YOUR-ENDPOINT` stand for a value you type in by hand; the text next to the block says where it comes from. Never
 paste a line that still contains one. `sudo nano FILE` opens a file in the editor (Ctrl+O and Enter save, Ctrl+X

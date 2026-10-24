@@ -53,47 +53,11 @@ pub mod code {
     /// only), no risk or nonce taken. Also a run too long for the park to
     /// check (`RunTrades::full`).
     pub const NOT_FIRST: u8 = 0x4f;
-    /// The create's own dev buy is not one of `entry.dev_buy_sol` (operator
-    /// template filter); nothing parked, nothing sent.
-    pub const DEV_BUY: u8 = 0x50;
-    /// The create slot's leader is outside `entry.leader_regions` (the box
-    /// would land a slot late); nothing parked, nothing sent.
-    pub const FAR_LEADER: u8 = 0x51;
-    /// The create's dev, creator or a bundle wallet dumped an earlier
-    /// launch (`entry.dumper_skip = "skip"`).
-    pub const DUMPER: u8 = 0x52;
-    /// The pre-send entry gate scored the create below `entry.presend_cut`
-    /// (`entry.presend_mode = "skip"`): nothing sent, risk and nonce released.
-    pub const PRESEND: u8 = 0x53;
-    /// `entry.operators_only`: the create's signer (the fee payer, the
-    /// first signer of the create transaction) is not in the operator table
-    /// (`entry.operators_file`); with `entry.operators_exclude` (the
-    /// paper-wide instance) it is in it; nothing parked, nothing sent.
-    pub const NOT_OPERATOR: u8 = 0x54;
-    /// `entry.bundle_wallets`: the parked bundle run's distinct buyers
-    /// outside the creator set are not one of the listed counts; nothing
-    /// sent, no risk or nonce taken.
-    pub const BUNDLE_SHAPE: u8 = 0x55;
     /// Real modes: no fresh blockhash for more than
     /// `risk.max_blockhash_age_ms` and no free sell nonce, so a position
     /// bought now could not be sold: nothing sent, risk released (transient,
     /// clears on the next fresh blockhash; never latched).
     pub const NO_BLOCKHASH: u8 = 0x56;
-    /// `entry.max_post_bundle_sol` (the pick template's price bound): the
-    /// post-bundle virtual SOL reserve the buy would be bound at (the
-    /// parked run's anchor, else V0) is above the cap; nothing sent, no risk
-    /// or nonce taken.
-    pub const TOO_BIG: u8 = 0x57;
-    /// `entry.max_bundle_sol`: the dev buy plus the parked run's
-    /// creator-set and bundle buys exceed the cap; nothing sent.
-    pub const BUNDLE_SOL: u8 = 0x58;
-    /// `entry.uri_hosts` / `entry.uri_hosts_deny`: the create's uri host is
-    /// not an allowed one, or a denied one; nothing parked, nothing sent.
-    pub const URI_HOST: u8 = 0x59;
-    /// `entry.min_stake_tier`: the create's signer is below the tier floor
-    /// (its table `stake_tier`; an unlisted signer is tier 0); nothing
-    /// parked, nothing sent.
-    pub const LOW_TIER: u8 = 0x5a;
     /// Metrics only: a paper decision that a real mode would have skipped
     /// (rslog keeps the RiskGate code and the `would_skip` reason).
     pub const PAPER_WOULD_SKIP: u8 = 0x1f;
@@ -134,17 +98,7 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (code::LATE_SLOT, "late_slot"),
     (code::NO_BUNDLE, "skip_no_bundle"),
     (code::NOT_FIRST, "skip_not_first"),
-    (code::DEV_BUY, "skip_dev_buy"),
-    (code::FAR_LEADER, "skip_far_leader"),
-    (code::DUMPER, "skip_dumper"),
-    (code::PRESEND, "skip_presend"),
-    (code::NOT_OPERATOR, "skip_not_operator"),
-    (code::BUNDLE_SHAPE, "skip_bundle_shape"),
     (code::NO_BLOCKHASH, "skip_no_blockhash"),
-    (code::TOO_BIG, "skip_bundle_too_big"),
-    (code::BUNDLE_SOL, "skip_bundle_sol"),
-    (code::URI_HOST, "skip_uri_host"),
-    (code::LOW_TIER, "skip_low_tier"),
 ];
 
 /// Label of a decision code.
@@ -157,7 +111,7 @@ pub fn decision_label(c: u8) -> &'static str {
 }
 
 /// Exit reason labels (index = [`crate::msgs::reason_index`]).
-pub const EXIT_REASONS: [&str; 9] = [
+pub const EXIT_REASONS: [&str; 8] = [
     "bundle_sell",
     "consolidation",
     "big_buy",
@@ -166,7 +120,6 @@ pub const EXIT_REASONS: [&str; 9] = [
     "phantom_sl",
     "no_activity",
     "max_hold",
-    "hold_to",
 ];
 
 /// Every metric of the hot box.
@@ -187,7 +140,7 @@ pub struct HotStats {
     pub fills_late: Counter,
     pub unfilled: Counter,
     pub positions_open: Gauge,
-    pub exits: [Counter; 9],
+    pub exits: [Counter; 8],
     pub sells: Counter,
     pub sell_fills: Counter,
     pub sells_not_owner: Counter,

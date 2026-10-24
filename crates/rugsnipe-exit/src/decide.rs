@@ -170,7 +170,6 @@ fn on_own_buy(pos: &mut Position, t: &Trade, slot: u64, now: Now, out: &mut Vec<
             tokens: pos.tokens,
             v_fill: pos.v_fill,
         });
-        hold_due_at_open(pos, slot, now, out);
     } else {
         // a second variant / late fill on an open position
         pos.tokens = pos.tokens.saturating_add(t.token_amount);
@@ -227,8 +226,6 @@ fn on_balance(pos: &mut Position, tokens: u64, slot: u64, now: Now, out: &mut Ve
             });
             if pos.dumped.is_some() {
                 ensure_dump_orders(pos, slot, out);
-            } else {
-                hold_due_at_open(pos, slot, now, out);
             }
         }
         PositionState::Open | PositionState::Exiting => {
@@ -316,15 +313,6 @@ fn open_common(pos: &mut Position, slot: u64, now: Now) {
     pos.cur_slot = pos.cur_slot.max(slot);
 }
 
-/// A position that opens at or after its `hold_to_create_slot` slot (a
-/// landing at create + 1 with H = 1) sells at once instead of waiting for
-/// the next slot close.
-fn hold_due_at_open(pos: &mut Position, slot: u64, now: Now, out: &mut Vec<ExitAction>) {
-    if pos.dumped.is_none() && pos.hold_to_slot().is_some_and(|at| slot >= at) {
-        eval_normal(pos, slot, now, out);
-    }
-}
-
 fn update_peak(pos: &mut Position) {
     if !pos.state.is_active() || pos.v_fill == 0 {
         return;
@@ -347,23 +335,6 @@ fn eval_normal(pos: &mut Position, send_slot: u64, now: Now, out: &mut Vec<ExitA
         || pos.has_pending()
         || pos.tokens == 0
     {
-        return;
-    }
-    // hold to create + H (`hold_to_create_slot`): sell everything at the
-    // decision slot, whatever the price (dump bounds, no dump signal); it
-    // needs no price, so it applies to an unpriced orphan too
-    if pos.hold_to_slot().is_some_and(|at| send_slot >= at) {
-        let tokens = pos.available_tokens();
-        let trigger_slot = pos.cur_slot;
-        new_order(
-            pos,
-            ExitReason::HoldTo,
-            SellKind::Dump,
-            tokens,
-            trigger_slot,
-            send_slot,
-            out,
-        );
         return;
     }
     let p = pos.policy;

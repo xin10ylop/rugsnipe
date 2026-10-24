@@ -144,9 +144,6 @@ pub struct LeaderMap {
     pub leaders: Vec<Pubkey>,
     /// Class per leader (same order as `leaders`).
     classes: Vec<ClientClass>,
-    /// Region per leader (same order as `leaders`; `Unknown` when the
-    /// identity is not in the region table).
-    regions: Vec<Region>,
     /// Advertised `tpuQuic` per leader.
     tpu_quic: Vec<Option<SocketAddr>>,
     /// When the classes were last refreshed from gossip (Unix seconds).
@@ -204,24 +201,7 @@ impl LeaderMap {
             ..Default::default()
         };
         m.set_nodes(&parse_cluster_nodes(nodes), now_unix);
-        m.regions = vec![Region::Unknown; m.leaders.len()];
         Ok(m)
-    }
-
-    /// Attach the leaders' regions from the table (`entry.leader_regions_file`).
-    pub fn set_regions(&mut self, map: &RegionMap) {
-        self.regions = self
-            .leaders
-            .iter()
-            .map(|l| map.get(l).copied().unwrap_or(Region::Unknown))
-            .collect();
-    }
-
-    /// The slot leader's region (hot path: two loads, no allocation).
-    #[inline]
-    pub fn region_at(&self, slot: u64) -> Option<Region> {
-        self.leader_idx(slot)
-            .and_then(|i| self.regions.get(i).copied())
     }
 
     /// Re-classify from fresh gossip (the schedule stays).
@@ -305,73 +285,6 @@ pub fn empty_snapshot() -> LeaderSnapshot {
     Arc::new(ArcSwap::from_pointee(LeaderMap::default()))
 }
 
-/// Where a leader runs, from the validator table (`data/leader_regions.json`,
-/// Stakewiz locations). The box in Frankfurt landed in the create slot 62%
-/// of the time with a European leader, 33% with a North American one and 9%
-/// with an Asian one (2026-10-23, 73 attempts), so `entry.leader_regions`
-/// can keep the attempts to the leaders it can reach in time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum Region {
-    Eu = 0,
-    Na = 1,
-    Asia = 2,
-    Other = 3,
-    Unknown = 4,
-}
-
-impl Region {
-    pub const COUNT: usize = 5;
-    pub const ALL: [Region; 5] = [Self::Eu, Self::Na, Self::Asia, Self::Other, Self::Unknown];
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Eu => "eu",
-            Self::Na => "na",
-            Self::Asia => "asia",
-            Self::Other => "other",
-            Self::Unknown => "unknown",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        Some(match s {
-            "eu" => Self::Eu,
-            "na" => Self::Na,
-            "asia" => Self::Asia,
-            "other" => Self::Other,
-            "unknown" => Self::Unknown,
-            _ => return None,
-        })
-    }
-}
-
-/// Validator identity -> region.
-pub type RegionMap = HashMap<Pubkey, Region>;
-
-/// Read `data/leader_regions.json` (`{"regions": {"<identity>": "eu", ...}}`).
-pub fn load_regions(path: &std::path::Path) -> Result<RegionMap, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let v: Value = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
-    let obj = v["regions"]
-        .as_object()
-        .ok_or_else(|| format!("{}: no \"regions\" object", path.display()))?;
-    let mut out = RegionMap::with_capacity(obj.len());
-    for (k, r) in obj {
-        let Ok(pk) = k.parse::<Pubkey>() else {
-            continue;
-        };
-        let Some(reg) = r.as_str().and_then(Region::parse) else {
-            return Err(format!("{}: {k}: unknown region {r}", path.display()));
-        };
-        out.insert(pk, reg);
-    }
-    if out.is_empty() {
-        return Err(format!("{}: empty region table", path.display()));
-    }
-    Ok(out)
-}
-
 /// What the cold lane reports.
 #[derive(Debug, Clone)]
 pub enum LeaderEvent {
@@ -396,8 +309,6 @@ pub struct LeaderCfg {
     pub nodes_every_s: u64,
     /// `getEpochInfo` period (a new epoch reloads the schedule).
     pub epoch_every_s: u64,
-    /// Identity -> region (`entry.leader_regions_file`; empty = none attached).
-    pub regions: Arc<RegionMap>,
 }
 
 /// Refresh lane (cold runtime): publishes into `snap` until `stop`.
@@ -468,8 +379,7 @@ pub async fn run(
                         .await
                         {
                             Ok(s) => match LeaderMap::from_rpc(&ei, &s, &nodes_v, now) {
-                                Ok(mut m) => {
-                                    m.set_regions(&cfg.regions);
+                                Ok(m) => {
                                     snap.store(Arc::new(m));
                                     have_epoch = epoch;
                                     publish = true;

@@ -1,5 +1,8 @@
 # 09. The operator wave (2026-10-23)
 
+> **Superseded on the live box by docs/10 (2026-10-24).** The rebuilt hot path (micro-scalp v2) has none of the
+> keys below; `rugsnipe-ctl config validate` refuses them. This document stays as the record of the operator wave.
+
 A rule set decoded from the best wallet of 2026-10-23 (`AHwJSnFNUiAU9FfT5ewW2osqMo938WtL7KhfsJyfpaN2`): 430 landed
 round trips, +17.8 SOL. Every rule below is a config switch on the LEAD policy's entry (docs/04 section 2); all are
 off by default, so a box without the new keys behaves as before.

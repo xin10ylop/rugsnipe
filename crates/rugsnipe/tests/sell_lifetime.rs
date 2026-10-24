@@ -113,7 +113,6 @@ impl Rig {
             stats,
             shared: shared.clone(),
             leaders: rugsnipe::leader::empty_snapshot(),
-            dumpers: rugsnipe::dumpers::snapshot_from(vec![]),
         });
         Rig {
             hot,

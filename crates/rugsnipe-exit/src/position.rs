@@ -194,10 +194,6 @@ pub struct Position {
     /// `phantom_sl.from = "entry"` stop measures from (0 = unknown).
     #[serde(default)]
     pub t_ref: u64,
-    /// The launch's create slot (`policy.hold_to_create_slot` counts from
-    /// it); 0 = unknown, the hold then counts from `opened_slot`.
-    #[serde(default)]
-    pub create_slot: u64,
 }
 
 impl Position {
@@ -252,28 +248,7 @@ impl Position {
             xfers: [XferRec::default(); XFER_RING],
             xfer_head: 0,
             t_ref: 0,
-            create_slot: 0,
         }
-    }
-
-    /// [`Position::pending`] for a launch created at `create_slot` (the
-    /// reference of `policy.hold_to_create_slot`).
-    pub fn with_create_slot(mut self, create_slot: u64) -> Self {
-        self.create_slot = create_slot;
-        self
-    }
-
-    /// The slot at which `policy.hold_to_create_slot` sells everything:
-    /// `create_slot + H` (`opened_slot + H` when the create slot is unknown;
-    /// `None` when the rule is off or the position never opened).
-    pub fn hold_to_slot(&self) -> Option<u64> {
-        let h = self.policy.hold_to_create_slot?;
-        let base = if self.create_slot > 0 {
-            self.create_slot
-        } else {
-            self.opened_slot
-        };
-        (base > 0).then(|| base.saturating_add(u64::from(h)))
     }
 
     pub fn fees(&self) -> FeeBps {

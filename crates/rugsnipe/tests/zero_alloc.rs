@@ -3,8 +3,7 @@
 //! fills, exit decisions, simulated sell fills, closes and ticks, and the
 //! gRPC wire path (transaction bytes + meta trailer -> `TxView` ->
 //! `create_hit` with the lookup tables' addresses and inner instructions,
-//! recorded mainnet creates: v0 with lookups, v1, a launcher CPI) and the
-//! pre-send entry gate (feature assembly, score, records), all under
+//! recorded mainnet creates: v0 with lookups, v1, a launcher CPI), all under
 //! a counting global allocator that only counts this thread.
 
 mod common;
@@ -120,9 +119,6 @@ fn hot_thread_allocates_nothing_after_warm_up() {
     let mut cfg = paper_cfg(&dir);
     cfg.risk.max_buys_per_op_per_day = 1_000;
     cfg.risk.max_buys_per_hour = 1_000;
-    // the pre-send entry gate scores every decision at the send (log mode)
-    cfg.entry.presend_model = "data/reports/strategy/entry_filter_v1.json".into();
-    cfg.entry.presend_mode = rugsnipe_core::config::PresendMode::Log;
     let mut app = build(cfg, armset(&devs, &[]), &dir, 3, true);
     // gRPC wire creates (recorded mainnet transactions with their trailer)
     let wire = |names: &[&str], slot: u64| {
@@ -171,11 +167,6 @@ fn hot_thread_allocates_nothing_after_warm_up() {
     let (allocs, bytes) = alloc_count::counts();
     let after = app.hot.counters;
     assert_eq!(after.intents - before.intents, 4, "{after:?}");
-    assert_eq!(
-        after.presend_scored - before.presend_scored,
-        4,
-        "every decision went through the pre-send gate: {after:?}"
-    );
     assert_eq!(
         app.stats.wire_misses.get(),
         wire_misses,

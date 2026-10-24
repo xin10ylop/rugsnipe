@@ -1,13 +1,13 @@
 #!/bin/bash
-# rugsnipe-check: one screen with everything needed to judge the live bot (box helper; copy to ~/check.sh).
+# rugsnipe-check: one screen with everything needed to judge the live micro-scalp against its dry run
+# (docs/10-microscalp-v2.md; box helper, copy to ~/check.sh).
 #   bash ~/check.sh
-# Reads only: the hot unit's journal (status line, operator/tier lines), /etc/rugsnipe/rugsnipe.toml and
-# /var/lib/rugsnipe/state.db (read-only). Needs sudo for the journal and the config.
-# Test hooks: CHECK_STATUS (a status line instead of the journal's), CHECK_TIERS (operator lines),
-# CHECK_DB (another state.db), CHECK_PRINT_SQL=1 (print the SQL and stop).
+# Reads only: the hot unit's journal (status line), /etc/rugsnipe/rugsnipe.toml and /var/lib/rugsnipe/state.db
+# (read-only). Needs sudo for the journal and the config.
+# Test hooks: CHECK_STATUS (a status line instead of the journal's), CHECK_DB (another state.db),
+# CHECK_PRINT_SQL=1 (print the SQL and stop).
 DB=${CHECK_DB:-/var/lib/rugsnipe/state.db}
 CFG=/etc/rugsnipe/rugsnipe.toml
-now=$(date -u +%s)
 D0=$(date -u -d "$(date -u +%Y-%m-%d) 00:00:00" +%s)
 if [ -n "${CHECK_STATUS:-}" ]; then
   ST=$CHECK_STATUS; T0=${CHECK_T0:-$D0}; PID=0
@@ -20,24 +20,13 @@ g() { grep -oE "$1" <<<"$ST" | head -1; }
 num() { grep -oE '[0-9]+' <<<"$1" | head -1; }
 sol() { awk -v l="${1:-0}" 'BEGIN { printf "%.4f", l / 1e9 }'; }
 cfgv() { sudo grep -m1 -E "^$1 = " "$CFG" 2>/dev/null | sed -E "s/^$1 = //; s/[[:space:]]*#.*$//"; }
-list_sol() { tr -d '[]_ ' <<<"$1" | awk -F, '{ for (i = 1; i <= NF; i++) printf "%s%g", (i > 1 ? "/" : ""), $i / 1e9 }'; }
-list_m() { tr -d '[]_ ' <<<"$1" | awk -F, '{ for (i = 1; i <= NF; i++) printf "%s%g", (i > 1 ? "/" : ""), $i / 1e6 }'; }
-
-# ---- the operator lines (tier per mint) of today, every process
-if [ -n "${CHECK_TIERS+x}" ]; then OPL=$CHECK_TIERS; else
-  OPL=$(sudo journalctl -u rugsnipe-hot -o cat --since "@$D0" 2>/dev/null | grep -E '^operator [1-9A-HJ-NP-Za-km-z]{8} hold_to create\+[0-9]+ .*tier [0-9]\)')
-fi
-TIERS=$(awk 'NF >= 2 { t = $NF; gsub(/[^0-9]/, "", t); if (t != "") printf "%s(\x27%s\x27,%s)", (n++ ? "," : ""), $2, t }' <<<"$OPL")
-[ -n "$TIERS" ] || TIERS="('',-1)"
+m() { awk -v l="$(tr -d '_ ' <<<"${1:-0}")" 'BEGIN { printf "%g", l / 1e6 }'; }
 
 SQL="
-create temp table tiers(m8 text, tier int);
-insert into tiers values $TIERS;
 create temp view pos0 as
-  select p.mint, p.cost, p.state, p.opened_slot, p.closed_slot, min(s.sent_unix_ms) t_ms,
+  select p.mint, p.intent_id, p.cost, p.state, p.opened_slot, p.closed_slot, min(s.sent_unix_ms) t_ms,
          coalesce((select sum(e.sol_delta) from exits e where e.mint = p.mint), 0) ex,
          (select group_concat(distinct e.reason) from exits e where e.mint = p.mint) reason,
-         coalesce((select max(t.tier) from tiers t where t.m8 = substr(p.mint, 1, 8)), 0) tier,
          -- the execution the position's P&L leaves out: the filled buy's fee + tip, each filled sell's priority + tip + base fee
          coalesce((select sum(coalesce(f.fee, 0) + coalesce(f.tip, 0)) from fills f
                    where f.intent_id = p.intent_id and f.fail_reason is null), 0)
@@ -47,8 +36,14 @@ create temp view pos0 as
   group by p.mint;
 create temp view pos as select *, ex - cost - txc net from pos0;
 create temp view races as
-  select f.sig, f.fail_reason, coalesce(f.fail_cost, f.fee, 0) fail_cost, s.sent_unix_ms t_ms
+  select f.sig, f.intent_id, f.fail_reason, coalesce(f.fail_cost, f.fee, 0) fail_cost, s.sent_unix_ms t_ms
   from fills f join sends s on s.sig = f.sig;
+-- the landing position the real lane measured on the confirmed creation block (shadow model 'probe')
+create temp view ranked as
+  select p.*, sh.tp_ahead, sh.tp_behind, sh.premium_bps,
+         case when sh.tp_ahead is null then '?' when sh.tp_ahead = 0 then 'rank 1' when sh.tp_ahead = 1 then 'rank 2'
+              else 'rank 3+' end rank
+  from pos p left join shadow sh on sh.intent_id = p.intent_id and sh.model = 'probe';
 with scopes(scope, ms) as (values ('process', $T0 * 1000), ('today', $D0 * 1000))
 select sc.scope,
   (select count(*) from races r where r.t_ms >= sc.ms) races,
@@ -61,8 +56,27 @@ select sc.scope,
   (select round(-coalesce(sum(txc), 0) / 1e9, 4) from pos where state = 'closed' and t_ms >= sc.ms) tips_fees,
   (select round(-coalesce(sum(r.fail_cost), 0) / 1e9, 4) from races r where r.fail_reason is not null and r.t_ms >= sc.ms) failed_sol,
   (select round((coalesce((select sum(net) from pos where state = 'closed' and t_ms >= sc.ms), 0)
-                - coalesce((select sum(r.fail_cost) from races r where r.fail_reason is not null and r.t_ms >= sc.ms), 0)) / 1e9, 4)) net_sol
+                - coalesce((select sum(r.fail_cost) from races r where r.fail_reason is not null and r.t_ms >= sc.ms), 0)) / 1e9, 4)) net_sol,
+  (select round(100.0 * (coalesce((select sum(net) from pos where state = 'closed' and t_ms >= sc.ms), 0)
+                - coalesce((select sum(r.fail_cost) from races r where r.fail_reason is not null and r.t_ms >= sc.ms), 0))
+                / max((select sum(cost) from pos where state = 'closed' and t_ms >= sc.ms) * 1.0
+                      / max((select count(*) from pos where state = 'closed' and t_ms >= sc.ms), 1)
+                      * (select count(*) from races r where r.t_ms >= sc.ms), 1), 2)) per_attempt_pct
 from scopes sc;
+.print   (per_attempt_pct: net P&L over attempts x mean stake. The dry run's +1.14% over 22 h and +1.56% over 5.5 h assumed rank 1
+.print    on every launch; break-even is 0, and the races we won Oct 21-23 scored -2.6% after costs at 0.5 SOL with the dry run's exits: docs/10 s2)
+.print
+.print == live today by the rank we landed at, after tips and fees (the races we won Oct 21-23, re-scored with the dry run's exits:
+.print    -1.7% before costs, -2.6% after at 0.5 SOL; docs/04's rank 1 +3.2% counted races a rival won: docs/10 s2)
+select rank, count(*) trades, coalesce(sum(net > 0), 0) wins, round(100.0 * avg(net * 1.0 / cost), 1) mean_pct,
+       round(100.0 * avg((ex - cost) * 1.0 / cost), 1) curve_pct, round(avg(premium_bps) / 100.0, 2) premium_pct,
+       round(avg(tp_behind), 1) behind, round(sum(net) / 1e9, 4) net_sol
+from ranked where state = 'closed' and cost > 0 and t_ms >= $D0 * 1000 group by rank order by rank;
+.print
+.print == exits today by reason (closed trades, after tips and fees)
+select coalesce(reason, '-') exit, count(*) trades, coalesce(sum(net > 0), 0) wins, round(100.0 * avg(net * 1.0 / cost), 1) mean_pct,
+       round(sum(net) / 1e9, 4) net_sol, round(avg(closed_slot - opened_slot), 1) held_slots
+from pos where state = 'closed' and cost > 0 and t_ms >= $D0 * 1000 group by 1 order by trades desc;
 .print
 .print == buy routes today (won = our buy landed through it, lost = it landed and failed; a bundle never lands failed)
 select s.sender route, count(*) sent, coalesce(sum(s.result = 'accepted'), 0) accepted,
@@ -75,22 +89,15 @@ from sends s left join fills f on f.sig = s.sig
 where s.kind = 'buy' and s.sent_unix_ms >= $D0 * 1000
 group by s.sender order by won desc, sent desc;
 .print
-.print == today by tier (closed trades, after tips and fees)
-select tier, count(*) trades, sum(net > 0) wins, round(100.0 * avg(net * 1.0 / cost), 1) mean_pct,
-       round(sum(net) / 1e9, 4) net_sol, round(avg(cost) / 1e9, 3) avg_stake
-from pos where state = 'closed' and cost > 0 and t_ms >= $D0 * 1000 group by tier order by tier;
-.print
 .print == last 10 trades, newest first (pct and net_sol after tips and fees)
-select strftime('%H:%M:%S', t_ms / 1000, 'unixepoch') time, substr(mint, 1, 8) mint, tier, round(cost / 1e9, 3) stake,
-       case when state = 'closed' then round(100.0 * net / max(cost, 1), 1) end pct,
+select strftime('%H:%M:%S', t_ms / 1000, 'unixepoch') time, substr(mint, 1, 8) mint, rank, coalesce(tp_behind, '-') behind,
+       round(cost / 1e9, 3) stake, case when state = 'closed' then round(100.0 * net / max(cost, 1), 1) end pct,
        case when state = 'closed' then round(net / 1e9, 4) end net_sol, round(txc / 1e9, 4) tips_fees, state,
        coalesce(reason, '-') exit, case when closed_slot is not null then closed_slot - opened_slot end held_slots
-from pos order by t_ms desc limit 10;
+from ranked order by t_ms desc limit 10;
 .print
 .print == open now
-select count(*) open_now, coalesce(group_concat(substr(p.mint, 1, 8) || ' tier '
-         || coalesce((select max(t.tier) from tiers t where t.m8 = substr(p.mint, 1, 8)), 0), ', '), '-') positions
-from positions p where p.state <> 'closed';
+select count(*) open_now, coalesce(group_concat(substr(mint, 1, 8), ', '), '-') positions from positions where state <> 'closed';
 .print
 .print == risk ledger today
 select day, round(realized / 1e9, 4) realized_sol, buys, killed, coalesce(kill_reason, '-') kill_reason
@@ -106,19 +113,19 @@ nonces=$(num "$(g 'sell_nonces [0-9]+')"); failc=$(num "$(g 'fail_cost [0-9]+')"
 grpc_rc=$(g 'grpc: creates [0-9]+ miss [0-9]+ reconnects [0-9]+' | grep -oE '[0-9]+$')
 grpc_age=$(g 'grpc: creates [0-9]+ miss [0-9]+ reconnects [0-9]+ since_frame [0-9]+' | grep -oE '[0-9]+$')
 desh_rc=$(g 'shreds: creates [0-9]+ miss [0-9]+ reconnects [0-9]+' | grep -oE '[0-9]+$')
-table=$(num "$(sudo journalctl -u rugsnipe-hot -o cat _PID="$PID" 2>/dev/null | grep -m1 -oE 'operators: [0-9]+ signers')")
-next=$(systemctl list-timers rugsnipe-operators.timer --no-legend 2>/dev/null | awk '{print $3}' | cut -c1-5)
+stake=$(sudo grep -m1 -E '^b = \{' "$CFG" 2>/dev/null | grep -oE 'max_probe_lamports = [0-9_]+' | grep -oE '[0-9_]+$')
+stop=$(sudo grep -m1 -E '^b = \{' "$CFG" 2>/dev/null | grep -oE 'max_daily_loss_lamports = [0-9_]+' | grep -oE '[0-9_]+$')
 echo "== $(date -u +%H:%M:%S) UTC  hot $(svc rugsnipe-hot)  guard $(svc rugsnipe-guard)  up $(q "$up")s  $(q "$(g 'killed [a-z_]+')")  $(g 'BUYS PAUSED|FEED STALE')"
 [ -n "$up" ] || echo "   (no status line from this process yet: the hot loop prints one every minute)"
-echo "   wallet $( [ -n "$wallet" ] && sol "$wallet" || echo '?') SOL  open $(q "$open")  free sell nonces $(q "$nonces")  table $(q "$table") signers  next refresh $(q "$next") UTC"
+echo "   wallet $( [ -n "$wallet" ] && sol "$wallet" || echo '?') SOL  open $(q "$open")  free sell nonces $(q "$nonces")"
 # the wallet as the bot last read it (lags a minute or two): the only number that holds every cost
 w_day=$(num "$(sudo journalctl -u rugsnipe-hot -o cat --since "@$D0" 2>/dev/null | grep -E '^\[ *[0-9]+s\]' | grep -m1 -oE 'wallet [0-9]+')")
 w_proc=$(num "$(sudo journalctl -u rugsnipe-hot -o cat _PID="$PID" --since "@$T0" 2>/dev/null | grep -E '^\[ *[0-9]+s\]' | grep -m1 -oE 'wallet [0-9]+')")
 dsol() { [ -n "$1" ] && [ -n "$2" ] && awk -v a="$1" -v b="$2" 'BEGIN { printf "%+.4f", (b - a) / 1e9 }' || echo '?'; }
 echo "   wallet change: today $(dsol "$w_day" "$wallet") SOL (from $( [ -n "$w_day" ] && sol "$w_day" || echo '?'))  this process $(dsol "$w_proc" "$wallet") SOL (from $( [ -n "$w_proc" ] && sol "$w_proc" || echo '?'))"
-echo "   config: min tier $(q "$(cfgv min_stake_tier)")  stake by tier $(q "$(list_sol "$(cfgv stake_by_tier)")") SOL  bid by tier $(q "$(list_m "$(cfgv by_tier)")")M  picks $(q "$(cfgv presend_mode | tr -d '"')") (cut $(q "$(cfgv presend_cut | tr -d '"')"))  daily stop $(sol "$(tr -d '_' <<<"$(cfgv max_daily_loss_lamports)")") SOL  sell bid: hold_to + dump $(q "$(list_m "$(cfgv dump_tip_lamports)")")M, other $(q "$(list_m "$(cfgv sell_tip_lamports)")")M"
+echo "   config: class $(q "$(cfgv filter | tr -d '"')")  stake $( [ -n "$stake" ] && sol "$(tr -d '_' <<<"$stake")" || echo '?') SOL  buy bid $(m "$(cfgv lamports)")M  sell bid $(m "$(cfgv sell_tip_lamports)")M / dump $(m "$(cfgv dump_tip_lamports)")M  exits tp $(q "$(cfgv tp)") idle $(q "$(cfgv no_activity_ms)") ms hold $(q "$(cfgv max_hold_slots)") slots  daily stop $( [ -n "$stop" ] && sol "$(tr -d '_' <<<"$stop")" || echo '?') SOL"
 echo "   feeds: grpc reconnects $(q "$grpc_rc") last frame $(q "$grpc_age") ms  deshred reconnects $(q "$desh_rc")"
-echo "   gates: $(q "$(g 'gate parked [0-9]+ fired [0-9]+')")  $(g 'presend skip t[12] scored [0-9]+ skipped [0-9]+' | sed 's/presend skip /picks /')  $(g 'template too_big [0-9]+ bundle_sol [0-9]+ dev_buy [0-9]+ uri_host [0-9]+')"
+echo "   gates: $(q "$(g 'gate parked [0-9]+ fired [0-9]+ run_done [0-9]+ not_first [0-9]+ creator_only [0-9]+')")  wallets@fire 0-5 $(q "$(g 'wallets@fire 0-5 [0-9/]+' | grep -oE '[0-9/]+$')")"
 echo "   sends: $(q "$(g 'probe attempts [0-9]+ landed [0-9]+ failed [0-9]+ dropped [0-9]+' | sed 's/probe //')")  failed cost $( [ -n "$failc" ] && sol "$failc" || echo '?') SOL"
 echo "== this process (since $(date -u -d "@$T0" +%H:%M) UTC) and today (since 00:00 UTC)"
 printf '%s\n' "$SQL" | sudo -u rugsnipe sqlite3 -readonly -header -column "$DB"

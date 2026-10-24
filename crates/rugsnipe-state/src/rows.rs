@@ -240,28 +240,6 @@ pub struct FilterRow {
     pub features: Option<String>,
 }
 
-/// `presend`: the pre-send entry gate's score of one decision at the fire
-/// point (`entry.presend_mode` log or skip).
-#[derive(Debug, Clone, PartialEq)]
-pub struct PresendRow {
-    pub intent_id: i64,
-    pub mint: Pubkey,
-    /// Model name.
-    pub model: String,
-    /// P(take-profit) of the pre-send vector; `None` when unscored (no
-    /// create trade, or the run overflowed the park: bundle block zeros).
-    pub score: Option<f64>,
-    /// 0 bottom (`score < t1`), 1 middle, 2 top; `None` when unscored.
-    pub tertile: Option<u8>,
-    /// `log` or `skip`.
-    pub mode: String,
-    /// Not sent (`skip` and `score < cut`).
-    pub skipped: bool,
-    /// The 60 features, JSON array in the model's feature order.
-    pub features: String,
-    pub written_ms: u64,
-}
-
 /// `outcomes`: one launch of the live outcome store (schema version 3). A
 /// LEAD result (`lead = true`) exists for a closed position; a failed or
 /// filtered attempt only counts as a launch of the signer.
@@ -484,16 +462,4 @@ mod tests {
             assert_eq!(IntentState::parse(s).unwrap().as_str(), s);
         }
     }
-}
-
-/// `dumpers`: a wallet of a launch whose insiders sold at least half of
-/// their post-bundle tokens within a few slots of the create (the creator
-/// and the bundle wallets); first sighting kept.
-#[derive(Debug, Clone, PartialEq)]
-pub struct DumperRow {
-    pub wallet: Pubkey,
-    pub mint: Pubkey,
-    pub slot: u64,
-    pub sold_bps: u32,
-    pub written_ms: u64,
 }

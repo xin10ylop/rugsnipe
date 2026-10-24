@@ -35,10 +35,6 @@ pub enum ColdMsg {
         unsold_ms: u64,
         why: &'static str,
     },
-    /// A trade of a mint the hot loop neither holds nor parks (the feed
-    /// streams the first slots of every bundled launch): the operator-dump
-    /// tracker's input.
-    MintTrade(Trade),
     /// A decision produced an intent (step 14).
     Intent {
         intent: u64,
@@ -193,18 +189,6 @@ pub enum ColdMsg {
         tertile: u8,
         skipped: bool,
     },
-    /// The pre-send entry gate's score of a decision at the fire point
-    /// (`entry.presend_mode` log or skip): the `presend` row.
-    Presend {
-        intent: u64,
-        mint: Pubkey,
-        /// The bundle block had the create's own trade (else zeros).
-        scored: bool,
-        score: f64,
-        tertile: u8,
-        skipped: bool,
-        feat: crate::filter::Feat,
-    },
     /// Funding transfer from the feed: update the watchlist (copy-on-write, cold side).
     Funding(FundingEvent),
     /// First dump signal: burn the intent's nonce now (only while `intent`
@@ -354,7 +338,6 @@ pub fn reason_code(r: ExitReason) -> u8 {
         ExitReason::PhantomSl => 6,
         ExitReason::NoActivity => 7,
         ExitReason::MaxHold => 8,
-        ExitReason::HoldTo => 9,
         ExitReason::TakeProfit(i) => 0x10 + i.min(15),
     }
 }
@@ -370,6 +353,5 @@ pub fn reason_index(r: ExitReason) -> usize {
         ExitReason::PhantomSl => 5,
         ExitReason::NoActivity => 6,
         ExitReason::MaxHold => 7,
-        ExitReason::HoldTo => 8,
     }
 }

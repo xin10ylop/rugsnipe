@@ -395,10 +395,6 @@ fn body_has_error(body: &[u8]) -> bool {
     !rest.starts_with(b"\"\"")
 }
 
-fn contains(h: &[u8], n: &[u8]) -> bool {
-    h.windows(n.len()).any(|w| w == n)
-}
-
 fn push_b64(b: &mut Vec<u8>, bytes: &[u8]) {
     use base64::Engine as _;
     let start = b.len();

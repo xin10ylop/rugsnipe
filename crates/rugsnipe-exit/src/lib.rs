@@ -38,7 +38,6 @@
 //! | 6 | PhantomSL | after `after_ms`, mult <= 1 - bps | normal, slot close |
 //! | 7 | NoActivity / MaxHold | no trade for 150 s / held 30 min | normal, slot close |
 //! | 8 | Completion | venue -> PumpSwap; in-flight orders re-sent on the pool | venue |
-//! | 9 | HoldTo | slot >= create slot + `hold_to_create_slot` -> 100% at dump bounds (no dump signal; off by default) | normal, slot close |
 //!
 //! Lead-policy knobs (docs/04 sections 2 and 6; all off by default, so the
 //! table above and the conformance tapes are unchanged): `tp_basis = "value"`
