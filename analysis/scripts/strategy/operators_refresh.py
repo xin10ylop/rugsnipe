@@ -486,15 +486,28 @@ def parse_wallet_rpc_tx(tx: dict, w: str) -> dict | None:
 TX_OPTS = {"encoding": "json", "maxSupportedTransactionVersion": 1, "commitment": "confirmed"}
 
 
+FIRST_PAGE_TRIES = 3  # first-page calls of pull_wallet_rpc (the freshest wins)
+
+
 def pull_wallet_rpc(api: Api, w: str, cutoff: int, cache: bool, workers: int) -> tuple[list[dict], int, int]:
     """``pull_wallet`` over standard JSON-RPC (``--source rpc``): the wallet's signatures since
     ``cutoff`` (getSignaturesForAddress, 1000 a page), then one getTransaction per landed one."""
     sigs, before = [], None
     for _ in range(100):
-        opt: dict[str, Any] = {"limit": 1000}
+        opt: dict[str, Any] = {"limit": 1000, "commitment": "confirmed"}
         if before:
             opt["before"] = before
-        page = api.rpc("getSignaturesForAddress", [w, opt]) or []
+            page = api.rpc("getSignaturesForAddress", [w, opt]) or []
+        else:
+            # A load-balanced RPC's backends can lag hours behind on this index (Triton, 2026-10-24: the
+            # newest signature of a wallet was 14:13 UTC on one call and 17:29 on the next, at 17:52):
+            # start from the freshest of a few first pages.
+            pages = [api.rpc("getSignaturesForAddress", [w, opt]) or [] for _ in range(FIRST_PAGE_TRIES)]
+            page = max(pages, key=lambda p: p[0].get("slot", 0) if p else -1)
+            if page:
+                print(f"(a) newest signature of the wallet: {time.strftime('%F %T', time.gmtime(page[0].get('blockTime') or 0))} UTC "
+                      f"(slots of the first page on {FIRST_PAGE_TRIES} calls: {[p[0].get('slot') if p else None for p in pages]})",
+                      file=sys.stderr, flush=True)
         sigs += [x for x in page if (x.get("blockTime") or 0) >= cutoff]
         if len(page) < 1000 or (page[-1].get("blockTime") or 0) < cutoff:
             break

@@ -168,6 +168,30 @@ class StandardRpc(unittest.TestCase):
                      [tb(1, MINT, W, 5.0), tb(2, "OtherMint", W, 5.0)], [])
         self.assertIsNone(op.parse_wallet_rpc_tx(two, W))
 
+    def test_wallet_pull_starts_from_the_freshest_first_page(self):
+        # one backend lags: its newest signature is an hour older than the others'
+        fresh = [{"signature": "N", "slot": 5000, "blockTime": 1792700000 + 5000, "err": None},
+                 {"signature": "O", "slot": 1000, "blockTime": 1792700000 + 1000, "err": None}]
+        stale = fresh[1:]
+
+        class Lagging(FakeApi):
+            def __init__(self):
+                super().__init__([], {})
+                self.first = [stale, fresh, stale]
+                self.got = []
+
+            def rpc(self, method, params, cache=False):
+                self.calls.append(method)
+                if method == "getSignaturesForAddress":
+                    return self.first.pop(0) if "before" not in params[1] else []
+                self.got.append(params[0])
+                return None
+        api = Lagging()
+        _, _, oldest = op.pull_wallet_rpc(api, W, 0, False, 1)
+        self.assertEqual(sorted(api.got), ["N", "O"], "the lagging backend's page would miss N")
+        self.assertEqual(oldest, 1000)
+        self.assertEqual(api.calls.count("getSignaturesForAddress"), op.FIRST_PAGE_TRIES)
+
     def test_curve_create_is_the_oldest_signature_before_his_buy(self):
         create = rpc_tx(1000, [DEV, MINT, op.PUMP], [0, 0, 0], [0, 0, 0], [], [], [],
                         inner=[{"programIdIndex": 2, "data": create_ev(MINT, DEV, DEV)},
