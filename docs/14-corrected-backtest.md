@@ -123,3 +123,20 @@ the coins they deploy (uxento.io is itself a tweet-tracker site that deployers l
 **+6.44%** on their later coins (335; he took 79%), the ones he took 30% or less **+1.85%** (84). The frequent
 authors look like the deployers' own accounts, so this overlaps his deployer list, and it is known only from the
 metadata, after the buy, where holding to 10 still beats selling early.
+
+## 7. A fast tweet feed (TweetStream, 165 ms median from the post's own timestamp)
+
+Re-run of `tweetfeed.py` with a 0.2 s lag. Calling a coin **first** (its name or ticker in a tweet of the last 10 s
+that no earlier coin matched) is right 96% of the time and finds 26% of the first coins, 8.5 an hour; on the coins we
+won it is worth +1.7% against +2.1% for the rest, so it adds nothing to the buy. Calling a coin a **copy** (a match to
+a tweet an earlier coin already took, within 30 min) fires 15 times an hour, is right 60% of the time, and on the
+coins we won marks the losers: **-2.49% (21) against +3.20% (76)**. Skipping them would lift our trades from about
++2.0% to +3.2% on four fifths of the volume. Small sample; to be measured before it is built.
+
+Coverage: the top 5 tweet authors behind the rule coins (ranked on Oct 23 00-12) wrote 26% of the later coins'
+tweets, the top 50 41%. The frequent authors are deployer accounts: @devvvooooor (241 coins on Oct 23-24, 92% of
+them attempted by him), @igetsjiggy6767 (100), @thedev1738 (66), @ddddddd8a (57), @lilbruhfish (53).
+
+Plan: the 3-day, 5-account trial on those five, with a logger on the box (not the bot) that records each post's
+receipt time, then compare with the creates of their coins: a post must arrive before its coins' creates for the
+copy call to work. Only then build the copy skip into the hot loop and take the 50-account plan.
