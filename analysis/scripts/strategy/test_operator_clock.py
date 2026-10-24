@@ -115,6 +115,35 @@ class Clock(unittest.TestCase):
             m["pnl"][2] = 0.05
         self.assertEqual(oc.decide(early, 1, args())["hold"], 2)
 
+    def test_decide_drops_a_signer_that_loses_at_every_hold_in_both_halves(self):
+        def meas(pnl_of_hold, bt):
+            return {"bundled": True, "sell_slot": None, "bt": bt, "pnl": {h: pnl_of_hold(h) for h in oc.HOLDS}}
+        # dead launches: fees and costs at every hold, no sell clock at all (the early return must not hide it)
+        dead = [meas(lambda h: -0.015, k) for k in range(12)]
+        d = oc.decide(dead, 6, args())
+        self.assertTrue(d["drop"])
+        self.assertEqual(d["best_halves"], [-0.09, -0.09])
+        self.assertIsNone(d["hold"])
+        # one hold that wins in one half keeps it
+        some = [meas(lambda h, k=k: 0.2 if (h == 3 and k >= 6) else -0.015, k) for k in range(12)]
+        self.assertFalse(oc.decide(some, 6, args())["drop"])
+        # wins in both halves at one hold: kept; too few launches: never judged
+        self.assertFalse(oc.decide([meas(lambda h: 0.01 if h == 9 else -0.02, k) for k in range(12)], 6, args())["drop"])
+        d = oc.decide(dead[:9], 6, args())
+        self.assertEqual((d["drop"], d["best_halves"]), (False, None))
+
+    def test_drop_losers_removes_them_unless_too_many(self):
+        table = {k: {"hold_slots": 6, "n": 2} for k in (DEV, B1, B2, OUT, F1)}
+        clocks = {DEV: {"drop": True}, B1: {"drop": False}}
+        self.assertEqual(oc.drop_losers(table, clocks), [DEV])
+        self.assertNotIn(DEV, table)
+        self.assertEqual(len(table), 4)
+        # 2 of 4 would go: above a quarter, a data problem; nothing is removed
+        clocks = {B1: {"drop": True}, B2: {"drop": True}}
+        self.assertEqual(oc.drop_losers(table, clocks), [])
+        self.assertEqual(len(table), 4)
+        self.assertEqual(oc.drop_losers(table, clocks, max_share=0.5), [B1, B2])
+
     def test_apply_keeps_and_restores_the_wallets_hold(self):
         table = {DEV: {"hold_slots": 1, "n": 2}, B1: {"hold_slots": 6, "n": 3}, B2: {"hold_slots": 10, "n": 40}}
         clocks = {DEV: {"hold": 7, "clock_slot": 8.0, "clock_share": 0.8, "clock_launches": 59},
@@ -182,6 +211,54 @@ class Clock(unittest.TestCase):
             # hold 1 sells before the +5 buy, hold 7 after it: the clock wins both halves
             self.assertEqual((t[DEV]["hold_slots"], t[DEV]["hold_his"], t[DEV]["clock_slot"]), (7, 1, 8))
             self.assertEqual(t[B1], {"hold_slots": 6, "n": 30}, "his n 30: his hold stays, nothing pulled")
+        finally:
+            oc.orf.Api, oc.orf.norm_rpc_tx, oc.curve_rows = real
+
+    def test_main_drops_a_signer_whose_launches_nobody_follows(self):
+        # DEV: 12 launches with followers (kept, clocked as above); B2: 12 launches nobody buys after the bundle
+        mints = {DEV: {f"M{k:02d}pump": 1000 + 100 * k for k in range(12)},
+                 B2: {f"D{k:02d}pump": 5000 + 100 * k for k in range(12)}}
+
+        class FakeApi:
+            def __init__(self, url, rps, cache_dir=None):
+                self.calls = {"x": 0}
+
+            def redact(self, s):
+                return str(s)
+
+            def rpc(self, method, params, cache=False):
+                return {"data": [{"slot": cs, "mint": m, "who": params[0]} for m, cs in mints.get(params[0], {}).items()]}
+
+        def norm(tx):
+            return {"s": tx["slot"], "i": 10, "fp": tx["who"], "signers": [tx["who"]], "err": False, "bt": tx["slot"],
+                    "trades": [], "create": {"mint": tx["mint"], "user": tx["who"], "creator": tx["who"]}, "sig": "x"}
+
+        def curve_rows(api, mint, cs, max_pages=6):
+            k = int(mint[1:3])
+            if mint.startswith("D"):
+                return launch(cs, mint=mint, bt=cs)
+            return launch(cs, sells=[(8, DEV, 60)] if k < 8 else [], buys=[(5, F1, 4_000_000_000)], mint=mint, bt=cs)
+
+        real = (oc.orf.Api, oc.orf.norm_rpc_tx, oc.curve_rows)
+        oc.orf.Api, oc.orf.norm_rpc_tx, oc.curve_rows = FakeApi, norm, curve_rows
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "operators.json")
+        base = {DEV: {"hold_slots": 1, "n": 2}, B2: {"hold_slots": 6, "n": 3}, B1: {"hold_slots": 6, "n": 30},
+                OUT: {"hold_slots": 10, "n": 40}, F1: {"hold_slots": 10, "n": 9}}
+        try:
+            with open(p, "w") as f:
+                json.dump(base, f)
+            self.assertEqual(oc.main(["--rpc-url", "https://x/?api-key=K", "--table", p, "--no-drop-losers"]), 0)
+            with open(p) as f:
+                self.assertIn(B2, json.load(f), "--no-drop-losers keeps it")
+            with open(p, "w") as f:
+                json.dump(base, f)
+            self.assertEqual(oc.main(["--rpc-url", "https://x/?api-key=K", "--table", p]), 0)
+            with open(p) as f:
+                t = json.load(f)
+            self.assertNotIn(B2, t, "every hold loses (fees and costs only) in both halves: dropped")
+            self.assertEqual(t[DEV]["hold_slots"], 7, "the operator with followers is kept and clocked")
+            self.assertEqual(set(t), {DEV, B1, OUT, F1})
         finally:
             oc.orf.Api, oc.orf.norm_rpc_tx, oc.curve_rows = real
 

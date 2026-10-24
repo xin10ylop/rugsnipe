@@ -20,6 +20,14 @@ and 29yFzeBZ in every rotation, 8NJ7Ujpj in two, three others once. Without the 
 operators it moved (9ncm3Mfx, 8YcbyX92, BADxcCcz, DRXPafDu), and fitting each operator's best hold on one day lost on
 the other day in both directions (+6.71 against +9.00, +4.51 against +6.14).
 
+Losers leave the table (--drop-losers, on by default): a measured signer with at least --min-launches bundled
+launches whose replay loses at every hold 1..15 in both halves (oldest, newest) on its own is dropped this run (the
+next refresh may bring it back; this step measures it again). More than --max-drop-share (25%) of the table at once
+reads as a data problem: nothing is dropped. Evidence (2026-10-24, 78 operators, 3,177 bundled launches in 48 h, the
+first-spot P&L after our costs): decided on one 24 h window and scored on the other, both directions, the flagged
+operators' later launches summed -1.12 and -1.38 SOL, and the 4 of them we traded lost too. On the live table it
+flags CmwFWFQs: 71 launches nobody followed, -1.22 SOL at its best hold, our 10 trades -0.17 SOL (fees and costs).
+
 The Helius key is read from --api-keys at run time and never logged (operators_refresh.read_rpc_url). --dry-run
 prints the decisions and writes nothing.
 """
@@ -159,7 +167,11 @@ def replay(v: float, tk: float, after: list, gone: set, hold: int) -> float:
 
 
 def decide(launches: list[dict], hold: int, a) -> dict:
-    """One signer's measured launches -> {hold | None, clock_slot, clock_share, clock_launches, halves}.
+    """One signer's measured launches -> {hold | None, clock_slot, clock_share, clock_launches, halves, drop,
+    best_halves}.
+
+    ``drop``: with >= ``min_launches`` replayed launches, every hold 1..15 lost in both halves (``best_halves``: each
+    half's best hold sum), whatever the clock says.
 
     The clock hold (median sell slot - offset, within 2..15) needs >= ``min_launches`` bundled launches of which
     >= ``min_share`` show the sell; it replaces the wallet's ``hold`` only when it made more than that hold in each
@@ -169,19 +181,37 @@ def decide(launches: list[dict], hold: int, a) -> dict:
     ss = [x["sell_slot"] for x in b if x["sell_slot"] is not None]
     share = len(ss) / len(b) if b else 0.0
     med = statistics.median(ss) if ss else None
-    out = {"hold": None, "clock_slot": med, "clock_share": round(share, 3), "clock_launches": len(b), "halves": None}
+    out = {"hold": None, "clock_slot": med, "clock_share": round(share, 3), "clock_launches": len(b), "halves": None,
+           "drop": False, "best_halves": None}
+    priced = [x for x in b if x["pnl"]]
+    mid = len(priced) // 2
+    if len(priced) >= a.min_launches:
+        best = [max(sum(x["pnl"][h] for x in hv) for h in HOLDS) for hv in (priced[:mid], priced[mid:])]
+        out["best_halves"] = [round(v, 4) for v in best]
+        out["drop"] = all(v < 0 for v in best)
     if len(b) < a.min_launches or med is None or share < a.min_share:
         return out
     hc = int(max(2, min(15, med - a.offset)))
-    priced = [x for x in b if x["pnl"]]
     if hc == hold or len(priced) < a.min_launches or not 1 <= hold <= 15:
         return out
-    mid = len(priced) // 2
     halves = [(sum(x["pnl"][hc] for x in hv), sum(x["pnl"][hold] for x in hv)) for hv in (priced[:mid], priced[mid:])]
     out["halves"] = [[round(c, 4), round(w, 4)] for c, w in halves]
     if all(c > w for c, w in halves):
         out["hold"] = hc
     return out
+
+
+def drop_losers(table: dict[str, dict], clocks: dict[str, dict], max_share: float = 0.25) -> list[str]:
+    """Remove the signers ``decide`` marked ``drop`` (every hold lost in both halves) -> their names, sorted. More
+    than ``max_share`` of the table at once reads as a data problem: nothing is removed."""
+    bad = sorted(s for s, c in clocks.items() if c.get("drop") and s in table)
+    if len(bad) > max_share * len(table):
+        print(f"operator_clock: {len(bad)} of {len(table)} signers lose at every hold, above {max_share:.0%} of the "
+              f"table: none dropped", file=sys.stderr)
+        return []
+    for s in bad:
+        table.pop(s)
+    return bad
 
 
 def apply(table: dict[str, dict], clocks: dict[str, dict]) -> dict[str, tuple[int, int]]:
@@ -219,6 +249,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--threshold", type=float, default=0.25, help="share of the run's tokens sold that marks the sell")
     ap.add_argument("--offset", type=int, default=1, help="sell this many slots before the median sell (default 1)")
     ap.add_argument("--owner", help="our own wallet: its trades are replaced by the first-spot position too")
+    ap.add_argument("--drop-losers", action=argparse.BooleanOptionalAction, default=True,
+                    help="drop measured signers that lose at every hold in both halves (default on)")
+    ap.add_argument("--max-drop-share", type=float, default=0.25,
+                    help="drop nothing when more than this share of the table would go (default 0.25)")
     ap.add_argument("--rps", type=float, default=4.0, help="request rate limit (default 4/s)")
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--mode", default="0640", help="file mode of --table (default 0640)")
@@ -251,16 +285,27 @@ def main(argv: list[str] | None = None) -> int:
                 clocks[s] = c
             except RuntimeError as e:  # this signer keeps the wallet's hold
                 print(f"operator_clock: {api.redact(e)}", file=sys.stderr)
+    n_before = len(table)
+    his_n = {s: table[s].get("n", 0) for s in table}
+    dropped = drop_losers(table, clocks, a.max_drop_share) if a.drop_losers else []
     changed = apply(table, clocks)
     orf.validate(table)
-    print(f"operator_clock: {len(todo)} of {len(table)} signers below n {a.max_his_n}, {sum(c['hold'] is not None for c in clocks.values())} "
-          f"clocked, {len(changed)} holds changed, {sum(api.calls.values())} calls in {time.time() - t0:.0f} s")
+    print(f"operator_clock: {len(todo)} of {n_before} signers below n {a.max_his_n}, {sum(c['hold'] is not None for c in clocks.values())} "
+          f"clocked, {len(changed)} holds changed, {len(dropped)} dropped, {sum(api.calls.values())} calls in {time.time() - t0:.0f} s")
+    for s in dropped:
+        c = clocks[s]
+        print(f"  {s}  dropped: loses at every hold 1..15 in both halves (best hold sums {c['best_halves']} SOL over "
+              f"{c['clock_launches']} bundled launches, his n {his_n[s]})")
+    for s, c in sorted(clocks.items()):
+        if c.get("drop") and s in table:
+            print(f"  {s}  loses at every hold in both halves (best hold sums {c['best_halves']} SOL): kept "
+                  f"(--no-drop-losers, or above --max-drop-share)")
     for s, (old, new) in sorted(changed.items()):
         c = clocks.get(s) or {}
         print(f"  {s}  hold {old} -> {new}  (sell clock s+{c.get('clock_slot')} in {100 * c.get('clock_share', 0):.0f}% "
               f"of {c.get('clock_launches', 0)} bundled launches, his n {table[s].get('n', 0)}; halves clock/his {c.get('halves')})")
     for s, c in sorted(clocks.items()):
-        if c["hold"] is None and c.get("halves"):
+        if c["hold"] is None and c.get("halves") and s in table:
             print(f"  {s}  kept {table[s]['hold_slots']}: the clock hold did not win both halves {c['halves']}")
     if a.dry_run:
         return 0

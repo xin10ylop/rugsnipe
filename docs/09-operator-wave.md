@@ -171,6 +171,17 @@ during the hold: a sell on the creator set's first sell, on a big outside buy or
 and stop-losses (a rug is one block: the creator set sells together in one slot, so the reaction is late, and every
 early exit also cuts the winners).
 
+**Losers leave the table.** The same step drops a measured signer (at least 10 replayed bundled launches) that loses
+at every hold 1..15 in both halves of its launches on its own: no exit timing would make it pay. More than 25% of the
+table at once reads as a data problem and drops nothing (`--max-drop-share`); `--no-drop-losers` turns it off. The
+next refresh can bring a dropped signer back; this step measures it again. Evidence (2026-10-24, 78 operators, 3,177
+bundled launches in 48 h, first-spot P&L after our costs): decided on one 24 h window and scored on the other, in both
+directions, the flagged operators' later launches summed -1.12 and -1.38 SOL, and the 4 of them we traded lost too.
+On the live table it flags CmwFWFQs: 71 launches in bursts (5 within 3 minutes) that nobody follows, -1.22 SOL at
+its best hold; our 10 trades on it lost -0.17 SOL, fees and costs only. The 8 operators it flags over the 48 h
+include 6 the refresh had already dropped. The looser rule, the wallet's own hold losing in both halves, flags 17
+operators whose later launches still lose (-0.56 SOL) but takes 79 winning launches worth +6.9 SOL with them.
+
 ```bash
 sudo python3 -I /opt/rugsnipe/src/analysis/scripts/strategy/operator_clock.py --dry-run   # the decisions, nothing written
 journalctl -u rugsnipe-operators -n 40 --no-pager                                          # after a refresh: "operator_clock: ..."
