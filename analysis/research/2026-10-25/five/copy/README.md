@@ -41,6 +41,11 @@ The copy (a bot that buys when his buy shows):
 - `recent.py`: his current operators counted live (his buys on the signer in the last W hours >= K) against the
   backtest's tables.
 - `restart.py`: the same count started empty at each 4-hourly restart of the hot service (the operator refresh).
+- `tipsize.py`: his low-tip big buys: the tip key against his size and either (the live signer rule).
+- `monthkey.py`: his own result per day over his month on each key (his round trips, `SP/month`).
+- `tipworth.py`: the live copy with our buy landing exactly D positions after his: what a closer landing is worth, and
+  the break-even extra tip.
+- `copiers/find.py` (from `SP/dec/copiers`): the wallets landing after him on his coins, and how many other coins they buy.
 
 The replay of the copy trigger itself: `crates/rugsnipe/tests/replay_days.rs` with `entry.copy = "on"` in the replay
 dir's `config.toml` (his buys of create + 1..3 then reach the hot loop as live).

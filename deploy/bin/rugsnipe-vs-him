@@ -3,13 +3,16 @@
 # `bash ~/check.sh him` (sudo: the api-keys credential and state.db):
 #   journalctl -u rugsnipe-hot -o cat --since @START | grep '^copy ' |
 #     sudo python3 -I /opt/rugsnipe/src/deploy/bin/rugsnipe-vs-him --since START [--state DB] [--api-keys FILE]
-# His side, from the chain: every landed trade of his wallet since the start (the Helius Enhanced API, as
-# operators_refresh.py reads it), summed per coin as his wallet's SOL change (fees and tips in), and his failed
-# transactions apart (their fees). A coin he bought before the start is left out; one he still holds is open.
+# His side, from the chain: every landed trade of his wallet since the start, summed per coin as his wallet's SOL
+# change (fees and tips in), and his failed transactions apart (their fees). A coin he bought before the start is left
+# out; one he still holds is open. Source (--source auto): the Helius Enhanced API (as operators_refresh.py reads it),
+# else, when Helius refuses (out of credits), standard JSON-RPC: the TRITON_URL line of the keys file, else RPC_URL
+# (getSignaturesForAddress, then one getTransaction per transaction).
 # Our side, from state.db: each position's net after tips and fees (as rugsnipe-check counts it) and our failed buys.
 # stdin: the hot unit's `copy <mint8> his <SOL> tip <M> at create+<k> -> <act>` lines since the start, what the bot did
 # with each launch buy of his it saw (buy, log, skip_small, skip_unlisted, skip_few).
 import argparse, collections, os, sqlite3, sys, time
+from concurrent.futures import ThreadPoolExecutor
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "..", "analysis", "scripts", "strategy"))
@@ -22,6 +25,7 @@ WHY = {
     "skip_unlisted": "not copied: operator not in the table",
     "skip_few": "not copied: operator he bought < 2 times in 24 h",
 }
+SYSTEM = "11111111111111111111111111111111"
 NOT_SEEN = "not seen at create+0/1 (a later buy, or a coin outside the class filter)"
 
 
@@ -52,6 +56,75 @@ def his_trades(api, w, since):
     return rows, fails, fail_fee
 
 
+def his_trades_rpc(api, w, since, workers):
+    """`his_trades` over standard JSON-RPC: his signatures since `since`, then each transaction (the failed ones for
+    their fee)."""
+    sigs, before = [], None
+    for _ in range(200):
+        opt = {"limit": 1000, "commitment": "confirmed"}
+        if before:
+            opt["before"] = before
+            page = api.rpc("getSignaturesForAddress", [w, opt]) or []
+        else:
+            # a load-balanced RPC's backends can lag on this index: the freshest of a few first pages
+            pages = [api.rpc("getSignaturesForAddress", [w, opt]) or [] for _ in range(orf.FIRST_PAGE_TRIES)]
+            page = max(pages, key=lambda p: p[0].get("slot", 0) if p else -1)
+        sigs += [x for x in page if (x.get("blockTime") or 0) >= since]
+        if len(page) < 1000 or (page[-1].get("blockTime") or 0) < since:
+            break
+        before = page[-1]["signature"]
+
+    def one(x):
+        tx = api.rpc("getTransaction", [x["signature"], orf.TX_OPTS])
+        if not tx:
+            return None
+        if x.get("err") is not None:
+            m = tx["transaction"]["message"]
+            payer = m["accountKeys"][0] if m.get("accountKeys") else None
+            return ("fail", int((tx.get("meta") or {}).get("fee") or 0) if payer == w else 0)
+        p = orf.parse_wallet_rpc_tx(tx, w)
+        if p:
+            p["tip"] = tip_of(tx, w)
+        return ("ok", p)
+    rows, fails, fail_fee = [], 0, 0
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+        for r in ex.map(one, sigs):
+            if r is None:
+                continue
+            if r[0] == "fail":
+                fails += 1
+                fail_fee += r[1]
+            elif r[1]:
+                rows.append(r[1])
+    rows.sort(key=lambda r: (r["slot"], r["sig"]))
+    return rows, fails, fail_fee, len(sigs)
+
+
+def tip_of(tx, w):
+    """The SOL `w` moves by top-level System transfers in `tx` (his tip, as the bot reads it: transfers_from)."""
+    m, meta = tx["transaction"]["message"], tx.get("meta") or {}
+    la = meta.get("loadedAddresses") or {}
+    ks = list(m["accountKeys"]) + la.get("writable", []) + la.get("readonly", [])
+    tot = 0
+    for ix in m.get("instructions") or []:
+        if ks[ix["programIdIndex"]] != SYSTEM or not ix.get("accounts") or ks[ix["accounts"][0]] != w:
+            continue
+        d = orf.b58d(ix.get("data", ""))
+        if len(d) == 12 and d[:4] == b"\x02\x00\x00\x00":
+            tot += int.from_bytes(d[4:12], "little")
+    return tot
+
+
+def rpc_url(keys):
+    """(name, url) of the standard JSON-RPC in the keys file: TRITON_URL, else RPC_URL (the URL is never printed)."""
+    for name in ("TRITON_URL", "RPC_URL"):
+        try:
+            return name, orf.read_named_url(keys, name)
+        except SystemExit:
+            continue
+    raise SystemExit(f"no TRITON_URL or RPC_URL line in {keys}")
+
+
 def per_coin(rows):
     coins = {}
     for r in rows:
@@ -62,6 +135,7 @@ def per_coin(rows):
         if r["tok"] > 0:
             c["buy"] -= r["delta"]
             c["bought"] += r["tok"]
+            c.setdefault("tip", r.get("tip"))
     for c in coins.values():
         c["closed"] = c["held"] <= 1e-3 * max(c["bought"], 1e-9)
     return {m: c for m, c in coins.items() if c["first_buy"]}
@@ -124,16 +198,29 @@ def main(argv):
     ap.add_argument("--state", default="/var/lib/rugsnipe/state.db")
     ap.add_argument("--api-keys", default="/etc/rugsnipe/keys/api-keys.toml")
     ap.add_argument("--wallet", default=orf.DEFAULT_WALLET)
-    ap.add_argument("--rps", type=float, default=5.0)
+    ap.add_argument("--source", choices=("auto", "helius", "rpc"), default="auto")
+    ap.add_argument("--rps", type=float, default=20.0, help="request rate (Helius: at most 5)")
+    ap.add_argument("--workers", type=int, default=8)
     a = ap.parse_args(argv)
-    api = orf.Api(orf.read_rpc_url(a.api_keys), a.rps)
-    rows, fails, fail_fee = his_trades(api, a.wallet, a.since)
+    rows = None
+    if a.source in ("auto", "helius"):
+        try:
+            rows, fails, fail_fee = his_trades(orf.Api(orf.read_rpc_url(a.api_keys), min(a.rps, 5.0)), a.wallet, a.since)
+            src = "Helius Enhanced API"
+        except (orf.OutOfCredits, RuntimeError, SystemExit) as e:
+            if a.source == "helius":
+                raise
+            print(f"(Helius refused: {str(e)[:80]}; reading over standard JSON-RPC instead)", file=sys.stderr)
+    if rows is None:
+        name, url = rpc_url(a.api_keys)
+        rows, fails, fail_fee, n = his_trades_rpc(orf.Api(url, a.rps), a.wallet, a.since, a.workers)
+        src = f"JSON-RPC ({name}, {n} transactions)"
     his = per_coin(rows)
     pos, failed = ours(a.state, a.since)
     cp = copies(sys.stdin.read().splitlines() if not sys.stdin.isatty() else [])
     mins = (time.time() - a.since) / 60
     print(f"== him vs us since the start ({time.strftime('%b %d %H:%M', time.gmtime(a.since))} UTC, "
-          f"{int(mins // 60)}h{int(mins % 60):02d}m ago): his trades from the chain, ours from state.db")
+          f"{int(mins // 60)}h{int(mins % 60):02d}m ago): his trades from the chain ({src}), ours from state.db")
     hc = [c for c in his.values() if c["closed"]]
     oc = [p for p in pos.values() if p["state"] == "closed"]
     ofail = sum(n for n, _ in failed.values())
@@ -156,7 +243,7 @@ def main(argv):
         if nf and not p:
             ours_s = f"failed {nf[0]}x {sol(-(nf[1] or 0))}"
         out.append([time.strftime("%H:%M:%S", time.gmtime(c["t"])), m[:8], f"{c['buy'] / 1e9:.3f}",
-                    f"{j[1]}M" if j else "?", f"create+{j[2]}" if j else "-",
+                    f"{j[1]}M" if j else (f"{c['tip'] / 1e6:.1f}M" if c.get("tip") is not None else "?"), f"create+{j[2]}" if j else "-",
                     sol(c["net"]) if c["closed"] else "open", ours_s, WHY.get(j[3], j[3]) if j else NOT_SEEN])
     table(["time", "mint", "his_sol", "his_tip", "his_buy", "his_net", "our_net", "the bot on his buy"], out)
     extra = [m for m in pos if m[:8] not in {k[:8] for k in his}]

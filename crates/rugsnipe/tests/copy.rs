@@ -600,6 +600,22 @@ fn a_tip_floor_copies_his_high_conviction_buys_only() {
     let (o, _) = run(CopyMode::On, false, &tip_floor, &tipped(3_000_000));
     assert_eq!((o.fires, o.copy), (0, [0; 4]), "{:?}", o.labels());
     assert_eq!(o.copy_his, [1, 1, 0, 0]);
+    // copy_big_sol: a big buy is copied whatever its tip, a smaller one is not
+    let big_or_tip = |c: &mut Config| {
+        tip_floor(c);
+        c.entry.copy_big_sol = 2.0;
+    };
+    let low_tip = |sol: u64| {
+        move |h: &CreateHit, his: Pubkey| {
+            let mut t = buy(h, his, sol, 0, SLOT, CI + 120);
+            t.tip = 1_000_000;
+            vec![t]
+        }
+    };
+    let (o, _) = run(CopyMode::On, false, &big_or_tip, &low_tip(5 * SOL / 2));
+    assert_eq!((o.fires, o.copy), (1, [1, 1, 0, 0]), "{:?}", o.labels());
+    let (o, _) = run(CopyMode::On, false, &big_or_tip, &low_tip(19 * SOL / 10));
+    assert_eq!((o.fires, o.copy_his), (0, [1, 1, 0, 0]), "{:?}", o.labels());
     // the floor is at most 1 SOL
     let dir = tmpdir("copy-tip");
     let mut c = live_cfg(&dir, CopyMode::On, &[], Pubkey::new_unique());

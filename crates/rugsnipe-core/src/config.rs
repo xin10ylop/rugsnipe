@@ -1237,6 +1237,11 @@ pub struct EntryCfg {
     /// transaction shows. Keyed on a 4M tip instead of his size, the
     /// listed-signer copies held up on his weak days (docs/17 section 9).
     pub copy_min_tip_lamports: u64,
+    /// Or his buy of at least this many SOL, whatever its tip (0 = off): his
+    /// big low-tip bets. Keyed on tip >= 4M or size >= 2 SOL the copy made
+    /// +5.64 SOL over Oct 21-25 against +4.22 on the tip alone, no day worse;
+    /// the 6 added copies all came on Oct 23 (docs/17 section 9).
+    pub copy_big_sol: f64,
     pub copy_max_premium: f64,
     pub copy_late_slots: u64,
     /// Copy only the signers `operators_file` lists (default true): his
@@ -1321,6 +1326,7 @@ impl Default for EntryCfg {
             copy: CopyMode::Off,
             copy_min_sol: 0.7,
             copy_min_tip_lamports: 0,
+            copy_big_sol: 0.0,
             copy_max_premium: 0.10,
             copy_late_slots: 2,
             copy_listed_only: true,
@@ -2327,6 +2333,13 @@ impl Config {
             }
             if !(0.0..=100.0).contains(&e.copy_min_sol) {
                 inv(&mut r, "entry.copy_min_sol", "must be in [0, 100] SOL");
+            }
+            if !(0.0..=100.0).contains(&e.copy_big_sol) {
+                inv(
+                    &mut r,
+                    "entry.copy_big_sol",
+                    "must be in [0, 100] SOL (0 = off)",
+                );
             }
             if e.copy_min_tip_lamports > 1_000_000_000 {
                 inv(

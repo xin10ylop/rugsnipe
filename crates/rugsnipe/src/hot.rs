@@ -309,6 +309,8 @@ pub struct HotCfg {
     pub copy_min: u64,
     /// `entry.copy_min_tip_lamports` (0 = any).
     pub copy_min_tip: u64,
+    /// `entry.copy_big_sol` (lamports; 0 = off): copied whatever the tip.
+    pub copy_big: u64,
     pub copy_premium_bps: u32,
     pub copy_late_slots: u64,
     /// `entry.copy_listed_only`: only the signers of the operator table.
@@ -456,6 +458,7 @@ impl HotCfg {
             copy_wallet: cfg.entry.follow_wallet.parse().unwrap_or_default(),
             copy_min: sol_lamports(cfg.entry.copy_min_sol),
             copy_min_tip: cfg.entry.copy_min_tip_lamports,
+            copy_big: sol_lamports(cfg.entry.copy_big_sol),
             copy_premium_bps: (cfg.entry.copy_max_premium * 10_000.0)
                 .round()
                 .clamp(0.0, 1e6) as u32,
@@ -1283,17 +1286,20 @@ fn journal(args: core::fmt::Arguments<'_>) {
 }
 
 /// The journal line of the copied wallet's launch buy (`entry.copy`): his
-/// size, tip and slot after the create, and what the copy did (`buy`,
-/// `log`, or why it was not copied: `skip_small`, `skip_unlisted`,
-/// `skip_few`).
+/// size, tip, slot after the create, landing slot and block index (our
+/// fill's index against it is the copy's distance behind him), and what the
+/// copy did (`buy`, `log`, or why it was not copied: `skip_small`,
+/// `skip_unlisted`, `skip_few`).
 fn copy_line(t: &TradeLite, create_slot: u64, act: &str) {
     let k8 = key8(&t.mint);
     journal(format_args!(
-        "copy {} his {:.3} tip {:.1}M at create+{} -> {}",
+        "copy {} his {:.3} tip {:.1}M at create+{} slot {} idx {} -> {}",
         std::str::from_utf8(&k8).unwrap_or("?"),
         t.sol_amount as f64 / 1e9,
         t.tip as f64 / 1e6,
         t.slot.saturating_sub(create_slot),
+        t.slot,
+        t.index,
         act
     ));
 }
@@ -2548,7 +2554,9 @@ impl HotLoop {
         // landed launch buy of his counts, whatever its size or tip
         let recent = self.signer_buys_then_note(&create_signer(&r.hit), t.slot);
         self.counters.copy_his[0] += 1;
-        let skip = if t.sol_amount < self.cfg.copy_min || t.tip < self.cfg.copy_min_tip {
+        // his conviction (size and tip), or a big buy whatever its tip
+        let big = self.cfg.copy_big > 0 && t.sol_amount >= self.cfg.copy_big;
+        let skip = if !big && (t.sol_amount < self.cfg.copy_min || t.tip < self.cfg.copy_min_tip) {
             Some((1, "skip_small"))
         } else if self.cfg.copy_listed_only && self.cfg.operator_rule(&r.hit).is_none() {
             // his known operators only (entry.copy_listed_only): the

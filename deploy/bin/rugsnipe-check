@@ -95,8 +95,9 @@ FOLLOWS=$(awk 'NF >= 9 { gsub(/\x27/, "", $6); f = ($9 == "fees") ? $10 : "-"; h
 if [ -n "${CHECK_COPY+x}" ]; then CPL=$CHECK_COPY; else
   CPL=$(sudo journalctl -u rugsnipe-hot -o cat --since "@$E0" 2>/dev/null | grep -E '^copy [1-9A-HJ-NP-Za-km-z]{8} his ')
 fi
-COPIES=$(awk 'NF >= 7 { tip = -1; at = $6; if ($5 == "tip") { tip = $6; gsub(/M/, "", tip); at = $8 } gsub(/[^0-9]/, "", at); printf "%s(\x27%s\x27,%s,%s,%s,\x27%s\x27)", (n++ ? "," : ""), $2, $4, tip, (at == "" ? 0 : at), $NF }' <<<"$CPL")
-[ -n "$COPIES" ] || COPIES="('',0,0,0,'')"
+# (his landing slot and block index: lines from 2026-10-25 22:30 on; 0 before)
+COPIES=$(awk 'NF >= 7 { tip = -1; at = $6; if ($5 == "tip") { tip = $6; gsub(/M/, "", tip); at = $8 } gsub(/[^0-9]/, "", at); sl = 0; ix = 0; for (i = 1; i < NF; i++) { if ($i == "slot") sl = $(i + 1); if ($i == "idx") ix = $(i + 1) } printf "%s(\x27%s\x27,%s,%s,%s,\x27%s\x27,%s,%s)", (n++ ? "," : ""), $2, $4, tip, (at == "" ? 0 : at), $NF, sl + 0, ix + 0 }' <<<"$CPL")
+[ -n "$COPIES" ] || COPIES="('',0,0,0,'',0,0)"
 
 if [ "$SHORT" = 1 ]; then SCOPES="('since start', $E0 * 1000)"
 else SCOPES="('process', $T0 * 1000)${TR:+, ('$RN', $TR * 1000)}, ('today', $D0 * 1000)"; fi
@@ -111,7 +112,7 @@ create temp table dumps(m8 text, act text, host text);
 insert into dumps values $DUMPS;
 create temp table follows(m8 text, yes text, kind text, host text, act text, fees text, heat text, mode text);
 insert into follows values $FOLLOWS;
-create temp table copies(m8 text, his_sol real, tip_m real, at int, act text);
+create temp table copies(m8 text, his_sol real, tip_m real, at int, act text, slot int, idx int);
 insert into copies values $COPIES;
 create temp view pos0 as
   select p.mint, p.cost, p.state, p.opened_slot, p.closed_slot, min(s.sent_unix_ms) t_ms, max(s.bid) bid,
@@ -223,6 +224,18 @@ select case when exists (select 1 from copies c where c.m8 = substr(p.mint, 1, 8
        count(*) trades, sum(net > 0) wins, sum(net <= -0.3 * cost) big, round(100.0 * avg(net * 1.0 / cost), 1) mean_pct,
        round(sum(net) / 1e9, 4) net_sol
 from pos p where state = 'closed' and cost > 0 and t_ms >= ${ERA:-$D0} * 1000 group by source order by source;
+.print
+.print == where our copies landed behind his buy, newest first (d = block positions after his, in his slot; failed = landed
+.print    and refused by the price limit, which costs the fee only; our bid as sent)
+select strftime('%H:%M:%S', min(s.sent_unix_ms) / 1000, 'unixepoch') time, c.m8 mint, c.tip_m his_tip_m,
+       round(max(s.bid) / 1e6, 1) our_bid_m,
+       case when c.slot = 0 then '?' when f.slot = c.slot then 'his slot' else '+' || (f.slot - c.slot) || ' slot' end landed,
+       case when c.slot > 0 and f.slot = c.slot then f.tx_index - c.idx end d,
+       case when f.fail_reason is null then 'filled' else 'failed' end result,
+       (select round(100.0 * p.net / max(p.cost, 1), 1) from pos p where substr(p.mint, 1, 8) = c.m8 and p.state = 'closed') pct
+from copies c join fills f on substr(f.mint, 1, 8) = c.m8 join sends s on s.sig = f.sig
+where c.act = 'buy' and s.sent_unix_ms >= $E0 * 1000
+group by c.m8, f.sig order by time desc limit 15;
 .print
 .print == last 10 trades, newest first (pct and net_sol after tips and fees)
 select strftime('%H:%M:%S', t_ms / 1000, 'unixepoch') time, substr(mint, 1, 8) mint, tier, round(cost / 1e9, 3) stake,

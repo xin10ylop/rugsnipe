@@ -838,7 +838,14 @@ def main(argv: list[str] | None = None) -> int:
 
     t0 = time.time()
     if a.source == "rpc":
-        url = a.rpc_url or read_named_url(a.api_keys, a.rpc_url_key)
+        try:
+            url = a.rpc_url or read_named_url(a.api_keys, a.rpc_url_key)
+        except SystemExit:
+            # a keys file with no Triton line: its RPC_URL (any standard JSON-RPC) serves too
+            if a.rpc_url_key != "TRITON_URL":
+                raise
+            url = read_named_url(a.api_keys, "RPC_URL")
+            log(f"no {a.rpc_url_key} line in {a.api_keys}: reading over its RPC_URL")
         a.no_attempts = True  # failed attempts need getTransactionsForAddress
     else:
         url = a.rpc_url or read_rpc_url(a.api_keys)

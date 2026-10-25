@@ -386,6 +386,44 @@ on 2 of 5 days (`restart.py`). So the cold thread keeps his buys per signer as t
 minute and at shutdown (`copy_signers.json` beside `state.db`), and the next start seeds the hot loop with them
 (`crates/rugsnipe/src/copybuys.rs`). Only the first start after the file is new counts from empty.
 
+### His big low-tip buys (`copy_big_sol`)
+
+The tip key misses his rare big bets with a low tip. On the 5 tape days, with the live signer rule (`tipsize.py`):
+
+| copied | copies | total | days positive | by day (Oct 21-25) |
+|---|---|---|---|---|
+| tip >= 4M (the live key) | 226 | +4.22 SOL | 4 of 5 | +0.20 +0.41 +3.41 +0.28 -0.09 |
+| tip < 4M and size >= 2 SOL (what it misses) | 6 | +1.42 | 1 of 5 | +0.00 +0.00 +1.44 -0.01 +0.00 |
+| **tip >= 4M or size >= 2 SOL** | **232** | **+5.64** | **4 of 5** | +0.20 +0.41 +4.84 +0.27 -0.09 |
+| tip >= 4M or size >= 1.5 SOL | 255 | +5.11 | 3 of 5 | +0.19 +0.34 +4.84 -0.11 -0.15 |
+| tip >= 4M or size >= 2.5 SOL | 228 | +4.20 | 4 of 5 | |
+
+His own result on every day of his month (Sep 24 - Oct 24, 19 days with data; signers he bought >= 2 times in 24 h;
+`monthkey.py`): tip >= 4M, 478 buys, +28.12 SOL, +0.059 a buy, positive on 11 of 16 days; tip < 4M and size >= 2 SOL, 39
+buys, +14.57 SOL, +0.374 a buy, positive on 7 of 12 days, most of it on Sep 26 (+5.37) and Oct 23 (+7.74), its losing days
+-0.10 to -0.40; tip < 4M and size 1.5-2 SOL, 79 buys, +2.27 SOL. The copy kept about a fifth of his net on both keys.
+`copy_big_sol = 2.0`: his buy of at least 2 SOL is copied whatever its tip.
+
+### A bigger tip
+
+What landing closer behind him is worth to the live copy (`tipworth.py`; the copies of the key above, 0.5 SOL):
+
+| our buy lands, positions after his | 5-day total | break-even extra tip a filled copy |
+|---|---|---|
+| measured (median about 90) | +5.64 SOL | |
+| 45 | +5.97 | +1.8M |
+| 20 | +6.49 | +4.5M |
+| 10 | +7.17 | +7.7M |
+| 0 | +10.08 | +19.1M |
+
+A tip moves a copy only among the transactions that reach the leader with it. The 90 positions are the time from his
+buy executing to our copy reaching the leader: the stream shows his buy after the replay, then we send. No wallet on the
+tapes copies him that way and lands close (`copiers/find.py`): the wallets that land right behind him in his slot buy
+hundreds of the set's other coins too (precision at most 0.24). They fire at the create, as he does. A bigger tip costs
+nothing on a failed buy (the tip transfer reverts with it; a bundle that fails does not land), but every filled copy pays
+it. The copy lines now carry his landing slot and block index, and `bash ~/check.sh` lists each copy's distance behind
+him at its bid. A tip A/B on the copies (`bid.ab_by_tier` tier 0) can measure it live.
+
 ### Built: `entry.copy`
 
 - **Trigger.** His landed buy of at least `copy_min_sol` with a tip of at least `copy_min_tip_lamports`, at create + 0
