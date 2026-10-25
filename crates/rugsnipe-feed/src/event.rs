@@ -225,6 +225,11 @@ pub struct TradeLite {
     /// the logs path). The bundle gate needs it: a bundle buy sits within
     /// `RUN_MAX_AFTER` indices after the create.
     pub index: u32,
+    /// Lamports the trade's user moved by top-level System transfers in
+    /// the same transaction: the tip a buyer pays the block engines and
+    /// relays. The gRPC feed sets it on the trades of
+    /// `GrpcConfig::tip_of` (the copied wallet, `entry.copy`); 0 elsewhere.
+    pub tip: u64,
 }
 
 /// Wire bytes of a transaction, stored in a [`crate::FeedBuf`] arena:

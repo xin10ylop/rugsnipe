@@ -31,6 +31,8 @@ The copy (a bot that buys when his buy shows):
   or dev-buy size, the oracle) and the entry distance's share of the loss.
 - `replayval.py`: the copies the copy replay itself made, valued the same way.
 - `move.py`: the price over his fill when a copy lands, and its move to the exit, listed vs unlisted.
+- `weakdays.py`, `weakdays2.py`: filters for his weak days, known before our buy: his tip and size, the operator hot for
+  him, his recent run, our landing price, a stop-loss; tips crossed with the copy's own bound.
 
 The replay of the copy trigger itself: `crates/rugsnipe/tests/replay_days.rs` with `entry.copy = "on"` in the replay
 dir's `config.toml` (his buys of create + 1..3 then reach the hot loop as live).

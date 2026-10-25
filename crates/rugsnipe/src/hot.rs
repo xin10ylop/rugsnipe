@@ -307,6 +307,8 @@ pub struct HotCfg {
     pub copy: CopyMode,
     pub copy_wallet: Pubkey,
     pub copy_min: u64,
+    /// `entry.copy_min_tip_lamports` (0 = any).
+    pub copy_min_tip: u64,
     pub copy_premium_bps: u32,
     pub copy_late_slots: u64,
     /// `entry.copy_listed_only`: only the signers of the operator table.
@@ -447,6 +449,7 @@ impl HotCfg {
             copy: cfg.entry.copy,
             copy_wallet: cfg.entry.follow_wallet.parse().unwrap_or_default(),
             copy_min: sol_lamports(cfg.entry.copy_min_sol),
+            copy_min_tip: cfg.entry.copy_min_tip_lamports,
             copy_premium_bps: (cfg.entry.copy_max_premium * 10_000.0)
                 .round()
                 .clamp(0.0, 1e6) as u32,
@@ -2453,7 +2456,8 @@ impl HotLoop {
     }
 
     /// `entry.copy` (docs/17 section 9): a landed buy by the copied wallet
-    /// of at least `copy_min_sol`, in a recent create's slot or the next, on
+    /// of at least `copy_min_sol` with a tip of at least
+    /// `copy_min_tip_lamports`, in a recent create's slot or the next, on
     /// a mint we hold nothing in and sent no buy for (with
     /// `copy_listed_only`, of a signer the operator table lists), is bought
     /// behind it: bound at his post-trade reserve plus `copy_max_premium`, sent
@@ -2464,7 +2468,7 @@ impl HotLoop {
     /// is outside of could only end `skip_not_first`, and ends so here.
     /// `log` journals the copy, no buy.
     fn copy_trade(&mut self, t: &TradeLite, recv_ns: u64, t0: u64) {
-        if t.sol_amount < self.cfg.copy_min {
+        if t.sol_amount < self.cfg.copy_min || t.tip < self.cfg.copy_min_tip {
             return;
         }
         let Some(r) = self
@@ -2505,9 +2509,10 @@ impl HotLoop {
         let buy = self.cfg.copy == CopyMode::On;
         let k8 = key8(&t.mint);
         journal(format_args!(
-            "copy {} his {:.3} at create+{} -> {}",
+            "copy {} his {:.3} tip {:.1}M at create+{} -> {}",
             std::str::from_utf8(&k8).unwrap_or("?"),
             t.sol_amount as f64 / 1e9,
+            t.tip as f64 / 1e6,
             t.slot - r.slot,
             if buy { "buy" } else { "log" }
         ));
@@ -5201,6 +5206,7 @@ mod bundle_gate_tests {
             sig: Sig([9; 64]),
             ordinal: 0,
             index,
+            tip: 0,
         }
     }
 

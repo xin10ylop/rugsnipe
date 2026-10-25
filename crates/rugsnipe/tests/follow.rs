@@ -243,6 +243,7 @@ fn run_full(
         sig: sig(77),
         ordinal: 0,
         index: CI + 1,
+        tip: 0,
     };
     let mut feed = FeedMux::new(vec![
         Box::new(WireFeed::new(vec![(SLOT, tx, meta)])),

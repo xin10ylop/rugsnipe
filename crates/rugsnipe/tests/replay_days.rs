@@ -17,7 +17,8 @@
 //! slot then block index, one of:
 //! `{"t":"table","slot":S,"file":"tables/<unix>.json"}`,
 //! `{"t":"create","slot":S,"index":I,"mint":M,"tx":<getTransaction result, base64>}`,
-//! `{"t":"trade","slot":S,"index":I,"mint":M,"user":U,"buy":b,"sol":n,"tok":n,"fee":n,"vs":n,"vt":n,"sig":s,"ord":n,"is_create":b,"run_end":b}`,
+//! `{"t":"trade","slot":S,"index":I,"mint":M,"user":U,"buy":b,"sol":n,"tok":n,"fee":n,"vs":n,"vt":n,"sig":s,"ord":n,"is_create":b,"run_end":b}`
+//! (optional `"tip":n`: the copied wallet's tip on its own trades, as the gRPC feed reads it),
 //! `{"t":"attempt","slot":S,"index":I,"mint":M}` (the copied wallet's
 //! transaction on the mint, landed or failed),
 //! `{"t":"ltrade","slot":S,"index":I,"mint":M,"user":U,"buy":b,"sol":n,"tok":n,"fee":n,"vs":n,"vt":n}`
@@ -573,6 +574,7 @@ fn replay_days() {
                     sig: sig_of(v["sig"].as_str().unwrap_or("")),
                     ordinal: v["ord"].as_u64().unwrap_or(0) as u8,
                     index: v["index"].as_u64().unwrap_or(u32::MAX as u64) as u32,
+                    tip: v["tip"].as_u64().unwrap_or(0),
                 };
                 if let Some(r) = runs.get_mut(&mint) {
                     if slot == r.slot {
@@ -630,6 +632,7 @@ fn replay_days() {
                         sig: sig_of(""),
                         ordinal: 0,
                         index: v["index"].as_u64().unwrap_or(u32::MAX as u64) as u32,
+                        tip: v["tip"].as_u64().unwrap_or(0),
                     };
                     feed.q.push_back(Item::Ev(FeedEvent {
                         src: FeedSrc::Grpc,

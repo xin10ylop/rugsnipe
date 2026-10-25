@@ -139,6 +139,7 @@ pub fn trade(
         sig: sig(n),
         ordinal: 0,
         index: u32::MAX,
+        tip: 0,
     }
 }
 

@@ -128,6 +128,7 @@ fn buy(hit: &CreateHit, user: Pubkey, sol: u64, before: u64, slot: u64, index: u
         sig: sig(1_000 + index as u64 + slot),
         ordinal: 0,
         index,
+        tip: 0,
     }
 }
 
@@ -484,7 +485,7 @@ fn copy_needs_the_wallet_the_bundle_feed_and_sane_bounds() {
     c.entry.copy_late_slots = 0;
     assert!(!c.validate(&good_env(&c)).ok());
     let mut c = live_cfg(&dir, CopyMode::On, &[], his);
-    c.entry.copy_min_sol = 0.0;
+    c.entry.copy_min_sol = 100.5;
     assert!(!c.validate(&good_env(&c)).ok());
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -550,6 +551,34 @@ fn listed_only_copies_his_known_operators_only() {
     let dir = tmpdir("copy-listed");
     let mut c = live_cfg(&dir, CopyMode::On, &[], Pubkey::new_unique());
     c.entry.copy_listed_only = true;
+    assert!(!c.validate(&good_env(&c)).ok());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_tip_floor_copies_his_high_conviction_buys_only() {
+    let tip_floor = |c: &mut Config| {
+        c.entry.copy_min_sol = 0.0;
+        c.entry.copy_min_tip_lamports = 4_000_000;
+    };
+    let tipped = |tip: u64| {
+        move |h: &CreateHit, his: Pubkey| {
+            let mut t = buy(h, his, SOL / 2, 0, SLOT, CI + 120);
+            t.tip = tip;
+            vec![t]
+        }
+    };
+    // a 0.5 SOL buy with a 5M tip: copied (no size floor)
+    let (o, _) = run(CopyMode::On, false, &tip_floor, &tipped(5_000_000));
+    assert_eq!(o.fires, 1, "{:?}", o.labels());
+    assert_eq!(o.copy, [1, 1, 0, 0]);
+    // a 3M tip: not a candidate
+    let (o, _) = run(CopyMode::On, false, &tip_floor, &tipped(3_000_000));
+    assert_eq!((o.fires, o.copy), (0, [0; 4]), "{:?}", o.labels());
+    // the floor is at most 1 SOL
+    let dir = tmpdir("copy-tip");
+    let mut c = live_cfg(&dir, CopyMode::On, &[], Pubkey::new_unique());
+    c.entry.copy_min_tip_lamports = 2_000_000_000;
     assert!(!c.validate(&good_env(&c)).ok());
     let _ = std::fs::remove_dir_all(&dir);
 }

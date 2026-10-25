@@ -281,6 +281,7 @@ pub fn decode_logs<S: AsRef<str>>(
                     sig,
                     index: u32::MAX,
                     ordinal,
+                    tip: 0,
                 });
                 out.trades += 1;
             }

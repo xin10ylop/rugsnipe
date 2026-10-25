@@ -339,10 +339,34 @@ to create + 5 (median 0.0%), under our round trip's cost of about 5 points. He g
 being first, and still makes only +0.015 SOL a coin there, against +0.051 on listed coins. `copy_listed_only` stays on. On the coins the newest bot does not fire (Oct 23 on), the listed-only copy of his 0.7 SOL+ buys makes +4.51 SOL
 (122 copies: Oct 23 +4.76, Oct 24 +0.07, Oct 25 -0.32). Most of it is Oct 23.
 
+### His weak days
+
+He made money every day (whole wallet: +11.38, +8.24, +26.14, +5.23, +2.82 SOL on Oct 21-25, the 25th to about 18:00).
+The copy of his 0.7 SOL+ buys on listed signers did not. It kept 20-28% of his result on those coins on his strong days
+and lost on his weak ones: +1.62, +0.49, +5.28, -0.38, -0.47. Each copy starts about 8 points behind him: about 3 points
+of price, plus our round trip. Every filter below is known before our buy (`weakdays.py`, `weakdays2.py`), on listed
+signers, sold at H - 1:
+
+| copied | bound | total | days positive | Oct 21 / 22 / 23 / 24 / 25 |
+|---|---|---|---|---|
+| his buy >= 0.7 SOL | 10% | +6.55 SOL | 3 of 5 | +1.62 / +0.49 / +5.28 / -0.38 / -0.47 |
+| his tip >= 4M | 10% | +4.77 | 4 of 5 | +0.69 / +0.35 / +3.32 / +0.58 / -0.16 |
+| **his tip >= 4M** | **5%** | **+4.71** | **4 of 5** | +0.78 / +0.43 / +3.30 / +0.27 / -0.07 |
+| his tip >= 8M | 5% | +4.08 | 4 of 5 | +0.46 / +0.81 / +2.86 / +0.04 / -0.08 |
+| his tip >= 4M | 2% | +2.47 | 4 of 5 | +0.64 / -0.06 / +1.29 / +0.60 / +0.01 |
+| his buy >= 0.7 SOL, our landing price <= his + 2% | 10% | +4.07 | 4 of 5 | +2.03 / +0.57 / +1.63 / +0.13 / -0.29 |
+
+His tip is his conviction, in his own transaction. Keyed on it instead of his size, the copy holds up on his weak days.
+Oct 24 goes from -0.38 to +0.27 SOL and Oct 25 from -0.47 to -0.07, for about 1.8 SOL less on the strong days. These
+did not help: the operator hot for him (his last coins on the signer), his own recent run (last 2 or 6 hours), a
+stop-loss at -20% or -35%, and his size of 1.0 or 1.5 SOL. High tips on unlisted signers stay flat or negative (tip >=
+12M: -0.07 SOL).
+
 ### Built: `entry.copy`
 
-- **Trigger.** His landed buy of at least `copy_min_sol`, at create + 0 or + 1: his executed trade on the gRPC stream,
-  user = `follow_wallet`. The launch must have no park, no position and no buy of ours. With `copy_listed_only` (default
+- **Trigger.** His landed buy of at least `copy_min_sol` with a tip of at least `copy_min_tip_lamports`, at create + 0
+  or + 1: his executed trade on the gRPC stream, user = `follow_wallet`. The feed reads his tip from the same transaction:
+  the SOL his wallet moves by top-level System transfers (`transfers_from`). The launch must have no park, no position and no buy of ours. With `copy_listed_only` (default
   true), its signer must be in the operator table. A park his buy made `skip_not_first` ends and the copy buys. A park
   whose run took his buy in as a bundle buy fires behind him itself.
 - **Bound and window.** His post-trade reserve + `copy_max_premium` (10%), sent until create + `copy_late_slots` (2).
@@ -368,5 +392,6 @@ stop).
 
 - `max_premium = 0.05`.
 - `operator_holds = false` and `[exit.default] hold_to_create_slots = 9`: every rule fire sells at create + 9.
-- `copy = "on"`, `copy_min_sol = 0.7`, `copy_listed_only = true`: copies sell one slot before his hold for the signer.
-  Most of its +4.5 SOL came on Oct 23. `"log"` journals the copies without buying.
+- `copy = "on"`, `copy_min_sol = 0.0`, `copy_min_tip_lamports = 4_000_000`, `copy_max_premium = 0.05`,
+  `copy_listed_only = true`: his tipped buys on his listed operators, sold one slot before his hold. `"log"` journals the
+  copies without buying.

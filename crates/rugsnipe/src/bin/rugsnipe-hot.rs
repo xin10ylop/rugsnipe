@@ -474,6 +474,10 @@ fn run(args: &[String]) -> Result<(), String> {
             copied: (cfg.entry.follow != rugsnipe_core::config::Follow::Off)
                 .then(|| cfg.entry.follow_wallet.parse::<pump_codec::Pubkey>().ok())
                 .flatten(),
+            // entry.copy: his trades carry their tip (copy_min_tip_lamports)
+            tip_of: (cfg.entry.copy != rugsnipe_core::config::CopyMode::Off)
+                .then(|| cfg.entry.follow_wallet.parse::<pump_codec::Pubkey>().ok())
+                .flatten(),
             max_watches: num(args, "--max-watches", 64usize)?,
             ..Default::default()
         })

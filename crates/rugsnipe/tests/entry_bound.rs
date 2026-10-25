@@ -482,6 +482,7 @@ fn the_presend_gate_decides_at_the_real_fire_point() {
             sig: sig(77),
             ordinal: 0,
             index: CI + 1,
+            tip: 0,
         };
         let mut feed = FeedMux::new(vec![
             Box::new(WireFeed::new(vec![(SLOT, tx.clone(), meta.clone())])),

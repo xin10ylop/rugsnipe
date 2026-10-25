@@ -153,7 +153,8 @@ follow_min_attempts = 2                             # a bundle wallet is followe
 follow_min_rate = 0.5                               # ... at this share of the bundled launches the wallet was in
 follow_min_dev_sol = 0.25                           # the dev buy a skipped create needs to be parked for its verdict
 copy = "off"                                        # 2026-10-25 (docs/17 s9): buy behind follow_wallet's landed buys of >= copy_min_sol in a launch's create slot or the next, on coins the rule did not buy (the rule's template, operator table, leader, tweet and follow gates do not apply; the risk caps do), bound at his post-trade price + copy_max_premium, sold one slot before his hold for the signer. Seen on the gRPC stream the copy lands about a pipeline (90 block positions) behind him; on his listed operators his 0.7 SOL+ buys copied so made +6.6 SOL over Oct 21-25, most of it on Oct 23. "log" journals `copy <mint> his <SOL> at create+<k> -> log` (no buy). Needs feeds.grpc bundle_run
-copy_min_sol = 0.7                                  # his buys of 0.7 SOL or more (his smaller ones lost money copied)
+copy_min_sol = 0.7                                  # his buys of at least this (0 = any size)
+copy_min_tip_lamports = 0                           # and his tip at least this (0 = any): 4_000_000 copies his conviction buys, which held up on his weak days (docs/17 s9); set copy_min_sol = 0.0 and copy_max_premium = 0.05 with it
 copy_max_premium = 0.10                             # the price over his fill a copy still buys at
 copy_late_slots = 2                                 # the last slot after the create a copy is sent in
 copy_listed_only = true                             # copy only the signers operators_file lists (his known operators); a copy sells one slot before his hold there. On the unlisted signers every exit tried lost. Needs operators_file

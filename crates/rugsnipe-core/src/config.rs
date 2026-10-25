@@ -1233,6 +1233,10 @@ pub struct EntryCfg {
     /// `copy <mint> his <SOL> at create+<k> -> log`, no buy; `on`: buy.
     pub copy: CopyMode,
     pub copy_min_sol: f64,
+    /// And his tip at least this (lamports; 0 = any): the conviction his own
+    /// transaction shows. Keyed on a 4M tip instead of his size, the
+    /// listed-signer copies held up on his weak days (docs/17 section 9).
+    pub copy_min_tip_lamports: u64,
     pub copy_max_premium: f64,
     pub copy_late_slots: u64,
     /// Copy only the signers `operators_file` lists (default true): his
@@ -1301,6 +1305,7 @@ impl Default for EntryCfg {
             follow_cold_stake_mult: 1.0,
             copy: CopyMode::Off,
             copy_min_sol: 0.7,
+            copy_min_tip_lamports: 0,
             copy_max_premium: 0.10,
             copy_late_slots: 2,
             copy_listed_only: true,
@@ -2292,8 +2297,15 @@ impl Config {
                     "needs feeds.grpc with bundle_run = true (his executed buys of fresh launches come from it)",
                 );
             }
-            if !(e.copy_min_sol > 0.0 && e.copy_min_sol <= 100.0) {
-                inv(&mut r, "entry.copy_min_sol", "must be in (0, 100] SOL");
+            if !(0.0..=100.0).contains(&e.copy_min_sol) {
+                inv(&mut r, "entry.copy_min_sol", "must be in [0, 100] SOL");
+            }
+            if e.copy_min_tip_lamports > 1_000_000_000 {
+                inv(
+                    &mut r,
+                    "entry.copy_min_tip_lamports",
+                    "must be at most 1 SOL (lamports)",
+                );
             }
             if !(0.0..0.5).contains(&e.copy_max_premium) {
                 inv(&mut r, "entry.copy_max_premium", "must be in [0, 0.5)");

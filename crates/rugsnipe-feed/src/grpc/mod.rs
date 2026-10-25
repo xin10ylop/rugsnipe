@@ -50,7 +50,7 @@ use crate::wiremeta;
 use crate::wirering::{wire_ring, WireSink, WireSource};
 use crate::{Feed, FeedStatus};
 use futures_util::{SinkExt, StreamExt};
-use pump_codec::constants::{MINT_AUTHORITY, PUMP_PROGRAM_ID};
+use pump_codec::constants::{MINT_AUTHORITY, PUMP_PROGRAM_ID, SYSTEM_PROGRAM_ID};
 use pump_codec::curve::{CurveState, FeeBps};
 use pump_codec::events::{events_from_inner_instructions, InnerInstruction, PumpEvent};
 use pump_codec::instructions::TradeAmounts;
@@ -115,6 +115,10 @@ pub struct GrpcConfig {
     /// [`crate::bundle::PRICE_AFTER_SLOTS`] a [`RunPrice`]
     /// ([`Grpc::take_follow`]). `None` = off.
     pub copied: Option<Pubkey>,
+    /// The wallet whose trades carry their transaction's tip
+    /// ([`TradeLite::tip`], [`transfers_from`]): the copied wallet when
+    /// `entry.copy` keys on his tip. `None` = no tip read.
+    pub tip_of: Option<Pubkey>,
     /// Subscribe to the pre-execution stream (`SubscribeDeshred`: transactions
     /// decoded from shreds before the block is replayed) instead of the
     /// post-execution `Subscribe`. Every pump transaction arrives with no
@@ -167,6 +171,7 @@ impl Default for GrpcConfig {
             bundle_run: false,
             bundle_timeout_ms: 2_000,
             copied: None,
+            tip_of: None,
             ping_ms: 5_000,
             deshred: false,
             entries: false,
@@ -604,6 +609,7 @@ pub fn trades_of(
                     slot: u.slot,
                     sig,
                     ordinal,
+                    tip: 0,
                 });
             }
         }
@@ -1107,6 +1113,7 @@ impl Adapter {
                             sig,
                             ordinal: k.min(255) as u8,
                             index,
+                            tip: 0,
                         });
                     }
                 }
@@ -1438,6 +1445,18 @@ impl Adapter {
         for t in self.trades.iter_mut() {
             t.index = index.unwrap_or(u32::MAX);
         }
+        // the copied wallet's tip on its own trades (entry.copy keys on it)
+        if let Some(w) = self.cfg.tip_of {
+            if self.trades.iter().any(|t| t.user == w) {
+                let tip = tx
+                    .message
+                    .as_ref()
+                    .map_or(0, |m| transfers_from(m, &keys, &w));
+                for t in self.trades.iter_mut().filter(|t| t.user == w) {
+                    t.tip = tip;
+                }
+            }
+        }
         if n > 0 {
             let wallet = self.cfg.wallet;
             for t in self.trades.iter() {
@@ -1591,6 +1610,33 @@ impl Adapter {
             }
         }
     }
+}
+
+/// Lamports `from` moves by the top-level System transfers of a transaction
+/// (`keys`: its full key list, static then loaded). A buyer's tips to the
+/// block engines and relays ride as such transfers, so this is the tip of
+/// the copied wallet's own buy (docs/17 section 9: his conviction).
+pub fn transfers_from(
+    m: &yellowstone_grpc_proto::prelude::Message,
+    keys: &[Pubkey],
+    from: &Pubkey,
+) -> u64 {
+    let mut sum = 0u64;
+    for ix in &m.instructions {
+        if keys.get(ix.program_id_index as usize) != Some(&SYSTEM_PROGRAM_ID) {
+            continue;
+        }
+        let d = &ix.data;
+        if d.len() < 12 || d[..4] != [2, 0, 0, 0] {
+            continue;
+        }
+        let payer = ix.accounts.first().and_then(|&a| keys.get(a as usize));
+        if payer == Some(from) {
+            let lamports = u64::from_le_bytes(d[4..12].try_into().unwrap_or([0; 8]));
+            sum = sum.saturating_add(lamports);
+        }
+    }
+    sum
 }
 
 /// The fresh mint a transaction of the copied wallet names: the wallet pays
@@ -1770,6 +1816,43 @@ mod tests {
             fees
         )
         .is_none());
+    }
+
+    #[test]
+    fn the_tip_is_what_the_wallet_moves_by_top_level_system_transfers() {
+        use yellowstone_grpc_proto::prelude::{CompiledInstruction, Message};
+        let w = Pubkey::new_unique();
+        let other = Pubkey::new_unique();
+        let tip_acct = Pubkey::new_unique();
+        let keys = vec![w, other, tip_acct, SYSTEM_PROGRAM_ID, PUMP_PROGRAM_ID];
+        let transfer = |from: u8, to: u8, lamports: u64| {
+            let mut data = vec![2, 0, 0, 0];
+            data.extend_from_slice(&lamports.to_le_bytes());
+            CompiledInstruction {
+                program_id_index: 3,
+                accounts: vec![from, to],
+                data,
+            }
+        };
+        let mut not_system = transfer(0, 2, 7_000_000);
+        not_system.program_id_index = 4;
+        let mut create_account = transfer(0, 2, 9_000_000);
+        create_account.data[0] = 0;
+        let m = Message {
+            instructions: vec![
+                transfer(0, 2, 4_000_000),
+                transfer(1, 2, 50_000_000),
+                not_system,
+                create_account,
+                transfer(0, 1, 1_000_000),
+            ],
+            ..Default::default()
+        };
+        // his two transfers; not another payer's, a pump instruction or a
+        // create-account
+        assert_eq!(transfers_from(&m, &keys, &w), 5_000_000);
+        assert_eq!(transfers_from(&m, &keys, &other), 50_000_000);
+        assert_eq!(transfers_from(&Message::default(), &keys, &w), 0);
     }
 
     #[test]
