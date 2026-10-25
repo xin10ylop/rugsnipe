@@ -155,6 +155,10 @@ def bonding_curve(mint: str) -> str:
 
 
 # ------------------------------------------------------------------------------------ HTTP
+class OutOfCredits(RuntimeError):
+    """HTTP 429 "max usage reached": the plan's credits are used up, so no retry can succeed."""
+
+
 class Api:
     """Helius JSON-RPC + Enhanced API with one global rate limit and retries. The key never
     leaves this object: every error is redacted."""
@@ -220,6 +224,10 @@ class Api:
                 if e.code in (400, 401, 403, 404):
                     # Enhanced API: "... query the API again with the `before` parameter set to <sig>"
                     return {"__http_error__": e.code, "body": self.redact(body)}
+                if e.code == 429 and "max usage" in body.lower():
+                    # 2026-10-25: retried 5 times a call (22 s), this ran the exit clocks into the unit's
+                    # 45 min timeout, so the hot loop never restarted on the new table
+                    raise OutOfCredits(f"{kind}: HTTP 429 {self.redact(body)[:120]}")
                 err = f"HTTP {e.code} {self.redact(body)[:120]}"
             except Exception as e:  # noqa: BLE001  (URLError, timeouts, bad JSON)
                 err = self.redact(e)

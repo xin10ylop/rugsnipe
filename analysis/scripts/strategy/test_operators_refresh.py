@@ -75,6 +75,34 @@ class Refresh(unittest.TestCase):
             finally:
                 os.unlink(f.name)
 
+    def test_used_up_credits_fail_at_once_and_a_rate_limit_is_retried(self):
+        import io
+        import urllib.error
+        import urllib.request
+
+        def refusal(body):
+            def urlopen(req, timeout=None):
+                raise urllib.error.HTTPError("https://x", 429, "Too Many Requests", {}, io.BytesIO(body))
+            return urlopen
+
+        real = (urllib.request.urlopen, op.time.sleep)
+        slept = []
+        op.time.sleep = slept.append
+        try:
+            api = op.Api("https://x/?api-key=SECRETKEY123", 1000)
+            urllib.request.urlopen = refusal(b'{"error":"max usage reached"}')
+            with self.assertRaises(op.OutOfCredits) as e:
+                api.rpc("getTransactionsForAddress", [])
+            self.assertNotIn("SECRETKEY123", str(e.exception))
+            self.assertEqual([w for w in slept if w >= 1], [], "no retry when the credits are gone")
+            urllib.request.urlopen = refusal(b'{"error":"rate limited"}')
+            with self.assertRaises(RuntimeError) as e:
+                api.rpc("getTransactionsForAddress", [])
+            self.assertNotIsInstance(e.exception, op.OutOfCredits)
+            self.assertEqual(len([w for w in slept if w >= 1]), 5, "a plain 429 is retried (1.5 s, 3 s, ...)")
+        finally:
+            urllib.request.urlopen, op.time.sleep = real
+
     def test_merge(self):
         now = 1_800_000_000.0
         fresh = {DEV: {"hold_slots": 10, "n": 4, "wins": 2, "pnl_sol": 0.4, "dev_sol": 4.0, "bundle_wallets": 3,

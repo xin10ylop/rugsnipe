@@ -214,6 +214,35 @@ class Clock(unittest.TestCase):
         finally:
             oc.orf.Api, oc.orf.norm_rpc_tx, oc.curve_rows = real
 
+    def test_main_stops_at_once_when_the_credits_are_used_up(self):
+        calls = []
+
+        class FakeApi:
+            def __init__(self, url, rps, cache_dir=None):
+                self.calls = {"x": 0}
+
+            def redact(self, s):
+                return str(s)
+
+            def rpc(self, method, params, cache=False):
+                calls.append(method)
+                raise oc.orf.OutOfCredits("getTransactionsForAddress: HTTP 429 max usage reached")
+
+        real = oc.orf.Api
+        oc.orf.Api = FakeApi
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "operators.json")
+        table = {f"S{k:02d}": {"hold_slots": 1, "n": 1} for k in range(40)}
+        with open(p, "w") as f:
+            json.dump(table, f)
+        try:
+            self.assertEqual(oc.main(["--rpc-url", "https://x/?api-key=K", "--table", p, "--workers", "1"]), 1)
+            self.assertLess(len(calls), 5, "no call per signer after the first refusal")
+            with open(p) as f:
+                self.assertEqual(json.load(f), table, "the table is left as it is")
+        finally:
+            oc.orf.Api = real
+
     def test_main_drops_a_signer_whose_launches_nobody_follows(self):
         # DEV: 12 launches with followers (kept, clocked as above); B2: 12 launches nobody buys after the bundle
         mints = {DEV: {f"M{k:02d}pump": 1000 + 100 * k for k in range(12)},

@@ -273,6 +273,8 @@ def main(argv: list[str] | None = None) -> int:
         for la in launches_of(api, s, cutoff):
             try:
                 meas.append(measure(curve_rows(api, la["mint"], la["cs"]), la["mint"], a.threshold, a.owner))
+            except orf.OutOfCredits:
+                raise
             except RuntimeError as e:
                 print(f"operator_clock: {s} {la['mint']}: {api.redact(e)}", file=sys.stderr)
         return s, decide(meas, int(table[s].get("hold_his", table[s]["hold_slots"])), a)
@@ -283,6 +285,12 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 s, c = fut.result()
                 clocks[s] = c
+            except orf.OutOfCredits as e:
+                # no clock can be measured: stop now and change nothing, so the unit's next step (the
+                # hot loop's restart on the new table) runs
+                ex.shutdown(wait=False, cancel_futures=True)
+                print(f"operator_clock: {api.redact(e)}: out of API credits, the table is left as it is", file=sys.stderr)
+                return 1
             except RuntimeError as e:  # this signer keeps the wallet's hold
                 print(f"operator_clock: {api.redact(e)}", file=sys.stderr)
     n_before = len(table)
