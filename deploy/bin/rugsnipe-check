@@ -1,6 +1,8 @@
 #!/bin/bash
 # rugsnipe-check: one screen with everything needed to judge the live bot (box helper; copy to ~/check.sh).
-#   bash ~/check.sh
+#   bash ~/check.sh          everything
+#   bash ~/check.sh short    the current bot only: trading or not, the wallet, results since the era, copies vs the rule's
+#                            own buys, the last trades (no bid A/B, routes, tiers, tweet, feed, dumper or follow tables)
 # Reads only: the hot unit's journal (status line, operator/tier lines), /etc/rugsnipe/rugsnipe.toml and
 # /var/lib/rugsnipe/state.db (read-only). Needs sudo for the journal and the config.
 # Test hooks: CHECK_STATUS (a status line instead of the journal's), CHECK_TIERS (operator lines), CHECK_TWEETS (tweet lines),
@@ -8,6 +10,7 @@
 # CHECK_RULE_T0 (the tweet rule's start, unix s; empty = none), CHECK_AB_T0 (the bid A/B's start, unix s),
 # CHECK_ERA_T0 (the era's start, unix s, instead of ~/.rugsnipe-era),
 # CHECK_DB (another state.db), CHECK_PRINT_SQL=1 (print the SQL and stop).
+SHORT=0; [ "${1:-}" = short ] && SHORT=1
 DB=${CHECK_DB:-/var/lib/rugsnipe/state.db}
 CFG=/etc/rugsnipe/rugsnipe.toml
 now=$(date -u +%s)
@@ -129,6 +132,8 @@ select sc.scope,
                 - coalesce((select sum(r.fail_cost) from races r where r.fail_reason is not null and r.t_ms >= sc.ms), 0)) / 1e9, 4)) net_sol
 from scopes sc;
 .print
+"
+SQL_LONG="
 .print == buy bid since the A/B started (bid.ab_by_tier: the mints whose first byte is odd bid the second arm, the rest bid.by_tier)
 select round(b.bid / 1e6, 2) bid_m, b.attempts, coalesce(l.landed, 0) landed,
        round(100.0 * coalesce(l.landed, 0) / max(b.attempts, 1), 0) land_pct, coalesce(l.closed, 0) closed,
@@ -193,6 +198,8 @@ select coalesce((select f.yes || ' ' || f.kind || ' ' || f.heat || ' ' || f.mode
        round(sum(net) / 1e9, 4) net_sol
 from pos p where state = 'closed' and cost > 0 and t_ms >= ${ERA:-$D0} * 1000 group by follow order by trades desc;
 .print
+"
+SQL_TAIL="
 .print == copy $SINCE (entry.copy, docs/17 section 9): his buys copied (buy) or journaled (log), and our closed trades,
 .print    the copies apart from the rule's own fires
 select act, count(*) copies, sum(at = 0) at_create, sum(at = 1) next_slot, round(avg(his_sol), 2) his_avg_sol,
@@ -219,6 +226,7 @@ from positions p where p.state <> 'closed';
 select day, round(realized / 1e9, 4) realized_sol, buys, killed, coalesce(kill_reason, '-') kill_reason
 from risk where day = date('now');
 "
+if [ "$SHORT" = 1 ]; then SQL="$SQL$SQL_TAIL"; else SQL="$SQL$SQL_LONG$SQL_TAIL"; fi
 if [ "${CHECK_PRINT_SQL:-}" = 1 ]; then printf '%s\n' "$SQL"; exit 0; fi
 
 # ---- header: health, wallet, config, feeds, gates
@@ -231,6 +239,23 @@ grpc_age=$(g 'grpc: creates [0-9]+ miss [0-9]+ reconnects [0-9]+ since_frame [0-
 desh_rc=$(g 'shreds: creates [0-9]+ miss [0-9]+ reconnects [0-9]+' | grep -oE '[0-9]+$')
 table=$(num "$(sudo journalctl -u rugsnipe-hot -o cat _PID="$PID" 2>/dev/null | grep -m1 -oE 'operators: [0-9]+ signers')")
 next=$(systemctl list-timers rugsnipe-operators.timer --no-legend 2>/dev/null | awk '{print $3}' | cut -c1-5)
+if [ "$SHORT" = 1 ]; then
+  killed=$(g 'killed [a-z_]+' | awk '{ print $2 }')
+  paused=$(g 'BUYS PAUSED|FEED STALE')
+  if [ "$(svc rugsnipe-hot)" != active ]; then state="NO: the hot service is $(svc rugsnipe-hot)"
+  elif [ -z "$killed" ]; then state="unknown yet (no status line from this process: the hot loop prints one every minute)"
+  elif [ "$killed" != no ]; then state="NO: stopped by the $killed kill (bash ~/check.sh shows its trigger; unkill once the cause is gone)"
+  elif [ -n "$paused" ]; then state="NO: $paused"
+  else state="yes"; fi
+  echo "== $(date -u +%H:%M:%S) UTC  TRADING: $state"
+  echo "   wallet $( [ -n "$wallet" ] && sol "$wallet" || echo '?') SOL  open positions $(q "$open")  daily stop $(sol "$(tr -d '_' <<<"$(cfgv max_daily_loss_lamports)")") SOL"
+  cp_=$(g 'copy (log|on) seen [0-9]+ buy [0-9]+ log [0-9]+ passed [0-9]+')
+  echo "   copy (this process): $(q "$cp_")"
+  echo "   sends (this process): $(q "$(g 'probe attempts [0-9]+ landed [0-9]+ failed [0-9]+ dropped [0-9]+' | sed 's/probe //')")"
+  echo "== results: this process (since $(date -u -d "@$T0" +%H:%M) UTC), $RN (since $(date -u -d "@${TR:-$D0}" '+%b %d %H:%M') UTC) and today"
+  printf '%s\n' "$SQL" | sudo -u rugsnipe sqlite3 -readonly -header -column "$DB"
+  exit 0
+fi
 echo "== $(date -u +%H:%M:%S) UTC  hot $(svc rugsnipe-hot)  guard $(svc rugsnipe-guard)  up $(q "$up")s  $(q "$(g 'killed [a-z_]+')")  $(g 'BUYS PAUSED|FEED STALE')"
 [ -n "$up" ] || echo "   (no status line from this process yet: the hot loop prints one every minute)"
 echo "   wallet $( [ -n "$wallet" ] && sol "$wallet" || echo '?') SOL  open $(q "$open")  free sell nonces $(q "$nonces")  table $(q "$table") signers  next refresh $(q "$next") UTC"
