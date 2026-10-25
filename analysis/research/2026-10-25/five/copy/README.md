@@ -33,6 +33,7 @@ The copy (a bot that buys when his buy shows):
 - `move.py`: the price over his fill when a copy lands, and its move to the exit, listed vs unlisted.
 - `weakdays.py`, `weakdays2.py`: filters for his weak days, known before our buy: his tip and size, the operator hot for
   him, his recent run, our landing price, a stop-loss; tips crossed with the copy's own bound.
+- `stakes.py`: the tip-keyed copy at 0.25 / 0.5 / 1 SOL and at his own size, next to his result on the same coins.
 
 The replay of the copy trigger itself: `crates/rugsnipe/tests/replay_days.rs` with `entry.copy = "on"` in the replay
 dir's `config.toml` (his buys of create + 1..3 then reach the hot loop as live).
