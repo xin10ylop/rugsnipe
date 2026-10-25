@@ -116,18 +116,41 @@ tape and are left out of every row alike.
   - `on`: both.
 - `rugsnipe-check` has a follow section: verdicts by kind, and our closed trades by verdict.
 
-## 6. Switching it on
+## 6. Last night, replayed (Oct 25 00:00-09:13 UTC)
+
+We lost 0.10 SOL on 72 trades while he made +1.07 SOL on 86. The sets barely overlapped: 62 of our trades were coins he
+never attempted, and we tried none of his 86. Replayed with only what the bot would have known (`night*.py`: his attempts
+from Oct 24 12:00, each bundle wallet's real launches, the distinct coins it bought):
+
+| | followed (K 2, R 0.5) | not followed |
+|---|---|---|
+| our real trades | 12, +0.19 SOL (+3.2% a trade) | 60, **-0.28 SOL** (-0.9%) |
+| his real trades | 16, +0.51 SOL (+4.1%) | 70, +0.57 SOL (+1.0%) |
+
+At R 0.3 his followed trades carry +0.95 of his +1.07 SOL (27 trades). The night under each mode, counting only coins
+with a European slot leader (our `leader_regions`) and landing the added coins at our real rate (38%):
+
+| | actual | gate | add | on |
+|---|---|---|---|---|
+| R 0.5 | -0.10 SOL | +0.18 | +0.13 | +0.40 |
+| R 0.3 | -0.10 SOL | +0.09 | +0.40 | **+0.59** |
+
+His night: +0.95 SOL. In the backtest at R 0.3 the coins `gate` drops are worth +0.17% (nothing). `on` makes +4.30% a
+trade on 1,134 coins (total +4,872, as much as `add`'s +4,949 on 1,577), and the added coins are worth +7.40% (220).
+**Use `on` with `follow_min_rate = 0.3`.** The rest of the gap to him is landing (38%) and the slots the leader filter skips.
+
+## 7. Switching it on
 
 The tracker starts empty and learns from his live attempts; the tests above had 12 h of warm-up. `log` learns exactly like
-`add`, so start in `log`. When `journalctl -u rugsnipe-hot | grep '^follow:'` shows followed wallets and the `follow ... ->
-log` lines look right (an hour or two), switch to `add`:
+`on`, so start in `log`. When `journalctl -u rugsnipe-hot | grep '^follow:'` shows followed wallets and the `follow ... ->
+log` lines look right (an hour or two), switch to `on`:
 
 ```toml
 [entry]
-follow = "add"                 # first "log"
+follow = "on"                  # first "log"
 follow_wallet = "AHwJSnFNUiAU9FfT5ewW2osqMo938WtL7KhfsJyfpaN2"
 follow_min_attempts = 2
-follow_min_rate = 0.5
+follow_min_rate = 0.3
 ```
 
 Not built: the creator and signer as identities (+6-8 points of outside coverage, section 3), and seeding the records from
