@@ -112,6 +112,9 @@ pub mod code {
     /// The tweet feed (`entry.tweet_feed = "on"`) called the coin a copy: its
     /// ticker or name matched only posts an earlier coin had taken.
     pub const TWEETFEED_COPY: u8 = 0x60;
+    /// `entry.follow = "gate" | "on"` (docs/16): none of the coin's bundle
+    /// wallets is one the copied wallet follows.
+    pub const NOT_FOLLOWED: u8 = 0x61;
     /// Metrics only: a paper decision that a real mode would have skipped
     /// (rslog keeps the RiskGate code and the `would_skip` reason).
     pub const PAPER_WOULD_SKIP: u8 = 0x1f;
@@ -169,6 +172,7 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (code::TWEET_ERROR, "skip_tweet_error"),
     (code::TWEET_LATE, "skip_tweet_late"),
     (code::TWEETFEED_COPY, "skip_tweetfeed_copy"),
+    (code::NOT_FOLLOWED, "skip_not_followed"),
 ];
 
 /// Label of a decision code.

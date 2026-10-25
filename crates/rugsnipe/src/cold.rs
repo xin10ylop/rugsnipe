@@ -116,6 +116,19 @@ pub struct ColdCfg {
     pub leader_lane: Option<crate::leader::LeaderCfg>,
     /// A latch restored from `state.db` at start.
     pub restored_latch: Option<rugsnipe_state::killkv::Latch>,
+    /// The follow tracker (`entry.follow`; `None`: off).
+    pub follow: Option<FollowCfg>,
+}
+
+/// `entry.follow`'s tracker settings (docs/16).
+#[derive(Debug, Clone)]
+pub struct FollowCfg {
+    /// The copied wallet (never counted as an operator's).
+    pub wallet: Pubkey,
+    pub min_attempts: u32,
+    pub min_rate: f64,
+    /// Where the records persist (`follow.json` beside `state.db`).
+    pub path: Option<PathBuf>,
 }
 
 /// Telegram credentials (zeroized on drop; never printed).
@@ -199,6 +212,8 @@ pub struct PostExecFeed {
     pub watch: Box<dyn Fn(Pubkey, bool) + Send>,
     pub stats: Box<dyn Fn() -> serde_json::Value + Send>,
     pub bundles: Option<std::sync::mpsc::Receiver<rugsnipe_feed::bundle::BundleRun>>,
+    /// The copied wallet's attempts (`entry.follow`).
+    pub attempts: Option<std::sync::mpsc::Receiver<rugsnipe_feed::bundle::CopiedAttempt>>,
 }
 
 impl core::fmt::Debug for PostExecFeed {
@@ -795,6 +810,9 @@ struct Cold {
     mint_info: HashMap<Pubkey, (u64, Pubkey, Pubkey)>,
     /// The operator-dump tracker (every bundled launch the feed shows).
     dump: crate::dumpers::DumpTracker,
+    /// The follow tracker (`entry.follow`).
+    follow: Option<crate::follow::FollowTracker>,
+    follow_minutes: u64,
 }
 
 /// A burn not confirmed by a new nonce value after this many slots is re-sent.
@@ -870,7 +888,38 @@ impl Cold {
             deadman,
             mint_info: HashMap::new(),
             dump: crate::dumpers::DumpTracker::new(dumpers),
+            follow: None,
+            follow_minutes: 0,
         }
+        .with_follow()
+    }
+
+    /// The follow tracker, its records loaded (`entry.follow`).
+    fn with_follow(mut self) -> Self {
+        let Some(fc) = self.p.cfg.follow.clone() else {
+            return self;
+        };
+        let mut t = crate::follow::FollowTracker::new(
+            self.p.shared.follow.clone(),
+            fc.min_attempts,
+            fc.min_rate,
+            vec![fc.wallet, self.p.cfg.owner],
+        );
+        if let Some(path) = &fc.path {
+            match t.load(path) {
+                Ok(n) => eprintln!(
+                    "follow: {} bundle wallets from {}, {} followed (>= {} attempts at >= {:.0}%)",
+                    n,
+                    path.display(),
+                    t.len(),
+                    fc.min_attempts,
+                    fc.min_rate * 100.0
+                ),
+                Err(e) => eprintln!("follow: records not loaded ({e}): starting empty"),
+            }
+        }
+        self.follow = Some(t);
+        self
     }
 
     /// A kill trigger fired: in probe/live latch the kill (first reason
@@ -1243,6 +1292,18 @@ impl Cold {
         }
         for r in runs {
             self.on_bundle_run(r);
+        }
+        let mut atts = vec![];
+        if let Some(rx) = self.p.post_exec.as_ref().and_then(|f| f.attempts.as_ref()) {
+            while let Ok(a) = rx.try_recv() {
+                atts.push(a);
+            }
+        }
+        if let Some(t) = self.follow.as_mut() {
+            for a in atts {
+                t.on_attempt(a.mint, a.slot);
+            }
+            t.publish();
         }
         let mut evs = vec![];
         if let Some(rx) = self.lane_rx.as_mut() {
@@ -1838,7 +1899,9 @@ impl Cold {
                 lock(&self.p.report)
                     .probe
                     .error(format!("guard handoff: {detail}"));
-                self.alerts.send(format!("CRITICAL: hot cannot sell {mint}: handed to the guard ({why}, {unsold_ms} ms)"));
+                self.alerts.send(format!(
+                    "CRITICAL: hot cannot sell {mint}: handed to the guard ({why}, {unsold_ms} ms)"
+                ));
                 if let Some(l) = &ledger {
                     l.kv(
                         &format!("guard_handoff:{mint}"),
@@ -2645,6 +2708,13 @@ impl Cold {
             })
             .collect();
         let b = crate::filter::bundle_features(&trades, &cset, None);
+        if let Some(t) = self.follow.as_mut() {
+            if let Some(b) = &b {
+                t.on_run(run.mint, run.slot, &b.wallets);
+            }
+            t.prune(run.slot);
+            t.publish();
+        }
         let close_ms = run.run_closed_ns.saturating_sub(run.create_ns) as f64 / 1e6;
         {
             let mut r = lock(&self.p.report);
@@ -2686,9 +2756,33 @@ impl Cold {
         }
     }
 
+    /// The follow records to disk every minute, a journal line every 10.
+    fn follow_minute(&mut self) {
+        let Some(t) = self.follow.as_ref() else {
+            return;
+        };
+        if let Some(path) = self.p.cfg.follow.as_ref().and_then(|f| f.path.as_ref()) {
+            if let Err(e) = t.save(path) {
+                eprintln!("follow: save failed: {e}");
+            }
+        }
+        self.follow_minutes += 1;
+        if self.follow_minutes % 10 == 1 {
+            eprintln!(
+                "follow: {} bundle wallets, {} followed; runs {} attempts {} unmatched {}",
+                t.wallets(),
+                t.len(),
+                t.runs,
+                t.attempts,
+                t.unmatched
+            );
+        }
+    }
+
     /// Disk, clock (every minute), the dead-man check, Telegram's hourly
     /// summary.
     fn every_minute(&mut self) {
+        self.follow_minute();
         let t = self.p.cfg.triggers.clone();
         if let Some(dir) = &t.state_dir {
             match trig::disk_used_pct(dir) {

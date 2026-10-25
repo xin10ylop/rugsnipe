@@ -34,6 +34,19 @@ pub struct RunTrade {
     pub t: u64,
 }
 
+/// A transaction of the copied wallet (`[entry] follow_wallet`) that names a
+/// mint created in the last slots: one of its attempts on a fresh launch,
+/// landed or failed (its failed buys land too: they are most of its
+/// attempts). For the cold thread's follow tracker (`rugsnipe::follow`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CopiedAttempt {
+    pub mint: Pubkey,
+    pub slot: u64,
+    /// The mint's create slot.
+    pub create_slot: u64,
+    pub failed: bool,
+}
+
 /// Why a run was handed over.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CloseReason {

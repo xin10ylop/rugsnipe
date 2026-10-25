@@ -11,6 +11,7 @@
 //! | `wallet` | transactions that mention our wallet (failed ones too) | [`Payload::Trade`] for each of our own pump TradeEvents (the real fill lane's own trade) |
 //! | `mints` | transactions that mention a held mint (watch / unwatch at runtime) | [`Payload::Trade`] for every TradeEvent of a held mint (exit engine) |
 //! | `pump` | (`bundle_run`) every pump program transaction | the creation slot's trades of each new mint, assembled into a [`BundleRun`] for the cold thread |
+//! | `copied` | (`copied`, with `bundle_run`) transactions signed by the copied wallet (failed ones too) | a [`CopiedAttempt`] for the cold thread when one names a mint created in the last 4 slots |
 //! | `slots` | slot updates | `last_slot` (drift and stale detection) |
 //!
 //! * `x-token` header from the credential named by `[feeds] grpc.x_token`;
@@ -37,7 +38,7 @@ pub mod convert;
 pub mod mock;
 
 use crate::buf::FeedBuf;
-use crate::bundle::{BundleAssembler, BundleRun, RunTrade};
+use crate::bundle::{BundleAssembler, BundleRun, CopiedAttempt, RunTrade};
 use crate::clock::mono_ns;
 use crate::decode::decode_logs;
 use crate::event::{FeedEvent, FeedSrc, Payload, RunDoneLite, Sig, TradeLite};
@@ -76,6 +77,7 @@ pub const F_CREATES: &str = "creates";
 pub const F_WALLET: &str = "wallet";
 pub const F_MINTS: &str = "mints";
 pub const F_PUMP: &str = "pump";
+pub const F_COPIED: &str = "copied";
 pub const F_SLOTS: &str = "slots";
 
 /// Settings (`[feeds] grpc = { enabled, url, x_token, stale_ms, bundle_run }`).
@@ -105,6 +107,10 @@ pub struct GrpcConfig {
     /// bundle run ([`BundleRun`], to the cold thread).
     pub bundle_run: bool,
     pub bundle_timeout_ms: u64,
+    /// The copied wallet (`copied` filter, with `bundle_run`): its
+    /// transactions on the mints of the last creates become
+    /// [`CopiedAttempt`]s ([`Grpc::take_attempts`]). `None` = off.
+    pub copied: Option<Pubkey>,
     /// Subscribe to the pre-execution stream (`SubscribeDeshred`: transactions
     /// decoded from shreds before the block is replayed) instead of the
     /// post-execution `Subscribe`. Every pump transaction arrives with no
@@ -156,6 +162,7 @@ impl Default for GrpcConfig {
             max_watches: 64,
             bundle_run: false,
             bundle_timeout_ms: 2_000,
+            copied: None,
             ping_ms: 5_000,
             deshred: false,
             entries: false,
@@ -185,6 +192,10 @@ pub struct GrpcStats {
     pub convert_errors: AtomicU64,
     pub bundle_runs: AtomicU64,
     pub bundle_drops: AtomicU64,
+    /// The copied wallet's attempts handed to the cold thread / dropped
+    /// (channel full).
+    pub copied_attempts: AtomicU64,
+    pub copied_drops: AtomicU64,
     pub resubscribes: AtomicU64,
     /// Highest slot of any update (slot or transaction).
     pub slot: AtomicU64,
@@ -199,6 +210,7 @@ pub struct Grpc {
     ctl: mpsc::UnboundedSender<Control>,
     stats: Arc<GrpcStats>,
     bundles: Option<std::sync::mpsc::Receiver<BundleRun>>,
+    attempts: Option<std::sync::mpsc::Receiver<CopiedAttempt>>,
 }
 
 /// Cloneable control handle (watch / unwatch held mints from the cold
@@ -240,8 +252,10 @@ impl Grpc {
         let (ctl, ctl_rx) = mpsc::unbounded_channel();
         let stats = Arc::new(GrpcStats::default());
         let (btx, brx) = std::sync::mpsc::sync_channel::<BundleRun>(1_024);
+        let (atx, arx) = std::sync::mpsc::sync_channel::<CopiedAttempt>(1_024);
         let st = stats.clone();
         let bundle = cfg.bundle_run;
+        let copied = cfg.bundle_run && cfg.copied.is_some();
         let h = std::thread::Builder::new()
             .name(format!("feed-{}", src.name()))
             .spawn(move || {
@@ -253,6 +267,7 @@ impl Grpc {
                     Err(_) => return,
                 };
                 let mut a = Adapter::new(cfg, sink, wsink, st, btx);
+                a.attempts = Some(atx);
                 rt.block_on(a.run(stop, ctl_rx));
             })?;
         events.set_thread(h);
@@ -263,6 +278,7 @@ impl Grpc {
             ctl,
             stats,
             bundles: bundle.then_some(brx),
+            attempts: copied.then_some(arx),
         })
     }
 
@@ -285,6 +301,12 @@ impl Grpc {
     /// The bundle-run receiver (with `bundle_run`), for the cold thread.
     pub fn take_bundles(&mut self) -> Option<std::sync::mpsc::Receiver<BundleRun>> {
         self.bundles.take()
+    }
+
+    /// The copied wallet's attempts (with `copied` and `bundle_run`), for
+    /// the cold thread.
+    pub fn take_attempts(&mut self) -> Option<std::sync::mpsc::Receiver<CopiedAttempt>> {
+        self.attempts.take()
     }
 
     /// Stop the adapter thread and wait for it.
@@ -348,6 +370,11 @@ pub fn build_request(cfg: &GrpcConfig, mints: &[Pubkey]) -> SubscribeRequest {
             F_PUMP.to_string(),
             tx(vec![PUMP_PROGRAM_ID.to_string()], false),
         );
+        if let Some(c) = cfg.copied {
+            // failed transactions too: most of its attempts fail its own guard
+            req.transactions
+                .insert(F_COPIED.to_string(), tx(vec![c.to_string()], true));
+        }
     }
     req.slots.insert(
         F_SLOTS.to_string(),
@@ -582,6 +609,8 @@ struct Adapter {
     stats: Arc<GrpcStats>,
     health: Arc<FeedHealth>,
     bundles: std::sync::mpsc::SyncSender<BundleRun>,
+    /// The copied wallet's attempts (`copied`), to the cold thread.
+    attempts: Option<std::sync::mpsc::SyncSender<CopiedAttempt>>,
     asm: BundleAssembler,
     mints: Vec<Pubkey>,
     mint_set: HashSet<Pubkey>,
@@ -624,6 +653,7 @@ impl Adapter {
             stats,
             health,
             bundles,
+            attempts: None,
             trades: Vec::with_capacity(64),
             meta_buf: Vec::with_capacity(16 * 1024),
             last_pos: (0, 0),
@@ -1346,6 +1376,28 @@ impl Adapter {
                 }
             }
         }
+        // the copied wallet's own transaction on a mint of the last creates
+        // (its buy at create + 0 or + 1, landed or rejected by its guard)
+        if has(F_COPIED) {
+            if let Some((mint, cs)) = copied_mint(&keys, &self.recent, self.cfg.copied) {
+                if let Some(a) = &self.attempts {
+                    let ok = a
+                        .try_send(CopiedAttempt {
+                            mint,
+                            slot,
+                            create_slot: cs,
+                            failed,
+                        })
+                        .is_ok();
+                    let c = if ok {
+                        &self.stats.copied_attempts
+                    } else {
+                        &self.stats.copied_drops
+                    };
+                    c.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }
         let mut created: Option<Pubkey> = None;
         if has(F_CREATES) && !failed {
             self.meta_buf.clear();
@@ -1492,6 +1544,22 @@ impl Adapter {
             }
         }
     }
+}
+
+/// The fresh mint a transaction of the copied wallet names: the wallet pays
+/// the fee (its own transaction, not one that only mentions it) and one of
+/// its keys is a mint created in the last slots (`recent`: mint -> create
+/// slot). `None` otherwise.
+pub fn copied_mint(
+    keys: &[Pubkey],
+    recent: &HashMap<Pubkey, u64>,
+    copied: Option<Pubkey>,
+) -> Option<(Pubkey, u64)> {
+    let c = copied?;
+    if keys.first() != Some(&c) {
+        return None;
+    }
+    keys.iter().find_map(|k| recent.get(k).map(|s| (*k, *s)))
 }
 
 /// What the adapter-side decode of a `creates`-filter transaction found.
@@ -1654,6 +1722,25 @@ mod tests {
     }
 
     #[test]
+    fn a_copied_wallet_transaction_names_the_fresh_mint_it_pays_for() {
+        let (a, m, other) = (
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        );
+        let recent = HashMap::from([(m, 100u64)]);
+        assert_eq!(
+            copied_mint(&[a, other, m], &recent, Some(a)),
+            Some((m, 100))
+        );
+        // a transaction that only mentions it (a transfer to it) is not its own
+        assert_eq!(copied_mint(&[other, a, m], &recent, Some(a)), None);
+        // no fresh mint in it, or no copied wallet set
+        assert_eq!(copied_mint(&[a, other], &recent, Some(a)), None);
+        assert_eq!(copied_mint(&[a, m], &recent, None), None);
+    }
+
+    #[test]
     fn request_has_every_filter() {
         let w = Pubkey::new_unique();
         let m = Pubkey::new_unique();
@@ -1676,6 +1763,33 @@ mod tests {
             vec![PUMP_PROGRAM_ID.to_string()]
         );
         assert!(r.slots.contains_key(F_SLOTS));
+        assert!(
+            !r.transactions.contains_key(F_COPIED),
+            "no copied wallet set"
+        );
+        let a = Pubkey::new_unique();
+        let cr = build_request(
+            &GrpcConfig {
+                bundle_run: true,
+                copied: Some(a),
+                ..Default::default()
+            },
+            &[],
+        );
+        let cf = &cr.transactions[F_COPIED];
+        assert_eq!(cf.account_include, vec![a.to_string()]);
+        assert_eq!(cf.failed, None, "its failed attempts are streamed too");
+        let no_run = build_request(
+            &GrpcConfig {
+                copied: Some(a),
+                ..Default::default()
+            },
+            &[],
+        );
+        assert!(
+            !no_run.transactions.contains_key(F_COPIED),
+            "needs bundle_run"
+        );
         let bare = build_request(&GrpcConfig::default(), &[]);
         assert_eq!(bare.transactions.len(), 1, "creates only");
         assert!(ping_request(3).ping.is_some_and(|p| p.id == 3));

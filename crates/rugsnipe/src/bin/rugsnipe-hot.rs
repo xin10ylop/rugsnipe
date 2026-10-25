@@ -470,6 +470,10 @@ fn run(args: &[String]) -> Result<(), String> {
             stale_ms: cfg.feeds.grpc.stale_ms,
             wallet,
             bundle_run: cfg.feeds.grpc.bundle_run,
+            // entry.follow: the copied wallet's attempts (docs/16)
+            copied: (cfg.entry.follow != rugsnipe_core::config::Follow::Off)
+                .then(|| cfg.entry.follow_wallet.parse::<pump_codec::Pubkey>().ok())
+                .flatten(),
             max_watches: num(args, "--max-watches", 64usize)?,
             ..Default::default()
         })
@@ -511,6 +515,7 @@ fn run(args: &[String]) -> Result<(), String> {
             }
         }
         let bundles = g.take_bundles();
+        let attempts = g.take_attempts();
         let (hw, hs) = (h.clone(), h.clone());
         post_exec = Some(rugsnipe::cold::PostExecFeed {
             health: h.health().clone(),
@@ -530,10 +535,12 @@ fn run(args: &[String]) -> Result<(), String> {
                     "slot_updates": s.slot_updates.load(R), "pings": s.pings.load(R),
                     "reordered": s.reordered.load(R), "convert_errors": s.convert_errors.load(R),
                     "bundle_runs": s.bundle_runs.load(R), "bundle_drops": s.bundle_drops.load(R),
+                    "copied_attempts": s.copied_attempts.load(R), "copied_drops": s.copied_drops.load(R),
                     "resubscribes": s.resubscribes.load(R),
                 })
             }),
             bundles,
+            attempts,
         });
         let hl = h.clone();
         grpc_stats_line = Some(Box::new(move || {
@@ -1024,6 +1031,19 @@ fn run(args: &[String]) -> Result<(), String> {
             } else {
                 String::new()
             };
+            // the follow verdicts (docs/16): rule coins followed / not / gated,
+            // the rule's skips parked for the verdict followed / not / bought
+            let follow = app
+                .hot
+                .follow_desc()
+                .map(|(mode, n)| {
+                    let f = c.follow;
+                    format!(
+                        " | follow {mode} set {n} rule yes {} no {} gated {} skips yes {} no {} added {}",
+                        f[0], f[1], f[2], f[3], f[4], f[5]
+                    )
+                })
+                .unwrap_or_default();
             // the tweet check (docs/13): requests, verdicts by kind, when
             // they came (create slot / next / later), the gate's skips/fires
             let tweet = app
@@ -1078,7 +1098,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 _ => String::new(),
             };
             eprintln!(
-                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {}{gate}{presend}{template}{tweet}{feed} | {kill}{g} | {} | {}",
+                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {}{gate}{presend}{template}{follow}{tweet}{feed} | {kill}{g} | {} | {}",
                 t0.elapsed().as_secs(),
                 c.events,
                 c.creates,

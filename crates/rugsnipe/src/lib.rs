@@ -38,6 +38,7 @@ pub mod e1;
 pub mod e2;
 pub mod filter;
 pub mod firstseen;
+pub mod follow;
 pub mod guard;
 pub mod hot;
 pub mod inflight;

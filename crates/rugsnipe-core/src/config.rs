@@ -1178,6 +1178,24 @@ pub struct EntryCfg {
     /// night's three big copy losses dumped in the slot before the cut sell
     /// landed.
     pub tweet_cut_tip_lamports: u64,
+    /// The operators the copied wallet follows, by their bundle wallets
+    /// (2026-10-25, docs/16): `follow_wallet`'s attempts (landed or failed,
+    /// from the gRPC `copied` filter) count per bundle wallet against the
+    /// bundled launches that wallet was in; a wallet with at least
+    /// `follow_min_attempts` attempts at a rate of at least
+    /// `follow_min_rate` is followed. At the fire a coin is followed when
+    /// one of its bundle wallets is. `off` (default); `log`: journal
+    /// `follow <mint> yes|no` for the coins the rule fires and park the
+    /// creates the rule skips (dev buy, uri host, operator table, tier)
+    /// with a dev buy of at least `follow_min_dev_sol`, to journal theirs
+    /// too, no buy; `gate`: the rule's coins must be followed
+    /// (`skip_not_followed`); `add`: the rule unchanged, and a followed
+    /// coin the rule skips fires too; `on`: both.
+    pub follow: Follow,
+    pub follow_wallet: String,
+    pub follow_min_attempts: u32,
+    pub follow_min_rate: f64,
+    pub follow_min_dev_sol: f64,
 }
 impl Default for EntryCfg {
     fn default() -> Self {
@@ -1227,6 +1245,11 @@ impl Default for EntryCfg {
             tweet_feed_keys: vec!["TWEETSTREAM_KEY".into()],
             tweet_feed_window_s: 1_800,
             tweet_cut_tip_lamports: 0,
+            follow: Follow::Off,
+            follow_wallet: String::new(),
+            follow_min_attempts: 2,
+            follow_min_rate: 0.5,
+            follow_min_dev_sol: 0.25,
         }
     }
 }
@@ -1357,6 +1380,37 @@ pub enum HiddenDevBuy {
     Skip,
     /// Parked; the dev buy and the run from the executed trades.
     Grpc,
+}
+
+/// `entry.follow`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Follow {
+    #[default]
+    Off,
+    /// Journal the verdict (and park the rule's skips to journal them).
+    Log,
+    /// The rule's coins must be followed.
+    Gate,
+    /// A followed coin the rule skips fires too.
+    Add,
+    /// Gate and add.
+    On,
+}
+
+impl Follow {
+    /// The creates the rule skips are parked for their verdict.
+    pub fn parks_skips(self) -> bool {
+        matches!(self, Self::Log | Self::Add | Self::On)
+    }
+    /// A followed coin the rule skips is bought.
+    pub fn adds(self) -> bool {
+        matches!(self, Self::Add | Self::On)
+    }
+    /// The rule's coins must be followed.
+    pub fn gates(self) -> bool {
+        matches!(self, Self::Gate | Self::On)
+    }
 }
 
 /// `entry.dumper_skip`.
@@ -2109,6 +2163,42 @@ impl Config {
             );
         }
         let e = &self.entry;
+        if e.follow != Follow::Off {
+            if e.follow_wallet.parse::<pump_codec::Pubkey>().is_err() {
+                inv(
+                    &mut r,
+                    "entry.follow_wallet",
+                    "the copied wallet (base58) whose attempts teach the follow set",
+                );
+            }
+            if !(self.feeds.grpc.enabled && self.feeds.grpc.bundle_run) {
+                inv(
+                    &mut r,
+                    "entry.follow",
+                    "needs feeds.grpc with bundle_run = true (the bundle wallets and the copied wallet's attempts come from it)",
+                );
+            }
+            if !(1..=1_000).contains(&e.follow_min_attempts) {
+                inv(&mut r, "entry.follow_min_attempts", "must be in 1..=1000");
+            }
+            if !(e.follow_min_rate > 0.0 && e.follow_min_rate <= 1.0) {
+                inv(&mut r, "entry.follow_min_rate", "must be in (0, 1]");
+            }
+            if !(e.follow_min_dev_sol >= 0.0 && e.follow_min_dev_sol < 1_000.0) {
+                inv(
+                    &mut r,
+                    "entry.follow_min_dev_sol",
+                    "must be in [0, 1000) SOL",
+                );
+            }
+            if e.follow != Follow::Log && !e.require_bundle {
+                inv(
+                    &mut r,
+                    "entry.follow",
+                    "gate / add / on need require_bundle = true (the verdict is read on the parked bundle run)",
+                );
+            }
+        }
         if e.tweet_cut_tip_lamports > 50_000_000 {
             inv(
                 &mut r,

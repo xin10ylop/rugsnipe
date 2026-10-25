@@ -55,7 +55,7 @@ use crate::operators::{
     bundle_shape_ok, bundle_wallet_count, create_signer, in_creator_set, OpRule, Operators,
 };
 use crate::setup::{min_tokens_out, min_tokens_out_at, op_armed, ArmState, Templates};
-use crate::stats::{code, HotStats};
+use crate::stats::{code, decision_label, HotStats};
 use crate::tweet::{FailNote, TriesNote, TweetKind, TweetReq, TweetVerdict};
 use crate::tweetfeed::{Classified, FeedCall, Posts};
 use arc_swap::ArcSwap;
@@ -135,6 +135,9 @@ pub struct Shared {
     /// Buys paused: no fresh blockhash for more than
     /// `risk.max_blockhash_age_ms` and no free sell nonce.
     pub sell_blocked: AtomicBool,
+    /// The bundle wallets the copied wallet follows (`entry.follow`; the
+    /// cold thread's [`crate::follow::FollowTracker`] publishes).
+    pub follow: crate::follow::FollowSnapshot,
 }
 
 impl Default for Shared {
@@ -148,6 +151,7 @@ impl Default for Shared {
             sell_nonces: std::sync::OnceLock::new(),
             blockhash_age_ms: AtomicU64::new(0),
             sell_blocked: AtomicBool::new(false),
+            follow: crate::follow::snapshot_empty(),
         }
     }
 }
@@ -264,6 +268,10 @@ pub struct HotCfg {
     /// `entry.tweet_cut_tip_lamports`: a copy cut raises the position's
     /// sell and dump tips to it (0: unchanged).
     pub tweet_cut_tip: u64,
+    /// `entry.follow` and the dev buy a create the rule skips needs to be
+    /// parked for its follow verdict (`entry.follow_min_dev_sol`).
+    pub follow: rugsnipe_core::config::Follow,
+    pub follow_min_dev: u64,
     /// The pre-send entry gate (`entry.presend_model`, loaded at startup;
     /// `None`: off), its mode and cut, and the per-signer operator features
     /// the cold thread publishes from the outcome store.
@@ -390,6 +398,8 @@ impl HotCfg {
             dumper_skip_hosts: host_patterns(&cfg.entry.dumper_skip_hosts),
             hidden_dev_grpc: cfg.entry.hidden_dev_buy == rugsnipe_core::config::HiddenDevBuy::Grpc,
             tweet_cut_tip: cfg.entry.tweet_cut_tip_lamports,
+            follow: cfg.entry.follow,
+            follow_min_dev: (cfg.entry.follow_min_dev_sol * 1e9).round() as u64,
             require_bundle: cfg.entry.require_bundle,
             presend: None,
             presend_mode: cfg.entry.presend_mode,
@@ -697,6 +707,10 @@ pub struct Parked {
     pub dev_hidden: bool,
     pub dev_sol: u64,
     pub dev_seen: bool,
+    /// `entry.follow`: the decision code the rule skipped this create with
+    /// (dev buy, uri host, operator table, tier), parked only for its
+    /// follow verdict; 0 = a rule coin.
+    pub follow_skip: u8,
 }
 
 /// A create whose dev buy the decoder could not see: no buy found in the
@@ -1217,6 +1231,10 @@ pub struct LoopCounters {
     /// how their fire went: fired (the executed dev buy passed the
     /// template) or skipped (it failed, or never showed).
     pub hidden_dev: [u64; 3],
+    /// `entry.follow` verdicts at the fire: rule coins followed / not, and
+    /// gated (skip_not_followed); creates the rule skips, parked for the
+    /// verdict, followed / not, and bought (`add`, `on`).
+    pub follow: [u64; 6],
     /// The tweet check (`entry.tweet_gate`): creates handed to the lane,
     /// and not handed for a full ring; verdicts by kind (`TweetKind`
     /// order: first, copy, stale, no_tweet, error); verdicts that came in
@@ -1819,6 +1837,19 @@ impl HotLoop {
         self.cfg.hidden_dev_grpc
     }
 
+    /// `(mode, followed wallets)` when `entry.follow` runs (status line).
+    pub fn follow_desc(&self) -> Option<(&'static str, usize)> {
+        use rugsnipe_core::config::Follow;
+        let m = match self.cfg.follow {
+            Follow::Off => return None,
+            Follow::Log => "log",
+            Follow::Gate => "gate",
+            Follow::Add => "add",
+            Follow::On => "on",
+        };
+        Some((m, self.shared.follow.load().len()))
+    }
+
     /// `(mode, cut)` of the pre-send gate when it runs (status line).
     pub fn presend_desc(&self) -> Option<(&'static str, &'static str)> {
         (self.cfg.presend_mode != PresendMode::Off && self.cfg.presend.is_some()).then(|| {
@@ -1898,9 +1929,21 @@ impl HotLoop {
             && self.cfg.require_bundle
             && self.cfg.mode.is_real()
             && src_class(src) != FREE_CLASS;
+        // entry.follow: a create the rule skips below is parked for its
+        // follow verdict instead (its bundle run is needed), when it is
+        // bundled-parkable and its dev buy is at least follow_min_dev_sol
+        let follow_park = self.cfg.follow.parks_skips()
+            && self.cfg.require_bundle
+            && self.cfg.mode.is_real()
+            && src_class(src) != FREE_CLASS
+            && (hit.intx_sol_in >= self.cfg.follow_min_dev || hidden);
+        let mut follow_skip = 0u8;
         if !hidden && !dev_buy_ok(&self.cfg.dev_buy, hit.intx_sol_in) {
             self.counters.skip_dev_buy += 1;
-            return self.decision(intent, hit, code::DEV_BUY, 0, 0, 0, 0, 0);
+            if !follow_park {
+                return self.decision(intent, hit, code::DEV_BUY, 0, 0, 0, 0, 0);
+            }
+            follow_skip = code::DEV_BUY;
         }
         // 4a''': the uri host (entry.uri_hosts / entry.uri_hosts_deny), as
         // the wire decoder kept it
@@ -1912,12 +1955,22 @@ impl HotLoop {
             )
         {
             self.counters.skip_uri_host += 1;
-            return self.decision(intent, hit, code::URI_HOST, 0, 0, 0, 0, 0);
+            if !follow_park {
+                return self.decision(intent, hit, code::URI_HOST, 0, 0, 0, 0, 0);
+            }
+            if follow_skip == 0 {
+                follow_skip = code::URI_HOST;
+            }
         }
         // 4a'': the operator table (entry.operators_only): only the launches
         // of a listed create signer go on (nothing parked otherwise)
         if self.cfg.operators_only && self.cfg.operator_rule(hit).is_none() {
-            return self.decision(intent, hit, code::NOT_OPERATOR, 0, 0, 0, 0, 0);
+            if !follow_park {
+                return self.decision(intent, hit, code::NOT_OPERATOR, 0, 0, 0, 0, 0);
+            }
+            if follow_skip == 0 {
+                follow_skip = code::NOT_OPERATOR;
+            }
         }
         // its mirror (entry.operators_exclude, the paper-wide instance): only
         // the launches the live bot leaves out
@@ -1929,7 +1982,12 @@ impl HotLoop {
         if self.cfg.min_stake_tier > 0
             && self.cfg.operator_rule(hit).map_or(0, |r| r.stake_tier) < self.cfg.min_stake_tier
         {
-            return self.decision(intent, hit, code::LOW_TIER, 0, 0, 0, 0, 0);
+            if !follow_park {
+                return self.decision(intent, hit, code::LOW_TIER, 0, 0, 0, 0, 0);
+            }
+            if follow_skip == 0 {
+                follow_skip = code::LOW_TIER;
+            }
         }
         // 4a': the leader filter (entry.leader_regions): a create whose slot
         // leader the box cannot reach in time is skipped, nothing sent
@@ -2008,6 +2066,7 @@ impl HotLoop {
                 dev_hidden: hidden,
                 dev_sol: 0,
                 dev_seen: false,
+                follow_skip,
             });
             if hidden {
                 self.counters.hidden_dev[0] += 1;
@@ -2225,6 +2284,22 @@ impl HotLoop {
         true
     }
 
+    /// A park that ends without a fire: `c`, or the rule's own skip for a
+    /// create parked only for its follow verdict (`entry.follow`), so the
+    /// rule's skip counts stay what they were without the verdict. `c`'s
+    /// counter (not_first, tweet_late) counts the rule's coins only.
+    fn park_ended(&mut self, p: &Parked, c: u8) {
+        if p.follow_skip != 0 {
+            return self.decision(p.intent, &p.hit, p.follow_skip, 0, 0, 0, 0, 0);
+        }
+        match c {
+            code::NOT_FIRST => self.counters.not_first += 1,
+            code::TWEET_LATE => self.counters.tweet_late += 1,
+            _ => {}
+        }
+        self.decision(p.intent, &p.hit, c, 0, 0, 0, 0, 0)
+    }
+
     /// Park a create for the bundle gate; a full table drops its oldest
     /// entry as `skip_no_bundle`. Trades of the mint polled before the
     /// create's wire record ([`PREPARK`]) are replayed into the new park.
@@ -2237,7 +2312,7 @@ impl HotLoop {
                     .min_by_key(|&i| self.parked[i].map_or(u64::MAX, |x| x.parked_ns))
                     .unwrap_or(0);
                 if let Some(old) = self.parked[oldest].take() {
-                    self.decision(old.intent, &old.hit, code::NO_BUNDLE, 0, 0, 0, 0, 0);
+                    self.park_ended(&old, code::NO_BUNDLE);
                 }
                 oldest
             }
@@ -2280,8 +2355,7 @@ impl HotLoop {
                     self.fire_parked(&p, now);
                 } else if late {
                     self.parked[i] = None;
-                    self.counters.tweet_late += 1;
-                    self.decision(p.intent, &p.hit, code::TWEET_LATE, 0, 0, 0, 0, 0);
+                    self.park_ended(&p, code::TWEET_LATE);
                 } else {
                     p.run_ready = true;
                     self.parked[i] = Some(p);
@@ -2291,15 +2365,14 @@ impl HotLoop {
             if p.slot < self.slot_now && p.bundle_buys > 0 {
                 self.parked[i] = None;
                 let c = if p.outside {
-                    self.counters.not_first += 1;
                     code::NOT_FIRST
                 } else {
                     code::LATE_SLOT
                 };
-                self.decision(p.intent, &p.hit, c, 0, 0, 0, 0, 0);
+                self.park_ended(&p, c);
             } else if p.slot < self.slot_now || now.saturating_sub(p.parked_ns) > PARK_MAX_NS {
                 self.parked[i] = None;
-                self.decision(p.intent, &p.hit, code::NO_BUNDLE, 0, 0, 0, 0, 0);
+                self.park_ended(&p, code::NO_BUNDLE);
             }
         }
     }
@@ -2339,12 +2412,11 @@ impl HotLoop {
             }
             ParkStep::NotFirst => {
                 self.parked[i] = None;
-                self.counters.not_first += 1;
-                self.decision(p.intent, &p.hit, code::NOT_FIRST, 0, 0, 0, 0, 0);
+                self.park_ended(&p, code::NOT_FIRST);
             }
             ParkStep::NoBundle => {
                 self.parked[i] = None;
-                self.decision(p.intent, &p.hit, code::NO_BUNDLE, 0, 0, 0, 0, 0);
+                self.park_ended(&p, code::NO_BUNDLE);
             }
         }
         true
@@ -2405,11 +2477,11 @@ impl HotLoop {
     /// state; a run with an outside buy ahead of us is `skip_not_first`.
     fn fire_parked(&mut self, p: &Parked, now: u64) {
         if p.outside {
-            self.counters.not_first += 1;
-            return self.decision(p.intent, &p.hit, code::NOT_FIRST, 0, 0, 0, 0, 0);
+            return self.park_ended(p, code::NOT_FIRST);
         }
         // a hidden dev buy (entry.hidden_dev_buy = "grpc"): the template on
         // the create transaction's executed buy, unknown = skipped
+        let mut follow_skip = p.follow_skip;
         if p.dev_hidden {
             let ok = p.dev_seen && dev_buy_ok(&self.cfg.dev_buy, p.dev_sol);
             let k8 = key8(&p.hit.mint);
@@ -2423,9 +2495,23 @@ impl HotLoop {
             if !ok {
                 self.counters.hidden_dev[2] += 1;
                 self.counters.skip_dev_buy += 1;
-                return self.decision(p.intent, &p.hit, code::DEV_BUY, 0, 0, 0, 0, 0);
+                // entry.follow: an executed dev buy the template refuses is
+                // a skip like any other, judged by the verdict below
+                let parks = self.cfg.follow.parks_skips()
+                    && p.dev_seen
+                    && p.dev_sol >= self.cfg.follow_min_dev;
+                if !parks {
+                    return self.decision(p.intent, &p.hit, code::DEV_BUY, 0, 0, 0, 0, 0);
+                }
+                if follow_skip == 0 {
+                    follow_skip = code::DEV_BUY;
+                }
+            } else {
+                self.counters.hidden_dev[1] += 1;
             }
-            self.counters.hidden_dev[1] += 1;
+        }
+        if let Err(c) = self.follow_verdict(p, follow_skip) {
+            return self.decision(p.intent, &p.hit, c, 0, 0, 0, 0, 0);
         }
         self.counters.fire_wallets[(bundle_wallet_count(p) as usize).min(5)] += 1;
         self.counters.bundle_fired += 1;
@@ -2442,6 +2528,64 @@ impl HotLoop {
             Some(p),
             p.create_index,
         );
+    }
+
+    /// The follow verdict at the fire (`entry.follow`): is one of the park's
+    /// bundle wallets followed? Journaled as `follow <mint8> yes|no
+    /// rule|<skip label> host <h> dev <SOL> -> fire|skip|log` and counted.
+    /// `Err(code)`: the decision to record instead of the fire (the rule's
+    /// own skip, or `skip_not_followed`).
+    fn follow_verdict(&mut self, p: &Parked, skip: u8) -> Result<(), u8> {
+        use rugsnipe_core::config::Follow;
+        if self.cfg.follow == Follow::Off {
+            return if skip == 0 { Ok(()) } else { Err(skip) };
+        }
+        let set = self.shared.follow.load();
+        let yes = p.wallets[..p.n_wallets as usize]
+            .iter()
+            .any(|w| set.contains(w));
+        let out = if skip != 0 {
+            self.counters.follow[3 + usize::from(!yes)] += 1;
+            if yes && self.cfg.follow.adds() {
+                self.counters.follow[5] += 1;
+                Ok(())
+            } else {
+                Err(skip)
+            }
+        } else {
+            self.counters.follow[usize::from(!yes)] += 1;
+            if !yes && self.cfg.follow.gates() {
+                self.counters.follow[2] += 1;
+                Err(code::NOT_FOLLOWED)
+            } else {
+                Ok(())
+            }
+        };
+        let dev = if p.dev_hidden {
+            p.dev_sol
+        } else {
+            p.hit.intx_sol_in
+        };
+        let k8 = key8(&p.hit.mint);
+        journal(format_args!(
+            "follow {} {} {} host {} dev {:.3} -> {}",
+            std::str::from_utf8(&k8).unwrap_or("?"),
+            if yes { "yes" } else { "no" },
+            if skip == 0 {
+                "rule"
+            } else {
+                decision_label(skip)
+            },
+            p.hit.tx_shape.uri_host().unwrap_or("-"),
+            dev as f64 / 1e9,
+            match (&out, skip) {
+                (Ok(()), _) => "fire",
+                (Err(_), 0) => "skip",
+                (Err(_), _) if yes => "log",
+                _ => "skip",
+            }
+        ));
+        out
     }
 
     /// Steps 5-11 of the decision: watchlist, risk, keys, nonce, size and
@@ -4738,6 +4882,7 @@ mod bundle_gate_tests {
             dev_hidden: false,
             dev_sol: 0,
             dev_seen: false,
+            follow_skip: 0,
         }
     }
 

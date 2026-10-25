@@ -932,6 +932,19 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         alerts: o.alerts.clone(),
         leader_lane,
         restored_latch,
+        // entry.follow (docs/16): the records beside state.db
+        follow: (cfg.entry.follow != rugsnipe_core::config::Follow::Off)
+            .then(|| cfg.entry.follow_wallet.parse::<Pubkey>().ok())
+            .flatten()
+            .map(|wallet| crate::cold::FollowCfg {
+                wallet,
+                min_attempts: cfg.entry.follow_min_attempts,
+                min_rate: cfg.entry.follow_min_rate,
+                path: o
+                    .state_path
+                    .as_ref()
+                    .and_then(|p| p.parent().map(|d| d.join("follow.json"))),
+            }),
     };
     let cold = cold::spawn(ColdParts {
         cfg: cold_cfg,
