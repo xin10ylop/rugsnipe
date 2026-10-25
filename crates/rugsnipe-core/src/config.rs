@@ -1005,6 +1005,15 @@ pub struct EntryCfg {
     /// docs/15), matched like `uri_hosts`; empty = every host. A hit on
     /// another host is journaled and fires, as under `log`.
     pub dumper_skip_hosts: Vec<String>,
+    /// A create whose dev buy the fast feed cannot see (2026-10-25): the
+    /// launch tool's own program buys by CPI inside the create transaction
+    /// (`m.rapidlaunch.io`), so the shreds copy reads a 0 SOL dev buy and
+    /// the pre-execution quotes of the bundle run on a curve without it.
+    /// `skip` (default): judged on the 0, every such create fails the dev
+    /// buy template. `grpc`: parked without the dev buy check; the run and
+    /// the dev buy are read from the executed (gRPC) trades only, and the
+    /// template is checked at the fire.
+    pub hidden_dev_buy: HiddenDevBuy,
     pub filter: EntryFilter,
     /// The frozen P(take-profit) model of the entry filter
     /// (`data/reports/strategy/entry_filter_v1.json`, docs/04 section 2);
@@ -1173,6 +1182,7 @@ impl Default for EntryCfg {
             bundle_wait_us: 0,
             dumper_skip: DumperSkip::Log,
             dumper_skip_hosts: vec![],
+            hidden_dev_buy: HiddenDevBuy::Skip,
             dev_buy_sol: vec![],
             dev_buy_tol_sol: 0.005,
             leader_regions: vec![],
@@ -1329,6 +1339,17 @@ pub enum FilterMode {
     Log,
     /// Drop intents with `score < t1`.
     Skip,
+}
+
+/// `entry.hidden_dev_buy`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum HiddenDevBuy {
+    /// The dev buy as the first copy shows it (0 when hidden): skipped.
+    #[default]
+    Skip,
+    /// Parked; the dev buy and the run from the executed trades.
+    Grpc,
 }
 
 /// `entry.dumper_skip`.

@@ -303,3 +303,20 @@ fn transfers_in_a_buy_fixture() {
         .iter()
         .all(|t| t.inner_index.is_none()));
 }
+
+#[test]
+fn a_dev_buy_by_cpi_from_the_launch_tool_is_hidden_from_the_wire_and_shown_by_the_meta() {
+    // m.rapidlaunch.io (2026-10-25): a top-level create_v2, the dev buy by
+    // CPI from the tool's own program. The shreds copy (no meta) finds no
+    // buy and cannot be exact; the executed copy has the TradeEvent.
+    let fx = TxFixture::load("rapidlaunch_create_v2_cpi_dev_buy");
+    let tx = fx.view();
+    let wire = create_hit(&tx, None, &[], FeeBps::DEFAULT)
+        .unwrap()
+        .unwrap();
+    assert_eq!(wire.launcher, Launcher::Direct);
+    assert_eq!((wire.intx_sol_in, wire.intx_exact), (0, false));
+    assert_eq!(wire.tx_shape.uri_host(), Some("m.rapidlaunch.io"));
+    let (s, _, n, _) = event_buys(&fx, &wire.mint);
+    assert_eq!((s, n), (2_962_962_962, 1), "the dev's executed buy");
+}

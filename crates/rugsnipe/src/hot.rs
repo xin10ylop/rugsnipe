@@ -257,6 +257,10 @@ pub struct HotCfg {
     /// (`entry.dumper_skip_hosts`, matched like `uri_allow`; empty = any).
     pub dumper_skip: rugsnipe_core::config::DumperSkip,
     pub dumper_skip_hosts: Vec<String>,
+    /// `entry.hidden_dev_buy = "grpc"`: a create whose dev buy the first
+    /// copy cannot see ([`dev_hidden`]) is parked without the dev buy check
+    /// and judged on the executed trades ([`hidden_trade`]).
+    pub hidden_dev_grpc: bool,
     /// The pre-send entry gate (`entry.presend_model`, loaded at startup;
     /// `None`: off), its mode and cut, and the per-signer operator features
     /// the cold thread publishes from the outcome store.
@@ -381,6 +385,7 @@ impl HotCfg {
             leader_allowed: leader_mask(&cfg.entry.leader_regions),
             dumper_skip: cfg.entry.dumper_skip,
             dumper_skip_hosts: host_patterns(&cfg.entry.dumper_skip_hosts),
+            hidden_dev_grpc: cfg.entry.hidden_dev_buy == rugsnipe_core::config::HiddenDevBuy::Grpc,
             require_bundle: cfg.entry.require_bundle,
             presend: None,
             presend_mode: cfg.entry.presend_mode,
@@ -681,6 +686,41 @@ pub struct Parked {
     /// not come (the fire waits for it).
     pub tw: u8,
     pub run_ready: bool,
+    /// The create's dev buy is hidden from the copy that parked it
+    /// ([`dev_hidden`], `entry.hidden_dev_buy = "grpc"`): only executed
+    /// trades shape the run, and `dev_sol` sums the create transaction's own
+    /// executed buys (`dev_seen` once one came).
+    pub dev_hidden: bool,
+    pub dev_sol: u64,
+    pub dev_seen: bool,
+}
+
+/// A create whose dev buy the decoder could not see: no buy found in the
+/// transaction, and another program there may buy by CPI (`intx_exact`
+/// false: the shreds copy of a launch tool that buys from its own program).
+pub fn dev_hidden(hit: &CreateHit) -> bool {
+    !hit.intx_exact && hit.intx_sol_in == 0
+}
+
+/// A trade of a park whose dev buy is hidden ([`Parked::dev_hidden`]):
+/// `Some(())` when it is handled here (a pre-execution quote, priced on a
+/// curve without the hidden buy: dropped; the create transaction's own
+/// executed buy: added to `dev_sol`), `None` for [`park_trade`].
+pub fn hidden_trade(p: &mut Parked, t: &TradeLite, pre_exec: bool) -> Option<()> {
+    if !p.dev_hidden || t.slot != p.slot {
+        return None;
+    }
+    if pre_exec {
+        return Some(());
+    }
+    if t.index == p.create_index && p.create_index != u32::MAX {
+        if t.is_buy {
+            p.dev_sol = p.dev_sol.saturating_add(t.sol_amount);
+            p.dev_seen = true;
+        }
+        return Some(());
+    }
+    None
 }
 
 /// Trades of the run a park keeps: three per run index (a bundle
@@ -971,8 +1011,11 @@ pub fn uri_host_ok(allow: &[String], deny: &[String], host: Option<&str>) -> boo
 /// park, the dev buy alone).
 #[inline]
 pub fn dev_and_bundle_lamports(hit: &CreateHit, parked: Option<&Parked>) -> u64 {
-    hit.intx_sol_in
-        .saturating_add(parked.map_or(0, |p| p.run_sol))
+    hit.intx_sol_in.saturating_add(parked.map_or(0, |p| {
+        // a hidden dev buy: the executed one ([`hidden_trade`])
+        p.run_sol
+            .saturating_add(if p.dev_hidden { p.dev_sol } else { 0 })
+    }))
 }
 
 /// `entry.max_post_bundle_sol`'s reserve: the parked run's post-bundle
@@ -1166,6 +1209,10 @@ pub struct LoopCounters {
     pub skip_bundle_sol: u64,
     pub skip_dev_buy: u64,
     pub skip_uri_host: u64,
+    /// Creates parked with a hidden dev buy (`entry.hidden_dev_buy`), and
+    /// how their fire went: fired (the executed dev buy passed the
+    /// template) or skipped (it failed, or never showed).
+    pub hidden_dev: [u64; 3],
     /// The tweet check (`entry.tweet_gate`): creates handed to the lane,
     /// and not handed for a full ring; verdicts by kind (`TweetKind`
     /// order: first, copy, stale, no_tweet, error); verdicts that came in
@@ -1250,7 +1297,8 @@ pub struct HotLoop {
     /// table: no allocation on the create path).
     parked: Box<[Option<Parked>]>,
     /// Recent trades of mints with no park and no position ([`PREPARK`]).
-    prepark: [Option<TradeLite>; PREPARK],
+    /// (trade, a pre-execution quote)
+    prepark: [Option<(TradeLite, bool)>; PREPARK],
     prepark_at: usize,
     leaders: LeaderSnapshot,
     dumpers: crate::dumpers::DumperSnapshot,
@@ -1588,11 +1636,11 @@ impl HotLoop {
                 // otherwise mark the position up and fire a take-profit
                 // into a price that never existed (2026-10-23).
                 if self.cfg.require_bundle
-                    && !self.parked_trade(&t)
+                    && !self.parked_trade(&t, true)
                     && t.index != u32::MAX
                     && self.find_mint(&t.mint).is_none()
                 {
-                    self.prepark[self.prepark_at % PREPARK] = Some(t);
+                    self.prepark[self.prepark_at % PREPARK] = Some((t, true));
                     self.prepark_at = self.prepark_at.wrapping_add(1);
                 }
             }
@@ -1601,14 +1649,14 @@ impl HotLoop {
                 self.on_own_trade(t.sig.0, trade_from_lite(&t), false);
             }
             Payload::Trade(t) => {
-                if !(self.cfg.require_bundle && self.parked_trade(&t)) {
+                if !(self.cfg.require_bundle && self.parked_trade(&t, false)) {
                     if self.cfg.require_bundle
                         && t.index != u32::MAX
                         && self.find_mint(&t.mint).is_none()
                     {
                         // a bundle buy polled before its create's wire
                         // record: replayed when the create is parked
-                        self.prepark[self.prepark_at % PREPARK] = Some(t);
+                        self.prepark[self.prepark_at % PREPARK] = Some((t, false));
                         self.prepark_at = self.prepark_at.wrapping_add(1);
                     }
                     self.on_trade(trade_from_lite(&t));
@@ -1616,7 +1664,7 @@ impl HotLoop {
             }
             Payload::RunDone(r) => {
                 if self.cfg.require_bundle {
-                    self.parked_run_done(&r);
+                    self.parked_run_done(&r, ev.src.pre_exec());
                 }
             }
             Payload::Funding(f) => {
@@ -1762,6 +1810,11 @@ impl HotLoop {
         self.cfg.template_on()
     }
 
+    /// `entry.hidden_dev_buy = "grpc"` (the status line's counts).
+    pub fn hidden_dev_on(&self) -> bool {
+        self.cfg.hidden_dev_grpc
+    }
+
     /// `(mode, cut)` of the pre-send gate when it runs (status line).
     pub fn presend_desc(&self) -> Option<(&'static str, &'static str)> {
         (self.cfg.presend_mode != PresendMode::Off && self.cfg.presend.is_some()).then(|| {
@@ -1833,8 +1886,15 @@ impl HotLoop {
         }
         // 4a: the operator template filter (entry.dev_buy_sol): the create's
         // own buy must be one of the listed amounts
-        // (entry.dev_buy_round adds the whole SOL amounts as an alternative)
-        if !dev_buy_ok(&self.cfg.dev_buy, hit.intx_sol_in) {
+        // (entry.dev_buy_round adds the whole SOL amounts as an alternative);
+        // a dev buy hidden from this copy (entry.hidden_dev_buy = "grpc") is
+        // checked at the fire, on the executed trades
+        let hidden = self.cfg.hidden_dev_grpc
+            && dev_hidden(hit)
+            && self.cfg.require_bundle
+            && self.cfg.mode.is_real()
+            && src_class(src) != FREE_CLASS;
+        if !hidden && !dev_buy_ok(&self.cfg.dev_buy, hit.intx_sol_in) {
             self.counters.skip_dev_buy += 1;
             return self.decision(intent, hit, code::DEV_BUY, 0, 0, 0, 0, 0);
         }
@@ -1941,7 +2001,13 @@ impl HotLoop {
                 run: RunTrades::default(),
                 tw,
                 run_ready: false,
+                dev_hidden: hidden,
+                dev_sol: 0,
+                dev_seen: false,
             });
+            if hidden {
+                self.counters.hidden_dev[0] += 1;
+            }
             return;
         }
         self.decide_from_watch(
@@ -1964,7 +2030,7 @@ impl HotLoop {
     /// A create the tweet check fetches and the tweet feed matches: a tweet
     /// host's coin with a dev buy of at least `entry.tweet_min_dev_sol`.
     fn tweet_candidate(&self, hit: &CreateHit) -> bool {
-        hit.intx_sol_in >= self.cfg.tweet_min_dev
+        (hit.intx_sol_in >= self.cfg.tweet_min_dev || (self.cfg.hidden_dev_grpc && dev_hidden(hit)))
             && hit.tx_shape.uri_len != 0
             && uri_host_ok(&self.cfg.tweet_hosts, &[], hit.tx_shape.uri_host())
     }
@@ -2168,12 +2234,14 @@ impl HotLoop {
         self.parked[i] = Some(p);
         let (mint, slot) = (p.hit.mint, p.slot);
         for k in 0..PREPARK {
-            let Some(t) = self.prepark[k] else { continue };
+            let Some((t, pre)) = self.prepark[k] else {
+                continue;
+            };
             if t.mint != mint || t.slot != slot {
                 continue;
             }
             self.prepark[k] = None;
-            if self.parked[i].is_none() || !self.parked_trade(&t) {
+            if self.parked[i].is_none() || !self.parked_trade(&t, pre) {
                 break;
             }
         }
@@ -2230,7 +2298,7 @@ impl HotLoop {
     /// it, a trade beyond the run before we fired skips the launch. `true`
     /// when the trade was for a parked mint (consumed either way: there is
     /// no position to size yet).
-    fn parked_trade(&mut self, t: &TradeLite) -> bool {
+    fn parked_trade(&mut self, t: &TradeLite, pre_exec: bool) -> bool {
         let Some(i) = self
             .parked
             .iter()
@@ -2241,6 +2309,10 @@ impl HotLoop {
         let Some(mut p) = self.parked[i] else {
             return false;
         };
+        if hidden_trade(&mut p, t, pre_exec).is_some() {
+            self.parked[i] = Some(p);
+            return true;
+        }
         let now = mono_ns();
         match park_trade(&mut p, t, &self.owner, self.cfg.bundle_wait_ns, now) {
             ParkStep::Ignore => {}
@@ -2272,7 +2344,7 @@ impl HotLoop {
     /// run's state. One without stays parked (the signal follows delivery
     /// order, the bundle's own trades may still come): the slot's end
     /// skips it.
-    fn parked_run_done(&mut self, r: &RunDoneLite) {
+    fn parked_run_done(&mut self, r: &RunDoneLite, pre_exec: bool) {
         self.counters.run_done += 1;
         let Some(i) = self
             .parked
@@ -2281,6 +2353,11 @@ impl HotLoop {
         else {
             return;
         };
+        // a hidden dev buy's run is the executed one: a shreds feed's end
+        // of run follows trades this park dropped
+        if pre_exec && self.parked[i].is_some_and(|p| p.dev_hidden) {
+            return;
+        }
         if self.parked[i].is_some_and(|p| p.bundle_buys == 0) {
             return;
         }
@@ -2319,6 +2396,25 @@ impl HotLoop {
         if p.outside {
             self.counters.not_first += 1;
             return self.decision(p.intent, &p.hit, code::NOT_FIRST, 0, 0, 0, 0, 0);
+        }
+        // a hidden dev buy (entry.hidden_dev_buy = "grpc"): the template on
+        // the create transaction's executed buy, unknown = skipped
+        if p.dev_hidden {
+            let ok = p.dev_seen && dev_buy_ok(&self.cfg.dev_buy, p.dev_sol);
+            let k8 = key8(&p.hit.mint);
+            journal(format_args!(
+                "hiddendev {} dev {} {} host {}",
+                std::str::from_utf8(&k8).unwrap_or("?"),
+                if p.dev_seen { p.dev_sol as i64 } else { -1 },
+                if ok { "fire" } else { "skip" },
+                p.hit.tx_shape.uri_host().unwrap_or("-")
+            ));
+            if !ok {
+                self.counters.hidden_dev[2] += 1;
+                self.counters.skip_dev_buy += 1;
+                return self.decision(p.intent, &p.hit, code::DEV_BUY, 0, 0, 0, 0, 0);
+            }
+            self.counters.hidden_dev[1] += 1;
         }
         self.counters.fire_wallets[(bundle_wallet_count(p) as usize).min(5)] += 1;
         self.counters.bundle_fired += 1;
@@ -4628,6 +4724,9 @@ mod bundle_gate_tests {
             run: RunTrades::default(),
             tw: TW_OFF,
             run_ready: false,
+            dev_hidden: false,
+            dev_sol: 0,
+            dev_seen: false,
         }
     }
 

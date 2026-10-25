@@ -1007,8 +1007,19 @@ fn run(args: &[String]) -> Result<(), String> {
             // the pick-template gates (docs/09): skips by gate
             let template = if app.hot.template_on() {
                 format!(
-                    " | template too_big {} bundle_sol {} dev_buy {} uri_host {}",
-                    c.skip_too_big, c.skip_bundle_sol, c.skip_dev_buy, c.skip_uri_host
+                    " | template too_big {} bundle_sol {} dev_buy {} uri_host {}{}",
+                    c.skip_too_big,
+                    c.skip_bundle_sol,
+                    c.skip_dev_buy,
+                    c.skip_uri_host,
+                    if app.hot.hidden_dev_on() {
+                        format!(
+                            " hidden_dev parked {} fired {} skipped {}",
+                            c.hidden_dev[0], c.hidden_dev[1], c.hidden_dev[2]
+                        )
+                    } else {
+                        String::new()
+                    }
                 )
             } else {
                 String::new()

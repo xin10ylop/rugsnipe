@@ -93,3 +93,25 @@ the exit mode (65 -> 42, live now), the feed's copy skip once `"on"` (about a fi
 dumper-on-rapidlaunch skip if the live day confirms it (about 8 of 42). Together that is at most a third of the
 remaining big losses. In the backtest 2.2 coins in 100 lose 30% or more (-0.15 to -0.2 SOL each at 0.5 SOL), and the
 +3% a trade already counts them; the live 2 in 33 is above that rate, on a small sample.
+
+## 6. The rapidlaunch blind spot (2026-10-25)
+
+The live bot had traded no m.rapidlaunch.io coin (0 of 107 attempts, against 10% of the backtest's rule coins; the
+copied wallet landed 9 overnight). The tool's own program buys for the dev by CPI inside the create transaction: the
+shreds copy, which arrives first (about 6 ms before gRPC) and carries no inner instructions, reads a 0 SOL dev buy,
+fails the dev-buy template and is dropped; the gRPC copy is a duplicate by then (the mux keeps the first copy of a
+signature). `entry.hidden_dev_buy = "grpc"` parks such a create without the check, builds its run from the executed
+(gRPC) trades only (the shreds feed's quotes are priced on a curve without the dev buy) and checks the template on the
+create transaction's executed buy at the fire. Fixture: `pump-codec/fixtures/tx/rapidlaunch_create_v2_cpi_dev_buy.json`;
+tests: `create_hit_fixtures.rs`, `rugsnipe/tests/hidden_dev.rs`.
+
+This is where section 3's rule applies: rapidlaunch coins are worth +5.2% without a dumper-list insider and -1.1%
+with one (72 of 190, 8 of the 42 big losses). Switch the two on together:
+
+```toml
+[entry]
+hidden_dev_buy = "grpc"
+dumper_skip = "skip"
+dumper_skip_hosts = ["m.rapidlaunch.io"]   # the dumper skip only there; j7 and uxento hits stay journaled and fired
+```
+
