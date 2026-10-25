@@ -227,3 +227,49 @@ same 895 coins; paired, +0.57 points [-0.39, +1.73], better on 214, worse on 231
 
 Slots now take about 0.21 s (970,976 slots in 205,941 s, Oct 23 - Oct 25), so a record is forgotten after 1,250,000 slots
 unseen (about 3 days).
+
+## 9. Today live, the full pre-buy state, the full history (2026-10-25 afternoon)
+
+**Today, live, out of sample** (`today.py`: Oct 25 09:13-13:07 UTC, the seed then each coin in slot order, as the bot
+learns): of the 67 coins (post-bundle <= 40 SOL) a followed record bundled, he attempted 49 (73%) and made +0.584 SOL on
+them; his whole window made +0.332 SOL. Of the other coins seen (his picks and the followed wallets' other launches, 80)
+he attempted 14 (18%), at -0.001 SOL.
+
+**The full pre-buy state** (`prebuy.py`, `prebuy_cmp.py`, `structure.py`, `within.py`, `bfund.py`: every bundled launch of last night's
+operators, 1,806, with its create transaction, bundle transactions, the dev wallet's history and funding, the bundle
+wallets' top-ups, the slot leader and his own recent activity). Inside his half-taken (operator, fee routing) cells, each
+feature's mapping learned on the cell's first half and scored on its second:
+
+- **A bundle inside the create transaction is a hard skip:** 3 of 409 launches (0.7%), 0 of 59 in the cells he takes 30%+
+  (those coins: +2.6% at +3 behind the bundle, against +10.6%). The bot's bundle gate already needs a separate buy behind
+  the create.
+- **A create with no dev buy:** 7 of 97 (only operators he always takes); a single bundle transaction: 3 of 55.
+- **A bundle smaller than the operator's usual:** 12% taken (57) against 49% (same) and 57% (bigger). Those coins are not
+  worth less (+10.9%), so it is his preference, not value.
+- **Nothing else separates:** compute price and limit, tip and route, programs, lookup tables, instruction count, uri host,
+  name and symbol, dev wallet age and reuse (most operators reuse the dev wallet), dev and bundle funding source, amount and
+  timing (the same treasuries fund his takes and his skips), the slot leader and slot in its window, his own recent P&L
+  (41% after losses, 50% after gains) and how busy he is. The best single feature (bundle size against usual) scores 65.7%
+  against the cells' majority 57.2%.
+
+**What moves him inside an operator is its recent coins' value** (vC at +10 behind the bundle of its last 3 coins, taken or
+not): after a skip he takes the next 9.8% when they made -5% or worse, 26% in between, 39.6% at +10% or better; after a
+take 53% and 69%. Out of sample (`evval.py`, K 2, R 0.3):
+
+| followed by | coins | his rate | value a trade (pb <= 40) | sum |
+|---|---|---|---|---|
+| his attempts (built) | 1,204 | 79% | +4.74% [+3.82, +5.61] | +4,653 |
+| attempts and the cell's last 3 coins >= +10% | 321 | 83% | **+7.72% [+5.90, +9.69]** | +2,038 |
+| attempts, recent value below | 883 | 78% | +3.65% [+2.65, +4.59] | +2,615 |
+| recent value, not his attempts | 201 | 23% | +3.26% [-0.46, +7.47] | +274 |
+
+**And it is his sizing:** on the coins he bought, his stake is 0.909 SOL median (1.106 mean) when the cell's last coins made
++10% or better, 0.604 (0.747) otherwise (61 and 191 trades); 0.810 against 0.604 on coins outside the follow (9 and 159). He buys a hot operator's coin at
+1.5x, and those coins are worth twice the rest. Not built (the bot needs each run's price at create + 10 in the cold thread).
+
+**The full history** (`hist_depth.py`, `hist_older.py`, `memory2.py`): his wallet starts sniping in Aug 2026 (12,554
+signatures before Sep 24, 6,442 buy attempts; 36 in Jan 2025, then nothing), so no earlier memory of his own trades exists
+on this wallet. With all of it (Aug 1 - Oct 23) against the bundle wallets' whole histories (533 of 549 complete): of his
+162 rule picks the follow missed, 62% had 2+ earlier attempts on a bundle wallet (50%: 5+), against 48% (39%) of a control
+of rule coins he skipped. History raises both; as a count it separates them only weakly. Using it fully needs the
+operators' launches since August to rate them, not only his attempts.

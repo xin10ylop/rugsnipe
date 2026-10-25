@@ -16,3 +16,7 @@ and profit by what the keyed follow knew), `skipval.py` (followed coins he skipp
 a cell), `nobundle.py` (coins with no bundle: dev-wallet reuse), `memory.py` (his attempts before Oct 23 on the wallets of
 the picks the follow missed, against a control), `leader.py` (create-slot wallets on his unexplained picks vs his skips),
 `exit.py` (his sell slot learned per cell vs the live exit). `seed.py` writes `data/follow_seed.json`, the bot's warm start.
+Section 9: `today.py` (today live through the seed), `prebuy.py` + `prebuy_cmp.py` + `structure.py` + `bfund.py` (the
+full pre-buy state of last night's launches and what separates his takes inside an operator), `evval.py` (following and
+sizing by the cell's recent coin value), `hist_depth.py` + `hist_older.py` + `memory2.py` (his whole history since Aug
+against the bundle wallets' whole histories). All run from the scratchpad; `prebuy_cmp.py` and `structure.py` from `SP/dec/cell`.
