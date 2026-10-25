@@ -4,7 +4,7 @@
 # Reads only: the hot unit's journal (status line, operator/tier lines), /etc/rugsnipe/rugsnipe.toml and
 # /var/lib/rugsnipe/state.db (read-only). Needs sudo for the journal and the config.
 # Test hooks: CHECK_STATUS (a status line instead of the journal's), CHECK_TIERS (operator lines), CHECK_TWEETS (tweet lines),
-# CHECK_FEED (tweetfeed lines), CHECK_DUMPERS (dumper lines), CHECK_FOLLOW (follow lines),
+# CHECK_FEED (tweetfeed lines), CHECK_DUMPERS (dumper lines), CHECK_FOLLOW (follow lines), CHECK_COPY (copy lines),
 # CHECK_RULE_T0 (the tweet rule's start, unix s; empty = none), CHECK_AB_T0 (the bid A/B's start, unix s),
 # CHECK_ERA_T0 (the era's start, unix s, instead of ~/.rugsnipe-era),
 # CHECK_DB (another state.db), CHECK_PRINT_SQL=1 (print the SQL and stop).
@@ -77,6 +77,13 @@ if [ -n "${CHECK_FOLLOW+x}" ]; then FLL=$CHECK_FOLLOW; else
 fi
 FOLLOWS=$(awk 'NF >= 9 { gsub(/\x27/, "", $6); f = ($9 == "fees") ? $10 : "-"; h = ($9 == "fees" && NF >= 13) ? $11 : "-"; md = ($12 == "mode") ? $13 : "-"; printf "%s(\x27%s\x27,\x27%s\x27,\x27%s\x27,\x27%s\x27,\x27%s\x27,\x27%s\x27,\x27%s\x27,\x27%s\x27)", (n++ ? "," : ""), $2, $3, $4, $6, $NF, f, h, md }' <<<"$FLL")
 [ -n "$FOLLOWS" ] || FOLLOWS="('','','','','','','','')"
+# ---- the copies (entry.copy, docs/17 section 9): mint8 -> his SOL, his tip (M; -1 on lines from before the tip was
+# journaled), create + k, buy / log
+if [ -n "${CHECK_COPY+x}" ]; then CPL=$CHECK_COPY; else
+  CPL=$(sudo journalctl -u rugsnipe-hot -o cat --since "@$E0" 2>/dev/null | grep -E '^copy [1-9A-HJ-NP-Za-km-z]{8} his ')
+fi
+COPIES=$(awk 'NF >= 7 { tip = -1; at = $6; if ($5 == "tip") { tip = $6; gsub(/M/, "", tip); at = $8 } gsub(/[^0-9]/, "", at); printf "%s(\x27%s\x27,%s,%s,%s,\x27%s\x27)", (n++ ? "," : ""), $2, $4, tip, (at == "" ? 0 : at), $NF }' <<<"$CPL")
+[ -n "$COPIES" ] || COPIES="('',0,0,0,'')"
 
 SQL="
 create temp table tiers(m8 text, tier int);
@@ -89,6 +96,8 @@ create temp table dumps(m8 text, act text, host text);
 insert into dumps values $DUMPS;
 create temp table follows(m8 text, yes text, kind text, host text, act text, fees text, heat text, mode text);
 insert into follows values $FOLLOWS;
+create temp table copies(m8 text, his_sol real, tip_m real, at int, act text);
+insert into copies values $COPIES;
 create temp view pos0 as
   select p.mint, p.cost, p.state, p.opened_slot, p.closed_slot, min(s.sent_unix_ms) t_ms, max(s.bid) bid,
          coalesce((select sum(e.sol_delta) from exits e where e.mint = p.mint), 0) ex,
@@ -184,6 +193,16 @@ select coalesce((select f.yes || ' ' || f.kind || ' ' || f.heat || ' ' || f.mode
        round(sum(net) / 1e9, 4) net_sol
 from pos p where state = 'closed' and cost > 0 and t_ms >= ${ERA:-$D0} * 1000 group by follow order by trades desc;
 .print
+.print == copy $SINCE (entry.copy, docs/17 section 9): his buys copied (buy) or journaled (log), and our closed trades,
+.print    the copies apart from the rule's own fires
+select act, count(*) copies, sum(at = 0) at_create, sum(at = 1) next_slot, round(avg(his_sol), 2) his_avg_sol,
+       round(avg(case when tip_m >= 0 then tip_m end), 1) his_avg_tip_m
+from copies where m8 <> '' group by act;
+select case when exists (select 1 from copies c where c.m8 = substr(p.mint, 1, 8) and c.act = 'buy') then 'copy' else 'rule' end source,
+       count(*) trades, sum(net > 0) wins, sum(net <= -0.3 * cost) big, round(100.0 * avg(net * 1.0 / cost), 1) mean_pct,
+       round(sum(net) / 1e9, 4) net_sol
+from pos p where state = 'closed' and cost > 0 and t_ms >= ${ERA:-$D0} * 1000 group by source order by source;
+.print
 .print == last 10 trades, newest first (pct and net_sol after tips and fees)
 select strftime('%H:%M:%S', t_ms / 1000, 'unixepoch') time, substr(mint, 1, 8) mint, tier, round(cost / 1e9, 3) stake,
        case when state = 'closed' then round(100.0 * net / max(cost, 1), 1) end pct,
@@ -225,6 +244,8 @@ echo "   feeds: grpc reconnects $(q "$grpc_rc") last frame $(q "$grpc_age") ms  
 echo "   gates: $(q "$(g 'gate parked [0-9]+ fired [0-9]+')")  $(g 'presend skip t[12] scored [0-9]+ skipped [0-9]+' | sed 's/presend skip /picks /')  $(g 'template too_big [0-9]+ bundle_sol [0-9]+ dev_buy [0-9]+ uri_host [0-9]+')"
 tw=$(g 'tweet (log|on|exit) asked [0-9]+ .* fired [0-9]+( cut [0-9]+)?( ring_full [0-9]+)?')
 [ -n "$tw" ] && echo "   $tw"
+cp_=$(g 'copy (log|on) seen [0-9]+ buy [0-9]+ log [0-9]+ passed [0-9]+')
+[ -n "$cp_" ] && echo "   $cp_  (copy_min_tip $(q "$(list_m "$(cfgv copy_min_tip_lamports)")")M, bound $(q "$(cfgv copy_max_premium)"))"
 echo "   sends: $(q "$(g 'probe attempts [0-9]+ landed [0-9]+ failed [0-9]+ dropped [0-9]+' | sed 's/probe //')")  failed cost $( [ -n "$failc" ] && sol "$failc" || echo '?') SOL"
 echo "== this process (since $(date -u -d "@$T0" +%H:%M) UTC) and today (since 00:00 UTC)"
 printf '%s\n' "$SQL" | sudo -u rugsnipe sqlite3 -readonly -header -column "$DB"

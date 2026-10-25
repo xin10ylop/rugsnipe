@@ -36,6 +36,8 @@ The copy (a bot that buys when his buy shows):
 - `stakes.py`: the tip-keyed copy at 0.25 / 0.5 / 1 SOL and at his own size, next to his result on the same coins.
 - `drawdown.py`: the size key against the tip key beyond the totals: copies a day, value per copy, the best day's
   share, the worst drawdown inside a day.
+- `skips.py`: his coins the rule skips, by the rule's reason (the leader filter, the 40 vSOL cap, not followed), and
+  what the tip-keyed copy picks up in each.
 
 The replay of the copy trigger itself: `crates/rugsnipe/tests/replay_days.rs` with `entry.copy = "on"` in the replay
 dir's `config.toml` (his buys of create + 1..3 then reach the hot loop as live).
