@@ -576,21 +576,23 @@ Next steps (docs/07-deploy.md):
 EOF
 if [ "$ROLE" = analytics ]; then
   cat <<EOF
-  sudo systemctl enable --now rugsnipe-collector.service rugsnipe-discover.timer
-  journalctl -u rugsnipe-collector -f          # collector logs
-  ls $STATE   # analytics.db, data/reports, rslog
+  # sudo systemctl enable --now rugsnipe-collector.service rugsnipe-discover.timer
+  # journalctl -u rugsnipe-collector -f          # collector logs
+  # ls $STATE   # analytics.db, data/reports, rslog
 EOF
 else
+  # every line commented: pasting this output back into a shell runs nothing (2026-10-25: a pasted
+  # "sudo touch /run/rugsnipe/KILL" stopped the buys)
   cat <<EOF
-  sudo $BIN/tune-hot.sh --check                 # review OS tuning, then: sudo $BIN/tune-hot.sh --apply
-  sudo systemctl enable rugsnipe-tune.service   # re-apply runtime tuning at boot
+  # sudo $BIN/tune-hot.sh --check                 # review OS tuning, then: sudo $BIN/tune-hot.sh --apply
+  # sudo systemctl enable rugsnipe-tune.service   # re-apply runtime tuning at boot
   # probe only, NOT during shadow mode (docs/08-runbook.md section 9): the target starts nothing
   # unless the units are enabled
-  sudo systemctl enable rugsnipe-keeper.service rugsnipe-guard.service rugsnipe-hot.service rugsnipe.target
-  systemctl list-dependencies rugsnipe.target   # keeper, guard and hot must be listed
-  sudo systemctl start rugsnipe.target
-  sudo touch /run/rugsnipe/KILL                 # kill latch: buys stop, exits continue
+  # sudo systemctl enable rugsnipe-keeper.service rugsnipe-guard.service rugsnipe-hot.service rugsnipe.target
+  # systemctl list-dependencies rugsnipe.target   # keeper, guard and hot must be listed
+  # sudo systemctl start rugsnipe.target
+  # kill latch (buys stop, exits continue): sudo touch /run/rugsnipe/KILL
   # operator wave (docs/09): with [entry] operators_file = "/etc/rugsnipe/operators.json",
-  sudo systemctl enable --now rugsnipe-operators.timer   # every 4 h at :50 UTC, then try-restart rugsnipe-hot
+  # sudo systemctl enable --now rugsnipe-operators.timer   # every 4 h at :50 UTC, then try-restart rugsnipe-hot
 EOF
 fi
