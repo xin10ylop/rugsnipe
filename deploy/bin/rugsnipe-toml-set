@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+# rugsnipe-toml-set: set keys in one table of the bot's TOML config, keeping every other line and comment:
+#   sudo python3 deploy/bin/rugsnipe-toml-set /etc/rugsnipe/rugsnipe.toml entry rule_buys=false 'tweet_gate="off"'
+# A key already in the table gets the new value in place (its trailing comment kept); a missing one is added at the end
+# of the table. The old file is kept as FILE.bak.<unix time>. Values are written as given (TOML: quote strings).
+# --dry-run: print the changed lines, write nothing.
+import os, re, shutil, sys, time
+
+def table_span(s, name):
+    m = re.search(r"(?m)^\[" + re.escape(name) + r"\][ \t]*(#.*)?$", s)
+    if not m:
+        return None
+    a = m.end()
+    # the next table header (not a line of a multi-line array)
+    n = re.search(r"(?m)^\[\[?[A-Za-z0-9_.\- ]+\]\]?[ \t]*(#.*)?$", s[a:])
+    return a, (a + n.start() if n else len(s))
+
+def set_keys(s, table, pairs):
+    span = table_span(s, table)
+    if span is None:
+        raise SystemExit(f"no [{table}] table")
+    a, b = span
+    body, changed = s[a:b], []
+    for k, v in pairs:
+        line = re.compile(r"(?m)^(" + re.escape(k) + r"[ \t]*=[ \t]*)([^#\n]*?)([ \t]*#.*)?$")
+        m = line.search(body)
+        if m:
+            new = m.group(1) + v + (m.group(3) or "")
+            body = body[:m.start()] + new + body[m.end():]
+            changed.append(("set", k, m.group(2).strip(), v))
+        else:
+            body = body.rstrip("\n") + f"\n{k} = {v}\n\n"
+            changed.append(("added", k, None, v))
+    return s[:a] + body + s[b:], changed
+
+def main(argv):
+    dry = "--dry-run" in argv
+    args = [x for x in argv if x != "--dry-run"]
+    if len(args) < 3 or any("=" not in x for x in args[2:]):
+        raise SystemExit(__doc__ or "usage: rugsnipe-toml-set FILE TABLE key=value ...")
+    path, table = args[0], args[1]
+    pairs = [tuple(x.split("=", 1)) for x in args[2:]]
+    pairs = [(k.strip(), v.strip()) for k, v in pairs]
+    s = open(path).read()
+    out, changed = set_keys(s, table, pairs)
+    for how, k, old, new in changed:
+        print(f"[{table}] {k}: {old} -> {new}" if how == "set" else f"[{table}] {k}: added = {new}")
+    if dry:
+        return
+    bak = f"{path}.bak.{int(time.time())}"
+    shutil.copy2(path, bak)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(out)
+    shutil.copymode(path, tmp)
+    st = os.stat(path)
+    try:
+        os.chown(tmp, st.st_uid, st.st_gid)
+    except PermissionError:
+        pass
+    os.replace(tmp, path)
+    print(f"written {path} (old kept as {bak})")
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

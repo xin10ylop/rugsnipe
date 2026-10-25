@@ -12,8 +12,9 @@ use common::*;
 use pump_codec::create_hit::CreateHit;
 use pump_codec::curve::FeeBps;
 use pump_codec::Pubkey;
+use rugsnipe::copybuys::SignerBuys;
 use rugsnipe::hot::{entry_v_cap, HotCfg, HotLoop, HotParts, Shared};
-use rugsnipe::msgs::FireJob;
+use rugsnipe::msgs::{ColdMsg, FireJob};
 use rugsnipe::setup::{self, ArmState};
 use rugsnipe::stats::{code, decision_label, HotStats};
 use rugsnipe_core::config::{ArmSetGate, Config, CopyMode, ValidateEnv};
@@ -140,6 +141,10 @@ struct Outcome {
     /// The launch's decision records: (code, size, v_max, min_tokens).
     decisions: Vec<(u8, u64, u64, u64)>,
     copy: [u64; 4],
+    /// His launch buys and the ones not copied: size or tip, unlisted, few.
+    copy_his: [u64; 4],
+    /// His buys the loop counted, as handed to the cold thread (signer, slot).
+    his_buys: Vec<(Pubkey, u64)>,
 }
 
 impl Outcome {
@@ -158,16 +163,18 @@ fn run(
     tweak: &dyn Fn(&mut Config),
     trades: &dyn Fn(&CreateHit, Pubkey) -> Vec<TradeLite>,
 ) -> (Outcome, CreateHit) {
-    run_table(copy, on_template, tweak, trades, None)
+    run_table(copy, on_template, tweak, trades, None, None)
 }
 
-/// [`run`] with an operator table listing `listed(hit)` at hold 6.
+/// [`run`] with an operator table listing `listed(hit)` at hold 6, and the
+/// loop seeded with his buys per signer an earlier run kept (`seed`).
 fn run_table(
     copy: CopyMode,
     on_template: bool,
     tweak: &dyn Fn(&mut Config),
     trades: &dyn Fn(&CreateHit, Pubkey) -> Vec<TradeLite>,
     listed: Option<&dyn Fn(&CreateHit) -> Pubkey>,
+    seed: Option<&SignerBuys>,
 ) -> (Outcome, CreateHit) {
     let (tx, meta, hit) = the_create();
     assert!(hit.intx_sol_in > 0);
@@ -190,7 +197,7 @@ fn run_table(
     let risk = Arc::new(RiskGate::new(cfg.risk.clone()));
     risk.set_hot_balance(2_000_000_000);
     let (rslog, w) = RslogWriter::spawn(dir.join("rslog"), "t-hot", box_id("t"), 1 << 12).unwrap();
-    let (cold_tx, _cold_rx) = rtrb::RingBuffer::new(4_096);
+    let (cold_tx, mut cold_rx) = rtrb::RingBuffer::new(4_096);
     let (_fills_tx, fills_rx) = rtrb::RingBuffer::new(64);
     let (fire_tx, mut fire_rx) = rtrb::RingBuffer::<FireJob>::new(64);
     let mut reg = prometheus_client::registry::Registry::default();
@@ -224,6 +231,9 @@ fn run_table(
         leaders: rugsnipe::leader::empty_snapshot(),
         dumpers: rugsnipe::dumpers::snapshot_from(vec![]),
     });
+    if let Some(b) = seed {
+        hot.seed_his_signers(b);
+    }
     let events = trades(&hit, his)
         .into_iter()
         .map(|t| FeedEvent {
@@ -252,6 +262,13 @@ fn run_table(
         .filter(|j| j.intent == intent && j.idx == 0)
         .count();
     let copy = hot.counters.copy;
+    let copy_his = hot.counters.copy_his;
+    let his_buys = std::iter::from_fn(|| cold_rx.pop().ok())
+        .filter_map(|m| match m {
+            ColdMsg::HisBuy { signer, slot } => Some((signer, slot)),
+            _ => None,
+        })
+        .collect();
     drop(hot);
     w.join().unwrap();
     let decisions = rslog_records(&dir.join("rslog"))
@@ -274,6 +291,8 @@ fn run_table(
             fires,
             decisions,
             copy,
+            copy_his,
+            his_buys,
         },
         hit,
     )
@@ -315,7 +334,7 @@ fn a_small_buy_another_wallet_or_a_late_one_is_not_copied() {
     let small = |h: &CreateHit, his| vec![buy(h, his, SOL / 2, 0, SLOT, CI + 120)];
     let (o, _) = run(CopyMode::On, false, &no_tweak, &small);
     assert_eq!((o.fires, o.codes()), (0, vec![code::DEV_BUY]));
-    assert_eq!(o.copy, [0; 4]);
+    assert_eq!((o.copy, o.copy_his), ([0; 4], [1, 1, 0, 0]));
     let other = |h: &CreateHit, _| vec![buy(h, Pubkey::new_unique(), SOL, 0, SLOT, CI + 120)];
     let (o, _) = run(CopyMode::On, false, &no_tweak, &other);
     assert_eq!((o.fires, o.copy), (0, [0; 4]));
@@ -537,6 +556,7 @@ fn listed_only_copies_his_known_operators_only() {
         &listed_only,
         &his_buy,
         Some(&|h: &CreateHit| rugsnipe::operators::create_signer(h)),
+        None,
     );
     assert_eq!(o.fires, 1, "{:?}", o.labels());
     assert_eq!(o.copy, [1, 1, 0, 0]);
@@ -547,8 +567,10 @@ fn listed_only_copies_his_known_operators_only() {
         &listed_only,
         &his_buy,
         Some(&|_: &CreateHit| Pubkey::new_unique()),
+        None,
     );
     assert_eq!((o.fires, o.copy), (0, [0; 4]), "{:?}", o.labels());
+    assert_eq!(o.copy_his, [1, 0, 1, 0]);
     // listed_only needs the table
     let dir = tmpdir("copy-listed");
     let mut c = live_cfg(&dir, CopyMode::On, &[], Pubkey::new_unique());
@@ -577,6 +599,7 @@ fn a_tip_floor_copies_his_high_conviction_buys_only() {
     // a 3M tip: not a candidate
     let (o, _) = run(CopyMode::On, false, &tip_floor, &tipped(3_000_000));
     assert_eq!((o.fires, o.copy), (0, [0; 4]), "{:?}", o.labels());
+    assert_eq!(o.copy_his, [1, 1, 0, 0]);
     // the floor is at most 1 SOL
     let dir = tmpdir("copy-tip");
     let mut c = live_cfg(&dir, CopyMode::On, &[], Pubkey::new_unique());
@@ -593,6 +616,7 @@ fn a_signer_he_is_not_trading_now_is_not_copied() {
         vec![buy(h, his, SOL, 0, SLOT, CI + 120)]
     });
     assert_eq!((o.fires, o.copy), (0, [0; 4]), "{:?}", o.labels());
+    assert_eq!(o.copy_his, [1, 0, 0, 1]);
     // his second buy on the signer's launch is copied
     let (o, _) = run(CopyMode::On, false, &once, &|h, his| {
         vec![
@@ -625,5 +649,74 @@ fn a_signer_he_is_not_trading_now_is_not_copied() {
     let mut c = live_cfg(&dir, CopyMode::On, &[], Pubkey::new_unique());
     c.entry.copy_signer_window_h = 0;
     assert!(!c.validate(&good_env(&c)).ok());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_restart_keeps_his_buys_per_signer() {
+    let two = |c: &mut Config| c.entry.copy_signer_min_buys = 2;
+    // his first two buys on the signer's launches: counted, not copied
+    let (o, hit) = run(CopyMode::On, false, &two, &|h, his| {
+        vec![
+            buy(h, his, SOL, 0, SLOT, CI + 120),
+            buy(h, his, SOL, SOL, SLOT, CI + 130),
+        ]
+    });
+    assert_eq!(o.fires, 0, "{:?}", o.labels());
+    let signer = rugsnipe::operators::create_signer(&hit);
+    assert_eq!(o.his_buys, vec![(signer, SLOT), (signer, SLOT)]);
+    // the cold thread keeps them and saves them; the restart loads them
+    let mut kept = SignerBuys::default();
+    for &(s, slot) in &o.his_buys {
+        kept.note(s, slot);
+    }
+    let dir = tmpdir("copy-restart");
+    let path = dir.join("copy_signers.json");
+    kept.save(&path).unwrap();
+    let mut loaded = SignerBuys::default();
+    assert_eq!(loaded.load(&path).unwrap(), 1);
+    // after the restart his third buy on the signer is copied
+    let third = |h: &CreateHit, his| vec![buy(h, his, SOL, 0, SLOT, CI + 120)];
+    let (o, _) = run_table(CopyMode::On, false, &two, &third, None, Some(&loaded));
+    assert_eq!(o.fires, 1, "{:?}", o.labels());
+    assert_eq!((o.copy, o.copy_his), ([1, 1, 0, 0], [1, 0, 0, 0]));
+    // a start without them counts from empty: not copied
+    let (o, _) = run(CopyMode::On, false, &two, &third);
+    assert_eq!((o.fires, o.copy), (0, [0; 4]), "{:?}", o.labels());
+    assert_eq!(o.copy_his, [1, 0, 0, 1]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn rule_buys_off_buys_his_copies_only() {
+    let copy_only = |c: &mut Config| c.entry.rule_buys = false;
+    // on the template: the rule would fire behind the bundle buy, but it is
+    // off; his buy is copied
+    let (o, _) = run(CopyMode::On, true, &copy_only, &|h, his| {
+        vec![
+            buy(h, Pubkey::new_unique(), SOL, 0, SLOT, CI + 1),
+            buy(h, his, SOL, SOL, SLOT, CI + 120),
+        ]
+    });
+    assert_eq!(o.fires, 1, "{:?}", o.labels());
+    assert_eq!(o.codes(), vec![code::RULE_OFF, 0], "{:?}", o.labels());
+    assert_eq!(o.copy, [1, 1, 0, 0]);
+    // no buy of his: nothing is bought
+    let (o, _) = run(CopyMode::On, true, &copy_only, &|h, _| {
+        vec![buy(h, Pubkey::new_unique(), SOL, 0, SLOT, CI + 1)]
+    });
+    assert_eq!(o.fires, 0, "{:?}", o.labels());
+    assert_eq!(o.labels(), vec!["skip_rule_off"]);
+    // the rule off and the copy not buying: valid, with a warning
+    let dir = tmpdir("copy-rule-off");
+    let mut c = live_cfg(&dir, CopyMode::Log, &[], Pubkey::new_unique());
+    c.entry.rule_buys = false;
+    let v = c.validate(&good_env(&c));
+    assert!(v.ok(), "{:?}", v.refusals);
+    assert!(
+        v.warnings.iter().any(|w| w.contains("buys nothing")),
+        "{:?}",
+        v.warnings
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

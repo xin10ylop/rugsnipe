@@ -1056,15 +1056,17 @@ fn run(args: &[String]) -> Result<(), String> {
                 })
                 .unwrap_or_default();
             // the copy trigger (entry.copy, docs/17 section 9): his landed
-            // buys seen, copied, journaled only, passed over
+            // launch buys, the ones not copied (size or tip, an unlisted
+            // signer, too few of his buys on the signer), then those seen,
+            // copied, journaled only, passed over
             let copy = app
                 .hot
                 .copy_desc()
                 .map(|mode| {
-                    let k = c.copy;
+                    let (h, k) = (c.copy_his, c.copy);
                     format!(
-                        " | copy {mode} seen {} buy {} log {} passed {}",
-                        k[0], k[1], k[2], k[3]
+                        " | copy {mode} his {} small {} unlisted {} few {} seen {} buy {} log {} passed {}",
+                        h[0], h[1], h[2], h[3], k[0], k[1], k[2], k[3]
                     )
                 })
                 .unwrap_or_default();

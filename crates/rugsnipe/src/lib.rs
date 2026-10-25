@@ -32,6 +32,7 @@ pub mod app;
 pub mod cli;
 pub mod cold;
 pub mod convert;
+pub mod copybuys;
 pub mod deadman;
 pub mod dumpers;
 pub mod e1;

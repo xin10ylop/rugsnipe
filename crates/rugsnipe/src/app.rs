@@ -879,6 +879,31 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         epoch_every_s: 60,
         regions: regions.clone(),
     });
+    // entry.copy: his buys per create signer beside state.db, so a restart
+    // keeps entry.copy_signer_min_buys' counts (crate::copybuys)
+    let copy_buys = (cfg.entry.copy != rugsnipe_core::config::CopyMode::Off).then(|| {
+        let path = o
+            .state_path
+            .as_ref()
+            .and_then(|p| p.parent().map(|d| d.join("copy_signers.json")));
+        let mut loaded = crate::copybuys::SignerBuys::default();
+        if let Some(p) = &path {
+            match loaded.load(p) {
+                Ok(n) => eprintln!("copy: his buys on {n} signers from {}", p.display()),
+                Err(e) => {
+                    eprintln!("copy: his buys per signer not loaded ({e}): counting from empty")
+                }
+            }
+        }
+        crate::cold::CopyBuysCfg {
+            path,
+            window_slots: cfg
+                .entry
+                .copy_signer_window_h
+                .saturating_mul(crate::hot::SLOTS_PER_HOUR),
+            loaded,
+        }
+    });
     let cold_cfg = ColdCfg {
         box_id: cfg.box_.id.clone(),
         mode,
@@ -946,6 +971,7 @@ pub fn build(o: AppOpts) -> Result<App, String> {
                     .as_ref()
                     .and_then(|p| p.parent().map(|d| d.join("follow.json"))),
             }),
+        copy_buys: copy_buys.clone(),
     };
     let cold = cold::spawn(ColdParts {
         cfg: cold_cfg,
@@ -1000,6 +1026,9 @@ pub fn build(o: AppOpts) -> Result<App, String> {
         leaders: leaders.clone(),
         dumpers: dumpers.clone(),
     });
+    if let Some(c) = &copy_buys {
+        hot.seed_his_signers(&c.loaded);
+    }
     // the tweet check (entry.tweet_gate, docs/13): the metadata lane
     let tweet = if cfg.entry.tweet_gate != rugsnipe_core::config::TweetGate::Off {
         let (req_tx, req_rx) = rtrb::RingBuffer::<crate::tweet::TweetReq>::new(1_024);

@@ -115,6 +115,9 @@ pub mod code {
     /// `entry.follow = "gate" | "on"` (docs/16): none of the coin's bundle
     /// wallets is one the copied wallet follows.
     pub const NOT_FOLLOWED: u8 = 0x61;
+    /// `entry.rule_buys = false`: the bot buys only the copies of
+    /// `entry.copy`; the create is kept for one.
+    pub const RULE_OFF: u8 = 0x62;
     /// Metrics only: a paper decision that a real mode would have skipped
     /// (rslog keeps the RiskGate code and the `would_skip` reason).
     pub const PAPER_WOULD_SKIP: u8 = 0x1f;
@@ -173,6 +176,7 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (code::TWEET_LATE, "skip_tweet_late"),
     (code::TWEETFEED_COPY, "skip_tweetfeed_copy"),
     (code::NOT_FOLLOWED, "skip_not_followed"),
+    (code::RULE_OFF, "skip_rule_off"),
 ];
 
 /// Label of a decision code.

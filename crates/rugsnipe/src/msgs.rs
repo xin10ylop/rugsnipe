@@ -39,6 +39,13 @@ pub enum ColdMsg {
     /// streams the first slots of every bundled launch): the operator-dump
     /// tracker's input.
     MintTrade(Trade),
+    /// `entry.copy`: the copied wallet's landed buy of `signer`'s launch in
+    /// `slot`, as the hot loop counted it (kept across restarts,
+    /// [`crate::copybuys`]).
+    HisBuy {
+        signer: Pubkey,
+        slot: u64,
+    },
     /// A decision produced an intent (step 14).
     Intent {
         intent: u64,

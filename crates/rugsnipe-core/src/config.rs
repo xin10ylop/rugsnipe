@@ -1252,6 +1252,13 @@ pub struct EntryCfg {
     /// SOL / 4-of-5-days result of his recent operators (docs/17 s9).
     pub copy_signer_min_buys: u32,
     pub copy_signer_window_h: u64,
+    /// The rule's own buys (default true). `false`: the bot buys only the
+    /// copies of `entry.copy` (docs/17 section 9): every create is kept for a
+    /// copy of his buy and the rule decides nothing (`skip_rule_off`), so its
+    /// gates (template, tweet, follow, dumper, leader, pre-send) and the
+    /// tweet requests are idle, and the count caps and the daily stop are the
+    /// copies' alone.
+    pub rule_buys: bool,
 }
 impl Default for EntryCfg {
     fn default() -> Self {
@@ -1319,6 +1326,7 @@ impl Default for EntryCfg {
             copy_listed_only: true,
             copy_signer_min_buys: 2,
             copy_signer_window_h: 24,
+            rule_buys: true,
         }
     }
 }
@@ -2291,6 +2299,16 @@ impl Config {
                     "gate / add / on need require_bundle = true (the verdict is read on the parked bundle run)",
                 );
             }
+        }
+        if !e.rule_buys && e.copy != CopyMode::On {
+            w.push(format!(
+                "entry.rule_buys = false with entry.copy = \"{}\": the bot buys nothing",
+                match e.copy {
+                    CopyMode::Off => "off",
+                    CopyMode::Log => "log",
+                    CopyMode::On => "on",
+                }
+            ));
         }
         if e.copy != CopyMode::Off {
             if e.follow_wallet.parse::<pump_codec::Pubkey>().is_err() {

@@ -118,6 +118,20 @@ pub struct ColdCfg {
     pub restored_latch: Option<rugsnipe_state::killkv::Latch>,
     /// The follow tracker (`entry.follow`; `None`: off).
     pub follow: Option<FollowCfg>,
+    /// His buys per create signer (`entry.copy`; `None`: off).
+    pub copy_buys: Option<CopyBuysCfg>,
+}
+
+/// `entry.copy`'s buys per create signer, kept across restarts
+/// ([`crate::copybuys`]).
+#[derive(Debug, Clone)]
+pub struct CopyBuysCfg {
+    /// Where they persist (`copy_signers.json` beside `state.db`).
+    pub path: Option<PathBuf>,
+    /// `entry.copy_signer_window_h` in slots: older buys are dropped.
+    pub window_slots: u64,
+    /// The buys loaded at start (the hot loop is seeded with the same).
+    pub loaded: crate::copybuys::SignerBuys,
 }
 
 /// `entry.follow`'s tracker settings (docs/16).
@@ -816,6 +830,8 @@ struct Cold {
     /// The follow tracker (`entry.follow`).
     follow: Option<crate::follow::FollowTracker>,
     follow_minutes: u64,
+    /// His buys per create signer as the hot loop counted them (`entry.copy`).
+    copy_buys: Option<crate::copybuys::SignerBuys>,
 }
 
 /// A burn not confirmed by a new nonce value after this many slots is re-sent.
@@ -893,8 +909,16 @@ impl Cold {
             dump: crate::dumpers::DumpTracker::new(dumpers),
             follow: None,
             follow_minutes: 0,
+            copy_buys: None,
         }
         .with_follow()
+        .with_copy_buys()
+    }
+
+    /// His buys per create signer from the last run (`entry.copy`).
+    fn with_copy_buys(mut self) -> Self {
+        self.copy_buys = self.p.cfg.copy_buys.as_ref().map(|c| c.loaded.clone());
+        self
     }
 
     /// The follow tracker, its records loaded (`entry.follow`).
@@ -1122,6 +1146,7 @@ impl Cold {
                 self.every_5s();
                 self.write_risk_row();
                 self.follow_save();
+                self.copy_buys_save();
                 if self.p.cfg.real.is_some() {
                     if let Some(l) = &self.p.ledger {
                         let p = lock(&self.p.report).probe.clone();
@@ -1768,6 +1793,11 @@ impl Cold {
                 }
                 self.feed_watch(m, false);
                 self.marks.remove(&m);
+            }
+            ColdMsg::HisBuy { signer, slot } => {
+                if let Some(b) = self.copy_buys.as_mut() {
+                    b.note(signer, slot);
+                }
             }
             ColdMsg::MintTrade(t) => {
                 let rows = self.dump.on_trade(&t, crate::now_ms());
@@ -2802,6 +2832,20 @@ impl Cold {
         }
     }
 
+    /// His buys per create signer to disk (every minute and at shutdown),
+    /// the signers past the window dropped.
+    fn copy_buys_save(&mut self) {
+        let (Some(b), Some(c)) = (self.copy_buys.as_mut(), self.p.cfg.copy_buys.as_ref()) else {
+            return;
+        };
+        b.prune(c.window_slots);
+        if let Some(path) = &c.path {
+            if let Err(e) = b.save(path) {
+                eprintln!("copy: his buys per signer not saved: {e}");
+            }
+        }
+    }
+
     /// The follow records to disk (every minute and at shutdown).
     fn follow_save(&self) {
         let Some(t) = self.follow.as_ref() else {
@@ -2839,6 +2883,7 @@ impl Cold {
     /// summary.
     fn every_minute(&mut self) {
         self.follow_minute();
+        self.copy_buys_save();
         let t = self.p.cfg.triggers.clone();
         if let Some(dir) = &t.state_dir {
             match trig::disk_used_pct(dir) {

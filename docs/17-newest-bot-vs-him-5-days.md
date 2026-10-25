@@ -378,8 +378,13 @@ buys per signer live and copies a signer only after enough of them in a recent w
 | >= 2 in 4 h | 151 | +2.71 | 2 of 5 |
 | any signer | 410 | +2.82 | 3 of 5 |
 
-`copy_signer_min_buys = 2`, `copy_signer_window_h = 24`. The count starts empty at each start, so a signer is copied again
-from his third buy on it after a restart. The table still gives the hold, one slot before his, for the exit.
+`copy_signer_min_buys = 2`, `copy_signer_window_h = 24`. The table still gives the hold, one slot before his, for the exit.
+
+The count must survive restarts. The operator refresh restarts the hot service every four hours (03, 07, 11, 15, 19 and
+23:50 UTC). A count started empty at each of those restarts keeps 99 of the 226 copies, +2.41 of the +4.22 SOL, positive
+on 2 of 5 days (`restart.py`). So the cold thread keeps his buys per signer as the hot loop counts them, saves them every
+minute and at shutdown (`copy_signers.json` beside `state.db`), and the next start seeds the hot loop with them
+(`crates/rugsnipe/src/copybuys.rs`). Only the first start after the file is new counts from empty.
 
 ### Built: `entry.copy`
 
@@ -394,7 +399,12 @@ from his third buy on it after a restart. The table still gives the hold, one sl
   0. The risk caps apply.
 - **Exit.** One slot before his table hold, whatever `operator_holds` says. The tweet check's exit cut leaves copies alone.
 - **Journal and status line.** Each copy journals `copy <mint> his <SOL> at create+<k> -> buy|log`. The status line adds
-  `copy <mode> seen buy log passed`.
+  `copy <mode> his small unlisted few seen buy log passed`: his landed launch buys, the ones not copied for their size
+  or tip, an unlisted signer or too few of his buys on the signer, then the candidates copied, journaled or passed over.
+- **Copy only.** `entry.rule_buys = false`: every create is kept for a copy and the rule decides nothing
+  (`skip_rule_off`). Its gates (template, tweet, follow, dumper, leader, pre-send) and the tweet requests are idle, and
+  the count caps and the daily stop serve the copies alone. With the rule on, its fires used about 300 attempts a day
+  and filled stage B's cap by the evening, which stops the copies too.
 - **Replay.** The copy replay ran the exact replay's events with `copy = "on"`, his buys of create + 1..3 also fed to the
   hot loop (`replay_days.rs`). It made 127 copies (72 at create + 0, 55 at create + 1) and lost none of the rule's
   1,816 fires. The 122 with a tape make +4.51 SOL sold at H - 1, against +2.55 at H. The harness now also keeps a fresh
@@ -415,3 +425,5 @@ stop).
 - `copy = "on"`, `copy_min_sol = 0.0`, `copy_min_tip_lamports = 4_000_000`, `copy_max_premium = 0.05`,
   `copy_listed_only = true`: his tipped buys on his listed operators, sold one slot before his hold. `"log"` journals the
   copies without buying.
+- The bot from scratch, as backtested: `rule_buys = false` (the copies only), with `tweet_gate`, `tweet_feed`, `follow`
+  and `dumper_skip` off (they served the rule's buys only).

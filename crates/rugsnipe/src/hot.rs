@@ -317,6 +317,8 @@ pub struct HotCfg {
     /// landed buys on the signer within that window before this one.
     pub copy_signer_min_buys: u32,
     pub copy_signer_window_slots: u64,
+    /// `entry.rule_buys` (false: the copies of `entry.copy` only).
+    pub rule_buys: bool,
     /// `entry.stake_fits_balance` and `entry.stake_min_sol` (lamports).
     pub stake_fits_balance: bool,
     pub stake_min: u64,
@@ -460,8 +462,11 @@ impl HotCfg {
             copy_late_slots: cfg.entry.copy_late_slots,
             copy_listed_only: cfg.entry.copy_listed_only,
             copy_signer_min_buys: cfg.entry.copy_signer_min_buys,
-            // 400 ms slots: 9,000 an hour
-            copy_signer_window_slots: cfg.entry.copy_signer_window_h.saturating_mul(9_000),
+            copy_signer_window_slots: cfg
+                .entry
+                .copy_signer_window_h
+                .saturating_mul(SLOTS_PER_HOUR),
+            rule_buys: cfg.entry.rule_buys,
             stake_fits_balance: cfg.entry.stake_fits_balance,
             stake_min: (cfg.entry.stake_min_sol * 1e9).round() as u64,
             require_bundle: cfg.entry.require_bundle,
@@ -913,7 +918,10 @@ const BOUGHT: usize = 32;
 /// Signers whose recent buys by the copied wallet are kept, and the buys
 /// kept per signer (`entry.copy_signer_min_buys` is at most this).
 const SIGNERS: usize = 1024;
-const SIGNER_BUYS: usize = 8;
+const SIGNER_BUYS: usize = crate::copybuys::PER_SIGNER;
+
+/// 400 ms slots: 9,000 an hour.
+pub const SLOTS_PER_HOUR: u64 = 9_000;
 
 /// The copied wallet's last landed buys on one create signer's launches
 /// (their slots, a ring), for `entry.copy_signer_min_buys`.
@@ -1387,6 +1395,11 @@ pub struct LoopCounters {
     /// (`on`), journaled only (`log`), and passed over (a park whose run
     /// holds him fires behind him itself, or a buy of ours on the mint).
     pub copy: [u64; 4],
+    /// `entry.copy`: his landed launch buys (a recent create's slot or the
+    /// next), and the ones not copied for their size or tip, for a signer
+    /// the table does not list, and for a signer he has bought fewer than
+    /// `copy_signer_min_buys` times in the window.
+    pub copy_his: [u64; 4],
 }
 
 /// Everything [`HotLoop::new`] needs.
@@ -2069,10 +2082,14 @@ impl HotLoop {
         }
         // the tweet check's request (entry.tweet_gate): before any skip, so
         // every coin of a tweet host ranks on its tweet, skipped or not
-        let asked = self.ask_tweet(hit, slot, create_index);
+        let asked = self.cfg.rule_buys && self.ask_tweet(hit, slot, create_index);
         // the tweet feed's call (entry.tweet_feed), on the same coins and for
         // the same reason: every coin takes the posts it matches
-        let feed = self.feed_call(hit);
+        let feed = if self.cfg.rule_buys {
+            self.feed_call(hit)
+        } else {
+            None
+        };
         // creates of the last 60 / 600 s, before this one (entry filter)
         let rates = self.rates.on_create(crate::now_ms());
         // 4: class filters
@@ -2095,6 +2112,10 @@ impl HotLoop {
                 rates,
             });
             self.recent_at = self.recent_at.wrapping_add(1);
+        }
+        // entry.rule_buys = false: the copies only (kept above for one)
+        if !self.cfg.rule_buys {
+            return self.decision(intent, hit, code::RULE_OFF, 0, 0, 0, 0, 0);
         }
         // 4a: the operator template filter (entry.dev_buy_sol): the create's
         // own buy must be one of the listed amounts
@@ -2510,16 +2531,20 @@ impl HotLoop {
         // his activity on the signer (entry.copy_signer_min_buys): every
         // landed launch buy of his counts, whatever its size or tip
         let recent = self.signer_buys_then_note(&create_signer(&r.hit), t.slot);
+        self.counters.copy_his[0] += 1;
         if t.sol_amount < self.cfg.copy_min || t.tip < self.cfg.copy_min_tip {
+            self.counters.copy_his[1] += 1;
             return;
         }
         // his known operators only (entry.copy_listed_only): the table's
         // hold is the copy's exit
         if self.cfg.copy_listed_only && self.cfg.operator_rule(&r.hit).is_none() {
+            self.counters.copy_his[2] += 1;
             return;
         }
         // a signer he is trading now
         if recent < self.cfg.copy_signer_min_buys {
+            self.counters.copy_his[3] += 1;
             return;
         }
         self.counters.copy[0] += 1;
@@ -2639,7 +2664,36 @@ impl HotLoop {
                     .unwrap_or(0)
             });
         self.his_signers[i] = Some(e);
+        // kept across restarts by the cold thread (crate::copybuys)
+        self.send_cold(ColdMsg::HisBuy {
+            signer: *signer,
+            slot,
+        });
         count
+    }
+
+    /// Seed the copied wallet's buys per signer (`entry.copy_signer_min_buys`)
+    /// with those an earlier run kept ([`crate::copybuys`]): the [`SIGNERS`]
+    /// signers he bought last, their last [`SIGNER_BUYS`] buys each. Returns
+    /// the signers seeded.
+    pub fn seed_his_signers(&mut self, buys: &crate::copybuys::SignerBuys) -> usize {
+        let mut all: Vec<(&Pubkey, &[u64])> = buys.iter().filter(|(_, v)| !v.is_empty()).collect();
+        all.sort_by_key(|(_, v)| std::cmp::Reverse(v.last().copied()));
+        self.his_signers.fill(None);
+        let n = all.len().min(SIGNERS);
+        for (i, (signer, v)) in all.into_iter().take(SIGNERS).enumerate() {
+            let v = &v[v.len().saturating_sub(SIGNER_BUYS)..];
+            let mut slots = [0; SIGNER_BUYS];
+            slots[..v.len()].copy_from_slice(v);
+            self.his_signers[i] = Some(SignerSeen {
+                signer: *signer,
+                slots,
+                n: v.len() as u8,
+                at: (v.len() % SIGNER_BUYS) as u8,
+                last: v.iter().copied().max().unwrap_or(0),
+            });
+        }
+        n
     }
 
     /// Park a create for the bundle gate; a full table drops its oldest
