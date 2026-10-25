@@ -193,7 +193,7 @@ fn batch(txs: &[&[u8]]) -> Vec<u8> {
 /// The mint of a create transaction, as the adapter decodes it.
 fn mint_of(raw: &[u8]) -> pump_codec::Pubkey {
     match rugsnipe_feed::grpc::classify_create(raw, &[]) {
-        rugsnipe_feed::grpc::CreateCheck::Hit(m) => m,
+        rugsnipe_feed::grpc::CreateCheck::Hit(m, _) => m,
         other => panic!("not a create hit without loaded addresses: {other:?}"),
     }
 }

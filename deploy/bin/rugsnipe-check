@@ -70,12 +70,12 @@ fi
 DUMPS=$(awk 'NF >= 3 { h = ($(NF-1) == "host") ? $NF : "-"; gsub(/\x27/, "", h); printf "%s(\x27%s\x27,\x27%s\x27,\x27%s\x27)", (n++ ? "," : ""), $2, $3, h }' <<<"$DML")
 [ -n "$DUMPS" ] || DUMPS="('','','')"
 # ---- the follow verdicts (entry.follow, docs/16): mint8 -> yes / no, rule (a rule coin) or the rule's skip label,
-# uri host, what happened (fire / skip / log: followed, not bought in log mode)
+# uri host, what happened (fire / skip / log: followed, not bought in log mode), the fee routing (dev / third)
 if [ -n "${CHECK_FOLLOW+x}" ]; then FLL=$CHECK_FOLLOW; else
   FLL=$(sudo journalctl -u rugsnipe-hot -o cat --since "@$E0" 2>/dev/null | grep -E '^follow [1-9A-HJ-NP-Za-km-z]{8} (yes|no) ')
 fi
-FOLLOWS=$(awk 'NF >= 9 { gsub(/\x27/, "", $6); printf "%s(\x27%s\x27,\x27%s\x27,\x27%s\x27,\x27%s\x27,\x27%s\x27)", (n++ ? "," : ""), $2, $3, $4, $6, $NF }' <<<"$FLL")
-[ -n "$FOLLOWS" ] || FOLLOWS="('','','','','')"
+FOLLOWS=$(awk 'NF >= 9 { gsub(/\x27/, "", $6); f = ($9 == "fees") ? $10 : "-"; printf "%s(\x27%s\x27,\x27%s\x27,\x27%s\x27,\x27%s\x27,\x27%s\x27,\x27%s\x27)", (n++ ? "," : ""), $2, $3, $4, $6, $NF, f }' <<<"$FLL")
+[ -n "$FOLLOWS" ] || FOLLOWS="('','','','','','')"
 
 SQL="
 create temp table tiers(m8 text, tier int);
@@ -86,7 +86,7 @@ create temp table feeds(m8 text, call text);
 insert into feeds values $FEEDS;
 create temp table dumps(m8 text, act text, host text);
 insert into dumps values $DUMPS;
-create temp table follows(m8 text, yes text, kind text, host text, act text);
+create temp table follows(m8 text, yes text, kind text, host text, act text, fees text);
 insert into follows values $FOLLOWS;
 create temp view pos0 as
   select p.mint, p.cost, p.state, p.opened_slot, p.closed_slot, min(s.sent_unix_ms) t_ms, max(s.bid) bid,
@@ -176,8 +176,8 @@ from pos p where state = 'closed' and cost > 0 and t_ms >= ${TR:-$D0} * 1000 gro
 .print
 .print == follow $SINCE (entry.follow, docs/16): verdicts at the fire (rule = our rule's coin; skip_* = a coin our rule skips,
 .print    parked for its verdict: log = followed but not bought in log mode), and our closed trades by the verdict
-select kind, yes followed, count(*) coins, sum(act = 'fire') fired, sum(act = 'skip') skipped, sum(act = 'log') logged
-from follows where m8 <> '' group by kind, yes order by kind = 'rule' desc, coins desc;
+select kind, fees, yes followed, count(*) coins, sum(act = 'fire') fired, sum(act = 'skip') skipped, sum(act = 'log') logged
+from follows where m8 <> '' group by kind, fees, yes order by kind = 'rule' desc, coins desc;
 select coalesce((select f.yes || ' ' || f.kind from follows f where f.m8 = substr(p.mint, 1, 8) limit 1), 'no verdict') follow,
        count(*) trades, sum(net > 0) wins, sum(net <= -0.3 * cost) big, round(100.0 * avg(net * 1.0 / cost), 1) mean_pct,
        round(sum(net) / 1e9, 4) net_sol

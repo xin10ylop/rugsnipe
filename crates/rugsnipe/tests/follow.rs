@@ -1,6 +1,7 @@
 //! `entry.follow` (docs/16): the copied wallet follows operators by their
-//! bundle wallets. At the fire, a parked create is followed when one of its
-//! bundle wallets is in the set the cold thread publishes (`Shared::follow`).
+//! bundle wallets, per fee routing. At the fire, a parked create is followed
+//! when one of its bundle wallets, with the create's fee routing, is in the
+//! set the cold thread publishes (`Shared::follow`).
 //! `log` journals the verdict and parks the creates the rule skips (here an
 //! off-template dev buy) only to journal theirs; `gate` skips the rule's
 //! coins that are not followed; `add` buys a followed coin the rule skips.
@@ -11,6 +12,7 @@ use arc_swap::ArcSwap;
 use common::*;
 use pump_codec::curve::FeeBps;
 use pump_codec::Pubkey;
+use rugsnipe::follow::Fees;
 use rugsnipe::hot::{HotCfg, HotLoop, HotParts, Shared};
 use rugsnipe::msgs::FireJob;
 use rugsnipe::setup::{self, ArmState};
@@ -115,8 +117,14 @@ fn template(hit: &pump_codec::create_hit::CreateHit, on: bool) -> Vec<[f64; 2]> 
 }
 
 /// The create, then one bundle buy right behind it by a wallet that is in
-/// the published follow set when `followed`.
+/// the published follow set when `followed`, with the create's fee routing.
 fn run(follow: Follow, on_template: bool, followed: bool) -> Outcome {
+    run_routed(follow, on_template, followed, true)
+}
+
+/// [`run`], the wallet followed with the create's fee routing
+/// (`same_routing`) or the other one.
+fn run_routed(follow: Follow, on_template: bool, followed: bool, same_routing: bool) -> Outcome {
     let (tx, meta, hit) = the_create();
     assert!(hit.intx_sol_in > 0);
     let dir = tmpdir("follow");
@@ -131,7 +139,8 @@ fn run(follow: Follow, on_template: bool, followed: bool) -> Outcome {
     let bw = Pubkey::new_unique();
     let shared = Arc::new(Shared::default());
     if followed {
-        shared.follow.store(Arc::new(HashSet::from([bw])));
+        let fees = Fees::of(Some(hit.dev_fees() == same_routing));
+        shared.follow.store(Arc::new(HashSet::from([(bw, fees)])));
     }
     let mut set = armset(&[hit.user], &[]);
     set.gate_passed = true;
@@ -256,6 +265,10 @@ fn add_buys_a_followed_coin_the_rule_skips() {
     let o = run(Follow::Add, false, false);
     assert!(!o.fired);
     assert_eq!(o.decisions, vec![code::DEV_BUY], "{:?}", labels(&o));
+    assert_eq!(o.follow, [0, 0, 0, 0, 1, 0]);
+    // the wallet is followed for the other fee routing only: not followed
+    let o = run_routed(Follow::Add, false, true, false);
+    assert!(!o.fired);
     assert_eq!(o.follow, [0, 0, 0, 0, 1, 0]);
     // add does not gate the rule's coins; on does
     assert!(run(Follow::Add, true, false).fired);

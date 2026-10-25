@@ -907,13 +907,18 @@ impl Cold {
         );
         if let Some(path) = &fc.path {
             match t.load(path) {
-                Ok(n) => eprintln!(
-                    "follow: {} bundle wallets from {}, {} followed (>= {} attempts at >= {:.0}%)",
+                Ok((n, old)) => eprintln!(
+                    "follow: {} records (bundle wallet x fee routing) from {}, {} followed (>= {} attempts at >= {:.0}%){}",
                     n,
                     path.display(),
                     t.len(),
                     fc.min_attempts,
-                    fc.min_rate * 100.0
+                    fc.min_rate * 100.0,
+                    if old > 0 {
+                        format!("; {old} wallet-only records of the first format skipped")
+                    } else {
+                        String::new()
+                    }
                 ),
                 Err(e) => eprintln!("follow: records not loaded ({e}): starting empty"),
             }
@@ -2710,7 +2715,8 @@ impl Cold {
         let b = crate::filter::bundle_features(&trades, &cset, None);
         if let Some(t) = self.follow.as_mut() {
             if let Some(b) = &b {
-                t.on_run(run.mint, run.slot, &b.wallets);
+                let fees = crate::follow::Fees::of(run.dev_fees);
+                t.on_run(run.mint, run.slot, fees, &b.wallets);
             }
             t.prune(run.slot);
             t.publish();
@@ -2769,8 +2775,8 @@ impl Cold {
         self.follow_minutes += 1;
         if self.follow_minutes % 10 == 1 {
             eprintln!(
-                "follow: {} bundle wallets, {} followed; runs {} attempts {} unmatched {}",
-                t.wallets(),
+                "follow: {} records (bundle wallet x fee routing), {} followed; runs {} attempts {} unmatched {}",
+                t.records(),
                 t.len(),
                 t.runs,
                 t.attempts,

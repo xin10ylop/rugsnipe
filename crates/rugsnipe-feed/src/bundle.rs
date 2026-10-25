@@ -75,6 +75,10 @@ pub struct BundleRun {
     pub create_sig: Sig,
     pub slot: u64,
     pub create_index: Option<u32>,
+    /// The create's fee routing ([`pump_codec::CreateHit::dev_fees`]):
+    /// `Some(true)` when the dev keeps the creator fees, `Some(false)` when a
+    /// third wallet gets them.
+    pub dev_fees: Option<bool>,
     /// The slot's trades of the mint, sorted by index (create first).
     pub trades: Vec<RunTrade>,
     pub closed: CloseReason,
@@ -129,12 +133,14 @@ impl BundleAssembler {
 
     /// A create: open a run for `mint` with the create transaction's own
     /// trades of it.
+    #[allow(clippy::too_many_arguments)]
     pub fn on_create(
         &mut self,
         mint: Pubkey,
         sig: Sig,
         slot: u64,
         index: Option<u32>,
+        dev_fees: Option<bool>,
         now_ns: u64,
         create_trades: &[RunTrade],
     ) {
@@ -160,6 +166,7 @@ impl BundleAssembler {
                 create_sig: sig,
                 slot,
                 create_index: index,
+                dev_fees,
                 trades,
                 closed: CloseReason::SlotEnded,
                 create_ns: now_ns,
@@ -278,7 +285,15 @@ mod tests {
         let mint = Pubkey::new_from_array([9; 32]);
         let other = Pubkey::new_from_array([8; 32]);
         let mut a = BundleAssembler::new(16, 2_000);
-        a.on_create(mint, Sig([1; 64]), 100, Some(40), 1_000, &[tr(1, 500)]);
+        a.on_create(
+            mint,
+            Sig([1; 64]),
+            100,
+            Some(40),
+            Some(true),
+            1_000,
+            &[tr(1, 500)],
+        );
         // out of index order: 43 before 41
         assert!(a
             .on_trades(100, Some(43), 2_000, &[(mint, tr(3, 200))])
@@ -332,6 +347,7 @@ mod tests {
                 Pubkey::new_from_array([i; 32]),
                 Sig([i; 64]),
                 5,
+                None,
                 None,
                 0,
                 &[],

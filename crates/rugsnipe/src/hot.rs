@@ -135,8 +135,9 @@ pub struct Shared {
     /// Buys paused: no fresh blockhash for more than
     /// `risk.max_blockhash_age_ms` and no free sell nonce.
     pub sell_blocked: AtomicBool,
-    /// The bundle wallets the copied wallet follows (`entry.follow`; the
-    /// cold thread's [`crate::follow::FollowTracker`] publishes).
+    /// The (bundle wallet, fee routing) records the copied wallet follows
+    /// (`entry.follow`; the cold thread's [`crate::follow::FollowTracker`]
+    /// publishes).
     pub follow: crate::follow::FollowSnapshot,
 }
 
@@ -2541,9 +2542,10 @@ impl HotLoop {
             return if skip == 0 { Ok(()) } else { Err(skip) };
         }
         let set = self.shared.follow.load();
+        let fees = crate::follow::Fees::of(Some(p.hit.dev_fees()));
         let yes = p.wallets[..p.n_wallets as usize]
             .iter()
-            .any(|w| set.contains(w));
+            .any(|w| set.contains(&(*w, fees)));
         let out = if skip != 0 {
             self.counters.follow[3 + usize::from(!yes)] += 1;
             if yes && self.cfg.follow.adds() {
@@ -2568,7 +2570,7 @@ impl HotLoop {
         };
         let k8 = key8(&p.hit.mint);
         journal(format_args!(
-            "follow {} {} {} host {} dev {:.3} -> {}",
+            "follow {} {} {} host {} dev {:.3} fees {} -> {}",
             std::str::from_utf8(&k8).unwrap_or("?"),
             if yes { "yes" } else { "no" },
             if skip == 0 {
@@ -2578,6 +2580,7 @@ impl HotLoop {
             },
             p.hit.tx_shape.uri_host().unwrap_or("-"),
             dev as f64 / 1e9,
+            fees.as_str(),
             match (&out, skip) {
                 (Ok(()), _) => "fire",
                 (Err(_), 0) => "skip",

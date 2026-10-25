@@ -168,6 +168,7 @@ mod tests {
             create_sig: Sig::default(),
             slot,
             create_index: Some(10),
+            dev_fees: Some(true),
             trades: vec![
                 RunTrade {
                     index: 10,

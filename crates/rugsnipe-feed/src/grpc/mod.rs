@@ -1012,7 +1012,7 @@ impl Adapter {
         recv: u64,
     ) {
         let created = self.check_create(wire, keys, slot);
-        if let Some(mint) = created {
+        if let Some((mint, dev_fees)) = created {
             if self.wire.push(recv, slot, 0, wire, &self.meta_buf) {
                 self.stats.wire_events.fetch_add(1, Ordering::Relaxed);
                 self.health.event(slot);
@@ -1044,7 +1044,8 @@ impl Adapter {
                 }
             }
             if self.cfg.bundle_run {
-                self.asm.on_create(mint, sig, slot, Some(index), recv, &own);
+                self.asm
+                    .on_create(mint, sig, slot, Some(index), Some(dev_fees), recv, &own);
                 self.recent.insert(mint, slot);
                 let done = self.asm.on_trades(slot, Some(index), recv, &[]);
                 self.push_run_done(done, slot, index, recv);
@@ -1398,7 +1399,7 @@ impl Adapter {
                 }
             }
         }
-        let mut created: Option<Pubkey> = None;
+        let mut created: Option<(Pubkey, bool)> = None;
         if has(F_CREATES) && !failed {
             self.meta_buf.clear();
             let m = convert::meta_in(info.meta.as_ref(), index);
@@ -1467,14 +1468,15 @@ impl Adapter {
                     )
                 })
                 .collect();
-            let done = if let Some(mint) = created {
+            let done = if let Some((mint, dev_fees)) = created {
                 let own: Vec<RunTrade> = run_trades
                     .iter()
                     .filter(|(m, _)| *m == mint)
                     .map(|(_, t)| *t)
                     .collect();
                 let sig = Sig(info.signature.as_slice().try_into().unwrap_or([0; 64]));
-                self.asm.on_create(mint, sig, slot, index, recv, &own);
+                self.asm
+                    .on_create(mint, sig, slot, index, Some(dev_fees), recv, &own);
                 self.recent.insert(mint, slot);
                 // a create is a later index for the slot's other open runs
                 self.asm.on_trades(slot, index, recv, &[])
@@ -1514,7 +1516,7 @@ impl Adapter {
     /// Decode the create on the adapter thread: health counters (creates,
     /// decode misses by kind) and the mint for the bundle run. A gated miss
     /// is parked in `pending_miss` for `on_tx` to print after the wire push.
-    fn check_create(&mut self, wire: &[u8], keys: &[Pubkey], slot: u64) -> Option<Pubkey> {
+    fn check_create(&mut self, wire: &[u8], keys: &[Pubkey], slot: u64) -> Option<(Pubkey, bool)> {
         let mut check = classify_create(wire, keys);
         if matches!(check, CreateCheck::NeedsMeta) {
             // a launcher CPI create: the trailer just encoded carries the
@@ -1524,9 +1526,9 @@ impl Adapter {
             check = classify_cpi_create(wire, keys, &self.meta_buf);
         }
         match check {
-            CreateCheck::Hit(mint) => {
+            CreateCheck::Hit(mint, dev_fees) => {
                 FeedHealth::inc(&self.health.creates);
-                Some(mint)
+                Some((mint, dev_fees))
             }
             CreateCheck::NeedsMeta => {
                 // a launcher CPI: the hot thread has the inner instructions
@@ -1563,10 +1565,14 @@ pub fn copied_mint(
 }
 
 /// What the adapter-side decode of a `creates`-filter transaction found.
+/// (`Miss` is the large variant; the value lives on the adapter thread's
+/// stack for one call.)
 #[derive(Debug, Clone, Copy)]
+#[allow(clippy::large_enum_variant)]
 pub enum CreateCheck {
-    /// A create of this mint.
-    Hit(Pubkey),
+    /// A create of this mint, and its fee routing
+    /// ([`pump_codec::CreateHit::dev_fees`]).
+    Hit(Pubkey, bool),
     /// A launcher CPI create: only the hot thread (with the inner
     /// instructions) can resolve the mint.
     NeedsMeta,
@@ -1602,7 +1608,7 @@ pub fn classify_cpi_create(wire: &[u8], keys: &[Pubkey], meta: &[u8]) -> CreateC
         &inner[..ni],
         pump_codec::curve::FeeBps::DEFAULT,
     ) {
-        Ok(Some(h)) => CreateCheck::Hit(h.mint),
+        Ok(Some(h)) => CreateCheck::Hit(h.mint, h.dev_fees()),
         Ok(None) => CreateCheck::NotCreate,
         Err(HitError::CpiCreateNeedsMeta { .. }) => CreateCheck::NeedsMeta,
         Err(e) => CreateCheck::Miss {
@@ -1632,7 +1638,7 @@ pub fn classify_create(wire: &[u8], keys: &[Pubkey]) -> CreateCheck {
     let n_static = tx.static_account_keys().len();
     let loaded = (keys.len() > n_static).then(|| &keys[n_static..]);
     match pump_codec::create_hit(&tx, loaded, &[], pump_codec::curve::FeeBps::DEFAULT) {
-        Ok(Some(h)) => CreateCheck::Hit(h.mint),
+        Ok(Some(h)) => CreateCheck::Hit(h.mint, h.dev_fees()),
         Ok(None) => CreateCheck::NotCreate,
         Err(HitError::CpiCreateNeedsMeta { .. }) => CreateCheck::NeedsMeta,
         Err(e) => {

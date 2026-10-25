@@ -421,6 +421,12 @@ impl CreateHit {
     pub fn is_sol_quote(&self) -> bool {
         self.quote.is_some_and(|q| c::is_sol_like_quote_mint(&q))
     }
+    /// `true` when the dev keeps the creator fees (the `creator` argument is
+    /// the create's user or the fee payer); `false` when a third wallet gets
+    /// them.
+    pub fn dev_fees(&self) -> bool {
+        self.creator_arg == self.user || Some(self.creator_arg) == self.fee_payer
+    }
     /// Base58 transaction id.
     pub fn signature_b58(&self) -> String {
         bs58::encode(&self.sig).into_string()
