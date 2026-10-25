@@ -63,6 +63,7 @@ signatures, account keys, header, instructions, lookups): an independent oracle 
 | `tx/fresh_v0alt_distribute_creator_fees.json` | `3MwDxRjBRYsrwgYpqP3xXuwVCQixQrwqLASBDchXUt4MzQMoQg7XC2fupaRJVVhHNbEtR6GFL5RQTEDaQGEMRovm` | 456794536 | 0 | tx v0 (1 ALT): PumpSwap 8b348655e4e56cf1 + pump distribute_creator_fees (no trade) |
 | `tx/fresh_v0_create_v2_no_buy_fee_sharing.json` | `fTx3UF7UW2jBPFYwS7a8kGhCn5X4WP2XTXvJRyft33eDTZ3rJnex5FkJpCRghah4yaVj4wbSF9Gj3qsQmAuUArS` | 456794025 | 0 | tx v0: SOL create_v2(16) without a dev buy; CPI extend_account + migrate_bonding_curve_creator + distribute_creator_fees_v2 |
 | `tx/legacy_create_spl_b.json` | `cUU9AiPB6Hp5moUrAED23YDAuoDf7vX41FfCMrwM5dbKgMF75sVBWmr2cjKtmZn32z2qYFTZ8VAwfvUAy52unGe` | 456477832 | 0 | legacy `create` (14 accounts, SPL Token mint 5L6BvSLX...pump, 2026-10-13) from the D1 dataset |
+| `tx/rapidlaunch_create_v2_cpi_dev_buy.json` | `3t4qoinhDPessMrFUDjHkxeB1o7bCa9sJ4oppvhQH2Jbo2awEHeQPG2ecRnpMjWwcPSAS7FwR6uU1jv3eVLbKLce` | 461073858 | 1 | tx v1: top-level create_v2 + the dev buy by CPI from the launch tool's program (m.rapidlaunch.io, 2.963 SOL) |
 
 ## Accounts (`accounts/`)
 

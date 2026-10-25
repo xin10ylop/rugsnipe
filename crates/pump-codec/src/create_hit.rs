@@ -146,8 +146,9 @@ pub struct TxShape {
     /// The create's uri contains `ipfs`.
     pub uri_ipfs: bool,
     /// Host of the uri (`https?://` prefix, up to the first `/`, ASCII lower
-    /// case); `uri_host_len == 0`: no such prefix, an empty host, or one
-    /// longer than [`URI_HOST_MAX`] (none of the filter's hosts).
+    /// case); `uri_host_len == 0`: no such prefix, an empty host, one
+    /// longer than [`URI_HOST_MAX`] or with a space or control byte (none of
+    /// the filter's hosts; the journal's lines stay one field per word).
     pub uri_host: [u8; URI_HOST_MAX],
     pub uri_host_len: u8,
     /// The whole uri as given (not lower-cased), when it has such a host
@@ -213,7 +214,7 @@ impl TxShape {
             return;
         };
         let host = rest.split('/').next().unwrap_or("").as_bytes();
-        if host.is_empty() || host.len() > URI_HOST_MAX {
+        if host.is_empty() || host.len() > URI_HOST_MAX || !host.iter().all(u8::is_ascii_graphic) {
             return;
         }
         for (d, b) in self.uri_host.iter_mut().zip(host) {
@@ -1054,6 +1055,9 @@ mod tests {
         s.set_uri(&long);
         assert_eq!(s.uri_host(), Some("meta.uxento.io"));
         assert_eq!(s.uri_str(), None);
+        // a host with a space (not a host): neither
+        s.set_uri("https://meta uxento.io/data/x.json");
+        assert_eq!((s.uri_host(), s.uri_str()), (None, None));
         // no http(s) host: neither
         s.set_uri("ipfs://bafkreicze4mkc5faqjzqq6rxgmlurz26cr6mknsmekyd6abtwmjqelh5ei");
         assert_eq!((s.uri_host(), s.uri_str()), (None, None));

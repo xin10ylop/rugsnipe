@@ -926,7 +926,20 @@ impl Cold {
                         String::new()
                     }
                 ),
-                Err(e) => eprintln!("follow: records not loaded ({e}): starting empty"),
+                Err(e) => {
+                    // keep the unreadable file: the minute save would
+                    // overwrite it with the empty tracker
+                    let bad = path.with_extension("json.bad");
+                    let kept = std::fs::rename(path, &bad).is_ok();
+                    eprintln!(
+                        "follow: records not loaded ({e}): starting empty{}",
+                        if kept {
+                            format!("; the file is kept as {}", bad.display())
+                        } else {
+                            String::new()
+                        }
+                    );
+                }
             }
         }
         self.follow = Some(t);
@@ -1108,6 +1121,7 @@ impl Cold {
                 self.flush_outcomes(true);
                 self.every_5s();
                 self.write_risk_row();
+                self.follow_save();
                 if self.p.cfg.real.is_some() {
                     if let Some(l) = &self.p.ledger {
                         let p = lock(&self.p.report).probe.clone();
@@ -2724,17 +2738,25 @@ impl Cold {
             .collect();
         let b = crate::filter::bundle_features(&trades, &cset, None);
         if let Some(t) = self.follow.as_mut() {
-            if let Some(b) = &b {
+            // the tracker's own run: without the copied wallet's and our
+            // trades, which are never an operator's bundle wallet, must not
+            // stretch the bundle window, and must not be the price after the
+            // bundle (his buy lands right behind it)
+            let ft: Vec<crate::filter::S0Trade> = trades
+                .iter()
+                .filter(|x| !t.excluded().contains(&x.user))
+                .copied()
+                .collect();
+            if let Some(fb) = crate::filter::bundle_features(&ft, &cset, None) {
                 let fees = crate::follow::Fees::of(run.dev_fees);
                 // the price after the bundle: the run's last buy by a bundle
                 // wallet (what the price at create + 10 is scored against)
-                let post = run
-                    .trades
+                let post = ft
                     .iter()
                     .rev()
-                    .find(|x| x.is_buy && b.wallets.contains(&x.user))
+                    .find(|x| x.is_buy && fb.wallets.contains(&x.user))
                     .map(|x| (x.v, x.t));
-                t.on_run(run.mint, run.slot, fees, &b.wallets, post);
+                t.on_run(run.mint, run.slot, fees, &fb.wallets, post);
             }
             t.prune(run.slot);
             t.publish();
@@ -2780,8 +2802,8 @@ impl Cold {
         }
     }
 
-    /// The follow records to disk every minute, a journal line every 10.
-    fn follow_minute(&mut self) {
+    /// The follow records to disk (every minute and at shutdown).
+    fn follow_save(&self) {
         let Some(t) = self.follow.as_ref() else {
             return;
         };
@@ -2790,6 +2812,14 @@ impl Cold {
                 eprintln!("follow: save failed: {e}");
             }
         }
+    }
+
+    /// The follow records to disk every minute, a journal line every 10.
+    fn follow_minute(&mut self) {
+        self.follow_save();
+        let Some(t) = self.follow.as_ref() else {
+            return;
+        };
         self.follow_minutes += 1;
         if self.follow_minutes % 10 == 1 {
             eprintln!(

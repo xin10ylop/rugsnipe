@@ -274,7 +274,9 @@ impl Grpc {
                     Err(_) => return,
                 };
                 let mut a = Adapter::new(cfg, sink, wsink, st, btx);
-                a.follow = Some(atx);
+                if copied {
+                    a.follow = Some(atx);
+                }
                 rt.block_on(a.run(stop, ctl_rx));
             })?;
         events.set_thread(h);
@@ -709,6 +711,9 @@ impl Adapter {
             }
             let ended = self.session(&stop, &mut ctl).await;
             self.health.connected.store(false, Ordering::Relaxed);
+            // the creates' price windows span the gap: their last trade can
+            // be from before it, so none is reported
+            self.prices.clear();
             if stop.load(Ordering::Acquire) {
                 break;
             }

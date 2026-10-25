@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 # rugsnipe-follow-merge: fold a seed into the box's follow records (entry.follow, docs/16) without losing what the box
-# learned. Run with the hot unit stopped (it rewrites follow.json every minute):
+# learned. Run with the hot unit stopped (it rewrites follow.json every minute and at shutdown):
 #   sudo systemctl stop rugsnipe-hot
 #   sudo python3 deploy/bin/rugsnipe-follow-merge /var/lib/rugsnipe/follow.json data/follow_seed_today.json data/follow_seed.json
 #   sudo systemctl start rugsnipe-hot
 # BOX: the box's follow.json ([runs, attempts, last_slot(, value...)] per "wallet:dev|third"). ADD: records of launches the
 # box never saw (their counts are added). VALUES: a seed whose last coins' values at create + 10 fill the records that have
-# none yet. Keys of the first format (a wallet alone) are dropped, as the bot does. The old file is kept as BOX.bak.
+# none yet. Keys of the first format (a wallet alone) are dropped, as the bot does. The old file is kept as
+# BOX.bak.<UTC time>. An ADD already merged into BOX (its hash is in BOX.merged) is refused: its counts would be added
+# twice; --force merges it anyway.
 # --dry-run: print what would change, write nothing.
-import json, os, sys, shutil
+import hashlib, json, os, sys, shutil, time
 
 def load(p):
     out = {}
@@ -18,10 +20,17 @@ def load(p):
     return out
 
 def main(a):
-    dry = "--dry-run" in a; a = [x for x in a if x != "--dry-run"]
+    dry = "--dry-run" in a; force = "--force" in a
+    a = [x for x in a if x not in ("--dry-run", "--force")]
     if len(a) != 3:
-        sys.exit(__doc__ or "usage: rugsnipe-follow-merge BOX ADD VALUES [--dry-run]")
+        sys.exit("usage: rugsnipe-follow-merge BOX ADD VALUES [--dry-run] [--force]")
     box_p, add_p, val_p = a
+    h = hashlib.sha256(open(add_p, "rb").read()).hexdigest()
+    mark_p = box_p + ".merged"
+    done = set(open(mark_p).read().split()) if os.path.exists(mark_p) else set()
+    if h in done and not force:
+        sys.exit(f"{add_p} was already merged into {box_p} (its hash is in {mark_p}): its counts would be added twice; "
+                 "--force to merge it anyway")
     box, add, vals = load(box_p), load(add_p), load(val_p)
     added = new = filled = 0
     for k, r in add.items():
@@ -36,13 +45,18 @@ def main(a):
     print(f"box {box_p}: {len(box)} records; {added} took today's counts, {new} new, {filled} got values "
           f"({sum(1 for b in box.values() if len(b) > 3)} with values)")
     if dry: return
-    shutil.copy2(box_p, box_p + ".bak")
-    tmp = box_p + ".tmp"
-    with open(tmp, "w") as f: json.dump(dict(sorted(box.items())), f, separators=(",", ":"))
+    bak = box_p + ".bak." + time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    shutil.copy2(box_p, bak)
     st = os.stat(box_p)
-    os.chown(tmp, st.st_uid, st.st_gid); os.chmod(tmp, st.st_mode & 0o777)
-    os.replace(tmp, box_p)
-    print(f"written (old file: {box_p}.bak)")
+    tmp = box_p + ".merge.tmp"
+    try:
+        with open(tmp, "w") as f: json.dump(dict(sorted(box.items())), f, separators=(",", ":"))
+        os.chown(tmp, st.st_uid, st.st_gid); os.chmod(tmp, st.st_mode & 0o777)
+        os.replace(tmp, box_p)
+    finally:
+        if os.path.exists(tmp): os.remove(tmp)
+    with open(mark_p, "a") as f: f.write(h + "\n")
+    print(f"written (old file: {bak})")
 
 if __name__ == "__main__":
     main(sys.argv[1:])

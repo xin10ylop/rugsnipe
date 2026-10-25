@@ -97,6 +97,12 @@ impl PriceTracker {
         self.open.is_empty()
     }
 
+    /// Forget every open window (after a stream gap: their last trade may
+    /// be from before it).
+    pub fn clear(&mut self) {
+        self.open.clear();
+    }
+
     /// A create of `mint` at `slot` (the oldest is dropped when full).
     pub fn on_create(&mut self, mint: Pubkey, slot: u64) {
         if self.open.contains_key(&mint) {

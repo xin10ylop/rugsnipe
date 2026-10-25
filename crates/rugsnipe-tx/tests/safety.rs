@@ -378,6 +378,7 @@ fn the_bundle_leg_shares_the_nozomi_key_comes_first_and_never_takes_a_sell() {
     assert_eq!(set.real().len(), 1);
 }
 
+#[cfg(feature = "senders")]
 #[test]
 fn jito_regions_and_blockrazor_build_one_sender_each() {
     let mut c = armable(Mode::Probe);

@@ -232,6 +232,11 @@ impl FollowTracker {
         self.set.is_empty()
     }
 
+    /// The wallets never counted as an operator's (the copied wallet, ours).
+    pub fn excluded(&self) -> &[Pubkey] {
+        &self.exclude
+    }
+
     /// Records held (followed or not).
     pub fn records(&self) -> usize {
         self.stats.len()
@@ -313,7 +318,13 @@ impl FollowTracker {
                 .min_by_key(|(_, o)| o.slot)
                 .map(|(m, _)| *m)
             {
-                self.open.remove(&oldest);
+                if let Some(o) = self.open.remove(&oldest) {
+                    if !o.attempted {
+                        for k in o.keys {
+                            self.refresh(k);
+                        }
+                    }
+                }
             }
         }
         self.open.insert(
@@ -325,11 +336,11 @@ impl FollowTracker {
                 post,
             },
         );
+        // the run counts against its records once the copied wallet's
+        // attempt came (attempt_open) or its window closed (prune): a verdict
+        // on this very coin must not see its own run before his buy
         if self.pending.remove(&mint).is_some() {
             self.attempt_open(&mint);
-        }
-        for k in ks {
-            self.refresh(k);
         }
     }
 
@@ -412,7 +423,17 @@ impl FollowTracker {
     /// and records not seen for [`FORGET_SLOTS`].
     pub fn prune(&mut self, now_slot: u64) {
         let floor = now_slot.saturating_sub(OPEN_SLOTS);
-        self.open.retain(|_, o| o.slot >= floor);
+        let mut closed: Vec<FollowKey> = vec![];
+        self.open.retain(|_, o| {
+            let keep = o.slot >= floor;
+            if !keep && !o.attempted {
+                closed.extend(o.keys.iter().copied());
+            }
+            keep
+        });
+        for k in closed {
+            self.refresh(k);
+        }
         let before = self.pending.len();
         self.pending.retain(|_, s| *s >= floor);
         self.unmatched += (before - self.pending.len()) as u64;
@@ -533,6 +554,8 @@ mod tests {
         // two launches it skipped: 2 of 4, still at the rate
         t.on_run(k(12), 300, Fees::Dev, &ws, None);
         t.on_run(k(13), 400, Fees::Dev, &ws, None);
+        // a skipped run counts once its attempt window closed
+        t.prune(400 + OPEN_SLOTS + 1);
         assert!(t.followed(&k(1), Fees::Dev));
         // a third-wallet launch it skipped: the dev record is unchanged
         t.on_run(k(15), 450, Fees::Third, &ws, None);
@@ -543,6 +566,12 @@ mod tests {
         );
         // a fifth it skipped: 2 of 5, below half
         t.on_run(k(14), 500, Fees::Dev, &ws, None);
+        t.publish();
+        assert!(
+            t.followed(&k(1), Fees::Dev),
+            "the open run does not count before its window closed"
+        );
+        t.prune(500 + OPEN_SLOTS + 1);
         t.publish();
         assert!(!t.followed(&k(1), Fees::Dev));
         assert!(!snap.load().contains(&(k(1), Fees::Dev)));

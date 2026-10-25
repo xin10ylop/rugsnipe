@@ -1290,7 +1290,7 @@ mod tests {
         let a = read_create_args(&mut r, true).unwrap();
         assert_eq!((a.name, a.symbol), ("Poopy", "POOP"));
         assert_eq!(a.creator, Pubkey::new_from_array(creator));
-        assert_eq!(a.is_mayhem_mode, false);
+        assert!(!a.is_mayhem_mode);
         assert_eq!(a.is_cashback_enabled, Some(false));
         assert_eq!(a.creator_fee_bps, None);
         assert_eq!(a.is_holder_reward, Some(true));

@@ -103,6 +103,10 @@ pub const FREE_CLASS: u8 = 1;
 /// What `entry.stake_fits_balance` leaves in the wallet beyond the reserve
 /// and the bid: the sell's fees and the token account's rent (lamports).
 pub const STAKE_FIT_MARGIN: u64 = 5_000_000;
+/// How long a real buy counts against the free balance for
+/// `entry.stake_fits_balance`: the wallet balance is polled every 2 s at
+/// confirmed commitment, so a buy shows in it a few seconds after it is sent.
+pub const STAKE_FIT_WINDOW_MS: u64 = 6_000;
 
 /// A create's `creator_fee_bps` for the follow verdict line: the number,
 /// or nothing when 0 (no allocation on the hot path).
@@ -1350,6 +1354,11 @@ pub struct HotLoop {
     /// Per-event processing time (all events).
     hist_event: Histogram<u64>,
     pub counters: LoopCounters,
+    /// `entry.stake_fits_balance`: the real buys of the last
+    /// [`STAKE_FIT_WINDOW_MS`] as (time ms, stake + bid), which the polled
+    /// wallet balance may not show yet.
+    fit_spends: [(u64, u64); 8],
+    fit_next: usize,
     /// Creates per 60 / 600 s (entry filter feature).
     rates: CreateRate,
     /// `entry.require_bundle`: creates waiting for a bundle buy (fixed
@@ -1433,6 +1442,8 @@ impl HotLoop {
             hist_wire: hist(),
             hist_event: hist(),
             counters: LoopCounters::default(),
+            fit_spends: [(0, 0); 8],
+            fit_next: 0,
             rates: CreateRate::new(crate::now_ms()),
             // on the heap (PARK_SLOTS entries of a few KB each, allocated
             // once here): the loop itself stays small enough to build and
@@ -2546,6 +2557,12 @@ impl HotLoop {
                 }
             } else {
                 self.counters.hidden_dev[1] += 1;
+                // parked for its follow verdict only because its dev buy was
+                // unseen at the create: below follow_min_dev_sol it would not
+                // have been parked, so it keeps the rule's skip
+                if follow_skip != 0 && p.dev_sol < self.cfg.follow_min_dev {
+                    return self.decision(p.intent, &p.hit, follow_skip, 0, 0, 0, 0, 0);
+                }
             }
         }
         let hot = match self.follow_verdict(p, follow_skip) {
@@ -2554,6 +2571,7 @@ impl HotLoop {
         };
         let mut q = *p;
         q.follow_hot = hot;
+        q.follow_skip = follow_skip;
         let p = &q;
         self.counters.fire_wallets[(bundle_wallet_count(p) as usize).min(5)] += 1;
         self.counters.bundle_fired += 1;
@@ -2577,7 +2595,7 @@ impl HotLoop {
     /// Journaled as `follow <mint8> yes|no rule|<skip label> host <h> dev
     /// <SOL> fees dev|third hot|cold mode plain|holder[+bps<n>] ->
     /// fire|skip|log` and counted.
-    /// `Ok(hot)`: 0 with `off`, 1 cold, 2 hot (for the size step);
+    /// `Ok(hot)`: 0 with `off` or `log`, 1 cold, 2 hot (for the size step);
     /// `Err(code)`: the decision to record instead of the fire (the rule's
     /// own skip, or `skip_not_followed`).
     fn follow_verdict(&mut self, p: &Parked, skip: u8) -> Result<u8, u8> {
@@ -2649,7 +2667,13 @@ impl HotLoop {
                 _ => "skip",
             }
         ));
-        out.map(|()| if hot { 2 } else { 1 })
+        // log changes nothing that is bought: no size class
+        let sized = self.cfg.follow.gates() || self.cfg.follow.adds();
+        out.map(|()| match (sized, hot) {
+            (false, _) => 0,
+            (true, true) => 2,
+            (true, false) => 1,
+        })
     }
 
     /// Steps 5-11 of the decision: watchlist, risk, keys, nonce, size and
@@ -2741,10 +2765,15 @@ impl HotLoop {
         // wallet's stake level on this signer (an unlisted signer is tier 0)
         // picks the size and, below, the bid; the size only narrows, so the
         // signed ArmSet and the risk cap stay the upper bound
-        let tier = self
-            .cfg
-            .operator_rule(hit)
-            .map_or(0usize, |r| r.stake_tier.min(2) as usize);
+        // a coin bought only through entry.follow = add / on (the rule
+        // skipped it) is sized and bid at tier 0 (docs/16 section 5)
+        let tier = if parked.is_some_and(|p| p.follow_skip != 0) {
+            0
+        } else {
+            self.cfg
+                .operator_rule(hit)
+                .map_or(0usize, |r| r.stake_tier.min(2) as usize)
+        };
         if let Some(t) = self.cfg.stake_by_tier {
             if t[tier] > 0 && op.size > t[tier] {
                 op.size = t[tier];
@@ -2876,8 +2905,17 @@ impl HotLoop {
         // refused, down to entry.stake_min_sol
         if self.cfg.stake_fits_balance {
             let wallet = self.risk.hot_balance();
+            // the buys of the last seconds, which the polled balance may not
+            // show yet: two fires inside one poll must not both take it all
+            let in_flight: u64 = self
+                .fit_spends
+                .iter()
+                .filter(|(t, _)| *t > 0 && now_ms.saturating_sub(*t) < STAKE_FIT_WINDOW_MS)
+                .map(|(_, l)| *l)
+                .sum();
             let free = wallet
                 .saturating_sub(self.risk.caps().min_hot_balance_lamports)
+                .saturating_sub(in_flight)
                 .saturating_sub(bid)
                 .saturating_sub(STAKE_FIT_MARGIN);
             if op.size > free && free >= self.cfg.stake_min {
@@ -3087,6 +3125,10 @@ impl HotLoop {
             tip0,
             Some(tip_account),
         );
+        if real && self.cfg.stake_fits_balance {
+            self.fit_spends[self.fit_next] = (now_ms, spend.saturating_add(bid));
+            self.fit_next = (self.fit_next + 1) % self.fit_spends.len();
+        }
         let (sender, result) = if real {
             let job = FireJob {
                 tmpl: t.clone(),
