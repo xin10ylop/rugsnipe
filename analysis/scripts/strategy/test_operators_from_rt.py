@@ -40,7 +40,7 @@ class OperatorsFromRt(unittest.TestCase):
         ops = op.build(ROWS)
         self.assertEqual(list(ops), [A, B], "sorted by n")
         self.assertEqual(ops[A], {"hold_slots": 10, "n": 2, "wins": 1, "pnl_sol": 0.04,
-                                  "dev_sol": 3.0, "bundle_wallets": 3})
+                                  "dev_sol": 3.0, "bundle_wallets": 3, "stake_tier": 0})
         self.assertEqual(ops[B]["hold_slots"], 6)
         self.assertEqual((ops[B]["n"], ops[B]["wins"], ops[B]["bundle_wallets"]), (1, 1, 2))
         # the decision slot, not the landing: s_off_c would give 10 / 11
