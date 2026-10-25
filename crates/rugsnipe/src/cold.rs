@@ -127,6 +127,8 @@ pub struct FollowCfg {
     pub wallet: Pubkey,
     pub min_attempts: u32,
     pub min_rate: f64,
+    /// `entry.follow_hot_min_value` (docs/16 section 10).
+    pub hot_min_value: f64,
     /// Where the records persist (`follow.json` beside `state.db`).
     pub path: Option<PathBuf>,
 }
@@ -212,8 +214,9 @@ pub struct PostExecFeed {
     pub watch: Box<dyn Fn(Pubkey, bool) + Send>,
     pub stats: Box<dyn Fn() -> serde_json::Value + Send>,
     pub bundles: Option<std::sync::mpsc::Receiver<rugsnipe_feed::bundle::BundleRun>>,
-    /// The copied wallet's attempts (`entry.follow`).
-    pub attempts: Option<std::sync::mpsc::Receiver<rugsnipe_feed::bundle::CopiedAttempt>>,
+    /// The copied wallet's attempts and the creates' prices at create + 10
+    /// (`entry.follow`).
+    pub follow: Option<std::sync::mpsc::Receiver<rugsnipe_feed::bundle::FollowEvent>>,
 }
 
 impl core::fmt::Debug for PostExecFeed {
@@ -903,17 +906,20 @@ impl Cold {
             self.p.shared.follow.clone(),
             fc.min_attempts,
             fc.min_rate,
+            fc.hot_min_value,
             vec![fc.wallet, self.p.cfg.owner],
         );
         if let Some(path) = &fc.path {
             match t.load(path) {
                 Ok((n, old)) => eprintln!(
-                    "follow: {} records (bundle wallet x fee routing) from {}, {} followed (>= {} attempts at >= {:.0}%){}",
+                    "follow: {} records (bundle wallet x fee routing) from {}, {} followed (>= {} attempts at >= {:.0}%), {} hot (last coins at create + 10 >= {:+.0}%){}",
                     n,
                     path.display(),
                     t.len(),
                     fc.min_attempts,
                     fc.min_rate * 100.0,
+                    t.hot_len(),
+                    fc.hot_min_value * 100.0,
                     if old > 0 {
                         format!("; {old} wallet-only records of the first format skipped")
                     } else {
@@ -1298,15 +1304,19 @@ impl Cold {
         for r in runs {
             self.on_bundle_run(r);
         }
-        let mut atts = vec![];
-        if let Some(rx) = self.p.post_exec.as_ref().and_then(|f| f.attempts.as_ref()) {
+        let mut evs = vec![];
+        if let Some(rx) = self.p.post_exec.as_ref().and_then(|f| f.follow.as_ref()) {
             while let Ok(a) = rx.try_recv() {
-                atts.push(a);
+                evs.push(a);
             }
         }
         if let Some(t) = self.follow.as_mut() {
-            for a in atts {
-                t.on_attempt(a.mint, a.slot);
+            use rugsnipe_feed::bundle::FollowEvent;
+            for e in evs {
+                match e {
+                    FollowEvent::Attempt(a) => t.on_attempt(a.mint, a.slot),
+                    FollowEvent::Price(p) => t.on_price(&p.mint, p.v, p.t),
+                }
             }
             t.publish();
         }
@@ -2716,7 +2726,15 @@ impl Cold {
         if let Some(t) = self.follow.as_mut() {
             if let Some(b) = &b {
                 let fees = crate::follow::Fees::of(run.dev_fees);
-                t.on_run(run.mint, run.slot, fees, &b.wallets);
+                // the price after the bundle: the run's last buy by a bundle
+                // wallet (what the price at create + 10 is scored against)
+                let post = run
+                    .trades
+                    .iter()
+                    .rev()
+                    .find(|x| x.is_buy && b.wallets.contains(&x.user))
+                    .map(|x| (x.v, x.t));
+                t.on_run(run.mint, run.slot, fees, &b.wallets, post);
             }
             t.prune(run.slot);
             t.publish();
@@ -2775,12 +2793,14 @@ impl Cold {
         self.follow_minutes += 1;
         if self.follow_minutes % 10 == 1 {
             eprintln!(
-                "follow: {} records (bundle wallet x fee routing), {} followed; runs {} attempts {} unmatched {}",
+                "follow: {} records (bundle wallet x fee routing), {} followed, {} hot; runs {} attempts {} unmatched {} priced {}",
                 t.records(),
                 t.len(),
+                t.hot_len(),
                 t.runs,
                 t.attempts,
-                t.unmatched
+                t.unmatched,
+                t.priced
             );
         }
     }

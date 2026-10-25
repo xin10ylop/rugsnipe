@@ -12,7 +12,7 @@ use arc_swap::ArcSwap;
 use common::*;
 use pump_codec::curve::FeeBps;
 use pump_codec::Pubkey;
-use rugsnipe::follow::Fees;
+use rugsnipe::follow::{Fees, FollowSet};
 use rugsnipe::hot::{HotCfg, HotLoop, HotParts, Shared};
 use rugsnipe::msgs::FireJob;
 use rugsnipe::setup::{self, ArmState};
@@ -24,7 +24,7 @@ use rugsnipe_core::watchlist::Watchlist;
 use rugsnipe_core::IntentId;
 use rugsnipe_feed::{FeedBuf, FeedEvent, FeedMux, FeedSrc, FeedStatus, FiredSet, Payload};
 use rugsnipe_tx::senders::{ApiKeys, SenderSet};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -80,7 +80,9 @@ fn good_env(c: &Config) -> ValidateEnv {
 struct Outcome {
     fired: bool,
     decisions: Vec<u8>,
-    follow: [u64; 6],
+    /// The size of each decision record (the fire's is the stake).
+    sizes: Vec<u64>,
+    follow: [u64; 8],
 }
 
 fn labels(o: &Outcome) -> Vec<&'static str> {
@@ -125,10 +127,32 @@ fn run(follow: Follow, on_template: bool, followed: bool) -> Outcome {
 /// [`run`], the wallet followed with the create's fee routing
 /// (`same_routing`) or the other one.
 fn run_routed(follow: Follow, on_template: bool, followed: bool, same_routing: bool) -> Outcome {
+    run_sized(
+        follow,
+        on_template,
+        followed,
+        same_routing,
+        false,
+        (1.0, 1.0),
+    )
+}
+
+/// [`run_routed`], the followed record also hot when `hot`, with the stake
+/// multipliers `(follow_hot_stake_mult, follow_cold_stake_mult)`.
+fn run_sized(
+    follow: Follow,
+    on_template: bool,
+    followed: bool,
+    same_routing: bool,
+    hot: bool,
+    mults: (f64, f64),
+) -> Outcome {
     let (tx, meta, hit) = the_create();
     assert!(hit.intx_sol_in > 0);
     let dir = tmpdir("follow");
-    let cfg = live_cfg(&dir, follow, &template(&hit, on_template));
+    let mut cfg = live_cfg(&dir, follow, &template(&hit, on_template));
+    cfg.entry.follow_hot_stake_mult = mults.0;
+    cfg.entry.follow_cold_stake_mult = mults.1;
     let v = cfg.validate(&good_env(&cfg));
     assert!(v.ok(), "{:?}", v.refusals);
     let senders = Arc::new(SenderSet::build(&cfg, &good_env(&cfg), &ApiKeys::default()).unwrap());
@@ -140,7 +164,11 @@ fn run_routed(follow: Follow, on_template: bool, followed: bool, same_routing: b
     let shared = Arc::new(Shared::default());
     if followed {
         let fees = Fees::of(Some(hit.dev_fees() == same_routing));
-        shared.follow.store(Arc::new(HashSet::from([(bw, fees)])));
+        let mut set = FollowSet::followed([(bw, fees)]);
+        if hot {
+            set.hot.insert((bw, fees));
+        }
+        shared.follow.store(Arc::new(set));
     }
     let mut set = armset(&[hit.user], &[]);
     set.gate_passed = true;
@@ -208,19 +236,23 @@ fn run_routed(follow: Follow, on_template: bool, followed: bool, same_routing: b
     let follow = hot.counters.follow;
     drop(hot);
     w.join().unwrap();
-    let decisions = rslog_records(&dir.join("rslog"))
+    let (decisions, sizes) = rslog_records(&dir.join("rslog"))
         .iter()
         .filter_map(|r| match r {
             Rec::Decision {
-                intent: i, code, ..
-            } if *i == intent => Some(*code),
+                intent: i,
+                code,
+                size,
+                ..
+            } if *i == intent => Some((*code, *size)),
             _ => None,
         })
-        .collect();
+        .unzip();
     let _ = std::fs::remove_dir_all(&dir);
     Outcome {
         fired,
         decisions,
+        sizes,
         follow,
     }
 }
@@ -229,17 +261,21 @@ fn run_routed(follow: Follow, on_template: bool, followed: bool, same_routing: b
 fn log_fires_the_rule_coins_and_only_journals_the_rest() {
     let o = run(Follow::Log, true, false);
     assert!(o.fired, "{:?}", labels(&o));
-    assert_eq!(o.follow, [0, 1, 0, 0, 0, 0], "a rule coin, not followed");
+    assert_eq!(
+        o.follow,
+        [0, 1, 0, 0, 0, 0, 0, 1],
+        "a rule coin, not followed"
+    );
     // off the template: parked for the verdict, followed, still skipped
     let o = run(Follow::Log, false, true);
     assert!(!o.fired);
     assert_eq!(o.decisions, vec![code::DEV_BUY], "{:?}", labels(&o));
-    assert_eq!(o.follow, [0, 0, 0, 1, 0, 0]);
+    assert_eq!(o.follow, [0, 0, 0, 1, 0, 0, 0, 0]);
     // off: skipped at the create, no verdict
     let o = run(Follow::Off, false, true);
     assert!(!o.fired);
     assert_eq!(o.decisions, vec![code::DEV_BUY]);
-    assert_eq!(o.follow, [0; 6]);
+    assert_eq!(o.follow, [0; 8]);
 }
 
 #[test]
@@ -247,33 +283,53 @@ fn gate_skips_a_rule_coin_no_followed_wallet_bundled() {
     let o = run(Follow::Gate, true, false);
     assert!(!o.fired);
     assert_eq!(o.decisions, vec![code::NOT_FOLLOWED], "{:?}", labels(&o));
-    assert_eq!(o.follow, [0, 1, 1, 0, 0, 0]);
+    assert_eq!(o.follow, [0, 1, 1, 0, 0, 0, 0, 0]);
     let o = run(Follow::Gate, true, true);
     assert!(o.fired, "{:?}", labels(&o));
-    assert_eq!(o.follow, [1, 0, 0, 0, 0, 0]);
+    assert_eq!(o.follow, [1, 0, 0, 0, 0, 0, 0, 1]);
     // gate alone parks no skip
     let o = run(Follow::Gate, false, true);
     assert!(!o.fired);
-    assert_eq!(o.follow, [0; 6]);
+    assert_eq!(o.follow, [0; 8]);
 }
 
 #[test]
 fn add_buys_a_followed_coin_the_rule_skips() {
     let o = run(Follow::Add, false, true);
     assert!(o.fired, "{:?}", labels(&o));
-    assert_eq!(o.follow, [0, 0, 0, 1, 0, 1]);
+    assert_eq!(o.follow, [0, 0, 0, 1, 0, 1, 0, 1]);
     let o = run(Follow::Add, false, false);
     assert!(!o.fired);
     assert_eq!(o.decisions, vec![code::DEV_BUY], "{:?}", labels(&o));
-    assert_eq!(o.follow, [0, 0, 0, 0, 1, 0]);
+    assert_eq!(o.follow, [0, 0, 0, 0, 1, 0, 0, 0]);
     // the wallet is followed for the other fee routing only: not followed
     let o = run_routed(Follow::Add, false, true, false);
     assert!(!o.fired);
-    assert_eq!(o.follow, [0, 0, 0, 0, 1, 0]);
+    assert_eq!(o.follow, [0, 0, 0, 0, 1, 0, 0, 0]);
     // add does not gate the rule's coins; on does
     assert!(run(Follow::Add, true, false).fired);
     assert!(!run(Follow::On, true, false).fired);
     assert!(run(Follow::On, false, true).fired);
+}
+
+#[test]
+fn a_hot_coin_keeps_its_stake_and_a_cold_one_takes_the_cold_multiplier() {
+    // the multipliers at 1.0 (the defaults): the stake of a followed coin
+    let base = run_sized(Follow::On, true, true, true, false, (1.0, 1.0));
+    assert!(base.fired, "{:?}", labels(&base));
+    let stake = *base.sizes.last().unwrap();
+    assert!(stake > 0);
+    assert_eq!(base.follow[6..], [0, 1], "cold");
+    // cold at 0.5: half the stake
+    let cold = run_sized(Follow::On, true, true, true, false, (1.5, 0.5));
+    assert!(cold.fired, "{:?}", labels(&cold));
+    assert_eq!(*cold.sizes.last().unwrap(), stake / 2);
+    // hot: never below the stake, and the cold multiplier does not apply
+    let hot = run_sized(Follow::On, true, true, true, true, (1.5, 0.5));
+    assert!(hot.fired, "{:?}", labels(&hot));
+    assert_eq!(hot.follow[6..], [1, 0], "hot");
+    let h = *hot.sizes.last().unwrap();
+    assert!(h >= stake && h <= stake * 3 / 2, "{h} vs {stake}");
 }
 
 #[test]

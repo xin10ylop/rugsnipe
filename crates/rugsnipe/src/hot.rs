@@ -273,6 +273,11 @@ pub struct HotCfg {
     /// parked for its follow verdict (`entry.follow_min_dev_sol`).
     pub follow: rugsnipe_core::config::Follow,
     pub follow_min_dev: u64,
+    /// `entry.follow_hot_stake_mult` / `follow_cold_stake_mult`: the tier
+    /// stake's multiplier for a hot coin (bounded by the ArmSet size and the
+    /// risk cap) and for the rest.
+    pub follow_hot_mult: f64,
+    pub follow_cold_mult: f64,
     /// The pre-send entry gate (`entry.presend_model`, loaded at startup;
     /// `None`: off), its mode and cut, and the per-signer operator features
     /// the cold thread publishes from the outcome store.
@@ -401,6 +406,8 @@ impl HotCfg {
             tweet_cut_tip: cfg.entry.tweet_cut_tip_lamports,
             follow: cfg.entry.follow,
             follow_min_dev: (cfg.entry.follow_min_dev_sol * 1e9).round() as u64,
+            follow_hot_mult: cfg.entry.follow_hot_stake_mult,
+            follow_cold_mult: cfg.entry.follow_cold_stake_mult,
             require_bundle: cfg.entry.require_bundle,
             presend: None,
             presend_mode: cfg.entry.presend_mode,
@@ -712,6 +719,9 @@ pub struct Parked {
     /// (dev buy, uri host, operator table, tier), parked only for its
     /// follow verdict; 0 = a rule coin.
     pub follow_skip: u8,
+    /// Set by the follow verdict at the fire: 0 = no verdict (`off`), 1 =
+    /// cold, 2 = hot (the size step's multiplier).
+    pub follow_hot: u8,
 }
 
 /// A create whose dev buy the decoder could not see: no buy found in the
@@ -1234,8 +1244,9 @@ pub struct LoopCounters {
     pub hidden_dev: [u64; 3],
     /// `entry.follow` verdicts at the fire: rule coins followed / not, and
     /// gated (skip_not_followed); creates the rule skips, parked for the
-    /// verdict, followed / not, and bought (`add`, `on`).
-    pub follow: [u64; 6],
+    /// verdict, followed / not, and bought (`add`, `on`); the coins that
+    /// went on to the size step hot / cold (docs/16 section 10).
+    pub follow: [u64; 8],
     /// The tweet check (`entry.tweet_gate`): creates handed to the lane,
     /// and not handed for a full ring; verdicts by kind (`TweetKind`
     /// order: first, copy, stale, no_tweet, error); verdicts that came in
@@ -2068,6 +2079,7 @@ impl HotLoop {
                 dev_sol: 0,
                 dev_seen: false,
                 follow_skip,
+                follow_hot: 0,
             });
             if hidden {
                 self.counters.hidden_dev[0] += 1;
@@ -2511,9 +2523,13 @@ impl HotLoop {
                 self.counters.hidden_dev[1] += 1;
             }
         }
-        if let Err(c) = self.follow_verdict(p, follow_skip) {
-            return self.decision(p.intent, &p.hit, c, 0, 0, 0, 0, 0);
-        }
+        let hot = match self.follow_verdict(p, follow_skip) {
+            Ok(h) => h,
+            Err(c) => return self.decision(p.intent, &p.hit, c, 0, 0, 0, 0, 0),
+        };
+        let mut q = *p;
+        q.follow_hot = hot;
+        let p = &q;
         self.counters.fire_wallets[(bundle_wallet_count(p) as usize).min(5)] += 1;
         self.counters.bundle_fired += 1;
         self.counters.bundle_wait_us += now.saturating_sub(p.bundle_ns) / 1_000;
@@ -2532,20 +2548,22 @@ impl HotLoop {
     }
 
     /// The follow verdict at the fire (`entry.follow`): is one of the park's
-    /// bundle wallets followed? Journaled as `follow <mint8> yes|no
-    /// rule|<skip label> host <h> dev <SOL> -> fire|skip|log` and counted.
+    /// bundle wallets followed, and hot, with the coin's fee routing?
+    /// Journaled as `follow <mint8> yes|no rule|<skip label> host <h> dev
+    /// <SOL> fees dev|third hot|cold -> fire|skip|log` and counted.
+    /// `Ok(hot)`: 0 with `off`, 1 cold, 2 hot (for the size step);
     /// `Err(code)`: the decision to record instead of the fire (the rule's
     /// own skip, or `skip_not_followed`).
-    fn follow_verdict(&mut self, p: &Parked, skip: u8) -> Result<(), u8> {
+    fn follow_verdict(&mut self, p: &Parked, skip: u8) -> Result<u8, u8> {
         use rugsnipe_core::config::Follow;
         if self.cfg.follow == Follow::Off {
-            return if skip == 0 { Ok(()) } else { Err(skip) };
+            return if skip == 0 { Ok(0) } else { Err(skip) };
         }
         let set = self.shared.follow.load();
         let fees = crate::follow::Fees::of(Some(p.hit.dev_fees()));
-        let yes = p.wallets[..p.n_wallets as usize]
-            .iter()
-            .any(|w| set.contains(&(*w, fees)));
+        let ws = &p.wallets[..p.n_wallets as usize];
+        let yes = ws.iter().any(|w| set.contains(&(*w, fees)));
+        let hot = ws.iter().any(|w| set.is_hot(&(*w, fees)));
         let out = if skip != 0 {
             self.counters.follow[3 + usize::from(!yes)] += 1;
             if yes && self.cfg.follow.adds() {
@@ -2563,6 +2581,9 @@ impl HotLoop {
                 Ok(())
             }
         };
+        if out.is_ok() {
+            self.counters.follow[6 + usize::from(!hot)] += 1;
+        }
         let dev = if p.dev_hidden {
             p.dev_sol
         } else {
@@ -2570,7 +2591,7 @@ impl HotLoop {
         };
         let k8 = key8(&p.hit.mint);
         journal(format_args!(
-            "follow {} {} {} host {} dev {:.3} fees {} -> {}",
+            "follow {} {} {} host {} dev {:.3} fees {} {} -> {}",
             std::str::from_utf8(&k8).unwrap_or("?"),
             if yes { "yes" } else { "no" },
             if skip == 0 {
@@ -2581,6 +2602,7 @@ impl HotLoop {
             p.hit.tx_shape.uri_host().unwrap_or("-"),
             dev as f64 / 1e9,
             fees.as_str(),
+            if hot { "hot" } else { "cold" },
             match (&out, skip) {
                 (Ok(()), _) => "fire",
                 (Err(_), 0) => "skip",
@@ -2588,7 +2610,7 @@ impl HotLoop {
                 _ => "skip",
             }
         ));
-        out
+        out.map(|()| if hot { 2 } else { 1 })
     }
 
     /// Steps 5-11 of the decision: watchlist, risk, keys, nonce, size and
@@ -2664,6 +2686,7 @@ impl HotLoop {
         let Some(mut op) = arm.ops.get(&entry.op_id).copied() else {
             return self.decision(intent, hit, code::BAD_OP, 0, 0, 0, 0, 0);
         };
+        let armset_size = op.size;
         // the operator's spend cap narrows the ArmSet size (2026-10-23: the
         // size is the one knob the box can turn without a new signed ArmSet;
         // a buy above the cap used to be skipped as skip_spend_cap)
@@ -2686,6 +2709,27 @@ impl HotLoop {
         if let Some(t) = self.cfg.stake_by_tier {
             if t[tier] > 0 && op.size > t[tier] {
                 op.size = t[tier];
+            }
+        }
+        // 5a: the copied wallet's sizing (entry.follow, docs/16 section 10):
+        // it stakes a hot operator's coin about 1.5x; the tier stake times
+        // follow_hot_stake_mult for a hot coin, never above the ArmSet size
+        // or the risk cap, and times follow_cold_stake_mult for a cold one
+        if let Some(h) = parked.map(|p| p.follow_hot).filter(|h| *h > 0) {
+            let mult = if h == 2 {
+                self.cfg.follow_hot_mult
+            } else {
+                self.cfg.follow_cold_mult
+            };
+            if mult > 1.0 {
+                let bound = if cap > 0 {
+                    armset_size.min(cap)
+                } else {
+                    armset_size
+                };
+                op.size = ((op.size as f64 * mult) as u64).clamp(op.size, bound.max(op.size));
+            } else if mult < 1.0 {
+                op.size = (op.size as f64 * mult) as u64;
             }
         }
         // 5b: the operator-dump skip (entry.dumper_skip): the dev, the
@@ -4886,6 +4930,7 @@ mod bundle_gate_tests {
             dev_sol: 0,
             dev_seen: false,
             follow_skip: 0,
+            follow_hot: 0,
         }
     }
 

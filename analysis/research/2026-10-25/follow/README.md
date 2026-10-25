@@ -20,3 +20,9 @@ Section 9: `today.py` (today live through the seed), `prebuy.py` + `prebuy_cmp.p
 full pre-buy state of last night's launches and what separates his takes inside an operator), `evval.py` (following and
 sizing by the cell's recent coin value), `hist_depth.py` + `hist_older.py` + `memory2.py` (his whole history since Aug
 against the bundle wallets' whole histories). All run from the scratchpad; `prebuy_cmp.py` and `structure.py` from `SP/dec/cell`.
+Section 10: `heat.py` (which measure of an operator's recent coins moves his take: horizon, coins, his trades excluded,
+peak, outside buying, the market), `kelly.py` (flat against hot / cold stakes at a 0.55 SOL bankroll: profit and compounded
+growth); `seed.py` now writes the values and today's launches (`data/follow_seed_today.json`, for
+`deploy/bin/rugsnipe-follow-merge`).
+`model.py` (one model of his take from everything decoded: AUC out of sample), `exec_hot.py` (his tip, entry slot and
+hold, hot against cold).

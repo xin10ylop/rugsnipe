@@ -515,7 +515,7 @@ fn run(args: &[String]) -> Result<(), String> {
             }
         }
         let bundles = g.take_bundles();
-        let attempts = g.take_attempts();
+        let follow = g.take_follow();
         let (hw, hs) = (h.clone(), h.clone());
         post_exec = Some(rugsnipe::cold::PostExecFeed {
             health: h.health().clone(),
@@ -536,11 +536,12 @@ fn run(args: &[String]) -> Result<(), String> {
                     "reordered": s.reordered.load(R), "convert_errors": s.convert_errors.load(R),
                     "bundle_runs": s.bundle_runs.load(R), "bundle_drops": s.bundle_drops.load(R),
                     "copied_attempts": s.copied_attempts.load(R), "copied_drops": s.copied_drops.load(R),
+                    "run_prices": s.run_prices.load(R), "run_price_drops": s.run_price_drops.load(R),
                     "resubscribes": s.resubscribes.load(R),
                 })
             }),
             bundles,
-            attempts,
+            follow,
         });
         let hl = h.clone();
         grpc_stats_line = Some(Box::new(move || {
@@ -1039,8 +1040,8 @@ fn run(args: &[String]) -> Result<(), String> {
                 .map(|(mode, n)| {
                     let f = c.follow;
                     format!(
-                        " | follow {mode} set {n} rule yes {} no {} gated {} skips yes {} no {} added {}",
-                        f[0], f[1], f[2], f[3], f[4], f[5]
+                        " | follow {mode} set {n} rule yes {} no {} gated {} skips yes {} no {} added {} sized hot {} cold {}",
+                        f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7]
                     )
                 })
                 .unwrap_or_default();

@@ -1196,6 +1196,18 @@ pub struct EntryCfg {
     pub follow_min_attempts: u32,
     pub follow_min_rate: f64,
     pub follow_min_dev_sol: f64,
+    /// The copied wallet's sizing (docs/16 section 10): a record whose last
+    /// 3 coins' price at create + 10 averaged at least `follow_hot_min_value`
+    /// above the price after the bundle is hot (0.10 = +10%), and the copied
+    /// wallet stakes a hot operator's coin about 1.5x. At the fire a coin is
+    /// hot when one of its bundle wallets is, with its fee routing; the
+    /// verdict line says `hot` or `cold`. The tier stake times
+    /// `follow_hot_stake_mult` for a hot coin (the ArmSet size and the risk
+    /// cap still bound it) and times `follow_cold_stake_mult` for the rest;
+    /// 1.0 and 1.0 (the defaults) change nothing.
+    pub follow_hot_min_value: f64,
+    pub follow_hot_stake_mult: f64,
+    pub follow_cold_stake_mult: f64,
 }
 impl Default for EntryCfg {
     fn default() -> Self {
@@ -1250,6 +1262,9 @@ impl Default for EntryCfg {
             follow_min_attempts: 2,
             follow_min_rate: 0.5,
             follow_min_dev_sol: 0.25,
+            follow_hot_min_value: 0.10,
+            follow_hot_stake_mult: 1.0,
+            follow_cold_stake_mult: 1.0,
         }
     }
 }
@@ -2190,6 +2205,15 @@ impl Config {
                     "entry.follow_min_dev_sol",
                     "must be in [0, 1000) SOL",
                 );
+            }
+            if !(e.follow_hot_min_value > -1.0 && e.follow_hot_min_value < 100.0) {
+                inv(&mut r, "entry.follow_hot_min_value", "must be in (-1, 100)");
+            }
+            if !(1.0..=4.0).contains(&e.follow_hot_stake_mult) {
+                inv(&mut r, "entry.follow_hot_stake_mult", "must be in [1, 4]");
+            }
+            if !(e.follow_cold_stake_mult > 0.0 && e.follow_cold_stake_mult <= 1.0) {
+                inv(&mut r, "entry.follow_cold_stake_mult", "must be in (0, 1]");
             }
             if e.follow != Follow::Log && !e.require_bundle {
                 inv(

@@ -286,7 +286,7 @@ fn a_stale_or_drifting_post_exec_feed_latches_the_kill() {
         watch: Box::new(|_, _| {}),
         stats: Box::new(|| json!({})),
         bundles: None,
-        attempts: None,
+        follow: None,
     };
     let (mut app, dev) = probe_app_with(&dir, rpc_url, Some(feed));
     let mut buf = FeedBuf::with_capacity(64, 1 << 16);

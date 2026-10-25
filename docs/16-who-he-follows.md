@@ -273,3 +273,54 @@ on this wallet. With all of it (Aug 1 - Oct 23) against the bundle wallets' whol
 162 rule picks the follow missed, 62% had 2+ earlier attempts on a bundle wallet (50%: 5+), against 48% (39%) of a control
 of rule coins he skipped. History raises both; as a count it separates them only weakly. Using it fully needs the
 operators' launches since August to rate them, not only his attempts.
+
+## 10. His sizing, built: hot operators (2026-10-25)
+
+**What moves him is the operator's coins' price at create + 10** (`heat.py`, last night's half-taken cells, his take of the
+next launch, top against bottom third of each measure):
+
+| measure | after a skip | after a take |
+|---|---|---|
+| last 5 coins' price at + 10 against the price after the bundle | **41% vs 16%** | 69% vs 56% |
+| the same, last 3 coins | 42% vs 18% | 71% vs 58% |
+| the same without his own trades | 41% vs 16% | 69% vs 56% |
+| at + 3 or + 6 | 34-45% vs 20-25% | 67-72% vs 61-68% |
+| the peak, or the SOL outside buyers put in | 36-40% vs 21-30% | 66-70% vs 69-78% |
+| the whole market's last 30 minutes | 33% vs 29% | 73% vs 67% |
+
+\+ 10 slots is his latest sell slot. He is not limited by positions (he held one at 7 of 741 launches) or by capital (his
+profit stays in the wallet). His stake follows the same measure (section 9): 0.909 SOL median on a hot operator, 0.604 on
+the rest.
+
+**Built.** The gRPC adapter records each create's last trade up to create + 10 and hands its reserves to the cold thread
+(`rugsnipe_feed::bundle::RunPrice`, with the copied wallet's attempts on the same channel). The follow tracker scores it
+against the run's price after its last bundle buy and keeps each record's last 3 values (saved in `follow.json` after the
+counts). A record whose values average at least `entry.follow_hot_min_value` (0.10) is hot; at the fire a coin is hot when
+one of its bundle wallets is, with its fee routing, and the verdict line ends `hot` or `cold`. The size step multiplies the
+tier stake by `entry.follow_hot_stake_mult` for a hot coin (never above the ArmSet size or the risk cap) and by
+`entry.follow_cold_stake_mult` for a cold one. Both default to 1.0: nothing changes until they are set.
+
+**Why both stay at 1.0 for now** (`kelly.py`, the 981 out-of-sample followed coins at a 0.55 SOL bankroll): with the stake
+capped at 0.5 SOL, copying his 1.5x means shrinking the cold coins' stake, and the cold coins are worth +3.65% a trade.
+Flat 0.5: +23.3 SOL, +352 bp of compounded growth a trade; 0.5 hot and 0.33 cold: +18.8 SOL, +296 bp; no ruin in 400
+shuffled orders either way. Set `follow_hot_stake_mult = 1.5` when the cap rises; set the cold multiplier below 1 only if
+our own closed cold trades (`rugsnipe-check`, follow section) turn out negative.
+
+**Seed with values.** `data/follow_seed.json` (`seed.py`) now carries the values (4,057 of 9,176 records, 613 hot) and
+today's launches to 13:07. A box already running on the first seed keeps what it learned: stop the hot unit, run
+`deploy/bin/rugsnipe-follow-merge /var/lib/rugsnipe/follow.json data/follow_seed_today.json data/follow_seed.json` (adds
+today's counts, fills the values, keeps `follow.json.bak`), start it.
+
+**How much of his decision this explains** (`model.py`: one gradient-boosted model of his take on every bundled coin of
+section 4, from the decoded features only, ex ante; fit on Oct 23 00-12, scored on the later periods):
+
+| features | AUC Oct 23 12-24 | AUC Oct 24 00-12 | his take, top tenth of coins | the bottom half |
+|---|---|---|---|---|
+| the (wallet, fee routing) attempt records | 0.867 | 0.912 | 90-91% | 2-12% |
+| everything decoded (records, recent value, last take, fee routing, tool, dev buy, tweet) | **0.882** | **0.937** | **93-96%** | 1-10% |
+
+Ranked by the decoded logic he takes 93-96% of the top tenth and 1-5% of the bottom half; the doubt sits in the second to
+fourth tenths. Ruled out on chain this round: downtime (his gaps of 5+ minutes held 24 of the night's launches in the
+cells he follows), buys through another program (all 23,929 of his buy transactions in the month are top-level pump buys),
+holding a position (7 of 741 launches), his own recent P&L, and the execution (`exec_hot.py`: his tip is 1.0M lamports
+median hot or cold; on hot coins he lands at + 1 more often, 51% against 36%, and sells sooner, median 6 slots against 9).

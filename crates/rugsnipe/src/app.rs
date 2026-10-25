@@ -940,6 +940,7 @@ pub fn build(o: AppOpts) -> Result<App, String> {
                 wallet,
                 min_attempts: cfg.entry.follow_min_attempts,
                 min_rate: cfg.entry.follow_min_rate,
+                hot_min_value: cfg.entry.follow_hot_min_value,
                 path: o
                     .state_path
                     .as_ref()

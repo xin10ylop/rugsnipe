@@ -11,7 +11,7 @@
 //! | `wallet` | transactions that mention our wallet (failed ones too) | [`Payload::Trade`] for each of our own pump TradeEvents (the real fill lane's own trade) |
 //! | `mints` | transactions that mention a held mint (watch / unwatch at runtime) | [`Payload::Trade`] for every TradeEvent of a held mint (exit engine) |
 //! | `pump` | (`bundle_run`) every pump program transaction | the creation slot's trades of each new mint, assembled into a [`BundleRun`] for the cold thread |
-//! | `copied` | (`copied`, with `bundle_run`) transactions signed by the copied wallet (failed ones too) | a [`CopiedAttempt`] for the cold thread when one names a mint created in the last 4 slots |
+//! | `copied` | (`copied`, with `bundle_run`) transactions signed by the copied wallet (failed ones too) | a [`CopiedAttempt`] for the cold thread when one names a mint created in the last 4 slots; with it, each create's last price up to create + 10 from the `pump` trades ([`RunPrice`]) |
 //! | `slots` | slot updates | `last_slot` (drift and stale detection) |
 //!
 //! * `x-token` header from the credential named by `[feeds] grpc.x_token`;
@@ -38,7 +38,9 @@ pub mod convert;
 pub mod mock;
 
 use crate::buf::FeedBuf;
-use crate::bundle::{BundleAssembler, BundleRun, CopiedAttempt, RunTrade};
+use crate::bundle::{
+    BundleAssembler, BundleRun, CopiedAttempt, FollowEvent, PriceTracker, RunPrice, RunTrade,
+};
 use crate::clock::mono_ns;
 use crate::decode::decode_logs;
 use crate::event::{FeedEvent, FeedSrc, Payload, RunDoneLite, Sig, TradeLite};
@@ -109,7 +111,9 @@ pub struct GrpcConfig {
     pub bundle_timeout_ms: u64,
     /// The copied wallet (`copied` filter, with `bundle_run`): its
     /// transactions on the mints of the last creates become
-    /// [`CopiedAttempt`]s ([`Grpc::take_attempts`]). `None` = off.
+    /// [`CopiedAttempt`]s, and every create's price at create +
+    /// [`crate::bundle::PRICE_AFTER_SLOTS`] a [`RunPrice`]
+    /// ([`Grpc::take_follow`]). `None` = off.
     pub copied: Option<Pubkey>,
     /// Subscribe to the pre-execution stream (`SubscribeDeshred`: transactions
     /// decoded from shreds before the block is replayed) instead of the
@@ -196,6 +200,9 @@ pub struct GrpcStats {
     /// (channel full).
     pub copied_attempts: AtomicU64,
     pub copied_drops: AtomicU64,
+    /// Creates' prices at create + 10 handed to the cold thread / dropped.
+    pub run_prices: AtomicU64,
+    pub run_price_drops: AtomicU64,
     pub resubscribes: AtomicU64,
     /// Highest slot of any update (slot or transaction).
     pub slot: AtomicU64,
@@ -210,7 +217,7 @@ pub struct Grpc {
     ctl: mpsc::UnboundedSender<Control>,
     stats: Arc<GrpcStats>,
     bundles: Option<std::sync::mpsc::Receiver<BundleRun>>,
-    attempts: Option<std::sync::mpsc::Receiver<CopiedAttempt>>,
+    follow: Option<std::sync::mpsc::Receiver<FollowEvent>>,
 }
 
 /// Cloneable control handle (watch / unwatch held mints from the cold
@@ -252,7 +259,7 @@ impl Grpc {
         let (ctl, ctl_rx) = mpsc::unbounded_channel();
         let stats = Arc::new(GrpcStats::default());
         let (btx, brx) = std::sync::mpsc::sync_channel::<BundleRun>(1_024);
-        let (atx, arx) = std::sync::mpsc::sync_channel::<CopiedAttempt>(1_024);
+        let (atx, arx) = std::sync::mpsc::sync_channel::<FollowEvent>(4_096);
         let st = stats.clone();
         let bundle = cfg.bundle_run;
         let copied = cfg.bundle_run && cfg.copied.is_some();
@@ -267,7 +274,7 @@ impl Grpc {
                     Err(_) => return,
                 };
                 let mut a = Adapter::new(cfg, sink, wsink, st, btx);
-                a.attempts = Some(atx);
+                a.follow = Some(atx);
                 rt.block_on(a.run(stop, ctl_rx));
             })?;
         events.set_thread(h);
@@ -278,7 +285,7 @@ impl Grpc {
             ctl,
             stats,
             bundles: bundle.then_some(brx),
-            attempts: copied.then_some(arx),
+            follow: copied.then_some(arx),
         })
     }
 
@@ -303,10 +310,10 @@ impl Grpc {
         self.bundles.take()
     }
 
-    /// The copied wallet's attempts (with `copied` and `bundle_run`), for
-    /// the cold thread.
-    pub fn take_attempts(&mut self) -> Option<std::sync::mpsc::Receiver<CopiedAttempt>> {
-        self.attempts.take()
+    /// The copied wallet's attempts and the creates' prices at create + 10
+    /// (with `copied` and `bundle_run`), for the cold thread.
+    pub fn take_follow(&mut self) -> Option<std::sync::mpsc::Receiver<FollowEvent>> {
+        self.follow.take()
     }
 
     /// Stop the adapter thread and wait for it.
@@ -609,8 +616,12 @@ struct Adapter {
     stats: Arc<GrpcStats>,
     health: Arc<FeedHealth>,
     bundles: std::sync::mpsc::SyncSender<BundleRun>,
-    /// The copied wallet's attempts (`copied`), to the cold thread.
-    attempts: Option<std::sync::mpsc::SyncSender<CopiedAttempt>>,
+    /// The copied wallet's attempts and the creates' prices (`copied`), to
+    /// the cold thread.
+    follow: Option<std::sync::mpsc::SyncSender<FollowEvent>>,
+    /// Each create's last trade up to create + 10 (with `follow`).
+    prices: PriceTracker,
+    price_out: Vec<RunPrice>,
     asm: BundleAssembler,
     mints: Vec<Pubkey>,
     mint_set: HashSet<Pubkey>,
@@ -653,7 +664,9 @@ impl Adapter {
             stats,
             health,
             bundles,
-            attempts: None,
+            follow: None,
+            prices: PriceTracker::new(4_096),
+            price_out: Vec::new(),
             trades: Vec::with_capacity(64),
             meta_buf: Vec::with_capacity(16 * 1024),
             last_pos: (0, 0),
@@ -1381,14 +1394,14 @@ impl Adapter {
         // (its buy at create + 0 or + 1, landed or rejected by its guard)
         if has(F_COPIED) {
             if let Some((mint, cs)) = copied_mint(&keys, &self.recent, self.cfg.copied) {
-                if let Some(a) = &self.attempts {
+                if let Some(a) = &self.follow {
                     let ok = a
-                        .try_send(CopiedAttempt {
+                        .try_send(FollowEvent::Attempt(CopiedAttempt {
                             mint,
                             slot,
                             create_slot: cs,
                             failed,
-                        })
+                        }))
                         .is_ok();
                     let c = if ok {
                         &self.stats.copied_attempts
@@ -1468,6 +1481,14 @@ impl Adapter {
                     )
                 })
                 .collect();
+            if self.follow.is_some() {
+                if let Some((mint, _)) = created {
+                    self.prices.on_create(mint, slot);
+                }
+                for (m, t) in &run_trades {
+                    self.prices.on_trade(m, slot, t.index, t.v, t.t);
+                }
+            }
             let done = if let Some((mint, dev_fees)) = created {
                 let own: Vec<RunTrade> = run_trades
                     .iter()
@@ -1508,8 +1529,27 @@ impl Adapter {
                 self.recent_slot = self.recent_slot.max(slot);
                 let floor = slot.saturating_sub(4);
                 self.recent.retain(|_, s| *s >= floor);
+                self.flush_prices(slot);
             }
             self.flush_bundles();
+        }
+    }
+
+    /// The creates whose create + 10 window ended by `slot`: their price to
+    /// the cold thread.
+    fn flush_prices(&mut self, slot: u64) {
+        let Some(tx) = &self.follow else {
+            return;
+        };
+        self.price_out.clear();
+        self.prices.flush(slot, &mut self.price_out);
+        for p in self.price_out.drain(..) {
+            let c = if tx.try_send(FollowEvent::Price(p)).is_ok() {
+                &self.stats.run_prices
+            } else {
+                &self.stats.run_price_drops
+            };
+            c.fetch_add(1, Ordering::Relaxed);
         }
     }
 

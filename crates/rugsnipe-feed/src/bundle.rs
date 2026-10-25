@@ -17,6 +17,7 @@
 
 use crate::event::Sig;
 use pump_codec::Pubkey;
+use std::collections::HashMap;
 
 /// One trade of the creation slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,6 +46,101 @@ pub struct CopiedAttempt {
     /// The mint's create slot.
     pub create_slot: u64,
     pub failed: bool,
+}
+
+/// A fresh mint's last price at its create slot + [`PRICE_AFTER_SLOTS`]:
+/// the post-trade virtual reserves of its last trade up to that slot (the
+/// create's own buys and the bundle included). The cold thread's follow
+/// tracker scores each operator by its coins' price there against the price
+/// after the bundle (docs/16 section 10).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunPrice {
+    pub mint: Pubkey,
+    pub create_slot: u64,
+    pub v: u64,
+    pub t: u64,
+}
+
+/// What the gRPC feed hands the cold thread for `entry.follow`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FollowEvent {
+    Attempt(CopiedAttempt),
+    Price(RunPrice),
+}
+
+/// Slots after the create at which [`RunPrice`] is taken (the copied
+/// wallet's latest sell slot).
+pub const PRICE_AFTER_SLOTS: u64 = 10;
+
+/// The last trade of each fresh mint up to its create slot +
+/// [`PRICE_AFTER_SLOTS`] (adapter thread; allocates).
+#[derive(Debug, Default)]
+pub struct PriceTracker {
+    /// mint -> (create slot, last (slot, index), v, t); `t == 0`: no trade yet.
+    open: HashMap<Pubkey, (u64, (u64, u32), u64, u64)>,
+    max_open: usize,
+}
+
+impl PriceTracker {
+    pub fn new(max_open: usize) -> Self {
+        Self {
+            open: HashMap::new(),
+            max_open: max_open.max(1),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.open.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.open.is_empty()
+    }
+
+    /// A create of `mint` at `slot` (the oldest is dropped when full).
+    pub fn on_create(&mut self, mint: Pubkey, slot: u64) {
+        if self.open.contains_key(&mint) {
+            return;
+        }
+        if self.open.len() >= self.max_open {
+            if let Some(oldest) = self.open.iter().min_by_key(|(_, o)| o.0).map(|(m, _)| *m) {
+                self.open.remove(&oldest);
+            }
+        }
+        self.open.insert(mint, (slot, (0, 0), 0, 0));
+    }
+
+    /// A trade of `mint` at `slot`/`index` with its post-trade reserves.
+    pub fn on_trade(&mut self, mint: &Pubkey, slot: u64, index: u32, v: u64, t: u64) {
+        if let Some(o) = self.open.get_mut(mint) {
+            if slot <= o.0 + PRICE_AFTER_SLOTS && (slot, index) >= o.1 && t > 0 {
+                *o = (o.0, (slot, index), v, t);
+            }
+        }
+    }
+
+    /// The stream reached `slot`: the mints whose window ended, with their
+    /// last price (none for a mint without a trade).
+    pub fn flush(&mut self, slot: u64, out: &mut Vec<RunPrice>) {
+        let done: Vec<Pubkey> = self
+            .open
+            .iter()
+            .filter(|(_, o)| o.0 + PRICE_AFTER_SLOTS < slot)
+            .map(|(m, _)| *m)
+            .collect();
+        for m in done {
+            if let Some((cs, _, v, t)) = self.open.remove(&m) {
+                if t > 0 {
+                    out.push(RunPrice {
+                        mint: m,
+                        create_slot: cs,
+                        v,
+                        t,
+                    });
+                }
+            }
+        }
+    }
 }
 
 /// Why a run was handed over.
@@ -266,6 +362,43 @@ impl BundleAssembler {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_price_is_the_last_trade_up_to_create_plus_ten() {
+        let mut p = PriceTracker::new(2);
+        let m = Pubkey::new_from_array([7; 32]);
+        p.on_create(m, 100);
+        p.on_trade(&m, 100, 5, 40, 800);
+        p.on_trade(&m, 104, 9, 45, 700);
+        p.on_trade(&m, 104, 3, 99, 1); // earlier in the slot than the one held
+        p.on_trade(&m, 111, 0, 50, 600); // after create + 10
+        let mut out = vec![];
+        p.flush(110, &mut out);
+        assert!(out.is_empty(), "the window is still open at create + 10");
+        p.flush(111, &mut out);
+        assert_eq!(
+            out,
+            vec![RunPrice {
+                mint: m,
+                create_slot: 100,
+                v: 45,
+                t: 700
+            }]
+        );
+        assert!(p.is_empty());
+        // full: the oldest create goes; a mint with no trade gives nothing
+        let (a, b, c) = (
+            Pubkey::new_from_array([1; 32]),
+            Pubkey::new_from_array([2; 32]),
+            Pubkey::new_from_array([3; 32]),
+        );
+        p.on_create(a, 200);
+        p.on_create(b, 201);
+        p.on_create(c, 202);
+        assert_eq!(p.len(), 2);
+        p.flush(300, &mut out);
+        assert_eq!(out.len(), 1);
+    }
 
     fn tr(user: u8, sol: u64) -> RunTrade {
         RunTrade {
