@@ -1219,6 +1219,27 @@ pub struct EntryCfg {
     pub follow_hot_min_value: f64,
     pub follow_hot_stake_mult: f64,
     pub follow_cold_stake_mult: f64,
+    /// The copy trigger (2026-10-25, docs/17 section 9): a landed buy by
+    /// `follow_wallet` of at least `copy_min_sol` (his executed trade on
+    /// the gRPC stream) in a launch's create slot or the next, on a launch
+    /// we hold nothing in, is bought behind it: bound at his post-trade
+    /// price plus `copy_max_premium`, sent at most `copy_late_slots` after
+    /// the create, past the rule's template, cap and follow gates. Seen on
+    /// the stream, the copy lands about a full pipeline behind him (the end
+    /// of his slot or later), where his 0.7 SOL+ buys were worth about
+    /// nothing over Oct 21-25 (docs/17 section 9): `log` it before `on`.
+    /// `off` (default); `log`: journal `copy <mint> his <SOL> at
+    /// create+<k> -> log`, no buy; `on`: buy. A copy sells one slot before
+    /// his own hold for the signer (the operator table's `hold_slots`).
+    pub copy: CopyMode,
+    pub copy_min_sol: f64,
+    pub copy_max_premium: f64,
+    pub copy_late_slots: u64,
+    /// Copy only the signers `operators_file` lists (default true): his
+    /// known operators, whose hold the table gives. Copied one slot before
+    /// that hold, his buys there made +6.6 SOL over Oct 21-25; on the
+    /// unlisted signers every exit tried lost (docs/17 section 9).
+    pub copy_listed_only: bool,
 }
 impl Default for EntryCfg {
     fn default() -> Self {
@@ -1278,6 +1299,11 @@ impl Default for EntryCfg {
             follow_hot_min_value: 0.10,
             follow_hot_stake_mult: 1.0,
             follow_cold_stake_mult: 1.0,
+            copy: CopyMode::Off,
+            copy_min_sol: 0.7,
+            copy_max_premium: 0.10,
+            copy_late_slots: 2,
+            copy_listed_only: true,
         }
     }
 }
@@ -1439,6 +1465,18 @@ impl Follow {
     pub fn gates(self) -> bool {
         matches!(self, Self::Gate | Self::On)
     }
+}
+
+/// `entry.copy`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum CopyMode {
+    #[default]
+    Off,
+    /// Journal the copies it would make; no buy.
+    Log,
+    /// Buy behind his landed buys.
+    On,
 }
 
 /// `entry.dumper_skip`.
@@ -2236,6 +2274,38 @@ impl Config {
                     &mut r,
                     "entry.follow",
                     "gate / add / on need require_bundle = true (the verdict is read on the parked bundle run)",
+                );
+            }
+        }
+        if e.copy != CopyMode::Off {
+            if e.follow_wallet.parse::<pump_codec::Pubkey>().is_err() {
+                inv(
+                    &mut r,
+                    "entry.follow_wallet",
+                    "entry.copy copies this wallet's landed buys (base58)",
+                );
+            }
+            if !(self.feeds.grpc.enabled && self.feeds.grpc.bundle_run) {
+                inv(
+                    &mut r,
+                    "entry.copy",
+                    "needs feeds.grpc with bundle_run = true (his executed buys of fresh launches come from it)",
+                );
+            }
+            if !(e.copy_min_sol > 0.0 && e.copy_min_sol <= 100.0) {
+                inv(&mut r, "entry.copy_min_sol", "must be in (0, 100] SOL");
+            }
+            if !(0.0..0.5).contains(&e.copy_max_premium) {
+                inv(&mut r, "entry.copy_max_premium", "must be in [0, 0.5)");
+            }
+            if !(1..=4).contains(&e.copy_late_slots) {
+                inv(&mut r, "entry.copy_late_slots", "must be in 1..=4");
+            }
+            if e.copy_listed_only && e.operators_file.is_empty() {
+                inv(
+                    &mut r,
+                    "entry.copy_listed_only",
+                    "needs entry.operators_file (the signers to copy and his hold on them)",
                 );
             }
         }

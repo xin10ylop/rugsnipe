@@ -152,6 +152,11 @@ follow_wallet = "AHwJSnFNUiAU9FfT5ewW2osqMo938WtL7KhfsJyfpaN2"   # the copied wa
 follow_min_attempts = 2                             # a bundle wallet is followed after this many of its attempts ...
 follow_min_rate = 0.5                               # ... at this share of the bundled launches the wallet was in
 follow_min_dev_sol = 0.25                           # the dev buy a skipped create needs to be parked for its verdict
+copy = "off"                                        # 2026-10-25 (docs/17 s9): buy behind follow_wallet's landed buys of >= copy_min_sol in a launch's create slot or the next, on coins the rule did not buy (the rule's template, operator table, leader, tweet and follow gates do not apply; the risk caps do), bound at his post-trade price + copy_max_premium. Seen on the gRPC stream the copy lands a full pipeline behind him (the end of his slot or later), where his buys were worth about nothing over Oct 21-25: "log" journals `copy <mint> his <SOL> at create+<k> -> log` (no buy) to measure it live. Needs feeds.grpc bundle_run
+copy_min_sol = 0.7                                  # his buys of 0.7 SOL or more (his smaller ones lost money copied)
+copy_max_premium = 0.10                             # the price over his fill a copy still buys at
+copy_late_slots = 2                                 # the last slot after the create a copy is sent in
+copy_listed_only = true                             # copy only the signers operators_file lists (his known operators); a copy sells one slot before his hold there. On the unlisted signers every exit tried lost. Needs operators_file
 hidden_dev_buy = "skip"                             # 2026-10-25 (docs/15 s6): "grpc" trades the launches whose dev buy the shreds copy cannot see (m.rapidlaunch.io), on the executed trades; "skip" drops them (0 SOL dev buy)
 bundle_wait_us = 300                               # 2026-10-23: replaces bundle_wait_ms when set; the bundle's buys arrive within microseconds, the 2 ms wait was dead time (2-5 block positions) on every attempt
 bundle_wait_ms = 2                                 # 2026-10-22: the parked create waits this long after the first bundle buy for the rest of the run (the stream's run-complete signal or a trade at create+5 fires it earlier), then the buy is bound at the run's last trade: post-bundle price + max_premium, observed

@@ -1051,6 +1051,19 @@ fn run(args: &[String]) -> Result<(), String> {
                     )
                 })
                 .unwrap_or_default();
+            // the copy trigger (entry.copy, docs/17 section 9): his landed
+            // buys seen, copied, journaled only, passed over
+            let copy = app
+                .hot
+                .copy_desc()
+                .map(|mode| {
+                    let k = c.copy;
+                    format!(
+                        " | copy {mode} seen {} buy {} log {} passed {}",
+                        k[0], k[1], k[2], k[3]
+                    )
+                })
+                .unwrap_or_default();
             // the tweet check (docs/13): requests, verdicts by kind, when
             // they came (create slot / next / later), the gate's skips/fires
             let tweet = app
@@ -1105,7 +1118,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 _ => String::new(),
             };
             eprintln!(
-                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {}{gate}{presend}{template}{follow}{fit}{tweet}{feed} | {kill}{g} | {} | {}",
+                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {}{gate}{presend}{template}{follow}{copy}{fit}{tweet}{feed} | {kill}{g} | {} | {}",
                 t0.elapsed().as_secs(),
                 c.events,
                 c.creates,

@@ -66,8 +66,8 @@ use pump_codec::curve::{CurveState, FeeBps};
 use pump_codec::{pda, Pubkey};
 use rugsnipe_core::bid::{BidPlan, BidPolicy, LeaderClass};
 use rugsnipe_core::config::{
-    Config, FillModel, FilterMode, LeaderMix, PresendCut, PresendMode, ProbeStage, TweetFeed,
-    TweetGate,
+    Config, CopyMode, FillModel, FilterMode, LeaderMix, PresendCut, PresendMode, ProbeStage,
+    TweetFeed, TweetGate,
 };
 use rugsnipe_core::risk::{DecideInput, Decision, RiskGate};
 use rugsnipe_core::rslog::{CreateHitRec, Rec, RslogProducer, ShadowOutcome};
@@ -299,6 +299,18 @@ pub struct HotCfg {
     /// risk cap) and for the rest.
     pub follow_hot_mult: f64,
     pub follow_cold_mult: f64,
+    /// `entry.copy` (docs/17 section 9): a landed buy by `copy_wallet`
+    /// (`entry.follow_wallet`) of at least `copy_min` lamports in a launch's
+    /// create slot or the next is bought right behind ([`HotLoop::copy_trade`]),
+    /// bound at his post-trade reserve plus `copy_premium_bps` and sent at
+    /// most `copy_late_slots` after the create.
+    pub copy: CopyMode,
+    pub copy_wallet: Pubkey,
+    pub copy_min: u64,
+    pub copy_premium_bps: u32,
+    pub copy_late_slots: u64,
+    /// `entry.copy_listed_only`: only the signers of the operator table.
+    pub copy_listed_only: bool,
     /// `entry.stake_fits_balance` and `entry.stake_min_sol` (lamports).
     pub stake_fits_balance: bool,
     pub stake_min: u64,
@@ -432,6 +444,14 @@ impl HotCfg {
             follow_min_dev: (cfg.entry.follow_min_dev_sol * 1e9).round() as u64,
             follow_hot_mult: cfg.entry.follow_hot_stake_mult,
             follow_cold_mult: cfg.entry.follow_cold_stake_mult,
+            copy: cfg.entry.copy,
+            copy_wallet: cfg.entry.follow_wallet.parse().unwrap_or_default(),
+            copy_min: sol_lamports(cfg.entry.copy_min_sol),
+            copy_premium_bps: (cfg.entry.copy_max_premium * 10_000.0)
+                .round()
+                .clamp(0.0, 1e6) as u32,
+            copy_late_slots: cfg.entry.copy_late_slots,
+            copy_listed_only: cfg.entry.copy_listed_only,
             stake_fits_balance: cfg.entry.stake_fits_balance,
             stake_min: (cfg.entry.stake_min_sol * 1e9).round() as u64,
             require_bundle: cfg.entry.require_bundle,
@@ -487,6 +507,18 @@ impl HotCfg {
         let mut p = self.policy;
         if let Some(r) = rule.filter(|_| self.operator_holds) {
             p.hold_to_create_slot = Some(r.hold_slots);
+        }
+        p
+    }
+
+    /// The exit of a copy (`entry.copy`): one slot before the copied
+    /// wallet's own hold for a listed signer, whatever `operator_holds`
+    /// says (his sell is the dump: copies sold behind it lost, docs/17
+    /// section 9); an unlisted signer's copy exits like any position.
+    pub fn copy_policy_for(&self, rule: Option<OpRule>) -> ExitPolicy {
+        let mut p = self.policy;
+        if let Some(r) = rule {
+            p.hold_to_create_slot = Some(r.hold_slots.saturating_sub(1).max(1));
         }
         p
     }
@@ -655,6 +687,9 @@ struct Slot {
     /// not; 0 = no sell pending): [`HANDOFF_MS`] later without it landing,
     /// the position is handed to the guard, whatever the reason.
     first_sell_ms: u64,
+    /// `entry.copy`: bought behind the copied wallet's buy (the tweet
+    /// check's exit cut leaves it alone: his buy is the verdict).
+    copy: bool,
 }
 
 /// What the store knew about a position the wallet still holds at start
@@ -748,6 +783,10 @@ pub struct Parked {
     /// Set by the follow verdict at the fire: 0 = no verdict (`off`), 1 =
     /// cold, 2 = hot (the size step's multiplier).
     pub follow_hot: u8,
+    /// `entry.copy`: not a park but a copy of the copied wallet's landed
+    /// buy ([`HotLoop::copy_trade`]): `pb` is his post-trade state, `wallets`
+    /// holds his wallet (the insider-sell rule sees his sell).
+    pub copy: bool,
 }
 
 /// A create whose dev buy the decoder could not see: no buy found in the
@@ -853,6 +892,24 @@ impl RunTrades {
 /// so a bundle buy can be polled one iteration before its create
 /// ([`HotLoop::park`] replays them).
 pub const PREPARK: usize = 16;
+
+/// Creates kept for `entry.copy` ([`HotLoop::copy_trade`]): the copied
+/// wallet buys in the create slot or the next, a few seconds of launches.
+pub const RECENT: usize = 32;
+/// The last intents this loop sent a buy for: a copy never buys the same
+/// mint again.
+const BOUGHT: usize = 32;
+
+/// A create past the class filter, kept for a copy of a later buy.
+#[derive(Debug, Clone, Copy)]
+struct Recent {
+    hit: CreateHit,
+    src: FeedSrc,
+    slot: u64,
+    bank_id: u64,
+    create_index: u32,
+    rates: (Option<u32>, Option<u32>),
+}
 
 /// What a trade of a parked mint did to its park ([`park_trade`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1299,6 +1356,11 @@ pub struct LoopCounters {
     /// (`operators::bundle_wallet_count`, 0..=5): what `entry.bundle_wallets`
     /// is checked against.
     pub fire_wallets: [u64; 6],
+    /// `entry.copy`: the copied wallet's landed buys of at least
+    /// `copy_min_sol` on a recent create (seen), handed to the decision
+    /// (`on`), journaled only (`log`), and passed over (a park whose run
+    /// holds him fires behind him itself, or a buy of ours on the mint).
+    pub copy: [u64; 4],
 }
 
 /// Everything [`HotLoop::new`] needs.
@@ -1370,6 +1432,12 @@ pub struct HotLoop {
     prepark_at: usize,
     leaders: LeaderSnapshot,
     dumpers: crate::dumpers::DumperSnapshot,
+    /// `entry.copy`: the last creates past the class filter (a copy needs
+    /// the create's keys and slot; on the heap) and the last intents sent.
+    recent: Box<[Option<Recent>]>,
+    recent_at: usize,
+    bought: [u64; BOUGHT],
+    bought_at: usize,
     /// Scratch for the ALT-loaded addresses of a wire event (no allocation).
     loaded: Box<[Pubkey]>,
     last_mark_ns: u64,
@@ -1453,6 +1521,10 @@ impl HotLoop {
             prepark_at: 0,
             leaders: p.leaders,
             dumpers: p.dumpers,
+            recent: vec![None; RECENT].into_boxed_slice(),
+            recent_at: 0,
+            bought: [0; BOUGHT],
+            bought_at: 0,
             loaded: vec![Pubkey::default(); MAX_LOADED].into_boxed_slice(),
             last_mark_ns: 0,
             sell_tmpls: Vec::new(),
@@ -1731,6 +1803,11 @@ impl HotLoop {
                     }
                     self.on_trade(trade_from_lite(&t));
                 }
+                // entry.copy: the copied wallet's landed buy, once the park
+                // (if any) has seen it
+                if t.is_buy && t.user == self.cfg.copy_wallet && self.cfg.copy != CopyMode::Off {
+                    self.copy_trade(&t, ev.recv_ns, t0);
+                }
             }
             Payload::RunDone(r) => {
                 if self.cfg.require_bundle {
@@ -1898,6 +1975,15 @@ impl HotLoop {
         Some((m, self.shared.follow.load().len()))
     }
 
+    /// `entry.copy` as configured (`None`: off), for the status line.
+    pub fn copy_desc(&self) -> Option<&'static str> {
+        match self.cfg.copy {
+            CopyMode::Off => None,
+            CopyMode::Log => Some("log"),
+            CopyMode::On => Some("on"),
+        }
+    }
+
     /// `(mode, cut)` of the pre-send gate when it runs (status line).
     pub fn presend_desc(&self) -> Option<(&'static str, &'static str)> {
         (self.cfg.presend_mode != PresendMode::Off && self.cfg.presend.is_some()).then(|| {
@@ -1966,6 +2052,19 @@ impl HotLoop {
             || hit.cashback
         {
             return self.decision(intent, hit, code::CLASS, 0, 0, 0, 0, 0);
+        }
+        // entry.copy: every create of the class is kept for a copy of the
+        // copied wallet's buy, whatever the rule decides below
+        if self.cfg.copy != CopyMode::Off && src_class(src) != FREE_CLASS {
+            self.recent[self.recent_at % RECENT] = Some(Recent {
+                hit: *hit,
+                src,
+                slot,
+                bank_id,
+                create_index,
+                rates,
+            });
+            self.recent_at = self.recent_at.wrapping_add(1);
         }
         // 4a: the operator template filter (entry.dev_buy_sol): the create's
         // own buy must be one of the listed amounts
@@ -2116,6 +2215,7 @@ impl HotLoop {
                 dev_seen: false,
                 follow_skip,
                 follow_hot: 0,
+                copy: false,
             });
             if hidden {
                 self.counters.hidden_dev[0] += 1;
@@ -2314,6 +2414,9 @@ impl HotLoop {
         let Some(s) = self.find_mint(mint).and_then(|i| self.slots[i].as_mut()) else {
             return false;
         };
+        if s.copy {
+            return false;
+        }
         let base = if s.pos.create_slot > 0 {
             s.pos.create_slot
         } else {
@@ -2347,6 +2450,119 @@ impl HotLoop {
             _ => {}
         }
         self.decision(p.intent, &p.hit, c, 0, 0, 0, 0, 0)
+    }
+
+    /// `entry.copy` (docs/17 section 9): a landed buy by the copied wallet
+    /// of at least `copy_min_sol`, in a recent create's slot or the next, on
+    /// a mint we hold nothing in and sent no buy for (with
+    /// `copy_listed_only`, of a signer the operator table lists), is bought
+    /// behind it: bound at his post-trade reserve plus `copy_max_premium`, sent
+    /// while the slot is at most `copy_late_slots` past the create, past
+    /// the rule's template, cap, leader, tweet, dumper and follow gates
+    /// ([`HotLoop::decide_from_watch`] with a copy [`Parked`]). A park whose
+    /// run holds his buy as a bundle buy fires behind him on its own; one he
+    /// is outside of could only end `skip_not_first`, and ends so here.
+    /// `log` journals the copy, no buy.
+    fn copy_trade(&mut self, t: &TradeLite, recv_ns: u64, t0: u64) {
+        if t.sol_amount < self.cfg.copy_min {
+            return;
+        }
+        let Some(r) = self
+            .recent
+            .iter()
+            .flatten()
+            .find(|r| r.hit.mint == t.mint)
+            .copied()
+        else {
+            return;
+        };
+        if t.slot < r.slot || t.slot > r.slot.saturating_add(1) {
+            return;
+        }
+        // his known operators only (entry.copy_listed_only): the table's
+        // hold is the copy's exit
+        if self.cfg.copy_listed_only && self.cfg.operator_rule(&r.hit).is_none() {
+            return;
+        }
+        self.counters.copy[0] += 1;
+        let intent = IntentId::new(&t.mint, &self.owner).0;
+        if self.bought.contains(&intent) || self.find_mint(&t.mint).is_some() {
+            self.counters.copy[3] += 1;
+            return;
+        }
+        if let Some(i) = self
+            .parked
+            .iter()
+            .position(|x| x.is_some_and(|p| p.hit.mint == t.mint))
+        {
+            let Some(p) = self.parked[i].filter(|p| p.outside || p.behind) else {
+                self.counters.copy[3] += 1;
+                return;
+            };
+            self.parked[i] = None;
+            self.park_ended(&p, code::NOT_FIRST);
+        }
+        let buy = self.cfg.copy == CopyMode::On;
+        let k8 = key8(&t.mint);
+        journal(format_args!(
+            "copy {} his {:.3} at create+{} -> {}",
+            std::str::from_utf8(&k8).unwrap_or("?"),
+            t.sol_amount as f64 / 1e9,
+            t.slot - r.slot,
+            if buy { "buy" } else { "log" }
+        ));
+        // journaled once per mint, bought or not
+        self.bought[self.bought_at % BOUGHT] = intent;
+        self.bought_at = self.bought_at.wrapping_add(1);
+        if !buy {
+            self.counters.copy[2] += 1;
+            return;
+        }
+        self.counters.copy[1] += 1;
+        let mut wallets = [Pubkey::default(); RUN_MAX_AFTER as usize];
+        wallets[0] = t.user;
+        let p = Parked {
+            hit: r.hit,
+            src: r.src,
+            recv_ns,
+            slot: r.slot,
+            bank_id: r.bank_id,
+            t0,
+            intent,
+            rates: r.rates,
+            parked_ns: mono_ns(),
+            create_index: r.create_index,
+            pb: Some((t.virtual_sol_reserves, t.virtual_token_reserves)),
+            pb_index: t.index,
+            bundle_ns: 0,
+            bundle_buys: 0,
+            wallets,
+            n_wallets: 1,
+            behind: false,
+            outside: false,
+            run_sol: 0,
+            run: RunTrades::default(),
+            tw: TW_OFF,
+            run_ready: false,
+            dev_hidden: false,
+            dev_sol: 0,
+            dev_seen: false,
+            follow_skip: 0,
+            follow_hot: 0,
+            copy: true,
+        };
+        self.decide_from_watch(
+            r.src,
+            recv_ns,
+            r.slot,
+            r.bank_id,
+            &r.hit,
+            t0,
+            intent,
+            r.rates,
+            Some(&p),
+            r.create_index,
+        );
     }
 
     /// Park a create for the bundle gate; a full table drops its oldest
@@ -2696,9 +2912,12 @@ impl HotLoop {
         create_index: u32,
     ) {
         let pb = parked.and_then(|p| p.pb);
+        // a copy of the copied wallet's buy (entry.copy) is his pick: the
+        // rule's template, dumper and pre-send gates do not judge it
+        let copy = parked.is_some_and(|p| p.copy);
         // 4c: the bundle shape (entry.bundle_wallets) at the fire point: the
         // park's distinct bundle wallets outside the creator set
-        if let Some(p) = parked {
+        if let Some(p) = parked.filter(|p| !p.copy) {
             if !bundle_shape_ok(&self.cfg.bundle_wallets, bundle_wallet_count(p)) {
                 return self.decision(intent, hit, code::BUNDLE_SHAPE, 0, 0, 0, 0, 0);
             }
@@ -2707,7 +2926,7 @@ impl HotLoop {
         // risk or nonce: the post-bundle virtual SOL the buy would be bound
         // at (entry.max_post_bundle_sol; the run's anchor, else V0) and the
         // dev + bundle SOL (entry.max_bundle_sol)
-        if self.cfg.max_post_bundle > 0 {
+        if self.cfg.max_post_bundle > 0 && !copy {
             let v = post_bundle_sol(hit, parked);
             if v > self.cfg.max_post_bundle {
                 self.counters.skip_too_big += 1;
@@ -2720,7 +2939,7 @@ impl HotLoop {
                 return self.decision(intent, hit, code::TOO_BIG, 0, 0, 0, 0, 0);
             }
         }
-        if self.cfg.max_bundle > 0 {
+        if self.cfg.max_bundle > 0 && !copy {
             let s = dev_and_bundle_lamports(hit, parked);
             if s > self.cfg.max_bundle {
                 self.counters.skip_bundle_sol += 1;
@@ -2766,8 +2985,9 @@ impl HotLoop {
         // picks the size and, below, the bid; the size only narrows, so the
         // signed ArmSet and the risk cap stay the upper bound
         // a coin bought only through entry.follow = add / on (the rule
-        // skipped it) is sized and bid at tier 0 (docs/16 section 5)
-        let tier = if parked.is_some_and(|p| p.follow_skip != 0) {
+        // skipped it) is sized and bid at tier 0 (docs/16 section 5), and so
+        // is a copy (entry.copy)
+        let tier = if parked.is_some_and(|p| p.follow_skip != 0 || p.copy) {
             0
         } else {
             self.cfg
@@ -2803,7 +3023,7 @@ impl HotLoop {
         // 5b: the operator-dump skip (entry.dumper_skip): the dev, the
         // creator or a bundle wallet dumped an earlier launch; the skip
         // only on entry.dumper_skip_hosts when that is set
-        if self.cfg.dumper_skip != rugsnipe_core::config::DumperSkip::Off {
+        if self.cfg.dumper_skip != rugsnipe_core::config::DumperSkip::Off && !copy {
             let d = self.dumpers.load();
             if !d.is_empty() {
                 let dumper = d.contains(&hit.user)
@@ -2857,8 +3077,13 @@ impl HotLoop {
             via: via_code,
             shadow: 0,
         });
-        // 6: age
-        if self.slot_now.saturating_sub(slot) > self.cfg.max_age_slots {
+        // 6: age (a copy's window is entry.copy_late_slots, step 8b)
+        let max_age = if copy {
+            self.cfg.max_age_slots.max(self.cfg.copy_late_slots)
+        } else {
+            self.cfg.max_age_slots
+        };
+        if self.slot_now.saturating_sub(slot) > max_age {
             return self.decision(intent, hit, code::STALE, 0, op.size, op.v_max, 0, 0);
         }
         // 6b: the pre-send entry gate (entry.presend_mode), before the risk
@@ -2867,7 +3092,7 @@ impl HotLoop {
         // scored on what is known now (the run seen so far, the create's
         // wire bytes, the signer's outcomes, the time); `skip` below the
         // cut sends nothing
-        if self.presend_gate(intent, hit, slot, create_index, rates, parked, now_ms) {
+        if !copy && self.presend_gate(intent, hit, slot, create_index, rates, parked, now_ms) {
             return self.decision(intent, hit, code::PRESEND, 0, op.size, op.v_max, 0, 0);
         }
         // 7: risk
@@ -2985,8 +3210,12 @@ impl HotLoop {
         // creation slot from history.)
         // The tweet check's pass may come after the create slot: the buy
         // stays bound at the post-bundle state, so it lands only if nobody
-        // bought behind the bundle in the meantime.
-        let late_ok = if parked.is_some_and(|p| p.tw == TW_PASS) {
+        // bought behind the bundle in the meantime. A copy (entry.copy) goes
+        // out up to entry.copy_late_slots after the create, bound behind his
+        // buy.
+        let late_ok = if copy {
+            self.cfg.copy_late_slots
+        } else if parked.is_some_and(|p| p.tw == TW_PASS) {
             self.cfg.tweet_late_slots
         } else {
             0
@@ -3073,6 +3302,8 @@ impl HotLoop {
         // (cheaply), the same bound paper E1 applies
         let spend = op.size;
         let v_cap = match pb {
+            // a copy: his post-trade reserve + entry.copy_max_premium
+            Some((v, _)) if copy => entry_v_cap(v, self.cfg.copy_premium_bps).min(op.v_max),
             Some((v, _)) => self.cfg.v_cap_at(v, op.v_max),
             None => self.cfg.v_cap(v0, op.v_max),
         };
@@ -3080,7 +3311,7 @@ impl HotLoop {
             // a zero premium binds at the exact post-bundle state the park
             // observed (the quote before our own trade): any buy ahead of
             // ours fails the buy on chain, cheaply (docs/09)
-            Some((v, t)) if self.cfg.max_premium_bps == 0 => {
+            Some((v, t)) if self.cfg.max_premium_bps == 0 && !copy => {
                 min_tokens_out_at(spend, v, t, hit.creator_arg, self.cfg.fees)
             }
             _ => min_tokens_out(spend, v_cap, hit.creator_arg, self.cfg.fees),
@@ -3192,6 +3423,9 @@ impl HotLoop {
         );
         self.counters.intents += 1;
         self.stats.intents.inc();
+        // entry.copy never buys this mint again
+        self.bought[self.bought_at % BOUGHT] = intent;
+        self.bought_at = self.bought_at.wrapping_add(1);
         if !real {
             self.rslog.push(Rec::Sent {
                 intent,
@@ -3296,13 +3530,17 @@ impl HotLoop {
             }
         }
         // the exit: the operator table's hold for a listed signer (docs/09),
-        // counted from the create slot
+        // counted from the create slot (a copy's: one slot before his)
         let rule = self.cfg.operator_rule(hit);
         let pos = Position::pending(
             hit.mint,
             self.owner,
             intent,
-            self.cfg.policy_for(rule),
+            if copy {
+                self.cfg.copy_policy_for(rule)
+            } else {
+                self.cfg.policy_for(rule)
+            },
             bundle,
             hit.creator_arg,
             self.cfg.fees,
@@ -3350,6 +3588,7 @@ impl HotLoop {
             unsold_since_ms: 0,
             handed_off: false,
             first_sell_ms: 0,
+            copy,
         });
         self.stats.positions_open.set(self.positions() as i64);
     }
@@ -3794,6 +4033,7 @@ impl HotLoop {
             unsold_since_ms: 0,
             handed_off: false,
             first_sell_ms: 0,
+            copy: false,
         });
         let now = Now {
             ms: crate::now_ms(),
@@ -5034,6 +5274,7 @@ mod bundle_gate_tests {
             dev_seen: false,
             follow_skip: 0,
             follow_hot: 0,
+            copy: false,
         }
     }
 

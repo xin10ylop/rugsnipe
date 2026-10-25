@@ -22,7 +22,9 @@
 //! transaction on the mint, landed or failed),
 //! `{"t":"ltrade","slot":S,"index":I,"mint":M,"user":U,"buy":b,"sol":n,"tok":n,"fee":n,"vs":n,"vt":n}`
 //! (a trade of create + 1..3: the operator-dump tracker's input, as the cold
-//! thread gets the trades of the launches it does not hold).
+//! thread gets the trades of the launches it does not hold; with
+//! `entry.copy` the copied wallet's buys among them also reach the hot loop,
+//! as the gRPC feed hands it every trade of a launch up to create + 3).
 //!
 //! Optional: `<dir>/leaders/<epoch>.json` (`{"epoch","first_slot","schedule"}`,
 //! the `getLeaderSchedule` result) and `<dir>/leader_regions.json` give the
@@ -303,6 +305,10 @@ fn replay_days() {
     let wallet = Arc::new(setup::throwaway_signer().unwrap());
     let owner = wallet.pubkey();
     let shared = Arc::new(Shared::default());
+    // entry.copy: the copied wallet whose later buys reach the hot loop
+    let copied = (cfg.entry.copy != rugsnipe_core::config::CopyMode::Off)
+        .then(|| cfg.entry.follow_wallet.parse::<Pubkey>().ok())
+        .flatten();
     let mut tracker = FollowTracker::new(
         shared.follow.clone(),
         cfg.entry.follow_min_attempts,
@@ -453,6 +459,10 @@ fn replay_days() {
             tracker.publish();
             cur_slot = slot;
             feed.slot = slot;
+            // the cold lane keeps a fresh blockhash (else buys pause as
+            // skip_no_blockhash once the run's wall clock passes
+            // risk.max_blockhash_age_ms)
+            shared.set_blockhash([1; 32], slot);
             drain(&mut bx, &mut feed, &mut buf, &mut fired);
         }
         n_ev += 1;
@@ -602,9 +612,36 @@ fn replay_days() {
                 attempts.push((slot, pk(v["mint"].as_str().unwrap())));
             }
             "ltrade" => {
+                let mint = pk(v["mint"].as_str().unwrap());
+                let user = pk(v["user"].as_str().unwrap());
+                let is_buy = v["buy"].as_bool().unwrap_or(false);
+                // entry.copy: his later buy goes to the hot loop too
+                if copied == Some(user) && is_buy {
+                    let t = TradeLite {
+                        mint,
+                        user,
+                        is_buy,
+                        sol_amount: v["sol"].as_u64().unwrap_or(0),
+                        token_amount: v["tok"].as_u64().unwrap_or(0),
+                        fee: v["fee"].as_u64().unwrap_or(0),
+                        virtual_sol_reserves: v["vs"].as_u64().unwrap_or(0),
+                        virtual_token_reserves: v["vt"].as_u64().unwrap_or(0),
+                        slot,
+                        sig: sig_of(""),
+                        ordinal: 0,
+                        index: v["index"].as_u64().unwrap_or(u32::MAX as u64) as u32,
+                    };
+                    feed.q.push_back(Item::Ev(FeedEvent {
+                        src: FeedSrc::Grpc,
+                        recv_ns: rugsnipe_feed::clock::mono_ns(),
+                        slot,
+                        bank_id: 0,
+                        payload: Payload::Trade(t),
+                    }));
+                    drain(&mut bx, &mut feed, &mut buf, &mut fired);
+                }
                 // the cold thread gets the trades of mints the hot loop does
                 // not hold: a launch we fired on is ours
-                let mint = pk(v["mint"].as_str().unwrap());
                 if fired.contains_key(&IntentId::new(&mint, &owner).0) {
                     continue;
                 }
@@ -612,8 +649,8 @@ fn replay_days() {
                     &rugsnipe_exit::Trade {
                         venue: rugsnipe_exit::Venue::Curve,
                         mint,
-                        user: pk(v["user"].as_str().unwrap()),
-                        is_buy: v["buy"].as_bool().unwrap_or(false),
+                        user,
+                        is_buy,
                         sol_amount: v["sol"].as_u64().unwrap_or(0),
                         token_amount: v["tok"].as_u64().unwrap_or(0),
                         fee_lamports: v["fee"].as_u64().unwrap_or(0),

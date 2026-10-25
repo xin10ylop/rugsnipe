@@ -246,3 +246,122 @@ at each value, with the economics of the 0.3 run:
 0.6 is better than 0.3 on every day. It keeps 74% of the fires he tries and cuts 58% of the ones he skips. 0.7 adds
 little and cuts volume further. The rest of the gap to him is structural: the cap above 40 (section 4), the non-EU slots
 (the Frankfurt box lands poorly there), and the coins he lands first.
+
+## 9. Landing behind him: the bound, the exit and the copy (Oct 25, evening)
+
+Two questions after section 8. Do our buys fail because only one buyer can land behind the bundle? And can a bot that just
+tracks him (buys when his buy shows, with the right tip and exit) land in his block or the next and make money? Scripts:
+`analysis/research/2026-10-25/five/copy/`.
+
+### Both land: the failures were our own bound
+
+- **We are as fast as he is.** On the 5-day coins, our buys that landed or failed on our bound sit 703 times in the
+  create slot (median 92 block positions after the create, p10 40) and 419 times in the next. His landed buys: 1,060 in
+  the create slot (median 91, p10 38) and 624 in the next.
+- **There is no single spot.** On the coins he landed, 80 of our 83 attempts landed in the block right behind him and
+  failed only on our bound. `max_premium = 0` makes `min_tokens_out` the exact post-bundle quote, so any buy ahead of ours
+  (his) fails ours with pump error 6042. 618 of our 1,140 buys over Oct 21-25 failed that way.
+- **Coverage** (section 8): we fire on 261 of his 871 landed coins. The rest are above 40 vSOL (133, his +12.54 SOL),
+  under non-EU leaders (190, +5.34) or not followed (284, +6.73).
+
+### The bound
+
+The replay's 1,816 fires (Oct 23 00:00 to Oct 25 17:58). A fire our live bot really sent is filled where it landed; a 6042
+failure is filled at its own position if that is within the bound. The others are filled one buy behind the first buyer
+behind the run (our real median position). All are sold at create + 9:
+
+| max_premium | fills | he did not try | he tried, failed | he landed | all fires | Oct 23 / 24 / 25 |
+|---|---|---|---|---|---|---|
+| 0 (now) | 177 | -0.99 | +1.27 | 0.00 | +0.28 SOL | +0.25 / +0.52 / -0.49 |
+| 5% | 585 | -1.29 | +4.43 | +1.04 | **+4.19 SOL** | +3.34 / +1.20 / -0.35 |
+| 10% | 1,004 | -4.03 | +4.20 | +0.10 | +0.27 SOL | +3.20 / -2.43 / -0.51 |
+| 15% | 1,208 | -6.91 | +4.55 | -0.44 | -2.79 SOL | |
+| 25% | 1,453 | -10.29 | +4.56 | -0.78 | -6.51 SOL | |
+
+5% fills the coins he tries and the ones he lands, behind him. Wider bounds fill the coins nobody else wanted. With the 5%
+bound, `follow_min_rate` 0.3 stays best (0.6: +2.95, 0.7: +3.17).
+
+### The exit
+
+On the complete 12-slot tapes (Oct 23 00:00 to Oct 24 12:00, 1,066 replay fires):
+
+| exit | max_premium 0 | max_premium 5% |
+|---|---|---|
+| the operator table's hold H (now) | +1.61 SOL | +4.39 SOL |
+| H - 1 | +2.24 | +5.10 |
+| H - 2 | +1.80 | +4.61 |
+| flat create + 9 | +2.25 | **+5.41** |
+| flat create + 10 | +1.60 | +4.81 |
+
+A flat +9 for every rule fire (`operator_holds = false`, `hold_to_create_slots = 9`). It sells before his +10 sells. On
+the signers whose table hold is 6 it also beats that hold (+2.78 SOL against +2.19 at 5%).
+
+### Copying his landed buy
+
+His landed buys of 0.7 SOL or more at create + 0/1 over Oct 21-25 (651 coins; his net +49.0 SOL), copied with a 0.5 SOL
+buy that lands D block positions after his, bound at his price + 10% and sold one slot before his table hold:
+
+| D | 0 | 1 | 3 | 10 | 20 | 40 | 60 | 90 | 150 |
+|---|---|---|---|---|---|---|---|---|---|
+| SOL over 5 days | +10.55 | +10.28 | +8.24 | +5.22 | +4.16 | +2.86 | +2.31 | +0.90 | +0.10 |
+
+- **The first positions behind him are taken before his buy shows.** They hold the other bots that fired at the create
+  when he did. Their transactions are in flight before his buy is visible anywhere. A copy can only send once his buy is
+  visible, so it lands one pipeline later. Our trigger-to-landing distance is 32 to 322 positions (decile mids, median
+  about 90). A tip only orders the transactions that reach the leader together with ours.
+- **We reach those first positions the way he does: by firing at the create.** On the coins we both fire, we already
+  land a median of one buy behind him. That is where the 5% bound pays.
+- **The exit has to come before his.** Copies sold behind his own sell (we see it, then sell) lost 23.4 SOL on all his
+  buys: his sell is the dump. His hold is known. He sells at a create-relative slot per operator and eats the dumps
+  inside it (section 5). The operator table stores that slot.
+
+A copy bot from scratch at our real speed, with D drawn from our own landing distances (5 days, 0.5 SOL):
+
+| copied | listed signers, sold at H - 1 | unlisted signers, best exit tried |
+|---|---|---|
+| his buys of 0.7 SOL+ | **+6.55 SOL** (338 copies; +1.62 / +0.49 / +5.28 / -0.38 / -0.47 by day) | -2.25 SOL (313, flat +5) |
+| his tips of 8M+ | +4.19 (159; +0.37 / +0.66 / +2.89 / +0.39 / -0.11) | -0.47 (92) |
+| all his buys | +5.95 (780) | -6.13 (904) |
+
+On listed signers, H - 1 beats H (+2.76 on the 0.7 SOL+ buys), H - 2 (+5.30) and H - 3 (+4.09). Take-profits from +15%
+to +60% did not help.
+
+He trades unlisted signers a lot (904 of the 1,684 coins), but makes less there: +13.2 SOL, against +39.7 on the 780
+listed coins. Every exit tried on them lost: flat +1 to +10, his last hold on the signer learned live, and his modal hold
+by launch tool or by dev-buy size. Even an exit one slot before his actual first sell, which no bot can know, only breaks
+even (+0.07 SOL on the 313 copies of his 0.7 SOL+ buys). Entered as close as he is (D = 0) and sold at +5, the same copies
+make +2.32. On an unlisted signer's coin the money is in the first positions after his buy, so the loss is the entry, not
+the exit. `copy_listed_only` stays on. On the coins the newest bot does not fire (Oct 23 on), the listed-only copy of his 0.7 SOL+ buys makes +4.51 SOL
+(122 copies: Oct 23 +4.76, Oct 24 +0.07, Oct 25 -0.32). Most of it is Oct 23.
+
+### Built: `entry.copy`
+
+- **Trigger.** His landed buy of at least `copy_min_sol`, at create + 0 or + 1: his executed trade on the gRPC stream,
+  user = `follow_wallet`. The launch must have no park, no position and no buy of ours. With `copy_listed_only` (default
+  true), its signer must be in the operator table. A park his buy made `skip_not_first` ends and the copy buys. A park
+  whose run took his buy in as a bundle buy fires behind him itself.
+- **Bound and window.** His post-trade reserve + `copy_max_premium` (10%), sent until create + `copy_late_slots` (2).
+- **Gates.** Past the rule's own: template caps, dumper, pre-send, follow, leader and tweet. The stake and bid are tier
+  0. The risk caps apply.
+- **Exit.** One slot before his table hold, whatever `operator_holds` says. The tweet check's exit cut leaves copies alone.
+- **Journal and status line.** Each copy journals `copy <mint> his <SOL> at create+<k> -> buy|log`. The status line adds
+  `copy <mode> seen buy log passed`.
+- **Replay.** The copy replay ran the exact replay's events with `copy = "on"`, his buys of create + 1..3 also fed to the
+  hot loop (`replay_days.rs`). It made 127 copies (72 at create + 0, 55 at create + 1) and lost none of the rule's
+  1,816 fires. The 122 with a tape make +4.51 SOL sold at H - 1, against +2.55 at H. The harness now also keeps a fresh
+  blockhash, as the cold lane does; without one, a long run paused buys as `skip_no_blockhash`.
+
+### The caps
+
+The replay lifts the count caps: 1,943 fires with the copy in 2.75 days, about 700 a day. Live, the box made about 300
+attempts a day (289, 305 and 224 coins on Oct 23, 24 and 25): stage B's `max_probes_per_day = 300` binds, and the buys
+stop for the rest of the UTC day once it does. At 5% a replay fire is worth +0.0023 SOL, so the cap keeps less than half of
+what the bound adds. Raising it is a risk decision (`[probe] b.max_probes_per_day`, with `max_daily_loss_lamports` as the
+stop).
+
+### Changes
+
+- `max_premium = 0.05`.
+- `operator_holds = false` and `[exit.default] hold_to_create_slots = 9`: every rule fire sells at create + 9.
+- `copy = "on"`, `copy_min_sol = 0.7`, `copy_listed_only = true`: copies sell one slot before his hold for the signer.
+  Most of its +4.5 SOL came on Oct 23. `"log"` journals the copies without buying.
