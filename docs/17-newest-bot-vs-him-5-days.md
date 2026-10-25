@@ -171,3 +171,78 @@ Do not add (tested, they cut his profit or do not hold):
   `REPLAY_DIR=<dir> REPLAY_OUT=<file> cargo test --release -p rugsnipe --test replay_days -- --ignored --nocapture`.
 - `analysis/research/2026-10-25/five/`: the data pull, the export for the harness, the comparison, and the auction study
   (README there).
+
+## 8. The exact replay, Oct 23 00:00 to Oct 25 17:58 UTC
+
+The replay of sections 1-6 used a stand-in config and only the coins either wallet touched. This one runs the newest code on
+**every launch the box would have parked**, with the box's own config. Scripts: `analysis/research/2026-10-25/five/exact/`.
+
+**Inputs.** Every pump.fun create since Oct 23 00:00: 118,367, of which 73% landed in EU-led slots. The candidates are the
+26,952 creates in class (`create_v2`, not mayhem) with a dev buy of at least 0.25 SOL: what `entry.follow` parks, and the
+rule's coins are a subset. For each candidate the replay feeds:
+- the create transaction itself;
+- every trade of the create slot with its block index;
+- every trade of create + 1..3, which the dump tracker reads;
+- his attempts;
+- the operator table at each refresh;
+- the leader schedule of epochs 1065-1067.
+
+**Config.** The box's: `mode = "probe"`, stage b, `follow = "on"` (rate 0.3), `leader_regions = ["eu"]`,
+`dumper_skip = "skip"` on m.rapidlaunch.io, `hidden_dev_buy = "grpc"`, `max_post_bundle_sol = 40`, `max_premium = 0`,
+`tweet_gate = "exit"`, `presend_mode = "off"`, `filter_mode = "skip"`. The entry filter only acts on the paper (E1) lane, so it
+never changes a real fire. With `follow = "on"`, a launch fires exactly when its bundle wallets are followed:
+`follow_verdict` gates the rule's coins and adds the parked ones. So the operator table only names the skips.
+
+**The harness** (`crates/rugsnipe/tests/replay_days.rs`) now also builds what the cold lane builds:
+- the leader map with the regions of `data/leader_regions.json`, so the hot loop's `skip_far_leader` runs;
+- the real `DumpTracker`, fed each launch's run and its trades of create + 1..3;
+- the follow tracker, starting empty at Oct 23 00:00. The box's own seed was built from Oct 23 too, but partly from
+  operator coins only, so the replay is the newest code as if it had run since then.
+
+**Live check.** While the newest config ran live (14:51-15:36 today), our bot sent on 17 launches. The replay fired on 14,
+12 of them the same. The 5 the live bot bought and the replay skipped were follow adds whose wallets the box's seeded
+tracker followed and the replay's had not yet.
+
+### Results
+
+| day | candidates | replay fires | he tried | he landed | fires he tried | fires he landed | his landings we skip |
+|---|---|---|---|---|---|---|---|
+| Oct 23 | 11,307 | 723 | 1,590 | 418 | 511 | 135 | 283 |
+| Oct 24 | 9,857 | 696 | 1,209 | 293 | 467 | 84 | 209 |
+| Oct 25 (to 17:58) | 5,788 | 397 | 683 | 160 | 227 | 42 | 118 |
+
+Where his +33.5 SOL on these launches goes, by the newest bot's decision:
+
+| decision | his landed coins | his net | share |
+|---|---|---|---|
+| skip_bundle_too_big (post-bundle > 40 vSOL) | 133 | +12.54 SOL | 37% |
+| fire | 261 | +8.87 SOL | 26% |
+| skip_far_leader (leader outside Europe) | 190 | +5.34 SOL | 16% |
+| not followed (skip_dev_buy / not_followed / not_operator / uri_host) | 284 | +6.73 SOL | 20% |
+
+| the replay's fires, by what he did | fires | value at +10 | our live landing rate | our live result per fill |
+|---|---|---|---|---|
+| he did not try | 611 | +6.0% | 42% (78 of 184) | -0.0145 SOL |
+| he tried and failed (a rival was first) | 944 | +17.3% | 34% (92 of 267) | +0.0148 SOL |
+| he landed | 261 | +7.6% | 0% (0 of 47) | - |
+
+At our live landing rates and per-fill results, the newest bot comes out at **+1.1 SOL over the 2.7 days, against his
++33.5 SOL** on the same launches. Its money comes only from the coins he tries and loses. The coins he lands, we cannot
+land: he is first, and our exact-state bound fails behind him. The coins he skips lose for us.
+
+### The setting that moves it: `follow_min_rate`
+
+The follow rate is his own attempt share on an operator's launches. Raising it drops the fires he would not try. Replayed
+at each value, with the economics of the 0.3 run:
+
+| follow_min_rate | fires | he did not try | he tried, failed | he landed | projected | Oct 23 / 24 / 25 |
+|---|---|---|---|---|---|---|
+| 0.3 (now) | 1,816 | 611 | 944 | 261 | +1.03 SOL | +0.60 / +0.53 / -0.10 |
+| 0.4 | 1,701 | 543 | 908 | 250 | +1.26 SOL | +0.70 / +0.62 / -0.06 |
+| 0.5 | 1,483 | 418 | 830 | 235 | +1.63 SOL | +0.74 / +0.80 / +0.09 |
+| 0.6 | 1,153 | 256 | 699 | 198 | +1.96 SOL | +0.80 / +0.86 / +0.30 |
+| 0.7 | 856 | 135 | 572 | 149 | +2.06 SOL | +0.88 / +0.84 / +0.33 |
+
+0.6 is better than 0.3 on every day. It keeps 74% of the fires he tries and cuts 58% of the ones he skips. 0.7 adds
+little and cuts volume further. The rest of the gap to him is structural: the cap above 40 (section 4), the non-EU slots
+(the Frankfurt box lands poorly there), and the coins he lands first.

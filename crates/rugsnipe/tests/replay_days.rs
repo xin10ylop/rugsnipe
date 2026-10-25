@@ -19,7 +19,15 @@
 //! `{"t":"create","slot":S,"index":I,"mint":M,"tx":<getTransaction result, base64>}`,
 //! `{"t":"trade","slot":S,"index":I,"mint":M,"user":U,"buy":b,"sol":n,"tok":n,"fee":n,"vs":n,"vt":n,"sig":s,"ord":n,"is_create":b,"run_end":b}`,
 //! `{"t":"attempt","slot":S,"index":I,"mint":M}` (the copied wallet's
-//! transaction on the mint, landed or failed).
+//! transaction on the mint, landed or failed),
+//! `{"t":"ltrade","slot":S,"index":I,"mint":M,"user":U,"buy":b,"sol":n,"tok":n,"fee":n,"vs":n,"vt":n}`
+//! (a trade of create + 1..3: the operator-dump tracker's input, as the cold
+//! thread gets the trades of the launches it does not hold).
+//!
+//! Optional: `<dir>/leaders/<epoch>.json` (`{"epoch","first_slot","schedule"}`,
+//! the `getLeaderSchedule` result) and `<dir>/leader_regions.json` give the
+//! hot loop its slot leaders and their regions (`entry.leader_regions`), as
+//! the cold lane builds them.
 //!
 //! Left out on purpose: sends (no sender is built; a fire is the fire job),
 //! fills (none come back, so the count caps are lifted: they are applied to
@@ -32,8 +40,10 @@ use arc_swap::ArcSwap;
 use common::*;
 use pump_codec::curve::FeeBps;
 use pump_codec::Pubkey;
+use rugsnipe::dumpers::{DumpTracker, DumperSnapshot};
 use rugsnipe::follow::{Fees, FollowTracker};
 use rugsnipe::hot::{HotCfg, HotLoop, HotParts, Shared};
+use rugsnipe::leader::{LeaderMap, LeaderSnapshot};
 use rugsnipe::msgs::FireJob;
 use rugsnipe::operators::OperatorTable;
 use rugsnipe::setup::{self, ArmState};
@@ -43,6 +53,7 @@ use rugsnipe_core::risk::RiskGate;
 use rugsnipe_core::rslog::{box_id, Rec, RslogWriter};
 use rugsnipe_core::watchlist::Watchlist;
 use rugsnipe_core::IntentId;
+use rugsnipe_feed::bundle::{BundleRun, CloseReason, RunTrade};
 use rugsnipe_feed::{
     Feed, FeedBuf, FeedEvent, FeedSrc, FeedStatus, FiredSet, Payload, Sig, TradeLite,
 };
@@ -193,7 +204,7 @@ fn class_armset(c: &rugsnipe_core::config::Config) -> ArmSet {
 struct Box_ {
     hot: HotLoop,
     fire_rx: rtrb::Consumer<FireJob>,
-    _cold_rx: rtrb::Consumer<rugsnipe::msgs::ColdMsg>,
+    cold_rx: rtrb::Consumer<rugsnipe::msgs::ColdMsg>,
     fills_tx: rtrb::Producer<rugsnipe::msgs::HotIn>,
     writer: Option<rugsnipe_core::rslog::RslogWriter>,
 }
@@ -204,6 +215,8 @@ fn build_box(
     table: Option<OperatorTable>,
     wallet: Arc<rugsnipe_tx::signer::HotSigner>,
     shared: Arc<Shared>,
+    leaders: LeaderSnapshot,
+    dumpers: DumperSnapshot,
     rslog_dir: &Path,
     n: usize,
 ) -> Box_ {
@@ -242,22 +255,39 @@ fn build_box(
         fire: fire_tx,
         stats,
         shared,
-        leaders: rugsnipe::leader::empty_snapshot(),
-        dumpers: rugsnipe::dumpers::snapshot_from(vec![]),
+        leaders,
+        dumpers,
     });
     Box_ {
         hot,
         fire_rx,
-        _cold_rx: cold_rx,
+        cold_rx,
         fills_tx,
         writer: Some(w),
     }
+}
+
+/// The epoch's leader map from `<dir>/leaders/<epoch>.json`, with regions.
+fn leader_map(dir: &Path, epoch: u64, regions: &rugsnipe::leader::RegionMap) -> Option<LeaderMap> {
+    let text = std::fs::read_to_string(dir.join(format!("leaders/{epoch}.json"))).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let first = v["first_slot"].as_u64()?;
+    let info = serde_json::json!({
+        "epoch": epoch,
+        "absoluteSlot": first,
+        "slotIndex": 0,
+        "slotsInEpoch": 432_000,
+    });
+    let mut m = LeaderMap::from_rpc(&info, &v["schedule"], &serde_json::json!([]), 0).ok()?;
+    m.set_regions(regions);
+    Some(m)
 }
 
 /// One launch's create-slot trades as the cold thread's tracker sees them.
 #[derive(Default)]
 struct Run {
     slot: u64,
+    index: u32,
     dev_fees: Option<bool>,
     cset: Vec<Pubkey>,
     trades: Vec<rugsnipe::filter::S0Trade>,
@@ -281,12 +311,29 @@ fn replay_days() {
         vec![pk(A), pk(US), owner],
     );
     let rslog_dir = work.join("rslog");
+    // the cold lane's leader map (entry.leader_regions) and dump tracker
+    // (entry.dumper_skip), shared by every restart
+    let leaders = rugsnipe::leader::empty_snapshot();
+    let regions = {
+        let p = dir.join("leader_regions.json");
+        let p = if p.exists() {
+            p
+        } else {
+            PathBuf::from(&cfg.entry.leader_regions_file)
+        };
+        rugsnipe::leader::load_regions(&p).unwrap_or_default()
+    };
+    let mut epoch = u64::MAX;
+    let dumps = rugsnipe::dumpers::snapshot_from(vec![]);
+    let mut dump = DumpTracker::new(dumps.clone());
     let mut n_box = 0usize;
     let mut bx = build_box(
         &cfg,
         None,
         wallet.clone(),
         shared.clone(),
+        leaders.clone(),
+        dumps.clone(),
         &rslog_dir,
         n_box,
     );
@@ -306,6 +353,8 @@ fn replay_days() {
         |bx: &mut Box_, feed: &mut QFeed, buf: &mut FeedBuf, fired: &mut HashMap<u64, u32>| {
             loop {
                 let st = bx.hot.step(feed, buf);
+                // the cold thread's side: consumed (its trackers run here)
+                while bx.cold_rx.pop().is_ok() {}
                 while let Ok(j) = bx.fire_rx.pop() {
                     *fired.entry(j.intent).or_default() += 1;
                     // what the cold thread reports when the buy did not land: the
@@ -355,6 +404,42 @@ fn replay_days() {
                     tracker.on_run(m, r.slot, Fees::of(r.dev_fees), &fb.wallets, post);
                 }
                 tracker.prune(r.slot);
+                // the dump tracker's run: every trade of the create slot
+                let mut trades: Vec<RunTrade> = r
+                    .trades
+                    .iter()
+                    .map(|x| RunTrade {
+                        index: x.index,
+                        is_create: x.is_create,
+                        user: x.user,
+                        is_buy: x.is_buy,
+                        sol: x.sol,
+                        tok: x.tok,
+                        v: x.v,
+                        t: x.t,
+                    })
+                    .collect();
+                trades.sort_by_key(|t| (t.index, !t.is_create));
+                dump.on_run(&BundleRun {
+                    mint: m,
+                    create_sig: Sig::default(),
+                    slot: r.slot,
+                    create_index: Some(r.index),
+                    dev_fees: r.dev_fees,
+                    trades,
+                    closed: CloseReason::SlotEnded,
+                    create_ns: 0,
+                    run_closed_ns: 0,
+                    closed_ns: 0,
+                    out_of_order: 0,
+                });
+            }
+            dump.prune(slot);
+            if slot / 432_000 != epoch {
+                epoch = slot / 432_000;
+                if let Some(m) = leader_map(&dir, epoch, &regions) {
+                    leaders.store(Arc::new(m));
+                }
             }
             let mut rest = vec![];
             for (s, m) in attempts.drain(..) {
@@ -384,6 +469,8 @@ fn replay_days() {
                         Some(table),
                         wallet.clone(),
                         shared.clone(),
+                        leaders.clone(),
+                        dumps.clone(),
                         &rslog_dir,
                         n_box,
                     ),
@@ -446,6 +533,7 @@ fn replay_days() {
                         mint,
                         Run {
                             slot,
+                            index: index as u32,
                             dev_fees: Some(h.dev_fees()),
                             cset,
                             trades: vec![],
@@ -513,6 +601,29 @@ fn replay_days() {
             "attempt" => {
                 attempts.push((slot, pk(v["mint"].as_str().unwrap())));
             }
+            "ltrade" => {
+                // the cold thread gets the trades of mints the hot loop does
+                // not hold: a launch we fired on is ours
+                let mint = pk(v["mint"].as_str().unwrap());
+                if fired.contains_key(&IntentId::new(&mint, &owner).0) {
+                    continue;
+                }
+                let _ = dump.on_trade(
+                    &rugsnipe_exit::Trade {
+                        venue: rugsnipe_exit::Venue::Curve,
+                        mint,
+                        user: pk(v["user"].as_str().unwrap()),
+                        is_buy: v["buy"].as_bool().unwrap_or(false),
+                        sol_amount: v["sol"].as_u64().unwrap_or(0),
+                        token_amount: v["tok"].as_u64().unwrap_or(0),
+                        fee_lamports: v["fee"].as_u64().unwrap_or(0),
+                        reserve_sol: v["vs"].as_u64().unwrap_or(0),
+                        reserve_token: v["vt"].as_u64().unwrap_or(0),
+                        slot,
+                    },
+                    0,
+                );
+            }
             _ => {}
         }
         if n_ev.is_multiple_of(20_000) {
@@ -554,12 +665,14 @@ fn replay_days() {
         .unwrap();
     }
     eprintln!(
-        "replay: {} creates, {} fired, {} events, follow records {} followed {}",
+        "replay: {} creates, {} fired, {} events, follow records {} followed {}, dumpers {} ({} launches tracked)",
         mints.len(),
         n_fired,
         n_ev,
         tracker.records(),
-        tracker.len()
+        tracker.len(),
+        dump.len(),
+        dump.launches
     );
     let _ = std::fs::remove_dir_all(&work);
 }
