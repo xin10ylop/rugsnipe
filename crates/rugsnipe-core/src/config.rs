@@ -1172,6 +1172,12 @@ pub struct EntryCfg {
     pub tweet_feed_keys: Vec<String>,
     /// How far back a post may match (s).
     pub tweet_feed_window_s: u64,
+    /// The first-attempt tip (lamports) of the sell a copy verdict cuts to
+    /// (`tweet_gate = "exit"`, 2026-10-25): the position's sell and dump
+    /// tips are raised to it at the cut (0 = the exit's own). Two of the
+    /// night's three big copy losses dumped in the slot before the cut sell
+    /// landed.
+    pub tweet_cut_tip_lamports: u64,
 }
 impl Default for EntryCfg {
     fn default() -> Self {
@@ -1220,6 +1226,7 @@ impl Default for EntryCfg {
             tweet_feed_url: "wss://ws-global.tweetstream.io/ws".into(),
             tweet_feed_keys: vec!["TWEETSTREAM_KEY".into()],
             tweet_feed_window_s: 1_800,
+            tweet_cut_tip_lamports: 0,
         }
     }
 }
@@ -2102,6 +2109,13 @@ impl Config {
             );
         }
         let e = &self.entry;
+        if e.tweet_cut_tip_lamports > 50_000_000 {
+            inv(
+                &mut r,
+                "entry.tweet_cut_tip_lamports",
+                "at most 50_000_000 lamports (0.05 SOL; 0 = the exit's own tip)",
+            );
+        }
         if e.tweet_gate != TweetGate::Off {
             if e.tweet_hosts.is_empty() && e.uri_hosts.is_empty() {
                 inv(

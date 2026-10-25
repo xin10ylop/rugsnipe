@@ -113,6 +113,8 @@ struct Outcome {
     bids: Vec<u64>,
     /// The fixture's mint.
     mint: Pubkey,
+    /// The open position's (sell, dump) first-attempt tips.
+    tips: Option<(u64, u64)>,
 }
 
 /// `[exit.default]` with every rule off but the hold to create + 10.
@@ -312,6 +314,9 @@ fn run_full_with(
     let hold = hot
         .position_of(&hit.mint)
         .and_then(|p| p.policy.hold_to_create_slot);
+    let tips = hot
+        .position_of(&hit.mint)
+        .map(|p| (p.policy.sell_tip_lamports, p.policy.dump_tip_lamports));
     let intent = IntentId::new(&hit.mint, &owner).0;
     let jobs: Vec<FireJob> = std::iter::from_fn(|| fire_rx.pop().ok())
         .filter(|j| j.intent == intent)
@@ -344,6 +349,7 @@ fn run_full_with(
         hold,
         bids,
         mint: hit.mint,
+        tips,
     }
 }
 
@@ -634,4 +640,30 @@ fn the_dumper_skip_applies_only_to_its_hosts_when_they_are_set() {
     assert!(run(DumperSkip::Log, vec![host.clone()], &dev).fired);
     // no dumper among the insiders: fired
     assert!(run(DumperSkip::Skip, vec![host], &[]).fired);
+}
+
+#[test]
+fn a_copy_cut_raises_the_sell_tips_when_configured() {
+    let run = |cut_tip: u64, kind: TweetKind| {
+        run_full_with(
+            TweetGate::Exit,
+            true,
+            Some(kind),
+            false,
+            &none,
+            &move |c: &mut Config| c.entry.tweet_cut_tip_lamports = cut_tip,
+            None,
+            &[],
+        )
+    };
+    let base = run(0, TweetKind::First).tips.expect("a position");
+    assert!(base.0 < 7_000_000 && base.1 < 7_000_000, "{base:?}");
+    // unset: a cut keeps the exit's tips
+    assert_eq!(run(0, TweetKind::Copy).tips, Some(base));
+    // set: the cut raises both, a first coin keeps them
+    assert_eq!(
+        run(7_000_000, TweetKind::Copy).tips,
+        Some((7_000_000, 7_000_000))
+    );
+    assert_eq!(run(7_000_000, TweetKind::First).tips, Some(base));
 }

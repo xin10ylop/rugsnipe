@@ -261,6 +261,9 @@ pub struct HotCfg {
     /// copy cannot see ([`dev_hidden`]) is parked without the dev buy check
     /// and judged on the executed trades ([`hidden_trade`]).
     pub hidden_dev_grpc: bool,
+    /// `entry.tweet_cut_tip_lamports`: a copy cut raises the position's
+    /// sell and dump tips to it (0: unchanged).
+    pub tweet_cut_tip: u64,
     /// The pre-send entry gate (`entry.presend_model`, loaded at startup;
     /// `None`: off), its mode and cut, and the per-signer operator features
     /// the cold thread publishes from the outcome store.
@@ -386,6 +389,7 @@ impl HotCfg {
             dumper_skip: cfg.entry.dumper_skip,
             dumper_skip_hosts: host_patterns(&cfg.entry.dumper_skip_hosts),
             hidden_dev_grpc: cfg.entry.hidden_dev_buy == rugsnipe_core::config::HiddenDevBuy::Grpc,
+            tweet_cut_tip: cfg.entry.tweet_cut_tip_lamports,
             require_bundle: cfg.entry.require_bundle,
             presend: None,
             presend_mode: cfg.entry.presend_mode,
@@ -2198,6 +2202,7 @@ impl HotLoop {
     /// as soon.
     fn cut_hold(&mut self, mint: &Pubkey) -> bool {
         let slot_now = self.slot_now;
+        let cut_tip = self.cfg.tweet_cut_tip;
         let Some(s) = self.find_mint(mint).and_then(|i| self.slots[i].as_mut()) else {
             return false;
         };
@@ -2211,6 +2216,12 @@ impl HotLoop {
             return false;
         }
         s.pos.policy.hold_to_create_slot = Some(h);
+        // the cut sell lands sooner (entry.tweet_cut_tip_lamports): a copy's
+        // dump does not wait for a slow sell
+        if cut_tip > 0 {
+            s.pos.policy.dump_tip_lamports = s.pos.policy.dump_tip_lamports.max(cut_tip);
+            s.pos.policy.sell_tip_lamports = s.pos.policy.sell_tip_lamports.max(cut_tip);
+        }
         true
     }
 
