@@ -304,7 +304,7 @@ if [ "$SHORT" = 1 ]; then
   else echo "   buys: the rule's own AND copies of his buys (entry.rule_buys = $(q "$rb"); false = copies only)"; fi
   if [ -z "$cp_" ]; then echo "   copy (this process): $(q "")"
   elif [ -n "$(cv his)" ]; then
-    echo "   copy $(awk '{ print $2 }' <<<"$cp_") (this process): his launch buys $(cv his)  not copied: tip under $(q "$(list_m "$(cfgv copy_min_tip_lamports)")")M $(cv small), operator not listed $(cv unlisted), operator he bought < $(q "$(cfgv copy_signer_min_buys)") times in $(q "$(cfgv copy_signer_window_h)") h $(cv few)  ->  copied $(cv buy) (journaled only $(cv log), coin already ours $(cv passed))"
+    echo "   copy $(awk '{ print $2 }' <<<"$cp_") (this process): his launch buys $(cv his)  not copied: tip under $(q "$(list_m "$(cfgv copy_min_tip_lamports)")")M $(cv small), operator not listed $(cv unlisted), operator he bought < $(k=$(cfgv copy_signer_min_buys); echo "${k:-2}") times in $(k=$(cfgv copy_signer_window_h); echo "${k:-24}") h $(cv few)  ->  copied $(cv buy) (journaled only $(cv log), coin already ours $(cv passed))"
   else echo "   copy (this process): $cp_"; fi
   echo "   sends (this process): $(q "$(g 'probe attempts [0-9]+ landed [0-9]+ failed [0-9]+ dropped [0-9]+' | sed 's/probe //')")"
   echo "== results since the start (after tips and fees; failed = our buys that landed failed)"
