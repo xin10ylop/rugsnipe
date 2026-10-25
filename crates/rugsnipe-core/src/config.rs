@@ -1225,12 +1225,12 @@ pub struct EntryCfg {
     /// we hold nothing in, is bought behind it: bound at his post-trade
     /// price plus `copy_max_premium`, sent at most `copy_late_slots` after
     /// the create, past the rule's template, cap and follow gates. Seen on
-    /// the stream, the copy lands about a full pipeline behind him (the end
-    /// of his slot or later), where his 0.7 SOL+ buys were worth about
-    /// nothing over Oct 21-25 (docs/17 section 9): `log` it before `on`.
-    /// `off` (default); `log`: journal `copy <mint> his <SOL> at
-    /// create+<k> -> log`, no buy; `on`: buy. A copy sells one slot before
-    /// his own hold for the signer (the operator table's `hold_slots`).
+    /// the stream, the copy lands about a pipeline behind him (90 block
+    /// positions); a copy sells one slot before his own hold for the signer
+    /// (the operator table's `hold_slots`). On his listed operators his
+    /// 0.7 SOL+ buys copied so made +6.6 SOL over Oct 21-25, most of it on
+    /// Oct 23 (docs/17 section 9). `off` (default); `log`: journal
+    /// `copy <mint> his <SOL> at create+<k> -> log`, no buy; `on`: buy.
     pub copy: CopyMode,
     pub copy_min_sol: f64,
     pub copy_max_premium: f64,
