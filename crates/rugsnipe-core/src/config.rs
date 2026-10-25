@@ -1244,6 +1244,14 @@ pub struct EntryCfg {
     /// that hold, his buys there made +6.6 SOL over Oct 21-25; on the
     /// unlisted signers every exit tried lost (docs/17 section 9).
     pub copy_listed_only: bool,
+    /// Copy only a signer he is trading now: at least this many of his
+    /// landed buys on the signer's launches (create + 0/1, any size or tip)
+    /// within the last `copy_signer_window_h` hours, counted live by the
+    /// hot loop before this buy (0 = off, at most 8). The operator table
+    /// keeps three days of signers; with 2 in 24 h the copy keeps the +4.2
+    /// SOL / 4-of-5-days result of his recent operators (docs/17 s9).
+    pub copy_signer_min_buys: u32,
+    pub copy_signer_window_h: u64,
 }
 impl Default for EntryCfg {
     fn default() -> Self {
@@ -1309,6 +1317,8 @@ impl Default for EntryCfg {
             copy_max_premium: 0.10,
             copy_late_slots: 2,
             copy_listed_only: true,
+            copy_signer_min_buys: 2,
+            copy_signer_window_h: 24,
         }
     }
 }
@@ -2312,6 +2322,16 @@ impl Config {
             }
             if !(1..=4).contains(&e.copy_late_slots) {
                 inv(&mut r, "entry.copy_late_slots", "must be in 1..=4");
+            }
+            if e.copy_signer_min_buys > 8 {
+                inv(&mut r, "entry.copy_signer_min_buys", "must be at most 8");
+            }
+            if !(1..=72).contains(&e.copy_signer_window_h) {
+                inv(
+                    &mut r,
+                    "entry.copy_signer_window_h",
+                    "must be in 1..=72 hours",
+                );
             }
             if e.copy_listed_only && e.operators_file.is_empty() {
                 inv(

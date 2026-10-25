@@ -38,6 +38,8 @@ The copy (a bot that buys when his buy shows):
   share, the worst drawdown inside a day.
 - `skips.py`: his coins the rule skips, by the rule's reason (the leader filter, the 40 vSOL cap, not followed), and
   what the tip-keyed copy picks up in each.
+- `recent.py`: his current operators counted live (his buys on the signer in the last W hours >= K) against the
+  backtest's tables.
 
 The replay of the copy trigger itself: `crates/rugsnipe/tests/replay_days.rs` with `entry.copy = "on"` in the replay
 dir's `config.toml` (his buys of create + 1..3 then reach the hot loop as live).

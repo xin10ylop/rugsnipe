@@ -53,8 +53,10 @@ fn live_cfg(dir: &std::path::Path, copy: CopyMode, ranges: &[[f64; 2]], his: Pub
     c.entry.dev_buy_ranges_sol = ranges.to_vec();
     c.entry.copy = copy;
     c.entry.follow_wallet = his.to_string();
-    // most tests have no operator table: copy any signer
+    // most tests have no operator table and one launch: copy any signer,
+    // with no history of his on it
     c.entry.copy_listed_only = false;
+    c.entry.copy_signer_min_buys = 0;
     c
 }
 
@@ -579,6 +581,49 @@ fn a_tip_floor_copies_his_high_conviction_buys_only() {
     let dir = tmpdir("copy-tip");
     let mut c = live_cfg(&dir, CopyMode::On, &[], Pubkey::new_unique());
     c.entry.copy_min_tip_lamports = 2_000_000_000;
+    assert!(!c.validate(&good_env(&c)).ok());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_signer_he_is_not_trading_now_is_not_copied() {
+    // one earlier buy of his on the signer needed: his first buy only counts
+    let once = |c: &mut Config| c.entry.copy_signer_min_buys = 1;
+    let (o, _) = run(CopyMode::On, false, &once, &|h, his| {
+        vec![buy(h, his, SOL, 0, SLOT, CI + 120)]
+    });
+    assert_eq!((o.fires, o.copy), (0, [0; 4]), "{:?}", o.labels());
+    // his second buy on the signer's launch is copied
+    let (o, _) = run(CopyMode::On, false, &once, &|h, his| {
+        vec![
+            buy(h, his, SOL, 0, SLOT, CI + 120),
+            buy(h, his, SOL, SOL, SLOT, CI + 130),
+        ]
+    });
+    assert_eq!(o.fires, 1, "{:?}", o.labels());
+    assert_eq!(o.copy, [1, 1, 0, 0]);
+    // an earlier buy within a 1 h window counts too
+    let (o, _) = run(
+        CopyMode::On,
+        false,
+        &|c: &mut Config| {
+            c.entry.copy_signer_min_buys = 1;
+            c.entry.copy_signer_window_h = 1;
+        },
+        &|h, his| {
+            vec![
+                buy(h, his, SOL, 0, SLOT, CI + 120),
+                buy(h, his, SOL, SOL, SLOT + 1, 5),
+            ]
+        },
+    );
+    assert_eq!(o.fires, 1, "same window: {:?}", o.labels());
+    let dir = tmpdir("copy-signer");
+    let mut c = live_cfg(&dir, CopyMode::On, &[], Pubkey::new_unique());
+    c.entry.copy_signer_min_buys = 9;
+    assert!(!c.validate(&good_env(&c)).ok());
+    let mut c = live_cfg(&dir, CopyMode::On, &[], Pubkey::new_unique());
+    c.entry.copy_signer_window_h = 0;
     assert!(!c.validate(&good_env(&c)).ok());
     let _ = std::fs::remove_dir_all(&dir);
 }

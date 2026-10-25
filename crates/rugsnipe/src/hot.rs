@@ -313,6 +313,10 @@ pub struct HotCfg {
     pub copy_late_slots: u64,
     /// `entry.copy_listed_only`: only the signers of the operator table.
     pub copy_listed_only: bool,
+    /// `entry.copy_signer_min_buys` and `copy_signer_window_h` in slots: his
+    /// landed buys on the signer within that window before this one.
+    pub copy_signer_min_buys: u32,
+    pub copy_signer_window_slots: u64,
     /// `entry.stake_fits_balance` and `entry.stake_min_sol` (lamports).
     pub stake_fits_balance: bool,
     pub stake_min: u64,
@@ -455,6 +459,9 @@ impl HotCfg {
                 .clamp(0.0, 1e6) as u32,
             copy_late_slots: cfg.entry.copy_late_slots,
             copy_listed_only: cfg.entry.copy_listed_only,
+            copy_signer_min_buys: cfg.entry.copy_signer_min_buys,
+            // 400 ms slots: 9,000 an hour
+            copy_signer_window_slots: cfg.entry.copy_signer_window_h.saturating_mul(9_000),
             stake_fits_balance: cfg.entry.stake_fits_balance,
             stake_min: (cfg.entry.stake_min_sol * 1e9).round() as u64,
             require_bundle: cfg.entry.require_bundle,
@@ -902,6 +909,22 @@ pub const RECENT: usize = 32;
 /// The last intents this loop sent a buy for: a copy never buys the same
 /// mint again.
 const BOUGHT: usize = 32;
+
+/// Signers whose recent buys by the copied wallet are kept, and the buys
+/// kept per signer (`entry.copy_signer_min_buys` is at most this).
+const SIGNERS: usize = 1024;
+const SIGNER_BUYS: usize = 8;
+
+/// The copied wallet's last landed buys on one create signer's launches
+/// (their slots, a ring), for `entry.copy_signer_min_buys`.
+#[derive(Debug, Clone, Copy)]
+struct SignerSeen {
+    signer: Pubkey,
+    slots: [u64; SIGNER_BUYS],
+    n: u8,
+    at: u8,
+    last: u64,
+}
 
 /// A create past the class filter, kept for a copy of a later buy.
 #[derive(Debug, Clone, Copy)]
@@ -1441,6 +1464,9 @@ pub struct HotLoop {
     recent_at: usize,
     bought: [u64; BOUGHT],
     bought_at: usize,
+    /// His recent buys per create signer (`entry.copy_signer_min_buys`; on
+    /// the heap, the oldest signer replaced when full).
+    his_signers: Box<[Option<SignerSeen>]>,
     /// Scratch for the ALT-loaded addresses of a wire event (no allocation).
     loaded: Box<[Pubkey]>,
     last_mark_ns: u64,
@@ -1528,6 +1554,7 @@ impl HotLoop {
             recent_at: 0,
             bought: [0; BOUGHT],
             bought_at: 0,
+            his_signers: vec![None; SIGNERS].into_boxed_slice(),
             loaded: vec![Pubkey::default(); MAX_LOADED].into_boxed_slice(),
             last_mark_ns: 0,
             sell_tmpls: Vec::new(),
@@ -2468,9 +2495,6 @@ impl HotLoop {
     /// is outside of could only end `skip_not_first`, and ends so here.
     /// `log` journals the copy, no buy.
     fn copy_trade(&mut self, t: &TradeLite, recv_ns: u64, t0: u64) {
-        if t.sol_amount < self.cfg.copy_min || t.tip < self.cfg.copy_min_tip {
-            return;
-        }
         let Some(r) = self
             .recent
             .iter()
@@ -2483,9 +2507,19 @@ impl HotLoop {
         if t.slot < r.slot || t.slot > r.slot.saturating_add(1) {
             return;
         }
+        // his activity on the signer (entry.copy_signer_min_buys): every
+        // landed launch buy of his counts, whatever its size or tip
+        let recent = self.signer_buys_then_note(&create_signer(&r.hit), t.slot);
+        if t.sol_amount < self.cfg.copy_min || t.tip < self.cfg.copy_min_tip {
+            return;
+        }
         // his known operators only (entry.copy_listed_only): the table's
         // hold is the copy's exit
         if self.cfg.copy_listed_only && self.cfg.operator_rule(&r.hit).is_none() {
+            return;
+        }
+        // a signer he is trading now
+        if recent < self.cfg.copy_signer_min_buys {
             return;
         }
         self.counters.copy[0] += 1;
@@ -2568,6 +2602,44 @@ impl HotLoop {
             Some(&p),
             r.create_index,
         );
+    }
+
+    /// His landed buys on `signer`'s launches within the last
+    /// `copy_signer_window_slots` up to `slot` (before this one), then this
+    /// one recorded. No allocation: a fixed table, the signer whose last buy
+    /// is oldest replaced when it is full.
+    fn signer_buys_then_note(&mut self, signer: &Pubkey, slot: u64) -> u32 {
+        let since = slot.saturating_sub(self.cfg.copy_signer_window_slots);
+        let found = self
+            .his_signers
+            .iter()
+            .position(|e| e.is_some_and(|e| e.signer == *signer));
+        let mut e = found
+            .and_then(|i| self.his_signers[i])
+            .unwrap_or(SignerSeen {
+                signer: *signer,
+                slots: [0; SIGNER_BUYS],
+                n: 0,
+                at: 0,
+                last: 0,
+            });
+        let count = e.slots[..e.n as usize]
+            .iter()
+            .filter(|&&s| s >= since && s <= slot)
+            .count() as u32;
+        e.slots[e.at as usize] = slot;
+        e.at = ((e.at as usize + 1) % SIGNER_BUYS) as u8;
+        e.n = (e.n + 1).min(SIGNER_BUYS as u8);
+        e.last = e.last.max(slot);
+        let i = found
+            .or_else(|| self.his_signers.iter().position(|x| x.is_none()))
+            .unwrap_or_else(|| {
+                (0..SIGNERS)
+                    .min_by_key(|&i| self.his_signers[i].map_or(0, |x| x.last))
+                    .unwrap_or(0)
+            });
+        self.his_signers[i] = Some(e);
+        count
     }
 
     /// Park a create for the bundle gate; a full table drops its oldest

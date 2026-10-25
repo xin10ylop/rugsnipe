@@ -362,11 +362,31 @@ did not help: the operator hot for him (his last coins on the signer), his own r
 stop-loss at -20% or -35%, and his size of 1.0 or 1.5 SOL. High tips on unlisted signers stay flat or negative (tip >=
 12M: -0.07 SOL).
 
+### His current operators
+
+The operator table on the box keeps three days of his signers (1,034 on Oct 25). The tables the backtest used were rebuilt
+every four hours from his last 24 hours, with the old counts halved each time: 40 to 64 signers, his current operators.
+On every signer, the tip-keyed copy makes +2.82 SOL, positive on 3 of 5 days. So the copy counts his landed launch
+buys per signer live and copies a signer only after enough of them in a recent window (`recent.py`):
+
+| his buys on the signer before this one | copies | total | days positive |
+|---|---|---|---|
+| (the backtest's tables) | 238 | +4.71 SOL | 4 of 5 |
+| >= 1 in 24 h | 262 | +3.91 | 4 of 5 |
+| **>= 2 in 24 h** | **226** | **+4.22** | **4 of 5** |
+| >= 3 in 24 h | 200 | +4.30 | 3 of 5 |
+| >= 2 in 4 h | 151 | +2.71 | 2 of 5 |
+| any signer | 410 | +2.82 | 3 of 5 |
+
+`copy_signer_min_buys = 2`, `copy_signer_window_h = 24`. The count starts empty at each start, so a signer is copied again
+from his third buy on it after a restart. The table still gives the hold, one slot before his, for the exit.
+
 ### Built: `entry.copy`
 
 - **Trigger.** His landed buy of at least `copy_min_sol` with a tip of at least `copy_min_tip_lamports`, at create + 0
   or + 1: his executed trade on the gRPC stream, user = `follow_wallet`. The feed reads his tip from the same transaction:
-  the SOL his wallet moves by top-level System transfers (`transfers_from`). The launch must have no park, no position and no buy of ours. With `copy_listed_only` (default
+  the SOL his wallet moves by top-level System transfers (`transfers_from`). With `copy_signer_min_buys`, he must have
+  bought the signer's launches that many times in the last `copy_signer_window_h` hours (counted live, any size). The launch must have no park, no position and no buy of ours. With `copy_listed_only` (default
   true), its signer must be in the operator table. A park his buy made `skip_not_first` ends and the copy buys. A park
   whose run took his buy in as a bundle buy fires behind him itself.
 - **Bound and window.** His post-trade reserve + `copy_max_premium` (10%), sent until create + `copy_late_slots` (2).
