@@ -330,8 +330,13 @@ He trades unlisted signers a lot (904 of the 1,684 coins), but makes less there:
 listed coins. Every exit tried on them lost: flat +1 to +10, his last hold on the signer learned live, and his modal hold
 by launch tool or by dev-buy size. Even an exit one slot before his actual first sell, which no bot can know, only breaks
 even (+0.07 SOL on the 313 copies of his 0.7 SOL+ buys). Entered as close as he is (D = 0) and sold at +5, the same copies
-make +2.32. On an unlisted signer's coin the money is in the first positions after his buy, so the loss is the entry, not
-the exit. `copy_listed_only` stays on. On the coins the newest bot does not fire (Oct 23 on), the listed-only copy of his 0.7 SOL+ buys makes +4.51 SOL
+make +2.32.
+
+The copy's speed and entry cost are the same on both kinds of signer. 90 positions after his buy, the price is a mean +3.2%
+over his fill on listed coins and +2.9% on unlisted ones (medians +1.5% and +0.5%). The difference is the move after
+the entry. To one slot before his hold, listed coins rise a further mean +7.1% (median +0.5%). Unlisted coins rise +1.7%
+to create + 5 (median 0.0%), under our round trip's cost of about 5 points. He gets those coins about 3 points cheaper by
+being first, and still makes only +0.015 SOL a coin there, against +0.051 on listed coins. `copy_listed_only` stays on. On the coins the newest bot does not fire (Oct 23 on), the listed-only copy of his 0.7 SOL+ buys makes +4.51 SOL
 (122 copies: Oct 23 +4.76, Oct 24 +0.07, Oct 25 -0.32). Most of it is Oct 23.
 
 ### Built: `entry.copy`
