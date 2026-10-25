@@ -6,11 +6,19 @@
 # Test hooks: CHECK_STATUS (a status line instead of the journal's), CHECK_TIERS (operator lines), CHECK_TWEETS (tweet lines),
 # CHECK_FEED (tweetfeed lines), CHECK_DUMPERS (dumper lines),
 # CHECK_RULE_T0 (the tweet rule's start, unix s; empty = none), CHECK_AB_T0 (the bid A/B's start, unix s),
+# CHECK_ERA_T0 (the era's start, unix s, instead of ~/.rugsnipe-era),
 # CHECK_DB (another state.db), CHECK_PRINT_SQL=1 (print the SQL and stop).
 DB=${CHECK_DB:-/var/lib/rugsnipe/state.db}
 CFG=/etc/rugsnipe/rugsnipe.toml
 now=$(date -u +%s)
 D0=$(date -u -d "$(date -u +%Y-%m-%d) 00:00:00" +%s)
+# ---- the era (2026-10-25): a fixed start set once with `date -u +%s > ~/.rugsnipe-era`; every "since" section then
+# counts from it across days (journal lines included) instead of from today's first start
+if [ -n "${CHECK_ERA_T0+x}" ]; then ERA=$CHECK_ERA_T0; else
+  ERA=$(grep -m1 -oE '^[0-9]{9,11}' "$HOME/.rugsnipe-era" 2>/dev/null)
+fi
+E0=${ERA:-$D0}
+if [ -n "$ERA" ]; then SINCE="since the era started ($(date -u -d "@$ERA" '+%b %d %H:%M') UTC)"; RN=era; else SINCE=today; RN='new rule'; fi
 if [ -n "${CHECK_STATUS:-}" ]; then
   ST=$CHECK_STATUS; T0=${CHECK_T0:-$D0}; PID=0
 else
@@ -27,39 +35,39 @@ list_m() { tr -d '[]_ ' <<<"$1" | awk -F, '{ for (i = 1; i <= NF; i++) printf "%
 
 # ---- the operator lines (tier per mint) of today, every process
 if [ -n "${CHECK_TIERS+x}" ]; then OPL=$CHECK_TIERS; else
-  OPL=$(sudo journalctl -u rugsnipe-hot -o cat --since "@$D0" 2>/dev/null | grep -E '^operator [1-9A-HJ-NP-Za-km-z]{8} hold_to create\+[0-9]+ .*tier [0-9]\)')
+  OPL=$(sudo journalctl -u rugsnipe-hot -o cat --since "@$E0" 2>/dev/null | grep -E '^operator [1-9A-HJ-NP-Za-km-z]{8} hold_to create\+[0-9]+ .*tier [0-9]\)')
 fi
 TIERS=$(awk 'NF >= 2 { t = $NF; gsub(/[^0-9]/, "", t); if (t != "") printf "%s(\x27%s\x27,%s)", (n++ ? "," : ""), $2, t }' <<<"$OPL")
 [ -n "$TIERS" ] || TIERS="('',-1)"
 # ---- the tweet rule's start (docs/13): the first "tweet check:" start line of today, so its trades are counted apart
 # from the bot's earlier rules ("rule" scope); empty when the check is off
-if [ -n "${CHECK_RULE_T0+x}" ]; then TR=$CHECK_RULE_T0; else
+if [ -n "${CHECK_RULE_T0+x}" ]; then TR=$CHECK_RULE_T0; elif [ -n "$ERA" ]; then TR=$ERA; else
   TR=$(sudo journalctl -u rugsnipe-hot -o short-unix --since "@$D0" 2>/dev/null | grep -m1 -E 'tweet check: (log|on|exit)' | awk '{ printf "%d", $1 }')
 fi
 # ---- the bid A/B's start (bid.ab_by_tier): the first "bid ab:" start line of today (the split before 2026-10-25 sent
 # every pump.fun mint to the second arm, so earlier races are left out); else the rule's start
 if [ -n "${CHECK_AB_T0+x}" ]; then AB=$CHECK_AB_T0; else
-  AB=$(sudo journalctl -u rugsnipe-hot -o short-unix --since "@$D0" 2>/dev/null | grep -m1 -E 'bid ab: ' | awk '{ printf "%d", $1 }')
+  AB=$(sudo journalctl -u rugsnipe-hot -o short-unix --since "@$E0" 2>/dev/null | grep -m1 -E 'bid ab: ' | awk '{ printf "%d", $1 }')
 fi
 AB=${AB:-${TR:-$D0}}
 # ---- the tweet check's verdict lines (entry.tweet_gate, docs/13) of today: mint8 -> verdict, delay, slot offset
 if [ -n "${CHECK_TWEETS+x}" ]; then TWL=$CHECK_TWEETS; else
-  TWL=$(sudo journalctl -u rugsnipe-hot -o cat --since "@$D0" 2>/dev/null | grep -E '^tweet [1-9A-HJ-NP-Za-km-z]{8} [a-z_]+ rank ')
+  TWL=$(sudo journalctl -u rugsnipe-hot -o cat --since "@$E0" 2>/dev/null | grep -E '^tweet [1-9A-HJ-NP-Za-km-z]{8} [a-z_]+ rank ')
 fi
 TWEETS=$(awk '{ ms = $13; gsub(/[^0-9]/, "", ms); so = $14; gsub(/[^0-9]/, "", so); if (ms != "") printf "%s(\x27%s\x27,\x27%s\x27,%s,%s)", (n++ ? "," : ""), $2, $3, ms, (so == "" ? 0 : so) }' <<<"$TWL")
 [ -n "$TWEETS" ] || TWEETS="('','',0,0)"
 # ---- the tweet feed's calls (entry.tweet_feed, docs/14 section 7) of today: mint8 -> first / copy / none
 if [ -n "${CHECK_FEED+x}" ]; then FDL=$CHECK_FEED; else
-  FDL=$(sudo journalctl -u rugsnipe-hot -o cat --since "@$D0" 2>/dev/null | grep -E '^tweetfeed [1-9A-HJ-NP-Za-km-z]{8} [a-z]+ posts ')
+  FDL=$(sudo journalctl -u rugsnipe-hot -o cat --since "@$E0" 2>/dev/null | grep -E '^tweetfeed [1-9A-HJ-NP-Za-km-z]{8} [a-z]+ posts ')
 fi
 FEEDS=$(awk '{ printf "%s(\x27%s\x27,\x27%s\x27)", (n++ ? "," : ""), $2, $3 }' <<<"$FDL")
 [ -n "$FEEDS" ] || FEEDS="('','')"
 # ---- the dumper list's hits (entry.dumper_skip, docs/15) of today: mint8 -> skipped / logged, uri host ('-': none or
 # a line from before the host was journaled)
 if [ -n "${CHECK_DUMPERS+x}" ]; then DML=$CHECK_DUMPERS; else
-  DML=$(sudo journalctl -u rugsnipe-hot -o cat --since "@$D0" 2>/dev/null | grep -E '^dumper [1-9A-HJ-NP-Za-km-z]{8} (skipped|logged)')
+  DML=$(sudo journalctl -u rugsnipe-hot -o cat --since "@$E0" 2>/dev/null | grep -E '^dumper [1-9A-HJ-NP-Za-km-z]{8} (skipped|logged)')
 fi
-DUMPS=$(awk '{ h = ($(NF-1) == "host") ? $NF : "-"; gsub(/\x27/, "", h); printf "%s(\x27%s\x27,\x27%s\x27,\x27%s\x27)", (n++ ? "," : ""), $2, $3, h }' <<<"$DML")
+DUMPS=$(awk 'NF >= 3 { h = ($(NF-1) == "host") ? $NF : "-"; gsub(/\x27/, "", h); printf "%s(\x27%s\x27,\x27%s\x27,\x27%s\x27)", (n++ ? "," : ""), $2, $3, h }' <<<"$DML")
 [ -n "$DUMPS" ] || DUMPS="('','','')"
 
 SQL="
@@ -87,7 +95,7 @@ create temp view pos as select *, ex - cost - txc net from pos0;
 create temp view races as
   select f.sig, f.fail_reason, coalesce(f.fail_cost, f.fee, 0) fail_cost, s.sent_unix_ms t_ms
   from fills f join sends s on s.sig = f.sig;
-with scopes(scope, ms) as (values ('process', $T0 * 1000)${TR:+, ('new rule', $TR * 1000)}, ('today', $D0 * 1000))
+with scopes(scope, ms) as (values ('process', $T0 * 1000)${TR:+, ('$RN', $TR * 1000)}, ('today', $D0 * 1000))
 select sc.scope,
   (select count(*) from races r where r.t_ms >= sc.ms) races,
   (select coalesce(sum(r.fail_reason is null), 0) from races r where r.t_ms >= sc.ms) landed,
@@ -125,12 +133,12 @@ from sends s left join fills f on f.sig = s.sig
 where s.kind = 'buy' and s.sent_unix_ms >= $D0 * 1000
 group by s.sender order by won desc, sent desc;
 .print
-.print == today by tier (closed trades, after tips and fees)
+.print == by tier $SINCE (closed trades, after tips and fees)
 select tier, count(*) trades, sum(net > 0) wins, round(100.0 * avg(net * 1.0 / cost), 1) mean_pct,
        round(sum(net) / 1e9, 4) net_sol, round(avg(cost) / 1e9, 3) avg_stake
-from pos where state = 'closed' and cost > 0 and t_ms >= $D0 * 1000 group by tier order by tier;
+from pos where state = 'closed' and cost > 0 and t_ms >= $E0 * 1000 group by tier order by tier;
 .print
-.print == tweet check today (entry.tweet_gate): verdicts by kind, how fast they came, and our closed trades by verdict since the rule started
+.print == tweet check $SINCE (entry.tweet_gate): verdicts by kind, how fast they came, and our closed trades by verdict since the rule started
 with k as (select kind, ms, slot_off, row_number() over (partition by kind order by ms) rn,
                   count(*) over (partition by kind) n from tweets where m8 <> '')
 select kind verdict, max(n) creates, sum(slot_off = 0) in_create_slot, sum(slot_off = 1) next_slot, sum(slot_off >= 2) later,
@@ -140,7 +148,7 @@ select coalesce((select t.kind from tweets t where t.m8 = substr(p.mint, 1, 8) l
        count(*) trades, sum(net > 0) wins, round(100.0 * avg(net * 1.0 / cost), 1) mean_pct, round(sum(net) / 1e9, 4) net_sol
 from pos p where state = 'closed' and cost > 0 and t_ms >= ${TR:-$D0} * 1000 group by verdict order by trades desc;
 .print
-.print == tweet feed today (entry.tweet_feed): its calls against the tweet check's verdict on the same coin, and our closed trades by call
+.print == tweet feed $SINCE (entry.tweet_feed): its calls against the tweet check's verdict on the same coin, and our closed trades by call
 select f.call, count(*) creates, coalesce(sum(t.kind = 'first'), 0) first, coalesce(sum(t.kind = 'copy'), 0) copy,
        coalesce(sum(t.kind = 'stale'), 0) stale, coalesce(sum(t.kind = 'no_tweet'), 0) no_tweet,
        coalesce(sum(t.kind = 'error'), 0) error, sum(t.kind is null) no_verdict
@@ -149,7 +157,7 @@ select coalesce((select f.call from feeds f where f.m8 = substr(p.mint, 1, 8) li
        count(*) trades, sum(net > 0) wins, round(100.0 * avg(net * 1.0 / cost), 1) mean_pct, round(sum(net) / 1e9, 4) net_sol
 from pos p where state = 'closed' and cost > 0 and t_ms >= ${TR:-$D0} * 1000 group by call order by trades desc;
 .print
-.print == dumper list today (entry.dumper_skip): hits by uri host, and our closed trades since the rule started by the hit's host (big = -30% or worse)
+.print == dumper list $SINCE (entry.dumper_skip): hits by uri host, and our closed trades since the rule started by the hit's host (big = -30% or worse)
 select host, count(*) hits, sum(act = 'skipped') skipped, sum(act = 'logged') fired_anyway
 from dumps where m8 <> '' group by host order by hits desc;
 select coalesce((select d.host from dumps d where d.m8 = substr(p.mint, 1, 8) limit 1), 'no hit') dumper_host,
@@ -162,7 +170,7 @@ select strftime('%H:%M:%S', t_ms / 1000, 'unixepoch') time, substr(mint, 1, 8) m
        case when state = 'closed' then round(100.0 * net / max(cost, 1), 1) end pct,
        case when state = 'closed' then round(net / 1e9, 4) end net_sol, round(txc / 1e9, 4) tips_fees, state,
        coalesce(reason, '-') exit, case when closed_slot is not null then closed_slot - opened_slot end held_slots
-from pos order by t_ms desc limit 10;
+from pos where t_ms >= ${ERA:-0} * 1000 order by t_ms desc limit 10;
 .print
 .print == open now
 select count(*) open_now, coalesce(group_concat(substr(p.mint, 1, 8) || ' tier '
