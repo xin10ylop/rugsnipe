@@ -385,6 +385,10 @@ pub struct CreateHit {
     pub creator_arg: Pubkey,
     /// `is_holder_reward` coin: the curve's recorded creator is not the dev.
     pub holder_reward: bool,
+    /// The create's `creator_fee_bps` (0 when absent): the coin's own
+    /// creator rate, charged instead of the schedule's while the program's
+    /// `creator_fee_configurable` is on.
+    pub creator_fee_bps: u64,
     /// Transaction signers (logs path: the create's user only).
     pub signers: KeyList<MAX_SIGNERS>,
     /// Quote mint; wrapped SOL for SOL-paired coins. `None` if it sits in an
@@ -846,6 +850,7 @@ pub fn create_hit(
         fee_payer: Some(*tx.fee_payer()),
         creator_arg: cr.args.creator,
         holder_reward: cr.args.is_holder_reward.unwrap_or(false),
+        creator_fee_bps: cr.args.creator_fee_bps.unwrap_or(0),
         signers,
         quote,
         token_prog,
@@ -941,6 +946,7 @@ pub fn from_logs<S: AsRef<str>>(
                         fee_payer: None,
                         creator_arg: ev.creator,
                         holder_reward: ev.is_holder_reward.unwrap_or(false),
+                        creator_fee_bps: ev.creator_fee_bps.unwrap_or(0),
                         signers,
                         quote,
                         token_prog,

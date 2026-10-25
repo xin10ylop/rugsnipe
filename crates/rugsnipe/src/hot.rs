@@ -103,6 +103,20 @@ pub const FREE_CLASS: u8 = 1;
 /// What `entry.stake_fits_balance` leaves in the wallet beyond the reserve
 /// and the bid: the sell's fees and the token account's rent (lamports).
 pub const STAKE_FIT_MARGIN: u64 = 5_000_000;
+
+/// A create's `creator_fee_bps` for the follow verdict line: the number,
+/// or nothing when 0 (no allocation on the hot path).
+struct CreatorBps(u64);
+
+impl std::fmt::Display for CreatorBps {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.0 > 0 {
+            write!(f, "{}", self.0)
+        } else {
+            Ok(())
+        }
+    }
+}
 /// Lifetime of paper sells (final sells use a blockhash; paper never sends).
 const PAPER_BLOCKHASH: [u8; 32] = [0x11; 32];
 /// Lifetime of a real sell handed to the sender thread with none: the
@@ -2561,7 +2575,8 @@ impl HotLoop {
     /// The follow verdict at the fire (`entry.follow`): is one of the park's
     /// bundle wallets followed, and hot, with the coin's fee routing?
     /// Journaled as `follow <mint8> yes|no rule|<skip label> host <h> dev
-    /// <SOL> fees dev|third hot|cold -> fire|skip|log` and counted.
+    /// <SOL> fees dev|third hot|cold mode plain|holder[+bps<n>] ->
+    /// fire|skip|log` and counted.
     /// `Ok(hot)`: 0 with `off`, 1 cold, 2 hot (for the size step);
     /// `Err(code)`: the decision to record instead of the fire (the rule's
     /// own skip, or `skip_not_followed`).
@@ -2602,7 +2617,7 @@ impl HotLoop {
         };
         let k8 = key8(&p.hit.mint);
         journal(format_args!(
-            "follow {} {} {} host {} dev {:.3} fees {} {} -> {}",
+            "follow {} {} {} host {} dev {:.3} fees {} {} mode {}{}{} -> {}",
             std::str::from_utf8(&k8).unwrap_or("?"),
             if yes { "yes" } else { "no" },
             if skip == 0 {
@@ -2614,6 +2629,19 @@ impl HotLoop {
             dev as f64 / 1e9,
             fees.as_str(),
             if hot { "hot" } else { "cold" },
+            // the coin's mode (docs/16 section 11): holder reward, and a
+            // creator_fee_bps of its own
+            if p.hit.holder_reward {
+                "holder"
+            } else {
+                "plain"
+            },
+            if p.hit.creator_fee_bps > 0 {
+                "+bps"
+            } else {
+                ""
+            },
+            CreatorBps(p.hit.creator_fee_bps),
             match (&out, skip) {
                 (Ok(()), _) => "fire",
                 (Err(_), 0) => "skip",

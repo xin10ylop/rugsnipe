@@ -324,3 +324,28 @@ fourth tenths. Ruled out on chain this round: downtime (his gaps of 5+ minutes h
 cells he follows), buys through another program (all 23,929 of his buy transactions in the month are top-level pump buys),
 holding a position (7 of 741 launches), his own recent P&L, and the execution (`exec_hot.py`: his tip is 1.0M lamports
 median hot or cold; on hot coins he lands at + 1 more often, 51% against 36%, and sells sooner, median 6 slots against 9).
+
+## 11. The coin's mode: holder reward and the coin's own creator fee (2026-10-25 evening)
+
+The create's arguments end with the coin's mode: `is_mayhem_mode`, `is_cashback_enabled`, `creator_fee_bps` (8 bytes,
+when the client sends it) and `is_holder_reward` (`modes.py`, last night's 1,577 decoded creates):
+
+| mode | launches | his take | in the cells he follows (30%+ before the coin) |
+|---|---|---|---|
+| plain | 653 | 48-57% | 63% of 366 |
+| holder reward | 622 | 14% | 52% of 89 |
+| holder reward with a `creator_fee_bps` (1-300) | 259 | **2%** | **1 of 40** |
+| plain with a `creator_fee_bps` of 100 or more | 24 | **0%** | - |
+
+- **The "third wallet" fee routing (section 8) is the holder-reward mode**: the curve's creator is a pump-controlled
+  address, fresh for each coin; 601 of the 609 holder-reward creates have it. The (wallet, fee routing) key is the copied
+  wallet following an operator's plain launches and its holder-reward launches as two operators.
+- **`creator_fee_bps` is new**: 49 of 21,747 creates on Oct 23-24, about 300 last night. The program charges it instead of
+  the schedule's creator rate only while `Global.creator_fee_configurable` is on; every mode paid 1.25% a trade last night,
+  so it is off today. He avoids those coins anyway, also in the operators he follows. Their value at + 3 for a buyer behind
+  the bundle is not measured well yet (+5.7%, 6 coins).
+- Out of sample on Oct 23-24 (`evmode.py`) the mode adds nothing to the key (79% either way; the creator-fee coins were too
+  few to matter).
+- **Built: logging only.** `CreateHit.creator_fee_bps`; the follow verdict line ends `mode plain|holder[+bps<n>]`, and
+  `rugsnipe-check` splits verdicts and our closed trades by it. A skip of the creator-fee coins waits for our own trades on
+  them.

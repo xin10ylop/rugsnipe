@@ -380,6 +380,7 @@ mod tests {
             fee_payer: Some(fee_payer),
             creator_arg: creator,
             holder_reward: false,
+            creator_fee_bps: 0,
             signers: Default::default(),
             quote: None,
             token_prog: Pubkey::default(),

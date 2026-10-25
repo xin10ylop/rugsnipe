@@ -26,3 +26,5 @@ growth); `seed.py` now writes the values and today's launches (`data/follow_seed
 `deploy/bin/rugsnipe-follow-merge`).
 `model.py` (one model of his take from everything decoded: AUC out of sample), `exec_hot.py` (his tip, entry slot and
 hold, hot against cold).
+Section 11: `modes.py` (the coin mode flags of last night's creates against his take), `modes2324.py` (the same flags for
+the Oct 23-24 coins), `evmode.py` (the mode in the follow key, out of sample).

@@ -63,6 +63,7 @@ pub fn hit_from_lite(l: &CreateHitLite) -> CreateHit {
         fee_payer: None,
         creator_arg: l.creator,
         holder_reward: false,
+        creator_fee_bps: 0,
         signers,
         quote,
         token_prog,
