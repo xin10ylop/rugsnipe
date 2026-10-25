@@ -1282,6 +1282,22 @@ fn journal(args: core::fmt::Arguments<'_>) {
     let _ = std::io::stderr().write_all(&b.buf[..b.len + 1]);
 }
 
+/// The journal line of the copied wallet's launch buy (`entry.copy`): his
+/// size, tip and slot after the create, and what the copy did (`buy`,
+/// `log`, or why it was not copied: `skip_small`, `skip_unlisted`,
+/// `skip_few`).
+fn copy_line(t: &TradeLite, create_slot: u64, act: &str) {
+    let k8 = key8(&t.mint);
+    journal(format_args!(
+        "copy {} his {:.3} tip {:.1}M at create+{} -> {}",
+        std::str::from_utf8(&k8).unwrap_or("?"),
+        t.sol_amount as f64 / 1e9,
+        t.tip as f64 / 1e6,
+        t.slot.saturating_sub(create_slot),
+        act
+    ));
+}
+
 /// The journal line of a pick-template skip at the fire point (rare: a
 /// parked create that reached its fire), allocation-free.
 fn template_line(what: &str, hit: &CreateHit, got: u64, cap: u64) {
@@ -2532,19 +2548,21 @@ impl HotLoop {
         // landed launch buy of his counts, whatever its size or tip
         let recent = self.signer_buys_then_note(&create_signer(&r.hit), t.slot);
         self.counters.copy_his[0] += 1;
-        if t.sol_amount < self.cfg.copy_min || t.tip < self.cfg.copy_min_tip {
-            self.counters.copy_his[1] += 1;
-            return;
-        }
-        // his known operators only (entry.copy_listed_only): the table's
-        // hold is the copy's exit
-        if self.cfg.copy_listed_only && self.cfg.operator_rule(&r.hit).is_none() {
-            self.counters.copy_his[2] += 1;
-            return;
-        }
-        // a signer he is trading now
-        if recent < self.cfg.copy_signer_min_buys {
-            self.counters.copy_his[3] += 1;
+        let skip = if t.sol_amount < self.cfg.copy_min || t.tip < self.cfg.copy_min_tip {
+            Some((1, "skip_small"))
+        } else if self.cfg.copy_listed_only && self.cfg.operator_rule(&r.hit).is_none() {
+            // his known operators only (entry.copy_listed_only): the
+            // table's hold is the copy's exit
+            Some((2, "skip_unlisted"))
+        } else if recent < self.cfg.copy_signer_min_buys {
+            // a signer he is trading now
+            Some((3, "skip_few"))
+        } else {
+            None
+        };
+        if let Some((i, why)) = skip {
+            self.counters.copy_his[i] += 1;
+            copy_line(t, r.slot, why);
             return;
         }
         self.counters.copy[0] += 1;
@@ -2566,15 +2584,7 @@ impl HotLoop {
             self.park_ended(&p, code::NOT_FIRST);
         }
         let buy = self.cfg.copy == CopyMode::On;
-        let k8 = key8(&t.mint);
-        journal(format_args!(
-            "copy {} his {:.3} tip {:.1}M at create+{} -> {}",
-            std::str::from_utf8(&k8).unwrap_or("?"),
-            t.sol_amount as f64 / 1e9,
-            t.tip as f64 / 1e6,
-            t.slot - r.slot,
-            if buy { "buy" } else { "log" }
-        ));
+        copy_line(t, r.slot, if buy { "buy" } else { "log" });
         // journaled once per mint, bought or not
         self.bought[self.bought_at % BOUGHT] = intent;
         self.bought_at = self.bought_at.wrapping_add(1);

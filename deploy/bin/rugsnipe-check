@@ -1,7 +1,9 @@
 #!/bin/bash
 # rugsnipe-check: one screen with everything needed to judge the live bot (box helper; copy to ~/check.sh).
-#   bash ~/check.sh          the current bot: trading or not, the wallet, his buys and why each was or was not copied,
-#                            results since the era, copies vs the rule's own buys, the last trades
+#   bash ~/check.sh start    record now as the start: every number of the short view counts from it (~/.rugsnipe-era)
+#   bash ~/check.sh          the current bot since the start: trading or not, the wallet, his buys and why each was or
+#                            was not copied, results, copies vs the rule's own buys, the last trades
+#   bash ~/check.sh him      him against us since the start, coin by coin (his trades from the chain: rugsnipe-vs-him)
 #   bash ~/check.sh full     everything (bid A/B, routes, tiers, and the rule's tweet, feed, dumper and follow tables)
 # Reads only: the hot unit's journal (status line, operator/tier lines), /etc/rugsnipe/rugsnipe.toml and
 # /var/lib/rugsnipe/state.db (read-only). Needs sudo for the journal and the config.
@@ -10,7 +12,15 @@
 # CHECK_RULE_T0 (the tweet rule's start, unix s; empty = none), CHECK_AB_T0 (the bid A/B's start, unix s),
 # CHECK_ERA_T0 (the era's start, unix s, instead of ~/.rugsnipe-era),
 # CHECK_DB (another state.db), CHECK_PRINT_SQL=1 (print the SQL and stop).
-SHORT=1; case "${1:-}" in full|long|all) SHORT=0 ;; esac
+SHORT=1; HIM=0
+case "${1:-}" in
+  full|long|all) SHORT=0 ;;
+  him) HIM=1 ;;
+  start)
+    date -u +%s > "$HOME/.rugsnipe-era"
+    echo "start recorded: $(date -u -d "@$(cat "$HOME/.rugsnipe-era")" '+%b %d %H:%M:%S') UTC. bash ~/check.sh counts from it; bash ~/check.sh him compares with him from it."
+    exit 0 ;;
+esac
 DB=${CHECK_DB:-/var/lib/rugsnipe/state.db}
 CFG=/etc/rugsnipe/rugsnipe.toml
 now=$(date -u +%s)
@@ -21,7 +31,7 @@ if [ -n "${CHECK_ERA_T0+x}" ]; then ERA=$CHECK_ERA_T0; else
   ERA=$(grep -m1 -oE '^[0-9]{9,11}' "$HOME/.rugsnipe-era" 2>/dev/null)
 fi
 E0=${ERA:-$D0}
-if [ -n "$ERA" ]; then SINCE="since the era started ($(date -u -d "@$ERA" '+%b %d %H:%M') UTC)"; RN=era; else SINCE=today; RN='new rule'; fi
+if [ -n "$ERA" ]; then SINCE="since the start ($(date -u -d "@$ERA" '+%b %d %H:%M') UTC)"; RN=era; else SINCE=today; RN='new rule'; fi
 if [ -n "${CHECK_STATUS:-}" ]; then
   ST=$CHECK_STATUS; T0=${CHECK_T0:-$D0}; PID=0
 else
@@ -88,6 +98,8 @@ fi
 COPIES=$(awk 'NF >= 7 { tip = -1; at = $6; if ($5 == "tip") { tip = $6; gsub(/M/, "", tip); at = $8 } gsub(/[^0-9]/, "", at); printf "%s(\x27%s\x27,%s,%s,%s,\x27%s\x27)", (n++ ? "," : ""), $2, $4, tip, (at == "" ? 0 : at), $NF }' <<<"$CPL")
 [ -n "$COPIES" ] || COPIES="('',0,0,0,'')"
 
+if [ "$SHORT" = 1 ]; then SCOPES="('since start', $E0 * 1000)"
+else SCOPES="('process', $T0 * 1000)${TR:+, ('$RN', $TR * 1000)}, ('today', $D0 * 1000)"; fi
 SQL="
 create temp table tiers(m8 text, tier int);
 insert into tiers values $TIERS;
@@ -117,7 +129,7 @@ create temp view pos as select *, ex - cost - txc net from pos0;
 create temp view races as
   select f.sig, f.fail_reason, coalesce(f.fail_cost, f.fee, 0) fail_cost, s.sent_unix_ms t_ms
   from fills f join sends s on s.sig = f.sig;
-with scopes(scope, ms) as (values ('process', $T0 * 1000)${TR:+, ('$RN', $TR * 1000)}, ('today', $D0 * 1000))
+with scopes(scope, ms) as (values $SCOPES)
 select sc.scope,
   (select count(*) from races r where r.t_ms >= sc.ms) races,
   (select coalesce(sum(r.fail_reason is null), 0) from races r where r.t_ms >= sc.ms) landed,
@@ -201,8 +213,9 @@ from pos p where state = 'closed' and cost > 0 and t_ms >= ${ERA:-$D0} * 1000 gr
 .print
 "
 SQL_TAIL="
-.print == copy $SINCE (entry.copy, docs/17 section 9): his buys copied (buy) or journaled (log), and our closed trades,
-.print    the copies apart from the rule's own fires
+.print == copy $SINCE (entry.copy, docs/17 section 9): his launch buys the bot saw, by what it did (buy = copied; skip_small:
+.print    his tip under the floor; skip_unlisted: operator not in the table; skip_few: operator he bought < 2 times in 24 h),
+.print    and our closed trades, the copies apart from the rule's own fires
 select act, count(*) copies, sum(at = 0) at_create, sum(at = 1) next_slot, round(avg(his_sol), 2) his_avg_sol,
        round(avg(case when tip_m >= 0 then tip_m end), 1) his_avg_tip_m
 from copies where m8 <> '' group by act;
@@ -223,12 +236,28 @@ select count(*) open_now, coalesce(group_concat(substr(p.mint, 1, 8) || ' tier '
          || coalesce((select max(t.tier) from tiers t where t.m8 = substr(p.mint, 1, 8)), 0), ', '), '-') positions
 from positions p where p.state <> 'closed';
 .print
+"
+SQL_RISK="
 .print == risk ledger today
 select day, round(realized / 1e9, 4) realized_sol, buys, killed, coalesce(kill_reason, '-') kill_reason
 from risk where day = date('now');
 "
-if [ "$SHORT" = 1 ]; then SQL="$SQL$SQL_TAIL"; else SQL="$SQL$SQL_LONG$SQL_TAIL"; fi
+SQL_STOP="
+.print == the daily stop counts the UTC day (since 00:00 UTC), not the start: today's realized against the stop
+select round(coalesce((select realized from risk where day = date('now')), 0) / 1e9, 4) today_realized_sol,
+       round($(tr -d '_' <<<"$(cfgv max_daily_loss_lamports)" | grep -oE '^[0-9]+' || echo 0) / 1e9, 4) daily_stop_sol;
+"
+if [ "$SHORT" = 1 ]; then SQL="$SQL$SQL_TAIL$SQL_STOP"; else SQL="$SQL$SQL_LONG$SQL_TAIL$SQL_RISK"; fi
 if [ "${CHECK_PRINT_SQL:-}" = 1 ]; then printf '%s\n' "$SQL"; exit 0; fi
+
+if [ "$HIM" = 1 ]; then
+  [ -n "$ERA" ] || { echo "no start recorded: bash ~/check.sh start"; exit 1; }
+  VS=/opt/rugsnipe/src/deploy/bin/rugsnipe-vs-him
+  [ -f "$VS" ] || VS="$(dirname "$(readlink -f "$0")")/rugsnipe-vs-him"
+  echo "(reading his trades since the start from the chain: about a call per 100 of his transactions)"
+  printf '%s\n' "$CPL" | sudo python3 -I "$VS" --since "$ERA" --state "$DB"
+  exit $?
+fi
 
 # ---- header: health, wallet, config, feeds, gates
 svc() { systemctl is-active "$1" 2>/dev/null || true; }
@@ -249,7 +278,12 @@ if [ "$SHORT" = 1 ]; then
   elif [ -n "$paused" ]; then state="NO: $paused"
   else state="yes"; fi
   echo "== $(date -u +%H:%M:%S) UTC  TRADING: $state"
-  echo "   wallet $( [ -n "$wallet" ] && sol "$wallet" || echo '?') SOL  open positions $(q "$open")  daily stop $(sol "$(tr -d '_' <<<"$(cfgv max_daily_loss_lamports)")") SOL"
+  if [ -n "$ERA" ]; then
+    m=$(( (now - ERA) / 60 ))
+    echo "   started $(date -u -d "@$ERA" '+%b %d %H:%M:%S') UTC ($((m / 60))h$(printf '%02d' $((m % 60)))m ago; bash ~/check.sh start resets it)"
+  else echo "   no start recorded: bash ~/check.sh start"; fi
+  w_start=$(num "$(sudo journalctl -u rugsnipe-hot -o cat --since "@$E0" 2>/dev/null | grep -E '^\[ *[0-9]+s\]' | grep -m1 -oE 'wallet [0-9]+')")
+  echo "   wallet $( [ -n "$wallet" ] && sol "$wallet" || echo '?') SOL (at the start $( [ -n "$w_start" ] && sol "$w_start" || echo '?'), change $(awk -v a="${w_start:-}" -v b="${wallet:-}" 'BEGIN { if (a == "" || b == "") print "?"; else printf "%+.4f", (b - a) / 1e9 }') SOL)  open positions $(q "$open")  daily stop $(sol "$(tr -d '_' <<<"$(cfgv max_daily_loss_lamports)")") SOL"
   cp_=$(g 'copy (log|on)( his [0-9]+ small [0-9]+ unlisted [0-9]+ few [0-9]+)? seen [0-9]+ buy [0-9]+ log [0-9]+ passed [0-9]+')
   cv() { grep -oE "(^| )$1 [0-9]+" <<<"$cp_" | grep -oE '[0-9]+$'; }
   rb=$(cfgv rule_buys)
@@ -260,7 +294,7 @@ if [ "$SHORT" = 1 ]; then
     echo "   copy $(awk '{ print $2 }' <<<"$cp_") (this process): his launch buys $(cv his)  not copied: tip under $(q "$(list_m "$(cfgv copy_min_tip_lamports)")")M $(cv small), operator not listed $(cv unlisted), operator he bought < $(q "$(cfgv copy_signer_min_buys)") times in $(q "$(cfgv copy_signer_window_h)") h $(cv few)  ->  copied $(cv buy) (journaled only $(cv log), coin already ours $(cv passed))"
   else echo "   copy (this process): $cp_"; fi
   echo "   sends (this process): $(q "$(g 'probe attempts [0-9]+ landed [0-9]+ failed [0-9]+ dropped [0-9]+' | sed 's/probe //')")"
-  echo "== results: this process (since $(date -u -d "@$T0" +%H:%M) UTC), $RN (since $(date -u -d "@${TR:-$D0}" '+%b %d %H:%M') UTC) and today"
+  echo "== results since the start (after tips and fees; failed = our buys that landed failed)"
   printf '%s\n' "$SQL" | sudo -u rugsnipe sqlite3 -readonly -header -column "$DB"
   exit 0
 fi

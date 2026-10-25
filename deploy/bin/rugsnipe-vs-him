@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+# rugsnipe-vs-him: us against the copied wallet since the start (the era, ~/.rugsnipe-era), coin by coin. Run by
+# `bash ~/check.sh him` (sudo: the api-keys credential and state.db):
+#   journalctl -u rugsnipe-hot -o cat --since @START | grep '^copy ' |
+#     sudo python3 -I /opt/rugsnipe/src/deploy/bin/rugsnipe-vs-him --since START [--state DB] [--api-keys FILE]
+# His side, from the chain: every landed trade of his wallet since the start (the Helius Enhanced API, as
+# operators_refresh.py reads it), summed per coin as his wallet's SOL change (fees and tips in), and his failed
+# transactions apart (their fees). A coin he bought before the start is left out; one he still holds is open.
+# Our side, from state.db: each position's net after tips and fees (as rugsnipe-check counts it) and our failed buys.
+# stdin: the hot unit's `copy <mint8> his <SOL> tip <M> at create+<k> -> <act>` lines since the start, what the bot did
+# with each launch buy of his it saw (buy, log, skip_small, skip_unlisted, skip_few).
+import argparse, collections, os, sqlite3, sys, time
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "..", "analysis", "scripts", "strategy"))
+import operators_refresh as orf  # noqa: E402
+
+WHY = {
+    "buy": "copied",
+    "log": "journaled (copy = log)",
+    "skip_small": "not copied: his tip under the floor (or his size)",
+    "skip_unlisted": "not copied: operator not in the table",
+    "skip_few": "not copied: operator he bought < 2 times in 24 h",
+}
+NOT_SEEN = "not seen at create+0/1 (a later buy, or a coin outside the class filter)"
+
+
+def his_trades(api, w, since):
+    """His landed single-coin trades since `since` (oldest first), his failed transactions and their fees."""
+    rows, fails, fail_fee, before = [], 0, 0, None
+    for _ in range(500):
+        j = api.enhanced(w, before)
+        if isinstance(j, dict) and "continue" in j:
+            before = j["continue"]
+            continue
+        if not j:
+            break
+        for t in j:
+            if t["timestamp"] < since:
+                continue
+            if t.get("transactionError"):
+                fails += 1
+                fail_fee += int(t.get("fee") or 0)
+                continue
+            p = orf.parse_wallet_tx(t, w)
+            if p:
+                rows.append(p)
+        before = j[-1]["signature"]
+        if j[-1]["timestamp"] < since:
+            break
+    rows.sort(key=lambda r: (r["slot"], r["sig"]))
+    return rows, fails, fail_fee
+
+
+def per_coin(rows):
+    coins = {}
+    for r in rows:
+        c = coins.setdefault(r["mint"], {"t": r["ts"], "first_buy": r["tok"] > 0, "buy": 0, "net": 0, "bought": 0.0,
+                                         "held": 0.0})
+        c["net"] += r["delta"]
+        c["held"] += r["tok"]
+        if r["tok"] > 0:
+            c["buy"] -= r["delta"]
+            c["bought"] += r["tok"]
+    for c in coins.values():
+        c["closed"] = c["held"] <= 1e-3 * max(c["bought"], 1e-9)
+    return {m: c for m, c in coins.items() if c["first_buy"]}
+
+
+OURS = """
+select p.mint, p.cost, p.state, min(s.sent_unix_ms) t_ms,
+       coalesce((select sum(e.sol_delta) from exits e where e.mint = p.mint), 0)
+       - p.cost
+       - coalesce((select sum(coalesce(f.fee, 0) + coalesce(f.tip, 0)) from fills f
+                   where f.intent_id = p.intent_id and f.fail_reason is null), 0)
+       - coalesce((select sum(coalesce(x.prio, 0) + coalesce(x.tip, 0) + 5000) from exits e join sends x on x.sig = e.sig
+                   where e.mint = p.mint), 0) net
+from positions p join sends s on s.intent_id = p.intent_id
+group by p.mint having t_ms >= ?
+"""
+FAILED = """
+select f.mint, count(*), sum(coalesce(f.fail_cost, f.fee, 0)) from fills f join sends s on s.sig = f.sig
+where f.fail_reason is not null and s.sent_unix_ms >= ? group by f.mint
+"""
+
+
+def ours(db, since):
+    c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    pos = {m: {"cost": cost, "state": st, "t": t / 1000, "net": net} for m, cost, st, t, net in c.execute(OURS, (since * 1000,))}
+    failed = {m: (n, cost) for m, n, cost in c.execute(FAILED, (since * 1000,))}
+    return pos, failed
+
+
+def copies(lines):
+    """mint8 -> (his SOL, his tip M, create + k, act) of his first launch buy, a `buy` line winning."""
+    out = {}
+    for l in lines:
+        f = l.split()
+        if len(f) < 8 or f[0] != "copy" or f[2] != "his":
+            continue
+        m8, act = f[1], f[-1]
+        tip = f[5].rstrip("M") if f[4] == "tip" else "?"
+        at = (f[7] if f[4] == "tip" else f[5]).replace("create+", "")
+        if m8 not in out or (act == "buy" and out[m8][3] != "buy"):
+            out[m8] = (f[3], tip, at, act)
+    return out
+
+
+def sol(l):
+    return f"{l / 1e9:+.4f}"
+
+
+def table(head, rows):
+    w = [max(len(str(x)) for x in col) for col in zip(head, *rows)] if rows else [len(h) for h in head]
+    print("  ".join(str(h).ljust(w[i]) for i, h in enumerate(head)))
+    print("  ".join("-" * w[i] for i in range(len(head))))
+    for r in rows:
+        print("  ".join(str(x).ljust(w[i]) for i, x in enumerate(r)))
+
+
+def main(argv):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--since", type=int, required=True, help="the start (unix s)")
+    ap.add_argument("--state", default="/var/lib/rugsnipe/state.db")
+    ap.add_argument("--api-keys", default="/etc/rugsnipe/keys/api-keys.toml")
+    ap.add_argument("--wallet", default=orf.DEFAULT_WALLET)
+    ap.add_argument("--rps", type=float, default=5.0)
+    a = ap.parse_args(argv)
+    api = orf.Api(orf.read_rpc_url(a.api_keys), a.rps)
+    rows, fails, fail_fee = his_trades(api, a.wallet, a.since)
+    his = per_coin(rows)
+    pos, failed = ours(a.state, a.since)
+    cp = copies(sys.stdin.read().splitlines() if not sys.stdin.isatty() else [])
+    mins = (time.time() - a.since) / 60
+    print(f"== him vs us since the start ({time.strftime('%b %d %H:%M', time.gmtime(a.since))} UTC, "
+          f"{int(mins // 60)}h{int(mins % 60):02d}m ago): his trades from the chain, ours from state.db")
+    hc = [c for c in his.values() if c["closed"]]
+    oc = [p for p in pos.values() if p["state"] == "closed"]
+    ofail = sum(n for n, _ in failed.values())
+    ofail_cost = sum(c or 0 for _, c in failed.values())
+    table(["who", "coins", "closed", "wins", "net_closed_sol", "failed_tx", "failed_sol", "total_sol"], [
+        ["him", len(his), len(hc), sum(c["net"] > 0 for c in hc), sol(sum(c["net"] for c in hc)), fails,
+         sol(-fail_fee), sol(sum(c["net"] for c in hc) - fail_fee)],
+        ["us", len(pos), len(oc), sum(p["net"] > 0 for p in oc), sol(sum(p["net"] for p in oc)), ofail,
+         sol(-ofail_cost), sol(sum(p["net"] for p in oc) - ofail_cost)],
+    ])
+    print()
+    print("== his coins since the start, newest first, and ours on each (net after fees and tips; open = still held)")
+    by8 = {m[:8]: m for m in pos}
+    out = []
+    for m, c in sorted(his.items(), key=lambda kv: -kv[1]["t"]):
+        j = cp.get(m[:8])
+        p = pos.get(by8.get(m[:8], ""))
+        nf = failed.get(m)
+        ours_s = "-" if not p else (sol(p["net"]) if p["state"] == "closed" else "open")
+        if nf and not p:
+            ours_s = f"failed {nf[0]}x {sol(-(nf[1] or 0))}"
+        out.append([time.strftime("%H:%M:%S", time.gmtime(c["t"])), m[:8], f"{c['buy'] / 1e9:.3f}",
+                    f"{j[1]}M" if j else "?", f"create+{j[2]}" if j else "-",
+                    sol(c["net"]) if c["closed"] else "open", ours_s, WHY.get(j[3], j[3]) if j else NOT_SEEN])
+    table(["time", "mint", "his_sol", "his_tip", "his_buy", "his_net", "our_net", "the bot on his buy"], out)
+    extra = [m for m in pos if m[:8] not in {k[:8] for k in his}]
+    if extra:
+        print()
+        print("== our coins he did not trade since the start")
+        table(["time", "mint", "our_net"], [[time.strftime("%H:%M:%S", time.gmtime(pos[m]["t"])), m[:8],
+                                               sol(pos[m]["net"]) if pos[m]["state"] == "closed" else "open"]
+                                              for m in sorted(extra, key=lambda m: -pos[m]["t"])])
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

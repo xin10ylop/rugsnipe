@@ -398,7 +398,9 @@ minute and at shutdown (`copy_signers.json` beside `state.db`), and the next sta
 - **Gates.** Past the rule's own: template caps, dumper, pre-send, follow, leader and tweet. The stake and bid are tier
   0. The risk caps apply.
 - **Exit.** One slot before his table hold, whatever `operator_holds` says. The tweet check's exit cut leaves copies alone.
-- **Journal and status line.** Each copy journals `copy <mint> his <SOL> at create+<k> -> buy|log`. The status line adds
+- **Journal and status line.** Each launch buy of his the bot sees journals `copy <mint> his <SOL> tip <M> at create+<k>
+  -> <act>`: `buy`, `log`, or why it was not copied (`skip_small`, `skip_unlisted`, `skip_few`). `bash ~/check.sh him`
+  (`deploy/bin/rugsnipe-vs-him`) sets his coins since the start, from the chain, beside ours and that line. The status line adds
   `copy <mode> his small unlisted few seen buy log passed`: his landed launch buys, the ones not copied for their size
   or tip, an unlisted signer or too few of his buys on the signer, then the candidates copied, journaled or passed over.
 - **Copy only.** `entry.rule_buys = false`: every create is kept for a copy and the rule decides nothing
