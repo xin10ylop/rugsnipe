@@ -424,6 +424,32 @@ nothing on a failed buy (the tip transfer reverts with it; a bundle that fails d
 it. The copy lines now carry his landing slot and block index, and `bash ~/check.sh` lists each copy's distance behind
 him at its bid. A tip A/B on the copies (`bid.ab_by_tier` tier 0) can measure it live.
 
+### Every rule tested (Oct 25, late)
+
+Each rule of the live copy moved or switched off on the 5-day backtest (`ablate.py`, `ablate2.py`; 0.5 SOL, our
+landing distances), the others kept:
+
+| rule | as live | moved / off | verdict |
+|---|---|---|---|
+| tip floor (with size >= 2 SOL) | 4M: +5.64 SOL, 232 copies | **2M: +8.02, 298 copies, better on every day**; 3M +7.85; 1M +6.72 with -0.56 days; 0 +6.36 | **lower to 2M** |
+| size key | >= 2 SOL | 1.5: +5.11; 3: +4.20; off: +4.22 | keep |
+| operator rule | >= 2 in 24 h | >= 1: +5.35; >= 3: +5.73 (3/5 days); 6 h: +3.90; 48 h: +5.50; off: +4.04 | keep |
+| table (`copy_listed_only`) | listed | the 11 unlisted copies: -0.15; with 2M, 23: -0.01 | keep (no effect either way) |
+| price limit | 5% | 3%: +3.36; 7.5%: +6.18; 10%: +5.77; none: +5.86 (2M key: 7.5% +8.37 against +8.02) | keep (7.5% within noise) |
+| exit | H - 1 | H: +2.98; H - 2: +3.95; flat +5: +4.43; +9: +3.91 | keep |
+| launch buys only | create + 0/1 | his first buy is at create + 0/1 on all 1,684 coins | no effect |
+| stake | 0.5 SOL | 0.25: +2.50; 0.75: +8.83; 1.0: +12.05 (worst day -0.12) | sizing, not a loss |
+| caps (2M key) | 2 open, 300 a day, 1 SOL stop | at most 2 copies open at once (a cap of 1 would block 4); 60 a day; worst running loss in a day -0.17 SOL | never bind |
+| class filter | SOL quote, Token-2022, no mayhem or cashback | 871 of his 899 launch buys pass it (Oct 23-25) | no effect |
+
+The tip floor is the one rule that costs money. His month (`monthtip.py`; his own result, size < 2 SOL, creators he
+bought >= 2 times in 24 h) shows why: tips of 1.5-2M are his weak bucket (+0.003 SOL a buy, 487 buys), 2-3M and 3-4M
+his strong ones (+0.053 and +0.098, positive on 9 of 11 and 11 of 14 days), as strong as 4M+ (+0.053). On the tapes
+the 2-4M copies made +2.37 SOL on 66, positive on all 5 days; those at 1.5-2M lost -0.40 on 145. His landed tips come
+in steps (1.0, 1.5, 1.8, 2.4, 3.6, 4.8M ...), so a floor at 2M sits between 1.8M and 2.4M.
+
+`copy_min_tip_lamports = 2_000_000`: +8.02 SOL over the 5 days (+1.53 +0.98 +5.24 +0.29 -0.02), about 60 copies a day.
+
 ### Built: `entry.copy`
 
 - **Trigger.** His landed buy of at least `copy_min_sol` with a tip of at least `copy_min_tip_lamports`, at create + 0

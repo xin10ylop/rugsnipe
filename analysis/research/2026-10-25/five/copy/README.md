@@ -45,6 +45,9 @@ The copy (a bot that buys when his buy shows):
 - `monthkey.py`: his own result per day over his month on each key (his round trips, `SP/month`).
 - `tipworth.py`: the live copy with our buy landing exactly D positions after his: what a closer landing is worth, and
   the break-even extra tip.
+- `ablate.py`, `ablate2.py`: every rule of the live copy moved or switched off, by day; the caps and the daily stop
+  on the copies' timeline.
+- `monthtip.py`: his month by tip bucket (his own result per buy).
 - `copiers/find.py` (from `SP/dec/copiers`): the wallets landing after him on his coins, and how many other coins they buy.
 
 The replay of the copy trigger itself: `crates/rugsnipe/tests/replay_days.rs` with `entry.copy = "on"` in the replay
