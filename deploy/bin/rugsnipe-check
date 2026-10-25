@@ -5,7 +5,7 @@
 # /var/lib/rugsnipe/state.db (read-only). Needs sudo for the journal and the config.
 # Test hooks: CHECK_STATUS (a status line instead of the journal's), CHECK_TIERS (operator lines), CHECK_TWEETS (tweet lines),
 # CHECK_FEED (tweetfeed lines), CHECK_DUMPERS (dumper lines),
-# CHECK_RULE_T0 (the tweet rule's start, unix s; empty = none),
+# CHECK_RULE_T0 (the tweet rule's start, unix s; empty = none), CHECK_AB_T0 (the bid A/B's start, unix s),
 # CHECK_DB (another state.db), CHECK_PRINT_SQL=1 (print the SQL and stop).
 DB=${CHECK_DB:-/var/lib/rugsnipe/state.db}
 CFG=/etc/rugsnipe/rugsnipe.toml
@@ -36,6 +36,12 @@ TIERS=$(awk 'NF >= 2 { t = $NF; gsub(/[^0-9]/, "", t); if (t != "") printf "%s(\
 if [ -n "${CHECK_RULE_T0+x}" ]; then TR=$CHECK_RULE_T0; else
   TR=$(sudo journalctl -u rugsnipe-hot -o short-unix --since "@$D0" 2>/dev/null | grep -m1 -E 'tweet check: (log|on|exit)' | awk '{ printf "%d", $1 }')
 fi
+# ---- the bid A/B's start (bid.ab_by_tier): the first "bid ab:" start line of today (the split before 2026-10-25 sent
+# every pump.fun mint to the second arm, so earlier races are left out); else the rule's start
+if [ -n "${CHECK_AB_T0+x}" ]; then AB=$CHECK_AB_T0; else
+  AB=$(sudo journalctl -u rugsnipe-hot -o short-unix --since "@$D0" 2>/dev/null | grep -m1 -E 'bid ab: ' | awk '{ printf "%d", $1 }')
+fi
+AB=${AB:-${TR:-$D0}}
 # ---- the tweet check's verdict lines (entry.tweet_gate, docs/13) of today: mint8 -> verdict, delay, slot offset
 if [ -n "${CHECK_TWEETS+x}" ]; then TWL=$CHECK_TWEETS; else
   TWL=$(sudo journalctl -u rugsnipe-hot -o cat --since "@$D0" 2>/dev/null | grep -E '^tweet [1-9A-HJ-NP-Za-km-z]{8} [a-z_]+ rank ')
@@ -96,16 +102,16 @@ select sc.scope,
                 - coalesce((select sum(r.fail_cost) from races r where r.fail_reason is not null and r.t_ms >= sc.ms), 0)) / 1e9, 4)) net_sol
 from scopes sc;
 .print
-.print == buy bid since the rule started (bid.ab_by_tier set: the odd half of the mints bids the second arm)
+.print == buy bid since the A/B started (bid.ab_by_tier: the mints whose first byte is odd bid the second arm, the rest bid.by_tier)
 select round(b.bid / 1e6, 2) bid_m, b.attempts, coalesce(l.landed, 0) landed,
        round(100.0 * coalesce(l.landed, 0) / max(b.attempts, 1), 0) land_pct, coalesce(l.closed, 0) closed,
        coalesce(l.mean_pct, '-') mean_pct, coalesce(l.net_sol, 0.0) net_sol
 from (select s.bid, count(distinct s.intent_id) attempts from sends s
-      where s.kind = 'buy' and s.sent_unix_ms >= ${TR:-$D0} * 1000 group by s.bid) b
+      where s.kind = 'buy' and s.sent_unix_ms >= $AB * 1000 group by s.bid) b
 left join (select bid, count(*) landed, sum(state = 'closed') closed,
                   round(100.0 * avg(case when state = 'closed' and cost > 0 then net * 1.0 / cost end), 1) mean_pct,
                   round(sum(case when state = 'closed' then net else 0 end) / 1e9, 4) net_sol
-           from pos where t_ms >= ${TR:-$D0} * 1000 group by bid) l on l.bid = b.bid
+           from pos where t_ms >= $AB * 1000 group by bid) l on l.bid = b.bid
 order by b.bid;
 .print
 .print == buy routes today (won = our buy landed through it, lost = it landed and failed; a bundle never lands failed)

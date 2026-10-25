@@ -1034,6 +1034,12 @@ pub fn build(o: AppOpts) -> Result<App, String> {
     } else {
         None
     };
+    if !cfg.bid.ab_by_tier.is_empty() {
+        eprintln!(
+            "bid ab: {:?} lamports by tier on the mints whose first byte is odd, bid.by_tier on the rest",
+            cfg.bid.ab_by_tier
+        );
+    }
     // the tweet feed's copy check (entry.tweet_feed, docs/14 section 7): one
     // lane per key found, all into one index of posts; no key found leaves
     // the feed off and the bot trading as without it

@@ -544,7 +544,7 @@ fn the_bid_ab_sends_the_odd_mints_on_the_second_arm() {
         base.bids
     );
     let ab = run(vec![1_500_000, 3_000_000, 3_000_000]);
-    let odd = ab.mint.as_ref()[31] & 1 == 1;
+    let odd = ab.mint.as_ref()[0] & 1 == 1;
     let want = if odd { 1_500_000 } else { 3_000_000 };
     assert!(
         ab.fired && ab.bids.iter().all(|&b| b == want),

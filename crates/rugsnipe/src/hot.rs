@@ -2521,10 +2521,12 @@ impl HotLoop {
                 }
             })
             .min(self.cfg.max_bid);
-        // the bid A/B (bid.ab_by_tier): the odd half of the mints bids the
-        // second arm (sends.bid records which one each race carried)
+        // the bid A/B (bid.ab_by_tier): the mints whose first byte is odd bid
+        // the second arm (sends.bid records which one each race carried); not
+        // the last byte, whose low 4 bits the "pump" suffix fixes on every
+        // pump.fun mint
         if let Some(t) = self.cfg.bid_ab_by_tier {
-            if t[tier] > 0 && hit.mint.as_ref()[31] & 1 == 1 {
+            if t[tier] > 0 && hit.mint.as_ref()[0] & 1 == 1 {
                 bid = t[tier].min(self.cfg.max_bid);
             }
         }

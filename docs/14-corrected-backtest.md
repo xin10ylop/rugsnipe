@@ -89,8 +89,9 @@ schemes, not a forecast.
 - **Buys: measured, not copied blind.** In the 22 races we won on Oct 24 17:29-18:04, 95 buys failed right behind
   ours: 6 bid over 3M (we won on position), 34 bid 1.5-3M (in 6 of the 22 races), 55 bid 1.5M or less. The copied
   wallet was behind us on 10 of them: part of why we beat him is that we bid 3M where he bids 1.5M. At 1.5M up to a
-  quarter of our wins were at risk, for 0.3% saved. `bid.ab_by_tier` (commit c03c4cc) puts the odd half of the mints
-  on a second ladder; `rugsnipe-check` shows land rate and P&L per bid. Proposed second ladder: 1.5M on tier 0 (his
+  quarter of our wins were at risk, for 0.3% saved. `bid.ab_by_tier` (commit c03c4cc) puts half the mints (first byte
+  odd; until 2026-10-25 it read the last byte, which is odd on every pump.fun mint, so every race bid the second
+  ladder) on a second ladder; `rugsnipe-check` shows land rate and P&L per bid from the first `bid ab:` start line. Proposed second ladder: 1.5M on tier 0 (his
   bid), 6M and 12M on tiers 1 and 2 (his 6-24M, where the coins are worth +5.9% and +10.9%).
 
 ## 6. How he uses Twitter
