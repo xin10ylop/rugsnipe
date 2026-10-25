@@ -2186,7 +2186,7 @@ impl HotLoop {
             at,
             what,
             FailNote(v.fail, v.http),
-            TriesNote(v.tries)
+            TriesNote::of(&v)
         ));
     }
 

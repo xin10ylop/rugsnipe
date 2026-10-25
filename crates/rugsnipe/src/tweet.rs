@@ -120,6 +120,11 @@ pub struct TweetVerdict {
     pub http: u16,
     /// Fetches made (a failed one is tried again within `retry_ms`).
     pub tries: u8,
+    /// A retried fetch: what the first try got and when it ended (ms after
+    /// the start), for the journal ([`TriesNote`]).
+    pub first_fail: FetchFail,
+    pub first_http: u16,
+    pub first_ms: u32,
 }
 
 /// Why a fetch gave no verdict (journaled with the error).
@@ -152,6 +157,18 @@ impl FetchFail {
         (fail, http)
     }
 
+    /// What a failed try got, whatever the verdict became.
+    pub fn of_try(fetched: &Result<(u16, String), String>) -> (Self, u16) {
+        match fetched {
+            Ok((s, _)) if (200..300).contains(s) => (Self::None, *s),
+            Ok((s, _)) => (Self::Status, *s),
+            Err(e) if e.to_ascii_lowercase().contains("timeout") || e.contains("timed out") => {
+                (Self::Timeout, 0)
+            }
+            Err(_) => (Self::Network, 0),
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::None => "",
@@ -177,15 +194,26 @@ impl std::fmt::Display for FailNote {
     }
 }
 
-/// ` tries N` on the journal line when a fetch was retried.
-pub struct TriesNote(pub u8);
+/// ` tries N (first http 404 at 341ms)` on the journal line when a fetch was
+/// retried: the tries and what the first one got.
+pub struct TriesNote(pub u8, pub FetchFail, pub u16, pub u32);
+
+impl TriesNote {
+    pub fn of(v: &TweetVerdict) -> Self {
+        Self(v.tries, v.first_fail, v.first_http, v.first_ms)
+    }
+}
 
 impl std::fmt::Display for TriesNote {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.0 > 1 {
-            write!(f, " tries {}", self.0)
-        } else {
-            Ok(())
+        if self.0 <= 1 {
+            return Ok(());
+        }
+        write!(f, " tries {}", self.0)?;
+        match self.1 {
+            FetchFail::None => Ok(()),
+            FetchFail::Status => write!(f, " (first http {} at {}ms)", self.2, self.3),
+            k => write!(f, " (first {} at {}ms)", k.as_str(), self.3),
         }
     }
 }
@@ -199,8 +227,10 @@ fn retryable(fetched: &Result<(u16, String), String>) -> bool {
     }
 }
 
-/// Pause between two tries of a failed fetch.
-const RETRY_GAP: Duration = Duration::from_millis(250);
+/// Pause between two tries of a failed fetch (2026-10-25: 250 -> 60 ms;
+/// on the night's worst copies the second try decided the verdict, and the
+/// cut sell landed the slot after it).
+const RETRY_GAP: Duration = Duration::from_millis(60);
 
 /// The tweet id of a status link (`.../status/<digits>`), if any.
 pub fn status_id(link: &str) -> Option<u64> {
@@ -419,6 +449,8 @@ pub fn spawn(
                     let t = Instant::now();
                     let mut fetched = fetch(req.uri());
                     let mut tries = 1u8;
+                    let (first_fail, first_http) = FetchFail::of_try(&fetched);
+                    let first_ms = t.elapsed().as_millis().min(u32::MAX as u128) as u32;
                     while retryable(&fetched) && t.elapsed() < Duration::from_millis(retry_ms) {
                         std::thread::sleep(RETRY_GAP);
                         fetched = fetch(req.uri());
@@ -442,6 +474,9 @@ pub fn spawn(
                         fail,
                         http,
                         tries,
+                        first_fail,
+                        first_http,
+                        first_ms,
                     };
                     // a full answer ring drops the verdict: the park then
                     // times out as tweet_late (the ring holds 1024)
@@ -777,7 +812,13 @@ mod tests {
             req(Pubkey::new_unique(), 7, 3, tweet_ms(SID) + 2_000),
         );
         assert_eq!((v.kind, v.tries, v.rank), (TweetKind::First, 2, 1));
-        assert_eq!(TriesNote(v.tries).to_string(), " tries 2");
+        assert!(
+            TriesNote::of(&v)
+                .to_string()
+                .starts_with(" tries 2 (first http 404 at "),
+            "{}",
+            TriesNote::of(&v)
+        );
         // one that keeps failing gives up once the window has passed
         let dead: FetchFn = Arc::new(|_: &str| Err("timeout: global".into()));
         let (v, took) = one_verdict(dead, 600, req(Pubkey::new_unique(), 7, 3, 0));
@@ -790,9 +831,6 @@ mod tests {
         // retry off: one try
         let dead: FetchFn = Arc::new(|_: &str| Err("timeout: global".into()));
         let (v, _) = one_verdict(dead, 0, req(Pubkey::new_unique(), 7, 3, 0));
-        assert_eq!(
-            (v.tries, TriesNote(v.tries).to_string()),
-            (1, String::new())
-        );
+        assert_eq!((v.tries, TriesNote::of(&v).to_string()), (1, String::new()));
     }
 }
