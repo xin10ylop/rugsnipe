@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+# rugsnipe-why: why the hot box did or did not buy given coins (box helper). For each mint (or its first 6+ characters)
+# it prints what the box recorded: the create as the feed saw it (rslog CreateHit), every decision with its code
+# (rslog Decision: fire, or the skip and why), the sends, a failed buy (rslog FailedBuy), and the hot unit's journal
+# lines that name the coin (follow verdict, operator, tweet check, template, fills, sells).
+#   sudo python3 deploy/bin/rugsnipe-why --since 14:50 --until 15:40 4TyavBEs 6zSx7Nzj 887Qviyb
+#   sudo python3 deploy/bin/rugsnipe-why --since 00:00 --summary @data/his_coins_2026-10-25.txt
+# --since / --until: UTC today as HH:MM, or unix seconds (default: the last 2 hours). --dir: the rslog directory
+# (default /var/lib/rugsnipe/rslog). --no-journal: rslog only. --summary: one line per coin (seen, the decisions in
+# order, the follow verdict, the tweet verdict, sent / filled), then the count of coins per final decision.
+# @FILE: read mints (one per line) from FILE. Reads only.
+import glob, os, struct, subprocess, sys, time, datetime
+
+MAGIC = 0x52534C47
+HEADER = 30
+# rugsnipe::stats::DECISIONS (code -> label)
+LABELS = {0: 'fire', 17: 'paper', 18: 'paper_regime_frozen', 19: 'paper_op_not_armed', 20: 'paper_armset_gate',
+          31: 'paper_would_skip', 33: 'skip_killed', 34: 'skip_spend_cap', 35: 'skip_bid_cap', 36: 'skip_entry_too_high',
+          37: 'skip_balance_low', 38: 'skip_daily_loss', 39: 'skip_op_latched', 40: 'skip_max_open_positions',
+          41: 'skip_max_buys_per_hour', 42: 'skip_max_buys_per_op_per_day', 43: 'skip_max_probes_per_day',
+          44: 'skip_bad_op_slot', 65: 'skip_class', 66: 'no_match', 67: 'shadow', 68: 'stale', 69: 'too_high',
+          70: 'no_nonce', 71: 'skip_ab', 72: 'already_fired', 73: 'bad_op', 74: 'no_position_slot', 75: 'bad_keys',
+          76: 'free_feed_defers', 77: 'late_slot', 78: 'skip_no_bundle', 79: 'skip_not_first', 80: 'skip_dev_buy',
+          81: 'skip_far_leader', 82: 'skip_dumper', 83: 'skip_presend', 84: 'skip_not_operator', 85: 'skip_bundle_shape',
+          86: 'skip_no_blockhash', 87: 'skip_bundle_too_big', 88: 'skip_bundle_sol', 89: 'skip_uri_host',
+          90: 'skip_low_tier', 91: 'skip_tweet_copy', 92: 'skip_tweet_stale', 93: 'skip_tweet_none',
+          94: 'skip_tweet_error', 95: 'skip_tweet_late', 96: 'skip_tweetfeed_copy', 97: 'skip_not_followed'}
+B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+
+def b58(b):
+    n = int.from_bytes(b, 'big'); s = ''
+    while n: n, r = divmod(n, 58); s = B58[r] + s
+    return '1' * (len(b) - len(b.lstrip(b'\0'))) + s
+
+def when(a, default):
+    if a is None: return default
+    if ':' in a:
+        d = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
+        return int(datetime.datetime.strptime(f'{d} {a}', '%Y-%m-%d %H:%M').replace(tzinfo=datetime.timezone.utc).timestamp())
+    return int(a)
+
+def hm(ns): return datetime.datetime.fromtimestamp(ns / 1e9, datetime.timezone.utc).strftime('%H:%M:%S.%f')[:-3]
+
+def frames(path):
+    b = open(path, 'rb').read(); o = 0
+    while o + HEADER <= len(b):
+        magic, kind, ver, ln, mono, wall, box = struct.unpack_from('<IHHIQQH', b, o)
+        if magic != MAGIC: o += 1; continue
+        yield kind, wall, b[o + HEADER:o + HEADER + ln]
+        o += HEADER + ln
+
+def main(a):
+    opts = {}; keys = []; i = 0
+    while i < len(a):
+        if a[i] in ('--since', '--until', '--dir'): opts[a[i]] = a[i + 1]; i += 2
+        elif a[i] in ('--no-journal', '--summary'): opts[a[i]] = True; i += 1
+        elif a[i].startswith('@'): keys += [l.split()[0] for l in open(a[i][1:]) if l.strip() and not l.startswith('#')]; i += 1
+        else: keys.append(a[i]); i += 1
+    keys = list(dict.fromkeys(keys))
+    if not keys or any(len(k) < 6 for k in keys):
+        sys.exit('usage: rugsnipe-why [--since HH:MM|unix] [--until HH:MM|unix] [--dir DIR] [--no-journal] [--summary] '
+                 'MINT_OR_PREFIX(6+ chars)... | @FILE')
+    now = int(time.time())
+    lo = when(opts.get('--since'), now - 7200); hi = when(opts.get('--until'), now)
+    d = opts.get('--dir', '/var/lib/rugsnipe/rslog')
+    files = [p for p in glob.glob(os.path.join(d, 'rslog-*-*.bin'))
+             if lo // 3600 <= int(p.rsplit('-', 1)[1].split('.')[0]) <= hi // 3600]
+    if not files:
+        print(f'note: no rslog file for the window in {d} (rslog_dir in [obs]?): journal lines only', file=sys.stderr)
+    dec = {k: [] for k in keys}
+    seen = {k: [] for k in keys}; full = {}; intents = {}
+    def match(mint):
+        return [k for k in keys if mint.startswith(k)]
+    rows = []
+    for p in sorted(files):
+        for kind, wall, pl in frames(p):
+            if not lo * 10**9 <= wall <= hi * 10**9: continue
+            if kind == 2 and len(pl) >= 105:
+                mint = b58(pl[73:105]); ks = match(mint)
+                if not ks: continue
+                slot = struct.unpack_from('<Q', pl, 1)[0]
+                user, fee_payer, creator = b58(pl[105:137]), b58(pl[137:169]), b58(pl[169:201])
+                sol_in, tok_out, buys, nsig, flags = struct.unpack_from('<QQBBH', pl, 233)
+                dev_fees = creator == user or creator == fee_payer
+                for k in ks:
+                    full[k] = mint
+                    seen[k].append((wall, f'seen (create) slot {slot} src {pl[0]} dev buy {sol_in / 1e9:.3f} SOL in the create, '
+                                          f'fees {"dev" if dev_fees else "third"}{" holder" if flags & 64 else ""}{" mayhem" if flags & 1 else ""}'))
+            elif kind == 4 and len(pl) >= 67:
+                intent = struct.unpack_from('<Q', pl, 0)[0]; mint = b58(pl[8:40]); ks = match(mint)
+                if not ks: continue
+                mode, code, would = pl[40], pl[41], pl[42]
+                size, v_max, min_tok = struct.unpack_from('<QQQ', pl, 43)
+                for k in ks:
+                    full[k] = mint; intents[intent] = k
+                    extra = f' (would skip: {LABELS.get(would, hex(would))})' if would else ''
+                    sz = f' size {size / 1e9:.3f} SOL, entry cap {v_max / 1e9:.1f} vSOL' if code == 0 else ''
+                    seen[k].append((wall, f'decision {LABELS.get(code, hex(code))}{extra}{sz}'))
+                    dec[k].append(LABELS.get(code, hex(code)))
+            elif kind == 5 and len(pl) >= 18:
+                intent = struct.unpack_from('<Q', pl, 0)[0]
+                if intent in intents:
+                    seen[intents[intent]].append((wall, f'sent variant {pl[8]} sender {pl[9]}'))
+            elif kind == 14 and len(pl) >= 61:
+                mint = b58(pl[8:40]); ks = match(mint)
+                if not ks: continue
+                reason = pl[40]; cost, slot, prem = struct.unpack_from('<QQI', pl, 41)
+                for k in ks:
+                    seen[k].append((wall, f'failed buy reason {reason} cost {cost / 1e9:.6f} SOL slot {slot} premium {prem / 100:.1f}%'))
+    jl = {k: [] for k in keys}
+    if not opts.get('--no-journal'):
+        if os.environ.get('WHY_JOURNAL'):  # test hook: journal text from a file
+            out = open(os.environ['WHY_JOURNAL']).read()
+        else:
+            out = subprocess.run(['journalctl', '-u', 'rugsnipe-hot', '-o', 'short-iso', '--since', f'@{lo}', '--until', f'@{hi}'],
+                                 capture_output=True, text=True).stdout
+        for line in out.splitlines():
+            for k in keys:
+                if k[:8] in line: jl[k].append(line.split(': ', 1)[-1][:220])
+    if opts.get('--summary'):
+        final = {}
+        for k in keys:
+            fl = [t for t in jl[k] if t.startswith('follow ')]
+            tw = [t.split()[2] for t in jl[k] if t.startswith('tweet ') and len(t.split()) > 2]
+            f = ' '.join(fl[-1].split()[2:4]) + ' ' + fl[-1].split()[-1] if fl else '-'
+            got = any(t.startswith('fill ') for t in jl[k])
+            sent = sum(1 for _, t in seen[k] if t.startswith('sent'))
+            last = dec[k][-1] if dec[k] else ('unseen' if not seen[k] else 'no decision')
+            final[k] = last
+            print(f'{k[:8]}  {"seen" if seen[k] else "unseen":6}  decisions {">".join(dec[k]) or "-":34}  follow {f:24}  '
+                  f'tweet {",".join(tw) or "-":10}  sends {sent}{"  FILLED" if got else ""}')
+        print()
+        for lab, n in sorted(__import__('collections').Counter(final.values()).items(), key=lambda kv: -kv[1]):
+            print(f'   {n:4d}  {lab}')
+        return
+    for k in keys:
+        print(f'== {k} {full.get(k, "(no rslog record)")}')
+        if not seen[k]: print('   rslog: nothing (the feed never handed this create to the hot loop in the window)')
+        for w, t in sorted(seen[k]): print(f'   {hm(w)}  {t}')
+        for t in jl[k][:12]: print(f'   journal: {t}')
+        if len(jl[k]) > 12: print(f'   journal: ... {len(jl[k]) - 12} more')
+
+if __name__ == '__main__':
+    main(sys.argv[1:])
