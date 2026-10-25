@@ -147,12 +147,37 @@ fn run_sized(
     hot: bool,
     mults: (f64, f64),
 ) -> Outcome {
+    run_full(
+        follow,
+        on_template,
+        followed,
+        same_routing,
+        hot,
+        mults,
+        &|_| {},
+        2_000_000_000,
+    )
+}
+
+/// [`run_sized`], the config changed by `tweak` and the wallet at `balance`.
+#[allow(clippy::too_many_arguments)]
+fn run_full(
+    follow: Follow,
+    on_template: bool,
+    followed: bool,
+    same_routing: bool,
+    hot: bool,
+    mults: (f64, f64),
+    tweak: &dyn Fn(&mut Config),
+    balance: u64,
+) -> Outcome {
     let (tx, meta, hit) = the_create();
     assert!(hit.intx_sol_in > 0);
     let dir = tmpdir("follow");
     let mut cfg = live_cfg(&dir, follow, &template(&hit, on_template));
     cfg.entry.follow_hot_stake_mult = mults.0;
     cfg.entry.follow_cold_stake_mult = mults.1;
+    tweak(&mut cfg);
     let v = cfg.validate(&good_env(&cfg));
     assert!(v.ok(), "{:?}", v.refusals);
     let senders = Arc::new(SenderSet::build(&cfg, &good_env(&cfg), &ApiKeys::default()).unwrap());
@@ -176,7 +201,7 @@ fn run_sized(
     watch.load_armset(&set);
     let arm = Arc::new(ArcSwap::from_pointee(ArmState::from_armset(&set, true, "")));
     let risk = Arc::new(RiskGate::new(cfg.risk.clone()));
-    risk.set_hot_balance(2_000_000_000);
+    risk.set_hot_balance(balance);
     let (rslog, w) = RslogWriter::spawn(dir.join("rslog"), "t-hot", box_id("t"), 1 << 12).unwrap();
     let (cold_tx, _cold_rx) = rtrb::RingBuffer::new(4_096);
     let (_fills_tx, fills_rx) = rtrb::RingBuffer::new(64);
@@ -330,6 +355,66 @@ fn a_hot_coin_keeps_its_stake_and_a_cold_one_takes_the_cold_multiplier() {
     assert_eq!(hot.follow[6..], [1, 0], "hot");
     let h = *hot.sizes.last().unwrap();
     assert!(h >= stake && h <= stake * 3 / 2, "{h} vs {stake}");
+}
+
+#[test]
+fn a_stake_above_the_free_balance_fits_it_instead_of_being_refused() {
+    let base = run_sized(Follow::On, true, true, true, false, (1.0, 1.0));
+    let stake = *base.sizes.last().unwrap();
+    let reserve = 100_000_000u64;
+    let fits = |on: bool| {
+        move |c: &mut Config| {
+            c.risk.min_hot_balance_lamports = reserve;
+            c.entry.stake_fits_balance = on;
+            c.entry.stake_min_sol = 0.01;
+        }
+    };
+    // the wallet holds the reserve, half the stake and some change
+    let wallet = reserve + stake / 2 + 20_000_000;
+    let off = run_full(
+        Follow::On,
+        true,
+        true,
+        true,
+        false,
+        (1.0, 1.0),
+        &fits(false),
+        wallet,
+    );
+    assert!(!off.fired);
+    assert_eq!(off.decisions, vec![0x25], "{:?}", labels(&off));
+    let on = run_full(
+        Follow::On,
+        true,
+        true,
+        true,
+        false,
+        (1.0, 1.0),
+        &fits(true),
+        wallet,
+    );
+    assert!(on.fired, "{:?}", labels(&on));
+    let s = *on.sizes.last().unwrap();
+    assert!(
+        s < stake && s > stake / 2 && s + reserve < wallet,
+        "{s} of {stake}, wallet {wallet}"
+    );
+    // below stake_min_sol: refused as before
+    let tiny = run_full(
+        Follow::On,
+        true,
+        true,
+        true,
+        false,
+        (1.0, 1.0),
+        &|c: &mut Config| {
+            c.risk.min_hot_balance_lamports = reserve;
+            c.entry.stake_fits_balance = true;
+            c.entry.stake_min_sol = 10.0;
+        },
+        wallet,
+    );
+    assert_eq!(tiny.decisions, vec![0x25], "{:?}", labels(&tiny));
 }
 
 #[test]

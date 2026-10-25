@@ -100,6 +100,9 @@ pub const MAX_ATTEMPTS: usize = 4;
 pub const LIVE_CLASS: u8 = 0;
 /// FiredSet class of free feeds (paper only; never claim a live slot).
 pub const FREE_CLASS: u8 = 1;
+/// What `entry.stake_fits_balance` leaves in the wallet beyond the reserve
+/// and the bid: the sell's fees and the token account's rent (lamports).
+pub const STAKE_FIT_MARGIN: u64 = 5_000_000;
 /// Lifetime of paper sells (final sells use a blockhash; paper never sends).
 const PAPER_BLOCKHASH: [u8; 32] = [0x11; 32];
 /// Lifetime of a real sell handed to the sender thread with none: the
@@ -278,6 +281,9 @@ pub struct HotCfg {
     /// risk cap) and for the rest.
     pub follow_hot_mult: f64,
     pub follow_cold_mult: f64,
+    /// `entry.stake_fits_balance` and `entry.stake_min_sol` (lamports).
+    pub stake_fits_balance: bool,
+    pub stake_min: u64,
     /// The pre-send entry gate (`entry.presend_model`, loaded at startup;
     /// `None`: off), its mode and cut, and the per-signer operator features
     /// the cold thread publishes from the outcome store.
@@ -408,6 +414,8 @@ impl HotCfg {
             follow_min_dev: (cfg.entry.follow_min_dev_sol * 1e9).round() as u64,
             follow_hot_mult: cfg.entry.follow_hot_stake_mult,
             follow_cold_mult: cfg.entry.follow_cold_stake_mult,
+            stake_fits_balance: cfg.entry.stake_fits_balance,
+            stake_min: (cfg.entry.stake_min_sol * 1e9).round() as u64,
             require_bundle: cfg.entry.require_bundle,
             presend: None,
             presend_mode: cfg.entry.presend_mode,
@@ -1247,6 +1255,9 @@ pub struct LoopCounters {
     /// verdict, followed / not, and bought (`add`, `on`); the coins that
     /// went on to the size step hot / cold (docs/16 section 10).
     pub follow: [u64; 8],
+    /// Buys whose stake was cut to the free balance
+    /// (`entry.stake_fits_balance`).
+    pub stake_fitted: u64,
     /// The tweet check (`entry.tweet_gate`): creates handed to the lane,
     /// and not handed for a full ring; verdicts by kind (`TweetKind`
     /// order: first, copy, stale, no_tweet, error); verdicts that came in
@@ -2830,6 +2841,28 @@ impl HotLoop {
         }
         if op.ev_cap > 0 {
             bid = bid.min(op.ev_cap);
+        }
+        // 7a: the stake fits the wallet (entry.stake_fits_balance): above the
+        // free balance (the wallet less the reserve, the bid and the sell's
+        // fees and rent) the buy is made at the free balance instead of
+        // refused, down to entry.stake_min_sol
+        if self.cfg.stake_fits_balance {
+            let wallet = self.risk.hot_balance();
+            let free = wallet
+                .saturating_sub(self.risk.caps().min_hot_balance_lamports)
+                .saturating_sub(bid)
+                .saturating_sub(STAKE_FIT_MARGIN);
+            if op.size > free && free >= self.cfg.stake_min {
+                op.size = free;
+                self.counters.stake_fitted += 1;
+                let k8 = key8(&hit.mint);
+                journal(format_args!(
+                    "stake fitted {} {:.3} wallet {:.3}",
+                    std::str::from_utf8(&k8).unwrap_or("?"),
+                    free as f64 / 1e9,
+                    wallet as f64 / 1e9
+                ));
+            }
         }
         // Free feeds (logs path, collector relay) know no fee payer and no
         // token owners and are slot+1 at best: paper only, in every mode

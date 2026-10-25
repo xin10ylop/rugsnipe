@@ -1082,6 +1082,17 @@ pub struct EntryCfg {
     /// wallet's own ladder is 0.4 / 0.8 / 1.6 SOL with returns of +2.3% /
     /// +7.3% / +21.3% per trade by tier.
     pub stake_by_tier: Vec<u64>,
+    /// The stake fits the wallet (2026-10-25): a buy whose stake is more
+    /// than the free balance (the wallet less `risk.min_hot_balance_lamports`,
+    /// the bid and 0.005 SOL for the sell's fees and rent) is made at the
+    /// free balance instead of refused (`skip_balance_low`), so a losing
+    /// stretch shrinks the stake and the profits grow it back to the tier
+    /// stake. Below `stake_min_sol` the buy is still refused (the fixed
+    /// costs, about 0.004-0.008 SOL a trade, would eat the edge).
+    /// Journaled as `stake fitted <mint8> <SOL> wallet <SOL>`. Off by
+    /// default.
+    pub stake_fits_balance: bool,
+    pub stake_min_sol: f64,
     /// The tier floor (docs/09 "stake tier", 2026-10-24): fire only on
     /// signers whose table `stake_tier` is at least this (an unlisted signer
     /// is tier 0), else `skip_low_tier` (0x5a) before the park. 0 = off. The
@@ -1236,6 +1247,8 @@ impl Default for EntryCfg {
             operator_holds: true,
             bundle_wallets: vec![],
             stake_by_tier: vec![],
+            stake_fits_balance: false,
+            stake_min_sol: 0.15,
             min_stake_tier: 0,
             max_post_bundle_sol: 0.0,
             max_bundle_sol: 0.0,
@@ -1905,6 +1918,9 @@ impl Config {
             v.is_empty()
                 || (v.len() == 3 && v.iter().all(|&x| x > 0) && v.windows(2).all(|w| w[0] <= w[1]))
         };
+        if !(self.entry.stake_min_sol >= 0.01 && self.entry.stake_min_sol <= 100.0) {
+            inv(&mut r, "entry.stake_min_sol", "must be in [0.01, 100] SOL");
+        }
         if !tiers_ok(&self.entry.stake_by_tier) {
             inv(
                 &mut r,

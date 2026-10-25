@@ -1032,6 +1032,12 @@ fn run(args: &[String]) -> Result<(), String> {
             } else {
                 String::new()
             };
+            // entry.stake_fits_balance: buys cut to the free balance
+            let fit = if c.stake_fitted > 0 {
+                format!(" | stake fitted {}", c.stake_fitted)
+            } else {
+                String::new()
+            };
             // the follow verdicts (docs/16): rule coins followed / not / gated,
             // the rule's skips parked for the verdict followed / not / bought
             let follow = app
@@ -1099,7 +1105,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 _ => String::new(),
             };
             eprintln!(
-                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {}{gate}{presend}{template}{follow}{tweet}{feed} | {kill}{g} | {} | {}",
+                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {}{gate}{presend}{template}{follow}{fit}{tweet}{feed} | {kill}{g} | {} | {}",
                 t0.elapsed().as_secs(),
                 c.events,
                 c.creates,

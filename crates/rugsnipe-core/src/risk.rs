@@ -310,6 +310,9 @@ impl RiskGate {
     pub fn set_hot_balance(&self, lamports: u64) {
         self.hot_balance.store(lamports, Release);
     }
+    pub fn hot_balance(&self) -> u64 {
+        self.hot_balance.load(Acquire)
+    }
     pub fn open_positions(&self) -> u64 {
         self.open_positions.load(Acquire)
     }
