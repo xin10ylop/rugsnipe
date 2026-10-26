@@ -286,5 +286,6 @@ by being first, often with a 2-5 SOL buy that is itself the move.
   - what our copy did: our bid, where it landed and how far behind, the result, slots held, exit, fees, % and net.
 
 The wallets' own trades are read from the chain once and kept in `/var/cache/rugsnipe-trades/<wallet>.json`. Each later
-run reads only the newer signatures, and retries any transaction a node did not serve yet. `bash ~/check.sh start 15:00`
-sets the start to 15:00 today, Beirut time.
+run reads only the newer signatures, and retries any transaction a node did not serve yet. The start is Oct 26 15:00
+Beirut time (13:00 UTC) by default, so `bash ~/check.sh` alone is the whole check. `bash ~/check.sh start [HH:MM]` sets
+another start.

@@ -1,9 +1,8 @@
 #!/bin/bash
 # rugsnipe-check: one screen with everything needed to judge the live bot (box helper; copy to ~/check.sh).
 # Times are Beirut time (CHECK_TZ: another zone); the bot's own journal lines are UTC.
-#   bash ~/check.sh start    record now as the start: every number of the short view counts from it (~/.rugsnipe-era)
-#   bash ~/check.sh start 15:00   the start at 15:00 today (Beirut time)
-#   bash ~/check.sh          the current bot since the start: trading or not, the wallet, the results, then every
+#   bash ~/check.sh          the current bot since the start (by default Oct 26 15:00 Beirut time, 13:00 UTC): trading
+#                            or not, the wallet, the results, then every
 #                            launch buy of the copied wallets the bot saw, one row each: what the wallet did and made,
 #                            what the bot did, and what our copy made (rugsnipe-trades: the wallets' own trades come
 #                            from the chain once and are kept, so a run reads only the new ones)
@@ -11,13 +10,14 @@
 #   bash ~/check.sh him W    another copied wallet (entry.copy_more; W = its address or its first characters) against
 #                            our copies of it, coin by coin
 #   bash ~/check.sh full     everything (bid A/B, routes, tiers, and the rule's tweet, feed, dumper and follow tables)
+#   bash ~/check.sh start [HH:MM]   another start: now, or HH:MM today (Beirut time), kept in ~/.rugsnipe-start
 # Reads only: the hot unit's journal (status line, operator/tier lines), /etc/rugsnipe/rugsnipe.toml and
 # /var/lib/rugsnipe/state.db (read-only). Needs sudo for the journal and the config.
 # Test hooks: CHECK_STATUS (a status line instead of the journal's), CHECK_TIERS (operator lines), CHECK_TWEETS (tweet lines),
 # CHECK_FEED (tweetfeed lines), CHECK_DUMPERS (dumper lines), CHECK_FOLLOW (follow lines), CHECK_COPY (copy lines),
 # CHECK_COPYW (copyw lines), CHECK_LATCH (the kill latch's text instead of state.db's), CHECK_TT0 (the tip test's start),
 # CHECK_RULE_T0 (the tweet rule's start, unix s; empty = none), CHECK_AB_T0 (the bid A/B's start, unix s),
-# CHECK_ERA_T0 (the era's start, unix s, instead of ~/.rugsnipe-era),
+# CHECK_ERA_T0 (the start, unix s, instead of ~/.rugsnipe-start or the default),
 # CHECK_JOURNAL (the copy/copyw lines with their unix time, as journalctl -o short-unix prints them),
 # CHECK_TRADES (rugsnipe-trades' options instead of the box's), CHECK_DB (another state.db),
 # CHECK_PRINT_SQL=1 (print the SQL and stop).
@@ -32,7 +32,7 @@ case "${1:-}" in
       t=$(lt -d "today $2" +%s 2>/dev/null) || { echo "not a time: $2 (e.g. bash ~/check.sh start 15:00, $LZ time)"; exit 1; }
       [ "$t" -le "$(date -u +%s)" ] || { echo "$2 $LZ time is still ahead today: give a time that has passed"; exit 1; }
     else t=$(date -u +%s); fi
-    echo "$t" > "$HOME/.rugsnipe-era"
+    echo "$t" > "$HOME/.rugsnipe-start"
     echo "start recorded: $(lt -d "@$t" '+%b %d %H:%M:%S') $LZ time ($(date -u -d "@$t" '+%H:%M') UTC). bash ~/check.sh counts from it."
     exit 0 ;;
 esac
@@ -40,10 +40,12 @@ DB=${CHECK_DB:-/var/lib/rugsnipe/state.db}
 CFG=/etc/rugsnipe/rugsnipe.toml
 now=$(date -u +%s)
 D0=$(date -u -d "$(date -u +%Y-%m-%d) 00:00:00" +%s)
-# ---- the era (2026-10-25): a fixed start set once with `date -u +%s > ~/.rugsnipe-era`; every "since" section then
-# counts from it across days (journal lines included) instead of from today's first start
+# ---- the start: every "since" section counts from it across days (journal lines included). By default Oct 26 15:00
+# Beirut time (13:00 UTC, 1793019600: the six copied wallets and the tip test running); `start` keeps another in
+# ~/.rugsnipe-start (the older ~/.rugsnipe-era is no longer read)
 if [ -n "${CHECK_ERA_T0+x}" ]; then ERA=$CHECK_ERA_T0; else
-  ERA=$(grep -m1 -oE '^[0-9]{9,11}' "$HOME/.rugsnipe-era" 2>/dev/null)
+  ERA=$(grep -m1 -oE '^[0-9]{9,11}' "$HOME/.rugsnipe-start" 2>/dev/null)
+  ERA=${ERA:-1793019600}
 fi
 E0=${ERA:-$D0}
 if [ -n "$ERA" ]; then SINCE="since the start ($(lt -d "@$ERA" '+%b %d %H:%M') $LZ)"; RN=era; else SINCE=today; RN='new rule'; fi
@@ -392,7 +394,7 @@ if [ "$SHORT" = 1 ]; then
   fi
   if [ -n "$ERA" ]; then
     m=$(( (now - ERA) / 60 ))
-    echo "   started $(lt -d "@$ERA" '+%b %d %H:%M:%S') $LZ ($((m / 60))h$(printf '%02d' $((m % 60)))m ago; bash ~/check.sh start [HH:MM] resets it)"
+    echo "   started $(lt -d "@$ERA" '+%b %d %H:%M:%S') $LZ ($((m / 60))h$(printf '%02d' $((m % 60)))m ago)"
   else echo "   no start recorded: bash ~/check.sh start"; fi
   w_start=$(num "$(sudo journalctl -u rugsnipe-hot -o cat --since "@$E0" 2>/dev/null | grep -E '^\[ *[0-9]+s\]' | grep -m1 -oE 'wallet [0-9]+')")
   echo "   wallet $( [ -n "$wallet" ] && sol "$wallet" || echo '?') SOL (at the start $( [ -n "$w_start" ] && sol "$w_start" || echo '?'), change $(awk -v a="${w_start:-}" -v b="${wallet:-}" 'BEGIN { if (a == "" || b == "") print "?"; else printf "%+.4f", (b - a) / 1e9 }') SOL)  open positions $(q "$open")  daily stop $(sol "$(tr -d '_' <<<"$(cfgv max_daily_loss_lamports)")") SOL"
