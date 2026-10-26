@@ -20,8 +20,9 @@
 //!   real transactions there;
 //! * ArmSet reload on file change; feed health -> rslog + decode-miss kill;
 //! * kill triggers ([`crate::triggers`]): send-error ratio, unexplained
-//!   wallet drop, pump upgrade, disk, clock, gRPC drift and staleness, the
-//!   daily loss marked to market; every trigger is a `kv.kill_trigger:<name>`
+//!   wallet drop, pump upgrade, disk, clock, the daily loss marked to
+//!   market (gRPC drift and staleness pause buys instead, lifting on their
+//!   own once the feed is back); every trigger is a `kv.kill_trigger:<name>`
 //!   row; the latch itself is persisted (`kv.kill_latch`) so a restart stays
 //!   killed until a local `rugsnipe-ctl unkill`; Telegram alerts (optional);
 //! * the leader schedule lane ([`crate::leader`]) and the per-class stats;
@@ -59,7 +60,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering::*};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Paper fill lane settings.
 #[derive(Debug, Clone)]
@@ -471,6 +472,11 @@ pub struct ColdReport {
     pub kill_triggers: BTreeMap<String, TriggerRow>,
     /// Paper: triggers that would have latched in a real mode.
     pub would_kill: BTreeMap<String, String>,
+    /// Real modes: the post-execution feed's buy pause now (stale or
+    /// drifting; buys stop, exits continue, it lifts on its own), and how
+    /// many pauses this process had.
+    pub feed_paused: Option<String>,
+    pub feed_pauses: u64,
     /// The latch restored from `state.db` at start (`rugsnipe-ctl unkill` clears it).
     pub kill_restored: Option<String>,
     pub checks: ChecksReport,
@@ -818,6 +824,12 @@ struct Cold {
     lanes_stop: Arc<AtomicBool>,
     /// The trigger that latched first (the persisted latch's detail).
     first_trigger: Option<(String, String)>,
+    /// The post-execution feed's buy pause ([`Cold::feed_health`]): the
+    /// current problem of each check (0 stale, 1 drift), since when buys
+    /// are paused, and since when neither check has held.
+    feed_bad: [Option<String>; 2],
+    feed_paused_at: Option<Instant>,
+    feed_ok_at: Option<Instant>,
     pd_baseline: Option<trig::ProgramData>,
     hourly_at: u64,
     /// "No real buys while launches keep flowing": ticked every minute from
@@ -902,6 +914,9 @@ impl Cold {
             leader_rx: None,
             lanes_stop: Arc::new(AtomicBool::new(false)),
             first_trigger: None,
+            feed_bad: [None, None],
+            feed_paused_at: None,
+            feed_ok_at: None,
             pd_baseline: tc.programdata_baseline,
             hourly_at: now + 3_600,
             deadman,
@@ -1012,6 +1027,61 @@ impl Cold {
         }
         self.p.risk.kill(reason);
         self.kill_checks();
+    }
+
+    /// The post-execution feed's health (`i`: 0 stale, 1 drift) in a real
+    /// mode is a buy pause, not the kill latch: either problem pauses buys
+    /// (exits continue), and the pause lifts once neither has held for twice
+    /// the feed's `stale_ms`. A provider outage (credits run out, a long
+    /// reconnect) thus stops buying while it lasts, and buying resumes on
+    /// its own once the feed is back; one journal line and one alert when a
+    /// pause starts and when it ends. Paper records `would_kill` as before.
+    fn feed_health(&mut self, i: usize, name: &str, reason: KillReason, bad: Option<String>) {
+        if !self.p.cfg.triggers.enforce {
+            if let Some(d) = bad {
+                self.fire_trigger(name, reason, d);
+            }
+            return;
+        }
+        let now = Instant::now();
+        if let Some(d) = &bad {
+            self.feed_ok_at = None;
+            if self.feed_paused_at.is_none() {
+                self.feed_paused_at = Some(now);
+                self.p.shared.feed_paused.store(true, Relaxed);
+                {
+                    let mut r = lock(&self.p.report);
+                    r.feed_paused = Some(format!("{name}: {d}"));
+                    r.feed_pauses += 1;
+                }
+                eprintln!("buys paused ({name}): {d}");
+                self.alerts.send(format!(
+                    "BUYS PAUSED on {} ({name}): {d}. Exits continue; buys resume on their own once the feed is fresh again.",
+                    self.p.cfg.box_id
+                ));
+            }
+        }
+        self.feed_bad[i] = bad;
+        let Some(at) = self.feed_paused_at else {
+            return;
+        };
+        if self.feed_bad.iter().any(Option::is_some) {
+            return;
+        }
+        let ok = *self.feed_ok_at.get_or_insert(now);
+        if now.duration_since(ok) < Duration::from_millis(2 * self.p.cfg.triggers.feed_stale_ms) {
+            return;
+        }
+        self.feed_paused_at = None;
+        self.feed_ok_at = None;
+        self.p.shared.feed_paused.store(false, Relaxed);
+        lock(&self.p.report).feed_paused = None;
+        let held = now.duration_since(at).as_secs();
+        eprintln!("buys resumed: the post-execution feed is fresh again (paused {held} s)");
+        self.alerts.send(format!(
+            "BUYS RESUMED on {}: the post-execution feed is fresh again (paused {held} s).",
+            self.p.cfg.box_id
+        ));
     }
 
     /// The post-execution feed's watch (held mints) next to the logs path's.
@@ -2677,9 +2747,8 @@ impl Cold {
                     r.checks.drift_slots = (feed > 0).then(|| rpc.saturating_sub(feed));
                 }
                 if self.p.post_exec.is_some() {
-                    if let Some(d) = trig::drift_exceeded(feed, rpc, t.max_slot_drift) {
-                        self.fire_trigger(tn::DRIFT, KillReason::Drift, d);
-                    }
+                    let d = trig::drift_exceeded(feed, rpc, t.max_slot_drift);
+                    self.feed_health(1, tn::DRIFT, KillReason::Drift, d);
                 }
             }
             CheckEvent::ProgramData(h) => {
@@ -3031,7 +3100,7 @@ impl Cold {
     fn every_second(&mut self) {
         self.flush_outcomes(false);
         self.persist_risk_day();
-        // the post-execution feed: stale in a real mode latches the kill
+        // the post-execution feed: stale in a real mode pauses buys
         if let Some(f) = &self.p.post_exec {
             let s = f.health.snapshot();
             let stale = trig::feed_stale(
@@ -3041,9 +3110,7 @@ impl Cold {
             );
             let stats = (f.stats)();
             lock(&self.p.report).grpc = stats;
-            if let Some(d) = stale {
-                self.fire_trigger(tn::FEED_STALE, KillReason::FeedStale, d);
-            }
+            self.feed_health(0, tn::FEED_STALE, KillReason::FeedStale, stale);
         }
         // the daily loss marked to market: closed + failed + open at the curve
         if self.p.cfg.mode.is_real() {

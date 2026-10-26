@@ -246,10 +246,11 @@ fn chain_triggers_latch_persist_and_survive_a_restart() {
 /// The post-execution feed in a probe process: while it delivers, a free
 /// feed's copy of a create is recorded only (`free_feed_defers`) and the
 /// gRPC copy decides; when its slot trails `getSlot` by more than 8 slots
-/// (`drift`) and when it stops delivering for `stale_ms` (`feed_stale`), the
-/// kill latches and both trigger rows are written.
+/// (`drift`) or it stops delivering for `stale_ms` (`feed_stale`), buys
+/// pause (never the kill latch, no trigger rows), and the pause lifts on
+/// its own once the feed delivers and keeps up again for twice `stale_ms`.
 #[test]
-fn a_stale_or_drifting_post_exec_feed_latches_the_kill() {
+fn a_stale_or_drifting_post_exec_feed_pauses_buys_until_it_is_back() {
     use rugsnipe_feed::FeedHealth;
     let dir = tmpdir("kill-feed-stale");
     let (rpc_url, _log) = serve_rpc(move |method, params| {
@@ -322,7 +323,7 @@ fn a_stale_or_drifting_post_exec_feed_latches_the_kill() {
         Some(1),
         "{d:?}"
     );
-    // the feed falls behind, then stops
+    // the feed falls behind, then stops: buys pause, no kill
     health.last_slot.store(900, Relaxed);
     feeding.store(false, Release);
     let _ = pump.join();
@@ -330,36 +331,72 @@ fn a_stale_or_drifting_post_exec_feed_latches_the_kill() {
     loop {
         app.hot.step(&mut f, &mut buf);
         let r = app.report.lock().unwrap().clone();
-        if r.kill_triggers.contains_key("feed_stale") && r.kill_triggers.contains_key("drift") {
+        if r.feed_paused.is_some() && app.shared.feed_paused.load(Relaxed) {
             break;
         }
         assert!(
             t0.elapsed() < Duration::from_secs(20),
             "{:?} {:?}",
-            r.kill_triggers,
+            r.feed_paused,
             r.checks
         );
         std::thread::sleep(Duration::from_millis(5));
     }
-    assert!(app.risk.is_killed());
+    // both checks hold for a while: still paused, never killed
+    let t1 = Instant::now();
+    while t1.elapsed() < Duration::from_millis(1_500) {
+        app.hot.step(&mut f, &mut buf);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    {
+        let r = app.report.lock().unwrap().clone();
+        assert!(!app.risk.is_killed(), "{:?}", r.kill_triggers);
+        assert!(r.kill_triggers.is_empty(), "{:?}", r.kill_triggers);
+        assert!(app.shared.feed_paused.load(Relaxed));
+        assert_eq!(r.feed_pauses, 1, "one pause, not one per check");
+    }
+    // the feed is back and keeps up: the pause lifts on its own
+    health.last_slot.store(1_000, Relaxed);
+    feeding.store(true, Release);
+    let pump = {
+        let (h, f) = (health.clone(), feeding.clone());
+        std::thread::spawn(move || {
+            while f.load(Acquire) {
+                h.frame();
+                std::thread::sleep(Duration::from_millis(30));
+            }
+        })
+    };
+    let t2 = Instant::now();
+    loop {
+        app.hot.step(&mut f, &mut buf);
+        let r = app.report.lock().unwrap().clone();
+        if r.feed_paused.is_none() && !app.shared.feed_paused.load(Relaxed) {
+            break;
+        }
+        assert!(
+            t2.elapsed() < Duration::from_secs(20),
+            "{:?} {:?}",
+            r.feed_paused,
+            r.checks
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        t2.elapsed() >= Duration::from_millis(600),
+        "lifts only after twice stale_ms fresh"
+    );
+    feeding.store(false, Release);
+    let _ = pump.join();
+    assert!(!app.risk.is_killed());
     let s = app.shutdown(vec![]);
     assert!(
-        s.cold.kill_triggers["drift"]
-            .detail
-            .contains("trails getSlot 1000 by 100"),
+        s.cold.kill_triggers.is_empty(),
         "{:?}",
         s.cold.kill_triggers
     );
     let c = rugsnipe_state::store::open_conn(&dir.join("state.db")).unwrap();
-    assert!(rugsnipe_state::killkv::latched(&c).unwrap().is_some());
-    let names: Vec<String> = rugsnipe_state::killkv::triggers(&c)
-        .unwrap()
-        .into_iter()
-        .map(|(n, _)| n)
-        .collect();
-    assert!(
-        names.contains(&"feed_stale".to_string()) && names.contains(&"drift".to_string()),
-        "{names:?}"
-    );
+    assert!(rugsnipe_state::killkv::latched(&c).unwrap().is_none());
+    assert!(rugsnipe_state::killkv::triggers(&c).unwrap().is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }

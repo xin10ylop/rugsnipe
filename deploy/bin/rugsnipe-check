@@ -317,7 +317,7 @@ table=$(num "$(sudo journalctl -u rugsnipe-hot -o cat _PID="$PID" 2>/dev/null | 
 next=$(systemctl list-timers rugsnipe-operators.timer --no-legend 2>/dev/null | awk '{print $3}' | cut -c1-5)
 if [ "$SHORT" = 1 ]; then
   killed=$(g 'killed [a-z_]+' | awk '{ print $2 }')
-  paused=$(g 'BUYS PAUSED|FEED STALE')
+  paused=$(g 'BUYS PAUSED \([a-z_]+\)|FEED STALE')
   if [ "$(svc rugsnipe-hot)" != active ]; then state="NO: the hot service is $(svc rugsnipe-hot)"
   elif [ -z "$killed" ]; then state="unknown yet (no status line from this process: the hot loop prints one every minute)"
   elif [ "$killed" != no ]; then state="NO: stopped by the $killed kill (its trigger and the unkill steps below)"
@@ -356,7 +356,7 @@ if [ "$SHORT" = 1 ]; then
   printf '%s\n' "$SQL" | sudo -u rugsnipe sqlite3 -readonly -header -column "$DB"
   exit 0
 fi
-echo "== $(date -u +%H:%M:%S) UTC  hot $(svc rugsnipe-hot)  guard $(svc rugsnipe-guard)  up $(q "$up")s  $(q "$(g 'killed [a-z_]+')")  $(g 'BUYS PAUSED|FEED STALE')"
+echo "== $(date -u +%H:%M:%S) UTC  hot $(svc rugsnipe-hot)  guard $(svc rugsnipe-guard)  up $(q "$up")s  $(q "$(g 'killed [a-z_]+')")  $(g 'BUYS PAUSED \([a-z_]+\)|FEED STALE')"
 [ -n "$up" ] || echo "   (no status line from this process yet: the hot loop prints one every minute)"
 echo "   wallet $( [ -n "$wallet" ] && sol "$wallet" || echo '?') SOL  open $(q "$open")  free sell nonces $(q "$nonces")  table $(q "$table") signers  next refresh $(q "$next") UTC"
 # the wallet as the bot last read it (lags a minute or two): the only number that holds every cost

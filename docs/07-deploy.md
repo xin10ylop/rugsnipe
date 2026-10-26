@@ -192,7 +192,10 @@ Implemented (task #12, 2026-10-16; probe/live latch, paper reports them as `woul
 - a stale ArmSet (exits only);
 - disk > 90% on the state partition;
 - clock offset > 50 ms;
-- the gRPC feed stale (no message for `stale_ms`) or more than 8 slots behind `getSlot`.
+- (not a latch since 2026-10-26) the gRPC feed stale (no message for `stale_ms`) or more than 8 slots behind `getSlot`
+  pauses buys instead: journal `buys paused (feed_stale): ...`, status `BUYS PAUSED (feed_stale)`, decision
+  `skip_feed_stale`; exits continue, and buys resume on their own (`buys resumed: ...`) once the feed has been fresh and in
+  step for twice its `stale_ms`. A provider outage (credits run out) no longer needs an unkill.
 
 Not implemented: reconcile drift > 60 s.
 

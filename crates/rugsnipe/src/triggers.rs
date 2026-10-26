@@ -17,7 +17,10 @@
 //! | `daily_loss` | closed P&L + failed-attempt costs + open positions valued at the current curve (sell quote net of fees) below `-max_daily_loss_lamports` | risk gate + position marks |
 //!
 //! All of them latch only in probe/live; paper evaluates what is cheap and
-//! reports `would_kill` in the summary.
+//! reports `would_kill` in the summary. Since 2026-10-26 `drift` and
+//! `feed_stale` pause buys in probe/live instead (exits continue; the pause
+//! lifts once the feed is fresh and in step for twice its `stale_ms`): an
+//! outage of the feed's provider stops buying only while it lasts.
 
 use pump_codec::Pubkey;
 use std::collections::VecDeque;

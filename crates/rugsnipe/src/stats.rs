@@ -118,6 +118,9 @@ pub mod code {
     /// `entry.rule_buys = false`: the bot buys only the copies of
     /// `entry.copy`; the create is kept for one.
     pub const RULE_OFF: u8 = 0x62;
+    /// Real modes: buys paused while the post-execution feed is stale or
+    /// drifting (the cold thread's feed pause; it lifts on its own).
+    pub const FEED_PAUSED: u8 = 0x63;
     /// Metrics only: a paper decision that a real mode would have skipped
     /// (rslog keeps the RiskGate code and the `would_skip` reason).
     pub const PAPER_WOULD_SKIP: u8 = 0x1f;
@@ -177,6 +180,7 @@ pub const DECISIONS: &[(u8, &str)] = &[
     (code::TWEETFEED_COPY, "skip_tweetfeed_copy"),
     (code::NOT_FOLLOWED, "skip_not_followed"),
     (code::RULE_OFF, "skip_rule_off"),
+    (code::FEED_PAUSED, "skip_feed_stale"),
 ];
 
 /// Label of a decision code.

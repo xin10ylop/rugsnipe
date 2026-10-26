@@ -156,6 +156,9 @@ pub struct Shared {
     /// Buys paused: no fresh blockhash for more than
     /// `risk.max_blockhash_age_ms` and no free sell nonce.
     pub sell_blocked: AtomicBool,
+    /// Buys paused: the post-execution feed is stale or drifting (the cold
+    /// thread's `feed_health`; it lifts on its own once the feed is back).
+    pub feed_paused: AtomicBool,
     /// The (bundle wallet, fee routing) records the copied wallet follows
     /// (`entry.follow`; the cold thread's [`crate::follow::FollowTracker`]
     /// publishes).
@@ -173,6 +176,7 @@ impl Default for Shared {
             sell_nonces: std::sync::OnceLock::new(),
             blockhash_age_ms: AtomicU64::new(0),
             sell_blocked: AtomicBool::new(false),
+            feed_paused: AtomicBool::new(false),
             follow: crate::follow::snapshot_empty(),
         }
     }
@@ -3540,6 +3544,12 @@ impl HotLoop {
         if real && self.sell_blocked {
             self.risk.release_unfilled();
             return self.decision(intent, hit, code::NO_BLOCKHASH, 0, op.size, op.v_max, 0, 0);
+        }
+        // 9c: the post-execution feed is stale or drifting (a pause that
+        // lifts on its own, never the kill latch)
+        if real && self.shared.feed_paused.load(Relaxed) {
+            self.risk.release_unfilled();
+            return self.decision(intent, hit, code::FEED_PAUSED, 0, op.size, op.v_max, 0, 0);
         }
         // a position slot must exist before any nonce is claimed
         let Some(free) = self.slots.iter().position(|s| s.is_none()) else {
