@@ -2,10 +2,10 @@
 # rugsnipe-check: one screen with everything needed to judge the live bot (box helper; copy to ~/check.sh).
 # Times are Beirut time (CHECK_TZ: another zone); the bot's own journal lines are UTC.
 #   bash ~/check.sh          the current bot since the start (by default Oct 26 15:00 Beirut time, 13:00 UTC): trading
-#                            or not, the wallet, the results, then every
-#                            launch buy of the copied wallets the bot saw, one row each: what the wallet did and made,
-#                            what the bot did, and what our copy made (rugsnipe-trades: the wallets' own trades come
-#                            from the chain once and are kept, so a run reads only the new ones)
+#                            or not, the wallet, the results, then per copied wallet: our copies, what it made
+#                            itself (on the coins we copied, skipped, did not see), and every launch buy of it, one row
+#                            each, with what the bot did and what our copy made (rugsnipe-trades: the wallets' own
+#                            trades come from the chain once and are kept, so a run reads only the new ones)
 #   bash ~/check.sh him      him against us since the start, coin by coin (his trades from the chain: rugsnipe-vs-him)
 #   bash ~/check.sh him W    another copied wallet (entry.copy_more; W = its address or its first characters) against
 #                            our copies of it, coin by coin
