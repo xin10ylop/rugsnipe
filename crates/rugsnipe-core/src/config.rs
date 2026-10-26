@@ -1257,6 +1257,13 @@ pub struct EntryCfg {
     /// SOL / 4-of-5-days result of his recent operators (docs/17 s9).
     pub copy_signer_min_buys: u32,
     pub copy_signer_window_h: u64,
+    /// More wallets copied beside `follow_wallet` (docs/19 section 4), each
+    /// its own launch buys (create + 0/1) of at least `min_sol`, bound and
+    /// timed as his (`copy_max_premium`, `copy_late_slots`), with none of his
+    /// filters (tip, operator table, signer count: those are his), sold at
+    /// create + `hold_to_create_slots` whatever it does (its own sell does not
+    /// trigger ours). Needs `entry.copy` on or log; `mode` off / log / on.
+    pub copy_more: Vec<CopyMore>,
     /// The rule's own buys (default true). `false`: the bot buys only the
     /// copies of `entry.copy` (docs/17 section 9): every create is kept for a
     /// copy of his buy and the rule decides nothing (`skip_rule_off`), so its
@@ -1332,7 +1339,31 @@ impl Default for EntryCfg {
             copy_listed_only: true,
             copy_signer_min_buys: 2,
             copy_signer_window_h: 24,
+            copy_more: vec![],
             rule_buys: true,
+        }
+    }
+}
+
+/// One wallet of `entry.copy_more`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct CopyMore {
+    pub wallet: String,
+    pub mode: CopyMode,
+    /// Its buy of at least this many SOL (0 = any).
+    pub min_sol: f64,
+    /// The copy sells at create + this many slots (the exit's
+    /// `hold_to_create_slot` for this position).
+    pub hold_to_create_slots: u16,
+}
+impl Default for CopyMore {
+    fn default() -> Self {
+        Self {
+            wallet: String::new(),
+            mode: CopyMode::On,
+            min_sol: 0.0,
+            hold_to_create_slots: 29,
         }
     }
 }
@@ -2370,6 +2401,43 @@ impl Config {
                     "entry.copy_listed_only",
                     "needs entry.operators_file (the signers to copy and his hold on them)",
                 );
+            }
+        }
+        if !e.copy_more.is_empty() {
+            if e.copy == CopyMode::Off {
+                inv(
+                    &mut r,
+                    "entry.copy_more",
+                    "needs entry.copy on or log (the recent creates a copy is matched to)",
+                );
+            }
+            if e.copy_more.len() > 8 {
+                inv(&mut r, "entry.copy_more", "at most 8 wallets");
+            }
+            let mut seen = std::collections::HashSet::new();
+            for c in &e.copy_more {
+                match c.wallet.parse::<pump_codec::Pubkey>() {
+                    Err(_) => inv(&mut r, "entry.copy_more.wallet", "a wallet (base58)"),
+                    Ok(w) => {
+                        if c.wallet == e.follow_wallet || !seen.insert(w) {
+                            inv(
+                                &mut r,
+                                "entry.copy_more.wallet",
+                                "listed once, and not follow_wallet (copied by entry.copy)",
+                            );
+                        }
+                    }
+                }
+                if !(0.0..=100.0).contains(&c.min_sol) {
+                    inv(&mut r, "entry.copy_more.min_sol", "must be in [0, 100] SOL");
+                }
+                if !(1..=300).contains(&c.hold_to_create_slots) {
+                    inv(
+                        &mut r,
+                        "entry.copy_more.hold_to_create_slots",
+                        "must be in 1..=300 slots",
+                    );
+                }
             }
         }
         if e.tweet_cut_tip_lamports > 50_000_000 {

@@ -196,6 +196,17 @@ impl Shared {
     }
 }
 
+/// One wallet of `entry.copy_more`, resolved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CopyWallet {
+    pub wallet: Pubkey,
+    pub mode: CopyMode,
+    /// Its buy of at least this many lamports.
+    pub min: u64,
+    /// The copy sells at create + this many slots.
+    pub hold: u16,
+}
+
 /// Hot-loop settings derived from the config.
 #[derive(Debug, Clone)]
 pub struct HotCfg {
@@ -319,6 +330,10 @@ pub struct HotCfg {
     /// landed buys on the signer within that window before this one.
     pub copy_signer_min_buys: u32,
     pub copy_signer_window_slots: u64,
+    /// `entry.copy_more` (docs/19 section 4): more wallets copied, each sold
+    /// at its own create-relative slot ([`HotLoop::copy_more_trade`]); the
+    /// ones set off are left out.
+    pub copy_more: Vec<CopyWallet>,
     /// `entry.rule_buys` (false: the copies of `entry.copy` only).
     pub rule_buys: bool,
     /// `entry.stake_fits_balance` and `entry.stake_min_sol` (lamports).
@@ -469,6 +484,20 @@ impl HotCfg {
                 .entry
                 .copy_signer_window_h
                 .saturating_mul(SLOTS_PER_HOUR),
+            copy_more: cfg
+                .entry
+                .copy_more
+                .iter()
+                .filter(|c| c.mode != CopyMode::Off)
+                .filter_map(|c| {
+                    Some(CopyWallet {
+                        wallet: c.wallet.parse().ok()?,
+                        mode: c.mode,
+                        min: sol_lamports(c.min_sol),
+                        hold: c.hold_to_create_slots,
+                    })
+                })
+                .collect(),
             rule_buys: cfg.entry.rule_buys,
             stake_fits_balance: cfg.entry.stake_fits_balance,
             stake_min: (cfg.entry.stake_min_sol * 1e9).round() as u64,
@@ -532,10 +561,14 @@ impl HotCfg {
     /// The exit of a copy (`entry.copy`): one slot before the copied
     /// wallet's own hold for a listed signer, whatever `operator_holds`
     /// says (his sell is the dump: copies sold behind it lost, docs/17
-    /// section 9); an unlisted signer's copy exits like any position.
-    pub fn copy_policy_for(&self, rule: Option<OpRule>) -> ExitPolicy {
+    /// section 9); an unlisted signer's copy exits like any position. A
+    /// copy of an `entry.copy_more` wallet (`hold` > 0) sells at create +
+    /// `hold`, whatever the table says.
+    pub fn copy_policy_for(&self, rule: Option<OpRule>, hold: u16) -> ExitPolicy {
         let mut p = self.policy;
-        if let Some(r) = rule {
+        if hold > 0 {
+            p.hold_to_create_slot = Some(hold);
+        } else if let Some(r) = rule {
             p.hold_to_create_slot = Some(r.hold_slots.saturating_sub(1).max(1));
         }
         p
@@ -805,6 +838,9 @@ pub struct Parked {
     /// buy ([`HotLoop::copy_trade`]): `pb` is his post-trade state, `wallets`
     /// holds his wallet (the insider-sell rule sees his sell).
     pub copy: bool,
+    /// `entry.copy_more` ([`HotLoop::copy_more_trade`]): the copy sells at
+    /// create + this many slots (0: his copy's exit, the table's hold - 1).
+    pub copy_hold: u16,
 }
 
 /// A create whose dev buy the decoder could not see: no buy found in the
@@ -1304,6 +1340,26 @@ fn copy_line(t: &TradeLite, create_slot: u64, act: &str) {
     ));
 }
 
+/// The journal line of an `entry.copy_more` wallet's launch buy: the coin,
+/// the wallet, its size, slot after the create, landing slot and block index,
+/// the copy's exit slot, and what the copy did (`buy`, `log`, `skip_small`).
+/// Its own `copyw` prefix keeps it out of the `copy <mint> his` reports.
+fn copy_more_line(t: &TradeLite, create_slot: u64, c: &CopyWallet, act: &str) {
+    let k8 = key8(&t.mint);
+    let w8 = key8(&c.wallet);
+    journal(format_args!(
+        "copyw {} by {} {:.3} at create+{} slot {} idx {} sell create+{} -> {}",
+        std::str::from_utf8(&k8).unwrap_or("?"),
+        std::str::from_utf8(&w8).unwrap_or("?"),
+        t.sol_amount as f64 / 1e9,
+        t.slot.saturating_sub(create_slot),
+        t.slot,
+        t.index,
+        c.hold,
+        act
+    ));
+}
+
 /// The journal line of a pick-template skip at the fire point (rare: a
 /// parked create that reached its fire), allocation-free.
 fn template_line(what: &str, hit: &CreateHit, got: u64, cap: u64) {
@@ -1422,6 +1478,10 @@ pub struct LoopCounters {
     /// the table does not list, and for a signer he has bought fewer than
     /// `copy_signer_min_buys` times in the window.
     pub copy_his: [u64; 4],
+    /// `entry.copy_more`: the extra wallets' landed launch buys, the ones
+    /// under their `min_sol`, then copied (`on`), journaled only (`log`),
+    /// and passed over (a buy of ours on the mint, or a park firing itself).
+    pub copy_more: [u64; 5],
 }
 
 /// Everything [`HotLoop::new`] needs.
@@ -1870,8 +1930,19 @@ impl HotLoop {
                 }
                 // entry.copy: the copied wallet's landed buy, once the park
                 // (if any) has seen it
-                if t.is_buy && t.user == self.cfg.copy_wallet && self.cfg.copy != CopyMode::Off {
-                    self.copy_trade(&t, ev.recv_ns, t0);
+                if t.is_buy && self.cfg.copy != CopyMode::Off {
+                    if t.user == self.cfg.copy_wallet {
+                        self.copy_trade(&t, ev.recv_ns, t0);
+                    } else if let Some(c) = self
+                        .cfg
+                        .copy_more
+                        .iter()
+                        .find(|c| c.wallet == t.user)
+                        .copied()
+                    {
+                        // entry.copy_more: another copied wallet's buy
+                        self.copy_more_trade(&t, c, ev.recv_ns, t0);
+                    }
                 }
             }
             Payload::RunDone(r) => {
@@ -2038,6 +2109,15 @@ impl HotLoop {
             Follow::On => "on",
         };
         Some((m, self.shared.follow.load().len()))
+    }
+
+    /// `entry.copy_more`: the extra copied wallets (0: none), for the status line.
+    pub fn copy_more_n(&self) -> usize {
+        if self.cfg.copy == CopyMode::Off {
+            0
+        } else {
+            self.cfg.copy_more.len()
+        }
     }
 
     /// `entry.copy` as configured (`None`: off), for the status line.
@@ -2289,6 +2369,7 @@ impl HotLoop {
                 follow_skip,
                 follow_hot: 0,
                 copy: false,
+                copy_hold: 0,
             });
             if hidden {
                 self.counters.hidden_dev[0] += 1;
@@ -2574,33 +2655,102 @@ impl HotLoop {
             return;
         }
         self.counters.copy[0] += 1;
-        let intent = IntentId::new(&t.mint, &self.owner).0;
-        if self.bought.contains(&intent) || self.find_mint(&t.mint).is_some() {
+        let Some(intent) = self.copy_claim(&t.mint) else {
             self.counters.copy[3] += 1;
             return;
-        }
-        if let Some(i) = self
-            .parked
-            .iter()
-            .position(|x| x.is_some_and(|p| p.hit.mint == t.mint))
-        {
-            let Some(p) = self.parked[i].filter(|p| p.outside || p.behind) else {
-                self.counters.copy[3] += 1;
-                return;
-            };
-            self.parked[i] = None;
-            self.park_ended(&p, code::NOT_FIRST);
-        }
+        };
         let buy = self.cfg.copy == CopyMode::On;
         copy_line(t, r.slot, if buy { "buy" } else { "log" });
-        // journaled once per mint, bought or not
-        self.bought[self.bought_at % BOUGHT] = intent;
-        self.bought_at = self.bought_at.wrapping_add(1);
+        self.copy_mark(intent);
         if !buy {
             self.counters.copy[2] += 1;
             return;
         }
         self.counters.copy[1] += 1;
+        self.copy_send(t, &r, intent, true, 0, recv_ns, t0);
+    }
+
+    /// `entry.copy_more` (docs/19 section 4): a landed launch buy (a recent
+    /// create's slot or the next) by one of the extra copied wallets, of at
+    /// least its `min_sol`, is bought behind it as his are ([`Self::copy_trade`]:
+    /// the same bound, window and gates), with none of his filters, and sold
+    /// at create + its `hold_to_create_slots`. Its wallet is not one of the
+    /// position's insiders: its own sell does not trigger ours.
+    fn copy_more_trade(&mut self, t: &TradeLite, c: CopyWallet, recv_ns: u64, t0: u64) {
+        let Some(r) = self
+            .recent
+            .iter()
+            .flatten()
+            .find(|r| r.hit.mint == t.mint)
+            .copied()
+        else {
+            return;
+        };
+        if t.slot < r.slot || t.slot > r.slot.saturating_add(1) {
+            return;
+        }
+        self.counters.copy_more[0] += 1;
+        if t.sol_amount < c.min {
+            self.counters.copy_more[1] += 1;
+            copy_more_line(t, r.slot, &c, "skip_small");
+            return;
+        }
+        let Some(intent) = self.copy_claim(&t.mint) else {
+            self.counters.copy_more[4] += 1;
+            return;
+        };
+        let buy = c.mode == CopyMode::On && self.cfg.copy == CopyMode::On;
+        copy_more_line(t, r.slot, &c, if buy { "buy" } else { "log" });
+        self.copy_mark(intent);
+        if !buy {
+            self.counters.copy_more[3] += 1;
+            return;
+        }
+        self.counters.copy_more[2] += 1;
+        self.copy_send(t, &r, intent, false, c.hold, recv_ns, t0);
+    }
+
+    /// A copy's mint, if it is free: `None` when we hold it or sent a buy for
+    /// it already, or a park whose run holds the copied buy fires behind it
+    /// on its own; a park outside that run ends `skip_not_first` here.
+    fn copy_claim(&mut self, mint: &Pubkey) -> Option<u64> {
+        let intent = IntentId::new(mint, &self.owner).0;
+        if self.bought.contains(&intent) || self.find_mint(mint).is_some() {
+            return None;
+        }
+        if let Some(i) = self
+            .parked
+            .iter()
+            .position(|x| x.is_some_and(|p| p.hit.mint == *mint))
+        {
+            let p = self.parked[i].filter(|p| p.outside || p.behind)?;
+            self.parked[i] = None;
+            self.park_ended(&p, code::NOT_FIRST);
+        }
+        Some(intent)
+    }
+
+    /// A copy is journaled once per mint, bought or not.
+    fn copy_mark(&mut self, intent: u64) {
+        self.bought[self.bought_at % BOUGHT] = intent;
+        self.bought_at = self.bought_at.wrapping_add(1);
+    }
+
+    /// Hand a copy to the decision ([`HotLoop::decide_from_watch`] with a
+    /// copy [`Parked`]): bound at the copied buy's post-trade reserve. `his`:
+    /// his wallet is the position's insider (the insider-sell rule sees his
+    /// sell); `hold` > 0: sold at create + `hold` (`entry.copy_more`).
+    #[allow(clippy::too_many_arguments)]
+    fn copy_send(
+        &mut self,
+        t: &TradeLite,
+        r: &Recent,
+        intent: u64,
+        his: bool,
+        hold: u16,
+        recv_ns: u64,
+        t0: u64,
+    ) {
         let mut wallets = [Pubkey::default(); RUN_MAX_AFTER as usize];
         wallets[0] = t.user;
         let p = Parked {
@@ -2619,7 +2769,7 @@ impl HotLoop {
             bundle_ns: 0,
             bundle_buys: 0,
             wallets,
-            n_wallets: 1,
+            n_wallets: u8::from(his),
             behind: false,
             outside: false,
             run_sol: 0,
@@ -2632,6 +2782,7 @@ impl HotLoop {
             follow_skip: 0,
             follow_hot: 0,
             copy: true,
+            copy_hold: hold,
         };
         self.decide_from_watch(
             r.src,
@@ -3686,7 +3837,8 @@ impl HotLoop {
             self.owner,
             intent,
             if copy {
-                self.cfg.copy_policy_for(rule)
+                self.cfg
+                    .copy_policy_for(rule, parked.map_or(0, |p| p.copy_hold))
             } else {
                 self.cfg.policy_for(rule)
             },
@@ -5425,6 +5577,7 @@ mod bundle_gate_tests {
             follow_skip: 0,
             follow_hot: 0,
             copy: false,
+            copy_hold: 0,
         }
     }
 

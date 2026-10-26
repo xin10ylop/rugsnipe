@@ -145,6 +145,8 @@ struct Outcome {
     copy_his: [u64; 4],
     /// His buys the loop counted, as handed to the cold thread (signer, slot).
     his_buys: Vec<(Pubkey, u64)>,
+    /// entry.copy_more: seen, small, copied, journaled, passed.
+    copy_more: [u64; 5],
 }
 
 impl Outcome {
@@ -263,6 +265,7 @@ fn run_table(
         .count();
     let copy = hot.counters.copy;
     let copy_his = hot.counters.copy_his;
+    let copy_more = hot.counters.copy_more;
     let his_buys = std::iter::from_fn(|| cold_rx.pop().ok())
         .filter_map(|m| match m {
             ColdMsg::HisBuy { signer, slot } => Some((signer, slot)),
@@ -293,6 +296,7 @@ fn run_table(
             copy,
             copy_his,
             his_buys,
+            copy_more,
         },
         hit,
     )
@@ -531,14 +535,20 @@ fn a_copy_sells_one_slot_before_his_hold_for_the_signer() {
     };
     // a rule fire with operator_holds off: the flat +9; a copy: his 6 - 1
     assert_eq!(hc.policy_for(Some(rule)).hold_to_create_slot, Some(9));
-    assert_eq!(hc.copy_policy_for(Some(rule)).hold_to_create_slot, Some(5));
+    assert_eq!(
+        hc.copy_policy_for(Some(rule), 0).hold_to_create_slot,
+        Some(5)
+    );
     // an unlisted signer's copy: like any position
-    assert_eq!(hc.copy_policy_for(None).hold_to_create_slot, Some(9));
+    assert_eq!(hc.copy_policy_for(None, 0).hold_to_create_slot, Some(9));
     let one = rugsnipe::operators::OpRule {
         hold_slots: 1,
         ..rule
     };
-    assert_eq!(hc.copy_policy_for(Some(one)).hold_to_create_slot, Some(1));
+    assert_eq!(
+        hc.copy_policy_for(Some(one), 0).hold_to_create_slot,
+        Some(1)
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -734,5 +744,107 @@ fn rule_buys_off_buys_his_copies_only() {
         "{:?}",
         v.warnings
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_copy_more_wallets_launch_buy_is_copied_and_sold_at_its_own_slot() {
+    let other = Pubkey::new_unique();
+    let more = |mode: CopyMode, min_sol: f64| {
+        move |c: &mut Config| {
+            c.entry.copy_more = vec![rugsnipe_core::config::CopyMore {
+                wallet: other.to_string(),
+                mode,
+                min_sol,
+                hold_to_create_slots: 29,
+            }];
+        }
+    };
+    // its 0.5 SOL launch buy in the create slot: copied, his counters idle
+    let (o, _) = run(CopyMode::On, false, &more(CopyMode::On, 0.0), &|hit, _| {
+        vec![buy(hit, other, SOL / 2, 0, SLOT, CI + 3)]
+    });
+    assert_eq!(o.fires, 1, "{:?}", o.labels());
+    assert_eq!(o.copy_more, [1, 0, 1, 0, 0]);
+    assert_eq!(o.copy, [0; 4]);
+    assert_eq!(o.copy_his, [0; 4]);
+    // under its min_sol: journaled as skip_small, no buy
+    let (o, _) = run(CopyMode::On, false, &more(CopyMode::On, 1.0), &|hit, _| {
+        vec![buy(hit, other, SOL / 2, 0, SLOT, CI + 3)]
+    });
+    assert_eq!((o.fires, o.copy_more), (0, [1, 1, 0, 0, 0]));
+    // the wallet in log, or entry.copy in log: journaled, no buy
+    for (copy, mode) in [(CopyMode::On, CopyMode::Log), (CopyMode::Log, CopyMode::On)] {
+        let (o, _) = run(copy, false, &more(mode, 0.0), &|hit, _| {
+            vec![buy(hit, other, SOL / 2, 0, SLOT, CI + 3)]
+        });
+        assert_eq!(
+            (o.fires, o.copy_more),
+            (0, [1, 0, 0, 1, 0]),
+            "{copy:?} {mode:?}"
+        );
+    }
+    // two slots after the create: not a launch buy, not seen
+    let (o, _) = run(CopyMode::On, false, &more(CopyMode::On, 0.0), &|hit, _| {
+        vec![buy(hit, other, SOL / 2, 0, SLOT + 2, 3)]
+    });
+    assert_eq!((o.fires, o.copy_more), (0, [0; 5]));
+    // its copy sells at create + 29 whatever the table says; his copy keeps
+    // the table's hold - 1
+    let dir = tmpdir("copy-more-exit");
+    let cfg = live_cfg(&dir, CopyMode::On, &[], Pubkey::new_unique());
+    let mut policy = setup::exit_policy(&cfg).unwrap();
+    policy.hold_to_create_slot = Some(9);
+    let hc = HotCfg::from_config(&cfg, policy);
+    let rule = rugsnipe::operators::OpRule {
+        hold_slots: 6,
+        n: 10,
+        wins: 6,
+        pnl_sol: 1.0,
+        dev_sol: 1.0,
+        bundle_wallets: 3,
+        stake_tier: 1,
+    };
+    assert_eq!(
+        hc.copy_policy_for(Some(rule), 29).hold_to_create_slot,
+        Some(29)
+    );
+    assert_eq!(hc.copy_policy_for(None, 29).hold_to_create_slot, Some(29));
+    assert_eq!(
+        hc.copy_policy_for(Some(rule), 0).hold_to_create_slot,
+        Some(5)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn copy_more_needs_the_copy_on_and_distinct_wallets() {
+    let dir = tmpdir("copy-more-cfg");
+    let his = Pubkey::new_unique();
+    let one = |w: &str, hold: u16| rugsnipe_core::config::CopyMore {
+        wallet: w.into(),
+        mode: CopyMode::On,
+        min_sol: 0.0,
+        hold_to_create_slots: hold,
+    };
+    let w = Pubkey::new_unique().to_string();
+    let check = |copy: CopyMode, more: Vec<rugsnipe_core::config::CopyMore>| {
+        let mut c = live_cfg(&dir, copy, &[], his);
+        c.entry.copy_more = more;
+        c.validate(&good_env(&c)).ok()
+    };
+    assert!(check(CopyMode::On, vec![one(&w, 29)]));
+    assert!(check(CopyMode::Log, vec![one(&w, 29)]));
+    assert!(!check(CopyMode::Off, vec![one(&w, 29)]), "needs entry.copy");
+    assert!(
+        !check(CopyMode::On, vec![one(&w, 29), one(&w, 20)]),
+        "listed twice"
+    );
+    assert!(
+        !check(CopyMode::On, vec![one(&his.to_string(), 29)]),
+        "his own wallet"
+    );
+    assert!(!check(CopyMode::On, vec![one("not-a-key", 29)]));
+    assert!(!check(CopyMode::On, vec![one(&w, 0)]), "a hold of 0");
     let _ = std::fs::remove_dir_all(&dir);
 }

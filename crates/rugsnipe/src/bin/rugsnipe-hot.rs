@@ -1070,6 +1070,18 @@ fn run(args: &[String]) -> Result<(), String> {
                     )
                 })
                 .unwrap_or_default();
+            // entry.copy_more (docs/19 section 4): the extra wallets' launch
+            // buys, under their min_sol, copied, journaled only, passed over
+            let copy_more = match app.hot.copy_more_n() {
+                0 => String::new(),
+                n => {
+                    let m = c.copy_more;
+                    format!(
+                        " | copyw wallets {n} seen {} small {} buy {} log {} passed {}",
+                        m[0], m[1], m[2], m[3], m[4]
+                    )
+                }
+            };
             // the tweet check (docs/13): requests, verdicts by kind, when
             // they came (create slot / next / later), the gate's skips/fires
             let tweet = app
@@ -1124,7 +1136,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 _ => String::new(),
             };
             eprintln!(
-                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {}{gate}{presend}{template}{follow}{copy}{fit}{tweet}{feed} | {kill}{g} | {} | {}",
+                "[{:>5}s] events {} creates {} intents {} fills {} unfilled {} sells {} closed {} positions {}{gate}{presend}{template}{follow}{copy}{copy_more}{fit}{tweet}{feed} | {kill}{g} | {} | {}",
                 t0.elapsed().as_secs(),
                 c.events,
                 c.creates,

@@ -71,3 +71,29 @@ After a dump these coins keep falling more often than they bounce. Not built.
   +3.25 SOL over Oct 24-26, against -3.23 following its sell. On the tapes with our landing distances and its learned
   hold - 1: +2.75 in sample (positive every day), +0.53 out of sample.
 - **JBokzLFR**, on its 1-2M tip buys: +1.52 out of sample. It needs more days.
+
+## 5. Built: `entry.copy_more`, with 3yrJE1A8 at create + 29
+
+- **Its exit.** 3yrJE1A8 buys at create + 0 (206 coins) or + 1 (88), and sells on a timer: 20 slots after its buy (116
+  coins) or 30 (125). Its 13-slot tapes never reached that far, so its exit was measured on the curve itself
+  (`analysis/research/2026-10-26/w3/`).
+
+  | copy sold at its buy + | copies | Oct 24 / 25 / 26 (to 12:00) | total |
+  |---|---|---|---|
+  | 5 slots | 256 | +1.54 / +1.89 / -0.02 | +3.42 SOL |
+  | 14 | 247 | +3.73 / +1.78 / -0.29 | +5.22 |
+  | 19 | 241 | +4.69 / +0.22 / +0.37 | +5.28 |
+  | 24 | 249 | +5.10 / +1.81 / +0.48 | +7.39 |
+  | **29** | 252 | +4.54 / +2.99 / +0.75 | **+8.28** |
+  | after its first sell, else 29 | 280 | +1.32 / +1.80 / +0.23 | +3.35 |
+
+  On its 20-slot coins the copy loses at every exit (-1.7 to -2.5 SOL). Its 30-slot coins and the rest carry the
+  result. The gain grows smoothly with the hold rather than at one exit.
+- **Config.** `[entry] copy_more = [{ wallet = "...", hold_to_create_slots = 29 }]`, up to 8 wallets. Each one's launch
+  buys (create + 0/1) of at least `min_sol` are bought behind it as his are: the same +5% bound, window and risk caps,
+  but none of his filters. The copy is sold at create + `hold_to_create_slots`; its wallet is not the position's
+  insider, so its own sell does not trigger ours.
+- **Running it.** `mode` off / log / on, and `entry.copy` must be on or log (a buy needs both on). The live feed already
+  passes every trade of a fresh launch to the hot loop, so the feed is unchanged. Journal lines
+  `copyw <mint> by <wallet> <SOL> at create+<k> slot <s> idx <i> sell create+<h> -> buy|log|skip_small`. The status line
+  adds `copyw wallets N seen small buy log passed`.
