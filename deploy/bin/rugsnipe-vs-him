@@ -146,8 +146,10 @@ def rpc_url(keys):
 def per_coin(rows):
     coins = {}
     for r in rows:
-        c = coins.setdefault(r["mint"], {"t": r["ts"], "first_buy": r["tok"] > 0, "buy": 0, "net": 0, "bought": 0.0,
-                                         "held": 0.0})
+        c = coins.setdefault(r["mint"], {"t": r["ts"], "s0": r["slot"], "first_buy": False, "buy": 0, "net": 0,
+                                         "bought": 0.0, "held": 0.0})
+        # a buy in the coin's first slot opens it (a buy and its sell in one slot sort by signature, not by order)
+        c["first_buy"] |= r["tok"] > 0 and r["slot"] == c["s0"]
         c["net"] += r["delta"]
         c["held"] += r["tok"]
         if r["tok"] > 0:
