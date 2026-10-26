@@ -29,6 +29,15 @@ SKIP_W = {"skip_small": "skip: < min_sol"}
 FIRST = ("3yrJE1A8", "JBokzLFR")
 
 
+def rule_buys(cfg_path):
+    """entry.rule_buys (default true): false = the bot buys copies only."""
+    try:
+        with open(cfg_path, "rb") as f:
+            return (tomllib.load(f).get("entry") or {}).get("rule_buys", True) is not False
+    except (OSError, tomllib.TOMLDecodeError):
+        return True
+
+
 def wallets_of(cfg_path):
     """[(key, address, our sell, number)]: him first, then the entry.copy_more wallets that are not off (key: "him" or
     the wallet's first 8 characters, as the journal names it)."""
@@ -236,6 +245,8 @@ def main(argv):
     ap.add_argument("--rps", type=float, default=20.0)
     ap.add_argument("--workers", type=int, default=16)
     ap.add_argument("--last", type=int, default=10, help="rows of the last-trades table")
+    ap.add_argument("--until", type=float, default=None,
+                    help="when the journal was read (unix s): later buys are left out (their copy lines are not in it)")
     ap.add_argument("--no-chain", action="store_true", help="leave out the wallets' own results (no RPC)")
     a = ap.parse_args(argv)
     try:
@@ -246,9 +257,10 @@ def main(argv):
     hm = lambda t: datetime.datetime.fromtimestamp(t, tz).strftime("%H:%M:%S")  # noqa: E731
     W = wallets_of(a.config)
     lines = sys.stdin.read().splitlines()
-    J = {k: f for k, f in journal(lines).items() if f["ts"] >= a.since}
+    until = a.until or datetime.datetime.now().timestamp()
+    J = {k: f for k, f in journal(lines).items() if a.since <= f["ts"] < until}
     S = starts(lines)
-    O = ours(a.state, a.since)
+    O = {m8: o for m8, o in ours(a.state, a.since).items() if o["t"] < until}
     coins, fails, chain_err = {}, {}, {}
     if not a.no_chain:
         try:
@@ -287,7 +299,7 @@ def main(argv):
                          kind=kind, o=o, slot=f["slot"], idx=f["idx"], c=c))
     for who, cc in coins.items():
         for m8, c in cc.items():
-            if (who, m8) in J or c["t"] < a.since:
+            if (who, m8) in J or not a.since <= c["t"] < until:
                 continue
             if m8 in O:
                 bot, kind = "skip: coin ours", "skipped"
@@ -298,9 +310,10 @@ def main(argv):
             rows.append(dict(t=c["t"], who=who, m8=m8, sol=f"{c['buy'] / 1e9:.3f}",
                              tip=f"{c['tip'] / 1e6:.1f}M" if c.get("tip") is not None else "", at="", bot=bot, kind=kind,
                              o=None, slot=None, idx=None, c=c))
+    own = "rule's own" if rule_buys(a.config) else "no copy line"   # copies only: its journal line was not read
     for m8, o in O.items():
         if m8 not in copied8:
-            rows.append(dict(t=o["t"], who="rule", m8=m8, sol="", tip="", at="", bot="rule's own", kind="rule", o=o,
+            rows.append(dict(t=o["t"], who="rule", m8=m8, sol="", tip="", at="", bot=own, kind="rule", o=o,
                              slot=None, idx=None, c=None))
     rows.sort(key=lambda r: -r["t"])
     num = {k: n for k, _, _, n in W}

@@ -115,6 +115,8 @@ FOLLOWS=$(awk 'NF >= 9 { gsub(/\x27/, "", $6); f = ($9 == "fees") ? $10 : "-"; h
 [ -n "$FOLLOWS" ] || FOLLOWS="('','','','','','','','')"
 # ---- the copies (entry.copy, docs/17 section 9): mint8 -> his SOL, his tip (M; -1 on lines from before the tip was
 # journaled), create + k, buy / log
+# (the trades tables leave out what the bot bought after this read: its copy lines are not in JL)
+JCUT=$(date -u +%s)
 if [ -n "${CHECK_JOURNAL+x}" ]; then JL=$CHECK_JOURNAL; else
   JL=$(sudo journalctl -u rugsnipe-hot -o short-unix --since "@$E0" 2>/dev/null | grep -E ': copyw? [1-9A-HJ-NP-Za-km-z]{8} (his|by) |systemd\[[0-9]+\]: Started rugsnipe-hot')
 fi
@@ -413,7 +415,7 @@ if [ "$SHORT" = 1 ]; then
   # every launch buy of the copied wallets since the start, one row each (their own trades read from the chain once)
   if [ -n "$ERA" ]; then
     if [ -n "${CHECK_TRADES+x}" ]; then TA=($CHECK_TRADES); else TA=(--state "$DB" --tz "$LT"); fi
-    printf '%s\n' "$JL" | sudo python3 -I "$(tool rugsnipe-trades)" --since "$ERA" "${TA[@]}"
+    printf '%s\n' "$JL" | sudo python3 -I "$(tool rugsnipe-trades)" --since "$ERA" --until "$JCUT" "${TA[@]}"
     echo
   fi
   printf '%s\n' "$SQL2" | sq -header -column "$DB"
