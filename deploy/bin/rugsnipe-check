@@ -160,7 +160,10 @@ create temp view pos0 as
          coalesce((select sum(coalesce(f.fee, 0) + coalesce(f.tip, 0)) from fills f
                    where f.intent_id = p.intent_id and f.fail_reason is null), 0)
          + coalesce((select sum(coalesce(x.prio, 0) + coalesce(x.tip, 0) + 5000) from exits e join sends x on x.sig = e.sig
-                     where e.mint = p.mint), 0) txc
+                     where e.mint = p.mint), 0)
+         -- a buy the bot adopted after calling it dropped has no landed fill: its bid + the base fee
+         + case when exists (select 1 from fills f where f.intent_id = p.intent_id and f.fail_reason is null) then 0
+                else coalesce((select max(x.bid) from sends x where x.intent_id = p.intent_id and x.kind = 'buy'), 0) + 5000 end txc
   from positions p join sends s on s.intent_id = p.intent_id
   group by p.mint;
 create temp view pos as select *, ex - cost - txc net from pos0;
