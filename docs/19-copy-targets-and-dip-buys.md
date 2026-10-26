@@ -251,3 +251,17 @@ positive on the first half, the four we copy and H9kuqGKN held. Him +1.07, JBokz
 H9kuqGKN +0.48 on the second half. Most of the rest decayed, as the first search found. The next five that held, on
 partial tapes (D5BDDkBt +0.89 on 14, CxyKYmQo +0.78 on 24, AMDEmVoc +0.40 on 67, JBbbosQC +0.39 on 35, M8CcrseQ +0.21
 on 24), are in stage 2.
+
+**The next five through the process** (`process3.py`, their own trades pulled, SOL coins, the exit picked on the first
+half):
+
+| wallet | launch buys | exit | 1st half | 2nd half | verdict |
+|---|---|---|---|---|---|
+| CxyKYmQo | 131 | create + 12 | +1.44 | +0.71 (+0.013 a copy) | **passes**: positive at +7 / +9 / +12 in both halves; buys under 0.3 SOL and holds longer than 12 slots (our sale first on 128 of 131) |
+| D5BDDkBt | 40 | create + 9 | +0.72 | +0.72 (+0.034 a copy) | **passes**, low volume (about 2 an hour); positive at +5 .. +12 on the second half |
+| AMDEmVoc | 392 | create + 7 | +0.28 | -1.27 | fails |
+| JBbbosQC | 132 | create + 12 | -0.45 | -1.31 | fails |
+| M8CcrseQ | 79 | create + 12 | +0.20 | -0.64 | fails |
+
+None funds the creators of the coins it buys. H9kuqGKN went live at 17:36 (create + 9). Its buys after launch on SOL
+coins lose for it (37 coins, -11.65 SOL by its own SOL balance, 6 wins), so only its launch buys are copied.
