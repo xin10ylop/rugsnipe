@@ -64,7 +64,7 @@ def his_trades(api, w, since):
     return rows, fails, fail_fee
 
 
-def his_trades_rpc(api, w, since, workers):
+def his_trades_rpc(api, w, since, workers, fetch_failed=None):
     """`his_trades` over standard JSON-RPC: his signatures since `since`, then each transaction (the failed ones for
     their fee)."""
     sigs, before = [], None
@@ -82,6 +82,14 @@ def his_trades_rpc(api, w, since, workers):
             break
         before = page[-1]["signature"]
 
+    # a busy wallet's failed transactions are only counted (their fees are not read: one call each)
+    if fetch_failed is None:
+        fetch_failed = sum(x.get("err") is not None for x in sigs) <= 600
+    skipped = [x for x in sigs if x.get("err") is not None and not fetch_failed]
+    todo = [x for x in sigs if x.get("err") is None or fetch_failed]
+    print(f"({len(sigs)} transactions since the start, {len(todo)} to read"
+          + (f", {len(skipped)} failed ones counted only" if skipped else "") + ")", file=sys.stderr, flush=True)
+
     def one(x):
         tx = api.rpc("getTransaction", [x["signature"], orf.TX_OPTS])
         if not tx:
@@ -94,9 +102,11 @@ def his_trades_rpc(api, w, since, workers):
         if p:
             p["tip"] = tip_of(tx, w)
         return ("ok", p)
-    rows, fails, fail_fee = [], 0, 0
+    rows, fails, fail_fee = [], len(skipped), 0
     with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
-        for r in ex.map(one, sigs):
+        for i, r in enumerate(ex.map(one, todo), 1):
+            if i % 500 == 0:
+                print(f"({i}/{len(todo)} read)", file=sys.stderr, flush=True)
             if r is None:
                 continue
             if r[0] == "fail":
@@ -221,7 +231,7 @@ def main(argv):
     ap.add_argument("--wallet", default=orf.DEFAULT_WALLET)
     ap.add_argument("--source", choices=("auto", "helius", "rpc"), default="auto")
     ap.add_argument("--rps", type=float, default=20.0, help="request rate (Helius: at most 5)")
-    ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--workers", type=int, default=16)
     a = ap.parse_args(argv)
     rows = None
     if a.source in ("auto", "helius"):
