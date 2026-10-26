@@ -111,3 +111,30 @@ After a dump these coins keep falling more often than they bounce. Not built.
 The first live copy (3c3WaGz7, a 0.5 SOL buy) lost -44.5%, as the wallet itself did (-43%). The box runs
 `copy_more = [{ wallet = "3yrJE1A8...", min_sol = 1.5, hold_to_create_slots = 29 }]` from 13:26. The split is one
 15-hour sample, its own fills before ours; `check.sh him 3yrJE1A8` keeps measuring it.
+
+## 7. The finalists out of sample to Oct 26 14:50, and JBokzLFR added
+
+The 13 finalists' own transactions were pulled again from 10:30 to 14:50 and their coins' 13-slot tapes fetched (2,415
+tapes). Filters and exits stay as fixed in sample (`specs.txt`); our buy lands at our measured distances behind theirs,
++5% bound, 0.5 SOL (`oos_screen.py`). Oct 25 18:00 to Oct 26 14:50, by 6-hour block:
+
+| wallet | copies | total | 18-24h / 00-06h / 06-12h / 12-15h |
+|---|---|---|---|
+| JBokzLFR | 116 | +1.84 | +0.64 / +0.56 / +0.48 / +0.16 |
+| 9su3UPQW (its repeat operators) | 377 | +1.75 | +0.93 / +1.02 / -1.94 / +1.74 |
+| 3yrJE1A8 | 130 | +1.70 | +0.57 / -0.01 / +0.04 / +1.10 |
+| 2c945Fd8 | 97 | +0.03 | |
+| the other 9 | | -8.5 together | |
+| the set, one copy per coin | 1,608 | -4.84 | |
+
+The screen sells at the wallet's sell when that comes first. The bot sells a `copy_more` position at create + hold
+whatever the wallet does (`oos_screen_nosell.py`):
+
+| JBokzLFR, sold at | in sample (Oct 23 / 24 / 25) | out of sample (4 blocks) |
+|---|---|---|
+| create + 5 | +1.10 (+0.22 / +0.52 / +0.36) | **+1.93** (+0.73 / +0.44 / +0.53 / +0.23) |
+| create + 9 | +0.97 (+0.10 / +0.38 / +0.50) | +1.40 (+0.54 / +0.51 / +0.40 / -0.05) |
+| create + 12 | | +1.64 |
+
+It buys 0.1 to 0.5 SOL (1 SOL since Oct 25: those 28 copies -0.24). 9su3UPQW needs its repeat-operator filter, which
+`copy_more` does not have, and lost -1.94 in one block: left out. **JBokzLFR goes in at create + 5, every size.**
