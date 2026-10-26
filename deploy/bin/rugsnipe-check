@@ -1,8 +1,12 @@
 #!/bin/bash
 # rugsnipe-check: one screen with everything needed to judge the live bot (box helper; copy to ~/check.sh).
+# Times are Beirut time (CHECK_TZ: another zone); the bot's own journal lines are UTC.
 #   bash ~/check.sh start    record now as the start: every number of the short view counts from it (~/.rugsnipe-era)
-#   bash ~/check.sh          the current bot since the start: trading or not, the wallet, his buys and why each was or
-#                            was not copied, results, copies vs the rule's own buys, the last trades
+#   bash ~/check.sh start 15:00   the start at 15:00 today (Beirut time)
+#   bash ~/check.sh          the current bot since the start: trading or not, the wallet, the results, then every
+#                            launch buy of the copied wallets the bot saw, one row each: what the wallet did and made,
+#                            what the bot did, and what our copy made (rugsnipe-trades: the wallets' own trades come
+#                            from the chain once and are kept, so a run reads only the new ones)
 #   bash ~/check.sh him      him against us since the start, coin by coin (his trades from the chain: rugsnipe-vs-him)
 #   bash ~/check.sh him W    another copied wallet (entry.copy_more; W = its address or its first characters) against
 #                            our copies of it, coin by coin
@@ -14,14 +18,22 @@
 # CHECK_COPYW (copyw lines), CHECK_LATCH (the kill latch's text instead of state.db's), CHECK_TT0 (the tip test's start),
 # CHECK_RULE_T0 (the tweet rule's start, unix s; empty = none), CHECK_AB_T0 (the bid A/B's start, unix s),
 # CHECK_ERA_T0 (the era's start, unix s, instead of ~/.rugsnipe-era),
-# CHECK_DB (another state.db), CHECK_PRINT_SQL=1 (print the SQL and stop).
+# CHECK_JOURNAL (the copy/copyw lines with their unix time, as journalctl -o short-unix prints them),
+# CHECK_TRADES (rugsnipe-trades' options instead of the box's), CHECK_DB (another state.db),
+# CHECK_PRINT_SQL=1 (print the SQL and stop).
+LT=${CHECK_TZ:-Asia/Beirut}; LZ=$(sed 's#.*/##; s#_# #g' <<<"$LT")
+lt() { TZ=$LT date "$@"; }
 SHORT=1; HIM=0
 case "${1:-}" in
   full|long|all) SHORT=0 ;;
   him) HIM=1; HIMW=${2:-} ;;
   start)
-    date -u +%s > "$HOME/.rugsnipe-era"
-    echo "start recorded: $(date -u -d "@$(cat "$HOME/.rugsnipe-era")" '+%b %d %H:%M:%S') UTC. bash ~/check.sh counts from it; bash ~/check.sh him compares with him from it."
+    if [ -n "${2:-}" ]; then
+      t=$(lt -d "today $2" +%s 2>/dev/null) || { echo "not a time: $2 (e.g. bash ~/check.sh start 15:00, $LZ time)"; exit 1; }
+      [ "$t" -le "$(date -u +%s)" ] || { echo "$2 $LZ time is still ahead today: give a time that has passed"; exit 1; }
+    else t=$(date -u +%s); fi
+    echo "$t" > "$HOME/.rugsnipe-era"
+    echo "start recorded: $(lt -d "@$t" '+%b %d %H:%M:%S') $LZ time ($(date -u -d "@$t" '+%H:%M') UTC). bash ~/check.sh counts from it."
     exit 0 ;;
 esac
 DB=${CHECK_DB:-/var/lib/rugsnipe/state.db}
@@ -34,7 +46,7 @@ if [ -n "${CHECK_ERA_T0+x}" ]; then ERA=$CHECK_ERA_T0; else
   ERA=$(grep -m1 -oE '^[0-9]{9,11}' "$HOME/.rugsnipe-era" 2>/dev/null)
 fi
 E0=${ERA:-$D0}
-if [ -n "$ERA" ]; then SINCE="since the start ($(date -u -d "@$ERA" '+%b %d %H:%M') UTC)"; RN=era; else SINCE=today; RN='new rule'; fi
+if [ -n "$ERA" ]; then SINCE="since the start ($(lt -d "@$ERA" '+%b %d %H:%M') $LZ)"; RN=era; else SINCE=today; RN='new rule'; fi
 if [ -n "${CHECK_STATUS:-}" ]; then
   ST=$CHECK_STATUS; T0=${CHECK_T0:-$D0}; PID=0
 else
@@ -101,8 +113,11 @@ FOLLOWS=$(awk 'NF >= 9 { gsub(/\x27/, "", $6); f = ($9 == "fees") ? $10 : "-"; h
 [ -n "$FOLLOWS" ] || FOLLOWS="('','','','','','','','')"
 # ---- the copies (entry.copy, docs/17 section 9): mint8 -> his SOL, his tip (M; -1 on lines from before the tip was
 # journaled), create + k, buy / log
+if [ -n "${CHECK_JOURNAL+x}" ]; then JL=$CHECK_JOURNAL; else
+  JL=$(sudo journalctl -u rugsnipe-hot -o short-unix --since "@$E0" 2>/dev/null | grep -E ': copyw? [1-9A-HJ-NP-Za-km-z]{8} (his|by) ')
+fi
 if [ -n "${CHECK_COPY+x}" ]; then CPL=$CHECK_COPY; else
-  CPL=$(sudo journalctl -u rugsnipe-hot -o cat --since "@$E0" 2>/dev/null | grep -E '^copy [1-9A-HJ-NP-Za-km-z]{8} his ')
+  CPL=$(sed -E 's/^[0-9.]+ [^ ]+ [^ ]+: //' <<<"$JL" | grep -E '^copy [1-9A-HJ-NP-Za-km-z]{8} his ')
 fi
 # (his landing slot and block index: lines from 2026-10-25 22:30 on; 0 before)
 COPIES=$(awk 'NF >= 7 { tip = -1; at = $6; if ($5 == "tip") { tip = $6; gsub(/M/, "", tip); at = $8 } gsub(/[^0-9]/, "", at); sl = 0; ix = 0; for (i = 1; i < NF; i++) { if ($i == "slot") sl = $(i + 1); if ($i == "idx") ix = $(i + 1) } printf "%s(\x27%s\x27,%s,%s,%s,\x27%s\x27,%s,%s)", (n++ ? "," : ""), $2, $4, tip, (at == "" ? 0 : at), $NF, sl + 0, ix + 0 }' <<<"$CPL")
@@ -110,7 +125,7 @@ COPIES=$(awk 'NF >= 7 { tip = -1; at = $6; if ($5 == "tip") { tip = $6; gsub(/M/
 # ---- the other copied wallets (entry.copy_more, docs/19 section 5): mint8 -> wallet8, its SOL, create + k, our sell at
 # create + hold, buy / log / skip_small, its landing slot and block index
 if [ -n "${CHECK_COPYW+x}" ]; then CWL=$CHECK_COPYW; else
-  CWL=$(sudo journalctl -u rugsnipe-hot -o cat --since "@$E0" 2>/dev/null | grep -E '^copyw [1-9A-HJ-NP-Za-km-z]{8} by ')
+  CWL=$(sed -E 's/^[0-9.]+ [^ ]+ [^ ]+: //' <<<"$JL" | grep -E '^copyw [1-9A-HJ-NP-Za-km-z]{8} by ')
 fi
 COPYW=$(awk 'NF >= 15 { at = $7; gsub(/[^0-9]/, "", at); h = $13; gsub(/[^0-9]/, "", h); printf "%s(\x27%s\x27,\x27%s\x27,%s,%s,%s,\x27%s\x27,%s,%s)", (n++ ? "," : ""), $2, $4, $5 + 0, (at == "" ? 0 : at), (h == "" ? 0 : h), $NF, $9 + 0, $11 + 0 }' <<<"$CWL")
 [ -n "$COPYW" ] || COPYW="('','',0,0,0,'',0,0)"
@@ -255,7 +270,7 @@ from copyw w where w.m8 <> '' group by w.w8, w.act order by w.w8, w.act;
 .print == where our copies landed behind the copied buy, newest first (who: him, or the other wallet; d = block positions after
 .print    its buy, in its slot; failed = landed and refused by the price limit, which costs the fee only; our bid as sent)
 with c as (select m8, 'him' who, tip_m, slot, idx, act from copies union all select m8, w8, null, slot, idx, act from copyw)
-select strftime('%H:%M:%S', min(s.sent_unix_ms) / 1000, 'unixepoch') time, c.m8 mint, c.who, c.tip_m his_tip_m,
+select strftime('%H:%M:%S', min(s.sent_unix_ms) / 1000, 'unixepoch', 'localtime') time, c.m8 mint, c.who, c.tip_m his_tip_m,
        round(max(s.bid) / 1e6, 1) our_bid_m,
        case when c.slot = 0 then '?' when f.slot = c.slot then 'his slot' else '+' || (f.slot - c.slot) || ' slot' end landed,
        case when c.slot > 0 and f.slot = c.slot then f.tx_index - c.idx end d,
@@ -266,7 +281,7 @@ where c.act = 'buy' and s.sent_unix_ms >= $E0 * 1000
 group by c.m8, f.sig order by time desc limit 15;
 .print
 .print == last 10 trades, newest first (pct and net_sol after tips and fees)
-select strftime('%H:%M:%S', t_ms / 1000, 'unixepoch') time, substr(mint, 1, 8) mint, tier, round(cost / 1e9, 3) stake,
+select strftime('%H:%M:%S', t_ms / 1000, 'unixepoch', 'localtime') time, substr(mint, 1, 8) mint, tier, round(cost / 1e9, 3) stake,
        case when state = 'closed' then round(100.0 * net / max(cost, 1), 1) end pct,
        case when state = 'closed' then round(net / 1e9, 4) end net_sol, round(txc / 1e9, 4) tips_fees, state,
        coalesce(reason, '-') exit, case when closed_slot is not null then closed_slot - opened_slot end held_slots
@@ -279,7 +294,7 @@ from positions p where p.state <> 'closed';
 .print
 "
 SQL_TT="
-.print == tip test since $( [ -n "${TT:-}" ] && date -u -d "@${TT:-0}" '+%b %d %H:%M' ) UTC (bid.ab_by_tier: the mints whose first byte is odd bid the second arm): every copy sent
+.print == tip test since $( [ -n "${TT:-}" ] && lt -d "@${TT:-0}" '+%b %d %H:%M' ) $LZ (bid.ab_by_tier: the mints whose first byte is odd bid the second arm): every copy sent
 .print    since, by the bid it carried and whom it copied. in_its_slot: landed in the copied buy's block; d_avg: block positions
 .print    behind it there; within_15: in its block at most 15 behind (where the higher bid pays for itself). Keep the
 .print    higher bid only if its row lands closer AND its net per copy beats the lower bid's.
@@ -309,20 +324,29 @@ select day, round(realized / 1e9, 4) realized_sol, buys, killed, coalesce(kill_r
 from risk where day = date('now');
 "
 SQL_STOP="
-.print == the daily stop counts the UTC day (since 00:00 UTC), not the start: today's realized against the stop
+.print == the daily stop counts the UTC day (since $(lt -d "@$D0" +%H:%M) $LZ), not the start: that day's realized against the stop
 select round(coalesce((select realized from risk where day = date('now')), 0) / 1e9, 4) today_realized_sol,
        round($(tr -d '_' <<<"$(cfgv max_daily_loss_lamports)" | grep -oE '^[0-9]+' || echo 0) / 1e9, 4) daily_stop_sol;
 "
+SQL_OPEN="
+.print == open now
+select count(*) open_now, coalesce(group_concat(substr(mint, 1, 8), ', '), '-') positions from positions where state <> 'closed';
+.print
+"
 [ -n "${TT:-}" ] || SQL_TT=""
-if [ "$SHORT" = 1 ]; then SQL="$SQL$SQL_TT$SQL_TAIL$SQL_STOP"; else SQL="$SQL$SQL_LONG$SQL_TT$SQL_TAIL$SQL_RISK"; fi
-if [ "${CHECK_PRINT_SQL:-}" = 1 ]; then printf '%s\n' "$SQL"; exit 0; fi
+# the short view: the results and the tip test, then rugsnipe-trades' tables (every copy), then the open positions and
+# the daily stop (SQL2)
+if [ "$SHORT" = 1 ]; then SQL="$SQL$SQL_TT"; SQL2="$SQL_OPEN$SQL_STOP"; else SQL="$SQL$SQL_LONG$SQL_TT$SQL_TAIL$SQL_RISK"; fi
+if [ "${CHECK_PRINT_SQL:-}" = 1 ]; then printf '%s\n' "$SQL${SQL2:-}"; exit 0; fi
+# sqlite3 reads state.db as the service user, its times in local time
+sq() { sudo -u rugsnipe env TZ="$LT" sqlite3 -readonly "$@"; }
+# the newest copy of a helper: beside this script, the box's checkout, then the installed one
+tool() { local t; for t in "$(dirname "$(readlink -f "$0")")/$1" "$HOME/rugsnipe/deploy/bin/$1" "/opt/rugsnipe/src/deploy/bin/$1"; do
+  [ -f "$t" ] && { echo "$t"; return; }; done; echo "$1"; }
 
 if [ "$HIM" = 1 ]; then
   [ -n "$ERA" ] || { echo "no start recorded: bash ~/check.sh start"; exit 1; }
-  # the newest copy first: beside this script, the box's checkout, then the installed one
-  VS="$(dirname "$(readlink -f "$0")")/rugsnipe-vs-him"
-  [ -f "$VS" ] || VS="$HOME/rugsnipe/deploy/bin/rugsnipe-vs-him"
-  [ -f "$VS" ] || VS=/opt/rugsnipe/src/deploy/bin/rugsnipe-vs-him
+  VS=$(tool rugsnipe-vs-him)
   WA=()
   if [ -n "${HIMW:-}" ]; then
     # a prefix: the copy_more wallet of the config that starts with it
@@ -346,7 +370,8 @@ grpc_rc=$(g 'grpc: creates [0-9]+ miss [0-9]+ reconnects [0-9]+' | grep -oE '[0-
 grpc_age=$(g 'grpc: creates [0-9]+ miss [0-9]+ reconnects [0-9]+ since_frame [0-9]+' | grep -oE '[0-9]+$')
 desh_rc=$(g 'shreds: creates [0-9]+ miss [0-9]+ reconnects [0-9]+' | grep -oE '[0-9]+$')
 table=$(num "$(sudo journalctl -u rugsnipe-hot -o cat _PID="$PID" 2>/dev/null | grep -m1 -oE 'operators: [0-9]+ signers')")
-next=$(systemctl list-timers rugsnipe-operators.timer --no-legend 2>/dev/null | awk '{print $3}' | cut -c1-5)
+next=$(systemctl list-timers rugsnipe-operators.timer --no-legend 2>/dev/null | awk '{ print $2, $3, $4 }')
+next=$( [ -n "$next" ] && lt -d "$next" +%H:%M 2>/dev/null)
 if [ "$SHORT" = 1 ]; then
   killed=$(g 'killed [a-z_]+' | awk '{ print $2 }')
   paused=$(g 'BUYS PAUSED \([a-z_]+\)|FEED STALE')
@@ -355,10 +380,10 @@ if [ "$SHORT" = 1 ]; then
   elif [ "$killed" != no ]; then state="NO: stopped by the $killed kill (its trigger and the unkill steps below)"
   elif [ -n "$paused" ]; then state="NO: $paused"
   else state="yes"; fi
-  echo "== $(date -u +%H:%M:%S) UTC  TRADING: $state"
+  echo "== $(lt +%H:%M:%S) $LZ  TRADING: $state"
   if [ -n "$killed" ] && [ "$killed" != no ]; then
     if [ -n "${CHECK_LATCH+x}" ]; then latch=$CHECK_LATCH; else
-      latch=$(sudo -u rugsnipe sqlite3 -readonly "$DB" "select json_extract(v, '\$.reason') || ' at ' || strftime('%m-%d %H:%M:%S', json_extract(v, '\$.unix'), 'unixepoch') || ' UTC: ' || json_extract(v, '\$.detail') from kv where k = 'kill_latch'" 2>/dev/null)
+      latch=$(sq "$DB" "select json_extract(v, '\$.reason') || ' at ' || strftime('%m-%d %H:%M:%S', json_extract(v, '\$.unix'), 'unixepoch', 'localtime') || ' $LZ: ' || json_extract(v, '\$.detail') from kv where k = 'kill_latch'" 2>/dev/null)
     fi
     kf=$(cfgv kill_file | tr -d '"'); kf=${kf:-/run/rugsnipe/KILL}
     echo "   the kill: $(q "$latch")"
@@ -367,7 +392,7 @@ if [ "$SHORT" = 1 ]; then
   fi
   if [ -n "$ERA" ]; then
     m=$(( (now - ERA) / 60 ))
-    echo "   started $(date -u -d "@$ERA" '+%b %d %H:%M:%S') UTC ($((m / 60))h$(printf '%02d' $((m % 60)))m ago; bash ~/check.sh start resets it)"
+    echo "   started $(lt -d "@$ERA" '+%b %d %H:%M:%S') $LZ ($((m / 60))h$(printf '%02d' $((m % 60)))m ago; bash ~/check.sh start [HH:MM] resets it)"
   else echo "   no start recorded: bash ~/check.sh start"; fi
   w_start=$(num "$(sudo journalctl -u rugsnipe-hot -o cat --since "@$E0" 2>/dev/null | grep -E '^\[ *[0-9]+s\]' | grep -m1 -oE 'wallet [0-9]+')")
   echo "   wallet $( [ -n "$wallet" ] && sol "$wallet" || echo '?') SOL (at the start $( [ -n "$w_start" ] && sol "$w_start" || echo '?'), change $(awk -v a="${w_start:-}" -v b="${wallet:-}" 'BEGIN { if (a == "" || b == "") print "?"; else printf "%+.4f", (b - a) / 1e9 }') SOL)  open positions $(q "$open")  daily stop $(sol "$(tr -d '_' <<<"$(cfgv max_daily_loss_lamports)")") SOL"
@@ -385,12 +410,19 @@ if [ "$SHORT" = 1 ]; then
   [ -n "$cw_" ] && echo "   copyw (this process): $(wv wallets) other wallet(s) (entry.copy_more): their launch buys $(wv seen)  not copied: under min_sol $(wv small)  ->  copied $(wv buy) (journaled only $(wv log), coin already ours $(wv passed))"
   echo "   sends (this process): $(q "$(g 'probe attempts [0-9]+ landed [0-9]+ failed [0-9]+ dropped [0-9]+' | sed 's/probe //')")"
   echo "== results since the start (after tips and fees; failed = our buys that landed failed)"
-  printf '%s\n' "$SQL" | sudo -u rugsnipe sqlite3 -readonly -header -column "$DB"
+  printf '%s\n' "$SQL" | sq -header -column "$DB"
+  # every launch buy of the copied wallets since the start, one row each (their own trades read from the chain once)
+  if [ -n "$ERA" ]; then
+    if [ -n "${CHECK_TRADES+x}" ]; then TA=($CHECK_TRADES); else TA=(--state "$DB" --tz "$LT"); fi
+    printf '%s\n' "$JL" | sudo python3 -I "$(tool rugsnipe-trades)" --since "$ERA" "${TA[@]}"
+    echo
+  fi
+  printf '%s\n' "$SQL2" | sq -header -column "$DB"
   exit 0
 fi
-echo "== $(date -u +%H:%M:%S) UTC  hot $(svc rugsnipe-hot)  guard $(svc rugsnipe-guard)  up $(q "$up")s  $(q "$(g 'killed [a-z_]+')")  $(g 'BUYS PAUSED \([a-z_]+\)|FEED STALE')"
+echo "== $(lt +%H:%M:%S) $LZ  hot $(svc rugsnipe-hot)  guard $(svc rugsnipe-guard)  up $(q "$up")s  $(q "$(g 'killed [a-z_]+')")  $(g 'BUYS PAUSED \([a-z_]+\)|FEED STALE')"
 [ -n "$up" ] || echo "   (no status line from this process yet: the hot loop prints one every minute)"
-echo "   wallet $( [ -n "$wallet" ] && sol "$wallet" || echo '?') SOL  open $(q "$open")  free sell nonces $(q "$nonces")  table $(q "$table") signers  next refresh $(q "$next") UTC"
+echo "   wallet $( [ -n "$wallet" ] && sol "$wallet" || echo '?') SOL  open $(q "$open")  free sell nonces $(q "$nonces")  table $(q "$table") signers  next refresh $(q "$next") $LZ"
 # the wallet as the bot last read it (lags a minute or two): the only number that holds every cost
 w_day=$(num "$(sudo journalctl -u rugsnipe-hot -o cat --since "@$D0" 2>/dev/null | grep -E '^\[ *[0-9]+s\]' | grep -m1 -oE 'wallet [0-9]+')")
 w_proc=$(num "$(sudo journalctl -u rugsnipe-hot -o cat _PID="$PID" --since "@$T0" 2>/dev/null | grep -E '^\[ *[0-9]+s\]' | grep -m1 -oE 'wallet [0-9]+')")
@@ -406,5 +438,5 @@ cp_=$(g 'copy (log|on)( his [0-9]+ small [0-9]+ unlisted [0-9]+ few [0-9]+)? see
 cw_=$(g 'copyw wallets [0-9]+ seen [0-9]+ small [0-9]+ buy [0-9]+ log [0-9]+ passed [0-9]+')
 [ -n "$cw_" ] && echo "   $cw_  (entry.copy_more)"
 echo "   sends: $(q "$(g 'probe attempts [0-9]+ landed [0-9]+ failed [0-9]+ dropped [0-9]+' | sed 's/probe //')")  failed cost $( [ -n "$failc" ] && sol "$failc" || echo '?') SOL"
-echo "== this process (since $(date -u -d "@$T0" +%H:%M) UTC) and today (since 00:00 UTC)"
-printf '%s\n' "$SQL" | sudo -u rugsnipe sqlite3 -readonly -header -column "$DB"
+echo "== this process (since $(lt -d "@$T0" +%H:%M) $LZ) and today (the UTC day, since $(lt -d "@$D0" +%H:%M) $LZ)"
+printf '%s\n' "$SQL" | sq -header -column "$DB"

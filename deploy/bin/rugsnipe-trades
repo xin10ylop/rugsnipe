@@ -1,0 +1,340 @@
+#!/usr/bin/env python3
+# rugsnipe-trades: every launch buy of a copied wallet the bot saw since the start, one row each, newest first: what the
+# wallet did, what the bot did, and what our copy made, in local (Beirut) time. Run by `bash ~/check.sh` (sudo: the
+# api-keys credential, the config and state.db):
+#   journalctl -u rugsnipe-hot -o short-unix --since @START | grep -E ': copyw? ' |
+#     sudo python3 -I rugsnipe-trades --since START [--state DB] [--config TOML] [--cache-dir DIR] [--tz Asia/Beirut]
+# The wallets: entry.follow_wallet ("him") and entry.copy_more. Their own trades come from the chain (JSON-RPC: the
+# TRITON_URL line of the keys file, else RPC_URL) and are kept per wallet in --cache-dir: a run reads only the
+# transactions newer than the cache (and retries the ones a node did not serve yet). Ours come from state.db: the buy
+# (bid, where it landed, filled or refused by the price limit), the sell (exit, slots held) and the net after tips and
+# fees, counted as rugsnipe-check counts it.
+# stdin: the hot unit's `copy` / `copyw` lines with their unix time (journalctl -o short-unix).
+import argparse, datetime, importlib.util, json, os, re, sqlite3, sys, tomllib
+from concurrent.futures import ThreadPoolExecutor
+from importlib.machinery import SourceFileLoader
+
+sys.dont_write_bytecode = True                        # run as root from the user's checkout: leave no root-owned caches
+HERE = os.path.dirname(os.path.realpath(__file__))
+_spec = importlib.util.spec_from_loader("vs_him", SourceFileLoader("vs_him", os.path.join(HERE, "rugsnipe-vs-him")))
+VS = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(VS)
+orf = VS.orf
+HIM_DEFAULT = "AHwJSnFNUiAU9FfT5ewW2osqMo938WtL7KhfsJyfpaN2"
+SKIP_HIM = {"skip_small": "skip: tip/size low", "skip_unlisted": "skip: op not listed", "skip_few": "skip: op new"}
+SKIP_W = {"skip_small": "skip: < min_sol"}
+# the wallets' numbers in the tables: him 1, then these, then the other copy_more wallets in the config's order
+FIRST = ("3yrJE1A8", "JBokzLFR")
+
+
+def wallets_of(cfg_path):
+    """[(key, address, our sell, number)]: him first, then the entry.copy_more wallets that are not off (key: "him" or
+    the wallet's first 8 characters, as the journal names it)."""
+    try:
+        with open(cfg_path, "rb") as f:
+            cfg = tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError):
+        cfg = {}
+    e = cfg.get("entry") or {}
+    more = [(c["wallet"][:8], c["wallet"], f"create+{c.get('hold_to_create_slots', 29)}")
+            for c in e.get("copy_more") or [] if c.get("wallet") and (c.get("mode") or "on") != "off"]
+    more.sort(key=lambda x: FIRST.index(x[0]) if x[0] in FIRST else len(FIRST))
+    W = [("him", e.get("follow_wallet") or HIM_DEFAULT, "his sell - 1")] + more
+    return [(k, w, sell, str(i)) for i, (k, w, sell) in enumerate(W, 1)]
+
+
+def journal(lines):
+    """(who, mint8) -> the line's facts (who: "him" or the wallet's first 8); a buy line wins over a skip."""
+    out = {}
+    for l in lines:
+        m = re.match(r"^(\d+(?:\.\d+)?)\s+\S+\s+\S+:\s+(copyw?) (\S{8}) (.*)$", l.strip())
+        if not m:
+            continue
+        ts, kind, m8, rest = float(m.group(1)), m.group(2), m.group(3), m.group(4).split()
+        f = dict(ts=ts, act=rest[-1], slot=None, idx=None, at=None, tip=None)
+        for i, x in enumerate(rest[:-1]):
+            if x == "slot": f["slot"] = int(rest[i + 1])
+            elif x == "idx": f["idx"] = int(rest[i + 1])
+            elif x == "at": f["at"] = rest[i + 1].replace("create+", "")
+            elif x == "tip": f["tip"] = rest[i + 1]
+        if kind == "copy" and rest[0] == "his":
+            who, f["sol"] = "him", rest[1]
+        elif kind == "copyw" and rest[0] == "by":
+            who, f["sol"] = rest[1], rest[2]
+        else:
+            continue
+        k = (who, m8)
+        if k not in out or (f["act"] == "buy" and out[k]["act"] != "buy"):
+            out[k] = f
+    return out
+
+
+class Cache:
+    """A wallet's parsed trades since some start; a run reads only the signatures newer than the newest it holds."""
+
+    def __init__(self, d, w):
+        self.w, self.p = w, os.path.join(d, f"{w}.json")
+        try:
+            with open(self.p) as f:
+                self.c = json.load(f)
+        except (OSError, ValueError):
+            self.c = {}
+
+    def rows(self, api, since, workers):
+        w, c = self.w, self.c
+        if c.get("since", 1 << 62) > since:          # a start earlier than the cache's: read it all again
+            c = {"since": since, "newest": None, "rows": [], "retry": []}
+        sigs, before = [], None
+        for _ in range(200):
+            o = {"limit": 1000, "commitment": "confirmed"}
+            if before: o["before"] = before
+            if c["newest"]: o["until"] = c["newest"]
+            page = api.rpc("getSignaturesForAddress", [w, o]) or []
+            sigs += [x for x in page if (x.get("blockTime") or 0) >= since]
+            if len(page) < 1000 or (page[-1].get("blockTime") or 0) < since:
+                break
+            before = page[-1]["signature"]
+        todo = list(dict.fromkeys(c.get("retry", []) + [x["signature"] for x in sigs if x.get("err") is None]))
+
+        def one(sig):
+            try:
+                tx = api.rpc("getTransaction", [sig, orf.TX_OPTS])
+            except Exception:                         # noqa: BLE001 (read again next run)
+                return sig, None, True
+            if not tx:
+                return sig, None, True
+            p = orf.parse_wallet_rpc_tx(tx, w)
+            if p:
+                p["tip"] = VS.tip_of(tx, w)
+            return sig, p, False
+        if len(todo) > 50:
+            print(f"(reading {len(todo)} new transactions of {w[:8]}: once, then only the newer ones)", file=sys.stderr, flush=True)
+        have = {r["sig"] for r in c["rows"]}
+        retry = []
+        with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+            for sig, p, again in ex.map(one, todo):
+                if again: retry.append(sig)
+                elif p and p["sig"] not in have: c["rows"].append(p)
+        c["rows"] = [r for r in c["rows"] if r["ts"] >= since]
+        c["retry"] = retry[:2000]
+        if sigs:
+            c["newest"] = sigs[0]["signature"]
+        self.c = c
+        os.makedirs(os.path.dirname(self.p), exist_ok=True)
+        with open(self.p + ".tmp", "w") as f:
+            json.dump(c, f)
+        os.replace(self.p + ".tmp", self.p)
+        return c["rows"]
+
+
+def per_coin(rows):
+    """mint -> its first trade's time, its tip on its first buy, its net and whether it sold out, for the coins whose first
+    trade of its is a buy in that slot (its launch buys)."""
+    co = {}
+    for r in sorted(rows, key=lambda r: (r["slot"], r["sig"])):
+        c = co.setdefault(r["mint"], dict(t=r["ts"], s0=r["slot"], net=0, bought=0.0, held=0.0, tip=None, first_buy=False))
+        c["net"] += r["delta"]; c["held"] += r["tok"]
+        if r["tok"] > 0:
+            c["bought"] += r["tok"]
+            if c["tip"] is None: c["tip"] = r.get("tip")
+            c["first_buy"] |= r["slot"] == c["s0"]
+    for c in co.values():
+        c["closed"] = c["held"] <= 1e-3 * max(c["bought"], 1e-9)
+    return {m: c for m, c in co.items() if c["first_buy"]}
+
+
+OURS = """
+select i.mint, max(s.bid), min(s.sent_unix_ms),
+       (select f.slot from fills f where f.intent_id = i.intent_id and f.slot is not null
+        order by f.fail_reason is not null limit 1),
+       (select f.tx_index from fills f where f.intent_id = i.intent_id and f.slot is not null
+        order by f.fail_reason is not null limit 1),
+       exists (select 1 from fills f where f.intent_id = i.intent_id and f.fail_reason is null),
+       (select group_concat(distinct f.fail_reason) from fills f where f.intent_id = i.intent_id and f.fail_reason is not null),
+       p.cost, p.state, p.opened_slot, p.closed_slot,
+       coalesce((select sum(e.sol_delta) from exits e where e.mint = p.mint), 0),
+       (select group_concat(distinct e.reason) from exits e where e.mint = p.mint),
+       coalesce((select sum(coalesce(f.fee, 0) + coalesce(f.tip, 0)) from fills f
+                 where f.intent_id = p.intent_id and f.fail_reason is null), 0)
+       + coalesce((select sum(coalesce(x.prio, 0) + coalesce(x.tip, 0) + 5000) from exits e join sends x on x.sig = e.sig
+                   where e.mint = p.mint), 0),
+       coalesce((select sum(coalesce(f.fail_cost, f.fee, 0)) from fills f
+                 where f.intent_id = i.intent_id and f.fail_reason is not null and f.fail_reason <> 'dropped'), 0)
+from intents i join sends s on s.intent_id = i.intent_id
+left join positions p on p.intent_id = i.intent_id
+where s.kind = 'buy'
+group by i.intent_id having min(s.sent_unix_ms) >= ?
+"""
+
+
+def ours(db, since):
+    """mint8 -> our buy of it since `since` and its outcome (net = rugsnipe-check's: exits - cost - tips and fees)."""
+    c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    out = {}
+    for (mint, bid, t_ms, fslot, fidx, ok, why, cost, state, oslot, cslot, ex, reason, txc, failc) in c.execute(OURS, (since * 1000,)):
+        if ok:
+            result = "filled"
+        elif why and "slippage" in why:
+            result = "refused 5%"
+        elif why and why != "dropped":
+            result = f"failed {why}"
+        else:
+            result = "not landed"
+        closed = bool(cost) and state == "closed"
+        out[mint[:8]] = dict(bid=bid, t=(t_ms or 0) / 1000, fslot=fslot, fidx=fidx, result=result, cost=cost,
+                             state=state if cost else None, held=(cslot - oslot) if (closed and cslot and oslot) else None,
+                             net=(ex - cost - txc) if closed else (-failc if not ok else None),
+                             fees=(txc if cost else failc) or None, reason=reason)
+    return out
+
+
+def sol(l, sign=True):
+    """Lamports as SOL: 4 decimals, 6 under 0.0001 (a refused buy's fee)."""
+    if l is None:
+        return "-"
+    d = 6 if 0 < abs(l) < 100_000 else 4
+    return f"{l / 1e9:+.{d}f}" if sign else f"{l / 1e9:.{d}f}"
+
+
+def table(head, rows, indent="   "):
+    w = [max(len(str(x)) for x in col) for col in zip(head, *rows)] if rows else [len(h) for h in head]
+    print(indent + "  ".join(str(h).ljust(w[i]) for i, h in enumerate(head)).rstrip())
+    print(indent + "  ".join("-" * w[i] for i in range(len(head))))
+    for r in rows:
+        print(indent + "  ".join(str(x).ljust(w[i]) for i, x in enumerate(r)).rstrip())
+
+
+def main(argv):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--since", type=int, required=True, help="the start (unix s)")
+    ap.add_argument("--state", default="/var/lib/rugsnipe/state.db")
+    ap.add_argument("--config", default="/etc/rugsnipe/rugsnipe.toml")
+    ap.add_argument("--api-keys", default="/etc/rugsnipe/keys/api-keys.toml")
+    ap.add_argument("--cache-dir", default="/var/cache/rugsnipe-trades")
+    ap.add_argument("--tz", default="Asia/Beirut")
+    ap.add_argument("--rps", type=float, default=20.0)
+    ap.add_argument("--workers", type=int, default=16)
+    ap.add_argument("--no-chain", action="store_true", help="leave out the wallets' own results (no RPC)")
+    a = ap.parse_args(argv)
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(a.tz)
+    except Exception:                                 # noqa: BLE001 (no tz database: Beirut's winter offset)
+        tz = datetime.timezone(datetime.timedelta(hours=2))
+    hm = lambda t: datetime.datetime.fromtimestamp(t, tz).strftime("%H:%M:%S")  # noqa: E731
+    W = wallets_of(a.config)
+    J = {k: f for k, f in journal(sys.stdin.read().splitlines()).items() if f["ts"] >= a.since}
+    O = ours(a.state, a.since)
+    coins, chain_err = {}, {}
+    if not a.no_chain:
+        try:
+            _, url = VS.rpc_url(a.api_keys)
+        except (SystemExit, OSError) as e:            # no RPC line, or the keys file unreadable: our side only
+            url = None
+            chain_err = {nm: str(e)[:100] for nm, _, _, _ in W}
+        api = orf.Api(url, a.rps) if url else None
+        for nm, w, _, _ in W if api else []:
+            try:
+                coins[nm] = {m[:8]: c for m, c in per_coin(Cache(a.cache_dir, w).rows(api, a.since, a.workers)).items()}
+            except Exception as e:                    # noqa: BLE001 (its columns stay blank)
+                chain_err[nm] = str(e)[:100]
+
+    # one row per launch buy of a copied wallet the bot saw, plus our buys that copied no one (the rule's own)
+    rows, copied8 = [], set()
+    for (who, m8), f in J.items():
+        c = coins.get(who, {}).get(m8)
+        o = O.get(m8) if f["act"] == "buy" else None
+        if f["act"] == "buy":
+            copied8.add(m8)
+        tip = f["tip"] or (f"{c['tip'] / 1e6:.1f}M" if c and c.get("tip") is not None else "-")
+        its_net = "-" if not c else (sol(c["net"]) if c["closed"] else "holding")
+        if f["act"] == "buy":
+            bot = "COPIED" if o else "copied, not sent"
+        elif f["act"] == "log":
+            bot = "logged only"
+        else:
+            bot = (SKIP_HIM if who == "him" else SKIP_W).get(f["act"], f["act"])
+        rows.append(dict(t=f["ts"], who=who, m8=m8, sol=f["sol"], tip=tip, at=f"+{f['at']}" if f["at"] else "-", bot=bot,
+                         o=o, slot=f["slot"], idx=f["idx"], its=its_net, its_l=c["net"] if (c and c["closed"]) else None))
+    for m8, o in O.items():
+        if m8 not in copied8:
+            rows.append(dict(t=o["t"], who="rule", m8=m8, sol="-", tip="-", at="-", bot="rule's own", o=o, slot=None,
+                             idx=None, its="-", its_l=None))
+    rows.sort(key=lambda r: -r["t"])
+    num = {k: n for k, _, _, n in W}
+
+    out = []
+    for r in rows:
+        o = r["o"]
+        bid = landed = behind = result = pct = net = fees = exit_ = held = "-"
+        if o:
+            bid = f"{(o['bid'] or 0) / 1e6:.1f}M"
+            result = o["result"]
+            if o["fslot"] is not None and r["slot"]:
+                d = o["fslot"] - r["slot"]
+                landed = "its slot" if d == 0 else f"{d:+d} slot"
+                if d == 0 and o["fidx"] is not None and r["idx"] is not None:
+                    behind = str(o["fidx"] - r["idx"])
+            if o["result"] == "filled":
+                if o["state"] == "closed":
+                    net = sol(o["net"]); pct = f"{100 * o['net'] / max(o['cost'], 1):+.1f}%"
+                    held = str(o["held"]) if o["held"] is not None else "-"
+                    exit_ = o["reason"] or "-"
+                else:
+                    net = "OPEN"
+            elif o["net"]:
+                net = sol(o["net"])
+            fees = sol(o["fees"], False) if o["fees"] else "-"
+        out.append([hm(r["t"]), r["m8"], num.get(r["who"], r["who"]), r["sol"], r["tip"], r["at"], r["bot"], bid, landed, behind, result,
+                    held, exit_, fees, pct, net, r["its"]])
+
+    start = datetime.datetime.fromtimestamp(a.since, tz)
+    zone = f"{a.tz.split('/')[-1]} time, UTC{start.strftime('%z')[:3]}"
+    print(f"== by copied wallet, since {start.strftime('%b %d %H:%M')} ({zone})")
+    summ = []
+    for nm, w, sell, n in W + ([("rule", "", "-", "-")] if any(r["who"] == "rule" for r in rows) else []):
+        mine = [r for r in rows if r["who"] == nm]
+        cop = [r for r in mine if r["o"]]
+        closed = [r for r in cop if r["o"]["result"] == "filled" and r["o"]["state"] == "closed"]
+        our = sum(r["o"]["net"] or 0 for r in cop if r["o"]["net"] is not None)
+        its = [r["its_l"] for r in cop if r["its_l"] is not None]
+        if nm in chain_err:
+            its_s, other = "chain read failed", "-"
+        elif nm in coins:
+            seen = {r["m8"] for r in mine}
+            rest = [c for m8, c in coins[nm].items() if m8 not in seen and c["t"] >= a.since]
+            its_s = f"{sum(its) / 1e9:+.4f}" if its else "-"
+            other = f"{len(rest)} ({sum(c['net'] for c in rest if c['closed']) / 1e9:+.4f})"
+        else:
+            its_s, other = "-", "-"
+        wins = sum(1 for r in closed if r["o"]["net"] > 0)
+        summ.append([f"{n} {'him (AHwJSnFN)' if nm == 'him' else nm}" if n != "-" else "rule's own", sell, len(mine) if nm != "rule" else "-", len(cop),
+                     sum(1 for r in cop if r["o"]["result"] == "filled"),
+                     sum(1 for r in cop if r["o"]["result"].startswith(("refused", "failed"))),
+                     f"{wins}/{len(closed)}", f"{our / 1e9:+.4f}", its_s, other])
+    tot = sum(r["o"]["net"] or 0 for r in rows if r["o"] and r["o"]["net"] is not None)
+    summ.append(["TOTAL", "", "", sum(s[3] for s in summ), sum(s[4] for s in summ), sum(s[5] for s in summ),
+                 f"{sum(int(s[6].split('/')[0]) for s in summ)}/{sum(int(s[6].split('/')[1]) for s in summ)}",
+                 f"{tot / 1e9:+.4f}", "", ""])
+    table(["who", "we sell at", "its buys seen", "sent", "filled", "refused", "won", "OUR NET SOL",
+           "its net, coins we sent", "its other coins (its net)"], summ)
+    print("   OUR NET: after tips and fees, the refused buys' fees included; open positions count once sold.")
+    print("   its net: the wallet's own result on the same coins (its tips and fees included). its other coins: its launch")
+    print("   buys the bot did not see at create + 0/1 (a later buy, or a coin priced in another token).")
+    for e in dict.fromkeys(chain_err.values()):
+        who = [nm for nm, x in chain_err.items() if x == e]
+        print(f"   ({', '.join(who)}: its own trades could not be read from the chain: {e})")
+    print()
+    print(f"== every trade since {start.strftime('%H:%M')}, newest first ({zone})")
+    print("   who: the wallet's number above. the bot: what it did on the wallet's buy (not sent: the open-position cap,")
+    print("   the feed pause or the kill held it). landed: in the wallet's slot or after it; behind: block positions after")
+    print("   its buy there. refused 5% = landed but refused by the price limit (costs the fee only). held: slots held.")
+    if out:
+        table(["time", "coin", "who", "its SOL", "its tip", "its buy", "the bot", "our bid", "landed", "behind", "result",
+               "held", "exit", "fees", "our %", "OUR NET", "ITS NET"], out)
+    else:
+        print("   (no launch buy of a copied wallet seen since the start)")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

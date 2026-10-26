@@ -272,3 +272,19 @@ made +320.7 SOL together. Copying them makes +7.2, and 13 of the 30 lose as a co
 +0.08 as a copy; 9qz7cWBq +43.7 and -2.12; 4yFAz7dp +24.3 and +0.60. The ones copied keep the most: him +9.08 and
 +3.33, H9kuqGKN +6.93 and +2.37. A copy keeps only the move after the copied buy, and the biggest earners make theirs
 by being first, often with a 2-5 SOL buy that is itself the move.
+
+## 12. One view of every copy (`bash ~/check.sh`, Oct 26 evening)
+
+`bash ~/check.sh` ends with `deploy/bin/rugsnipe-trades`. It shows two tables, in Beirut time:
+
+- **By copied wallet:** launch buys seen, sent, filled, refused, wins and our net, then the wallet's own net on the same
+  coins and on the coins the bot did not see. The wallets are numbered: 1 is him, 2 is 3yrJE1A8, 3 is JBokzLFR, then
+  the other `copy_more` wallets in the config's order.
+- **Every launch buy since the start, newest first:**
+  - what the wallet did: its SOL, its tip, its buy slot after the create, its net;
+  - what the bot did: copied, skipped and why, or copied but not sent;
+  - what our copy did: our bid, where it landed and how far behind, the result, slots held, exit, fees, % and net.
+
+The wallets' own trades are read from the chain once and kept in `/var/cache/rugsnipe-trades/<wallet>.json`. Each later
+run reads only the newer signatures, and retries any transaction a node did not serve yet. `bash ~/check.sh start 15:00`
+sets the start to 15:00 today, Beirut time.
