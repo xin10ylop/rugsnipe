@@ -11,7 +11,7 @@
 # /var/lib/rugsnipe/state.db (read-only). Needs sudo for the journal and the config.
 # Test hooks: CHECK_STATUS (a status line instead of the journal's), CHECK_TIERS (operator lines), CHECK_TWEETS (tweet lines),
 # CHECK_FEED (tweetfeed lines), CHECK_DUMPERS (dumper lines), CHECK_FOLLOW (follow lines), CHECK_COPY (copy lines),
-# CHECK_COPYW (copyw lines), CHECK_LATCH (the kill latch's text instead of state.db's),
+# CHECK_COPYW (copyw lines), CHECK_LATCH (the kill latch's text instead of state.db's), CHECK_TT0 (the tip test's start),
 # CHECK_RULE_T0 (the tweet rule's start, unix s; empty = none), CHECK_AB_T0 (the bid A/B's start, unix s),
 # CHECK_ERA_T0 (the era's start, unix s, instead of ~/.rugsnipe-era),
 # CHECK_DB (another state.db), CHECK_PRINT_SQL=1 (print the SQL and stop).
@@ -66,6 +66,12 @@ if [ -n "${CHECK_AB_T0+x}" ]; then AB=$CHECK_AB_T0; else
   AB=$(sudo journalctl -u rugsnipe-hot -o short-unix --since "@$E0" 2>/dev/null | grep -m1 -E 'bid ab: ' | awk '{ printf "%d", $1 }')
 fi
 AB=${AB:-${TR:-$D0}}
+# ---- the tip test (2026-10-26): bid.ab_by_tier on the copies, half of them (by mint) at the second arm's tier-0 bid.
+# Its start: the first "bid ab:" start line since the start that carries the configured arm; empty when it is off
+TT_ARM=$(cfgv ab_by_tier | tr -d '[]_ ' | cut -d, -f1)
+if [ -n "${CHECK_TT0+x}" ]; then TT=$CHECK_TT0; elif [ -n "$TT_ARM" ]; then
+  TT=$(sudo journalctl -u rugsnipe-hot -o short-unix --since "@$E0" 2>/dev/null | grep -m1 -E "bid ab: \[$TT_ARM," | awk '{ printf "%d", $1 }')
+fi
 # ---- the tweet check's verdict lines (entry.tweet_gate, docs/13) of today: mint8 -> verdict, delay, slot offset
 if [ -n "${CHECK_TWEETS+x}" ]; then TWL=$CHECK_TWEETS; else
   TWL=$(sudo journalctl -u rugsnipe-hot -o cat --since "@$E0" 2>/dev/null | grep -E '^tweet [1-9A-HJ-NP-Za-km-z]{8} [a-z_]+ rank ')
@@ -272,6 +278,31 @@ select count(*) open_now, coalesce(group_concat(substr(p.mint, 1, 8) || ' tier '
 from positions p where p.state <> 'closed';
 .print
 "
+SQL_TT="
+.print == tip test since $( [ -n "${TT:-}" ] && date -u -d "@${TT:-0}" '+%b %d %H:%M' ) UTC (bid.ab_by_tier: the mints whose first byte is odd bid the second arm): every copy sent
+.print    since, by the bid it carried and whom it copied. in_its_slot: landed in the copied buy's block; d_avg: block positions
+.print    behind it there; within_15: in its block at most 15 behind (where the higher bid pays for itself). Keep the
+.print    higher bid only if its row lands closer AND its net per copy beats the lower bid's.
+with c as (select m8, 'him' who, slot, idx from copies where act = 'buy' and m8 <> ''
+           union all select m8, w8, slot, idx from copyw where act = 'buy' and m8 <> ''),
+a as (select i.intent_id, i.mint, max(s.bid) bid from intents i join sends s on s.intent_id = i.intent_id
+      where s.kind = 'buy' and s.sent_unix_ms >= ${TT:-0} * 1000 group by i.intent_id),
+x as (select a.*, c.who, c.slot cslot, c.idx cidx,
+        (select f.slot from fills f where f.intent_id = a.intent_id order by f.fail_reason is not null limit 1) fslot,
+        (select f.tx_index from fills f where f.intent_id = a.intent_id order by f.fail_reason is not null limit 1) fidx,
+        exists (select 1 from fills f where f.intent_id = a.intent_id and f.fail_reason is null) ok,
+        exists (select 1 from fills f where f.intent_id = a.intent_id and f.fail_reason is not null) bad,
+        (select p.net from pos p where p.mint = a.mint and p.state = 'closed') net,
+        (select p.cost from pos p where p.mint = a.mint and p.state = 'closed') cost
+      from a join c on c.m8 = substr(a.mint, 1, 8))
+select round(bid / 1e6, 1) our_bid_m, who, count(*) copies, sum(ok) filled, sum(bad and not ok) failed, sum(not ok and not bad) not_landed,
+       sum(c_slot) in_its_slot, round(avg(case when c_slot then fidx - cidx end), 0) d_avg,
+       sum(c_slot and fidx - cidx <= 15) within_15,
+       round(100.0 * avg(case when cost > 0 then net * 1.0 / cost end), 1) mean_pct, round(coalesce(sum(net), 0) / 1e9, 4) net_sol,
+       round(coalesce(sum(net), 0) / 1e9 / max(count(*), 1), 4) net_per_copy
+from (select *, (cslot > 0 and fslot = cslot) c_slot from x) group by bid, who order by who, bid;
+.print
+"
 SQL_RISK="
 .print == risk ledger today
 select day, round(realized / 1e9, 4) realized_sol, buys, killed, coalesce(kill_reason, '-') kill_reason
@@ -282,7 +313,8 @@ SQL_STOP="
 select round(coalesce((select realized from risk where day = date('now')), 0) / 1e9, 4) today_realized_sol,
        round($(tr -d '_' <<<"$(cfgv max_daily_loss_lamports)" | grep -oE '^[0-9]+' || echo 0) / 1e9, 4) daily_stop_sol;
 "
-if [ "$SHORT" = 1 ]; then SQL="$SQL$SQL_TAIL$SQL_STOP"; else SQL="$SQL$SQL_LONG$SQL_TAIL$SQL_RISK"; fi
+[ -n "${TT:-}" ] || SQL_TT=""
+if [ "$SHORT" = 1 ]; then SQL="$SQL$SQL_TT$SQL_TAIL$SQL_STOP"; else SQL="$SQL$SQL_LONG$SQL_TT$SQL_TAIL$SQL_RISK"; fi
 if [ "${CHECK_PRINT_SQL:-}" = 1 ]; then printf '%s\n' "$SQL"; exit 0; fi
 
 if [ "$HIM" = 1 ]; then
