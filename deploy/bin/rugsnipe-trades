@@ -207,7 +207,7 @@ def ours(db, since):
             # landed: its fill, or a position the bot found after it had called the send dropped
             result, slot, idx = "filled", (okslot if okslot is not None else oslot), okidx
         elif why and "slippage" in why:
-            result, slot, idx = "refused 5%", fslot, fidx
+            result, slot, idx = "refused", fslot, fidx
         elif why and why != "dropped":
             result, slot, idx = f"failed {why}", fslot, fidx
         else:
@@ -425,7 +425,7 @@ def main(argv):
     print("   how to read: ITS NET = the wallet's own result on the coin (its size, exits, tips, fees), not what a copy")
     print("   makes; OUR NET / our % = our copy after tips and fees. the bot: COPIED, skip: why, not sent (open-position")
     print("   cap, feed pause or kill), not seen (its first buy after create + 1, or a coin priced in another token),")
-    print("   not watched yet (before the wallet was added). result: filled, refused 5% (the price limit: fee only),")
+    print("   not watched yet (before the wallet was added). result: filled, refused (its price limit: fee only),")
     print("   not landed. landed: in its slot or after; behind: block positions after its buy. held: slots held.")
 
 
