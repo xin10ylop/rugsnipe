@@ -265,3 +265,10 @@ half):
 
 None funds the creators of the coins it buys. H9kuqGKN went live at 17:36 (create + 9). Its buys after launch on SOL
 coins lose for it (37 coins, -11.65 SOL by its own SOL balance, 6 wins), so only its launch buys are copied.
+
+**What they make against what a copy makes** (`ownvscopy.py`: on the SOL tapes, Oct 25 18:00 - Oct 26 17:40, each
+wallet's own result on its launch buys inside the 13-slot tape against the copy's). The 30 wallets that made the most
+made +320.7 SOL together. Copying them makes +7.2, and 13 of the 30 lose as a copy. dKMjeGJ4 made +75.8 itself and
++0.08 as a copy; 9qz7cWBq +43.7 and -2.12; 4yFAz7dp +24.3 and +0.60. The ones copied keep the most: him +9.08 and
++3.33, H9kuqGKN +6.93 and +2.37. A copy keeps only the move after the copied buy, and the biggest earners make theirs
+by being first, often with a 2-5 SOL buy that is itself the move.
