@@ -138,3 +138,20 @@ whatever the wallet does (`oos_screen_nosell.py`):
 
 It buys 0.1 to 0.5 SOL (1 SOL since Oct 25: those 28 copies -0.24). 9su3UPQW needs its repeat-operator filter, which
 `copy_more` does not have, and lost -1.94 in one block: left out. **JBokzLFR goes in at create + 5, every size.**
+
+## 8. 3yrJE1A8's exit, decoded (Oct 24 - Oct 26 12:00, 304 coins)
+
+Its gain is read from the curve at its buy + 5 / 9 / 14 / 17 / 19 / 24 / 29 (`w3/rule.py`, `rule2.py`, `timer.py`,
+`timer2.py`, `tp.py`).
+
+- **Two timers, chosen at random as far as the chain shows.** 130 coins are sold about 20 slots after its buy, 147 about
+  30. The choice is not its size (2 SOL: 63 / 75; 0.5 SOL: 67 / 72), not create + 0 or + 1, and not the operator: 24 of
+  the 25 operators with 3+ coins get both timers. The host doesn't decide it either. The price path before its +20 sell
+  does not tell the two apart (AUC 0.48 to 0.59 for the gain at +9 / +19, momentum, drawdown, the peak).
+- **An early take profit, loosely.** 22 coins are sold within 12 slots. 16 of those are sold when the position would
+  fetch +35% or more over its cost. But 10 timer coins were worth that at +5 or +9 and were held, so it isn't a plain
+  threshold on what this data shows.
+- **For the copy.** Following its early sells loses (+7.07 against +8.25, `early.py`). A take profit of our own at the
+  sampled slots (+30% over its price): +8.91 against +8.25, but Oct 24 is worse (+3.75 against +4.54). That's not
+  consistent enough to build. With a random timer, holding to create + 29 stays the copy's exit. A take profit could
+  only be settled on per-slot paths to + 29 (about 30,000 calls).
