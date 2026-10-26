@@ -155,3 +155,47 @@ Its gain is read from the curve at its buy + 5 / 9 / 14 / 17 / 19 / 24 / 29 (`w3
   sampled slots (+30% over its price): +8.91 against +8.25, but Oct 24 is worse (+3.75 against +4.54). That's not
   consistent enough to build. With a random timer, holding to create + 29 stays the copy's exit. A take profit could
   only be settled on per-slot paths to + 29 (about 30,000 calls).
+
+## 9. The failed copies, one by one, and every fix tested (Oct 26, 16:00)
+
+Since the start, 12 of our 35 copies of him and 3yrJE1A8 landed and were refused by the 5% limit (pump error 6042).
+Both wallets made money on most of those coins. Each one, from the chain (`fails/`):
+
+| coin | copied | its buy | ours | price moved | buys between (SOL) | filled where we landed | right behind it |
+|---|---|---|---|---|---|---|---|
+| DAkZMwi3 | him | +0 #598 | +1 #22 | +32% | 4 (5.55) | +0.521 | +0.853 |
+| 3cEYBUp4 | him | +0 #509 | +1 #161 | +12% | 6 (2.29) | +0.083 | +0.154 |
+| 9387oQyF | him | +0 #690 | +3 #29 | +8% | 3 (2.38) | +0.066 | +0.112 |
+| HZEe2Rvq | him | +0 #146 | +0 #205 | +8% | 3 (1.34) | +0.033 | +0.076 |
+| GUjeXnaQ | him | +0 #328 | +1 #74 | +9% | 4 (1.52) | +0.013 | +0.058 |
+| FNHRpj8P | him | +0 #232 | +0 #396 | +10% | 3 (1.84) | -0.016 | +0.033 |
+| D7cp9jeq | him | +0 #196 | +1 #50 | +7% | 4 (1.19) | -0.016 | +0.019 |
+| 97NhoAsk | him | +0 #275 | +1 #17 | +6% | 6 (1.08) | -0.031 | -0.003 |
+| 3fe3ppjS | 3yrJE1A8 | +1 #28 | +1 #287 | +45% | 8 (8.50) | +0.475 | +0.922 |
+| 2DkuBnM6 | 3yrJE1A8 | +1 #22 | +1 #515 | +10% | 4 (1.81) | +0.052 | +0.106 |
+| pu5Q3GD2 | 3yrJE1A8 | +0 #343 | +1 #346 | +12% | 1 (2.47) | +0.051 | +0.118 |
+| 3g1MdujY | 3yrJE1A8 | +0 #538 | +1 #260 | +13% | 3 (2.67) | -0.079 | -0.024 |
+
+- **Who moved the price.** In his own slot it's the create snipers, whose transactions were sent before his buy was
+  visible: CWiNFA (0.99 SOL, 3M tip) on 4 of them, G9sQPg9E (0.8-1 SOL, 5.5M priority + 2M tip) on 4. In the next slot,
+  three times, a reactor with an 18-50M tip and a 2.5-4 SOL buy went first (DAkZMwi3, pu5Q3GD2, 3fe3ppjS).
+- **The 12, filled, would have made +1.15 SOL**: +0.65 on him, +0.50 on 3yrJE1A8. Two coins carry it (DAkZMwi3 +0.52,
+  3fe3ppjS +0.48). The other 10 come to +0.16.
+- **Over 5 days of his copies (558, tip >= 2M), every fix loses:**
+
+  | fix | adds |
+  |---|---|
+  | a wider limit (10% / 15% / none) | -1.05 / -1.79 / -2.07 SOL |
+  | any group of the refused ones (his tip, his size, the premium paid) | none positive except his 8-12M tips (+0.14 on 15) |
+  | a second buy 1 / 2 / 3 slots after the refusal | -0.50 to -3.57 |
+  | filling them with a short hold (create + 2 .. + 9) | -0.09 (+5) to -2.14 |
+
+- **For 3yrJE1A8 (3 days, 252 copies) they're about even:** no limit +8.01 against +8.25. A second try at +1 to +3
+  slots adds -0.13 to +0.29, all of it Oct 24.
+- **What would pay is landing closer behind him.** At 5%, the copy right behind him (D = 0) makes +11.97 SOL over the
+  5 days, against +5.51 at our real distances (D = 10: +8.07). The positions between are the create snipers'
+  transactions, already in flight, so a bid doesn't buy them (section 9 of docs/17). Only the next-slot race is decided
+  by tips, and there the reactors ahead of us paid 18-50M on a 2.5-4 SOL buy. On our 0.5 SOL that's 4-10% a fill.
+
+Nothing here is built: on the larger history the refused coins lose as a group. The ones that won today are mostly two
+large coins.
