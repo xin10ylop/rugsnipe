@@ -217,3 +217,37 @@ site, listed or not, and pairs of these.
   SOL together (HZEe2Rvq, 9387oQyF, GUjeXnaQ, FNHRpj8P, 2DkuBnM6, 97NhoAsk, D7cp9jeq).
 
 The limit stays at 5%.
+
+## 11. The second search (Oct 26 evening, `wallets2/`)
+
+**A data correction first.** 1,101 of the 4,808 tapes are coins priced in another token. Their trade events carry
+0 SOL reserves, and the wallets buy them through a swap. They are outside the bot's class (SOL quote), and the screens
+had valued them on a reserve rebuilt as if in SOL. Without them:
+
+- **JBokzLFR**: none of its coins are affected. Its result stands (+2.05 out of sample, sold at create + 5).
+- **3yrJE1A8**: 55 of its 131 taped coins were another quote. On its SOL coins (166 copies, Oct 24-26, sold at
+  create + 29) the copy makes +6.32 SOL, against +8.25 with them: its 0.5 SOL buys +3.33 (+2.30 / +1.61 / -0.58), its
+  2 SOL buys +2.99 (+2.59 / +0.20 / +0.20). `min_sol = 1.5` stays (`w3/solonly.py`).
+
+**Eight new candidates** (positive in 3-4 of 4 blocks on the first screen) through the process, on SOL coins, their
+own trades pulled (exit picked on Oct 25 18:00 - Oct 26 06:00, scored on 06:00 - 17:15):
+
+| wallet | launch buys | exit | 1st half | 2nd half | verdict |
+|---|---|---|---|---|---|
+| H9kuqGKN | 79 | create + 9 | +1.89 | +0.48 (+0.017 a copy) | **passes**: positive at every hold (+3 .. +12) in both halves; our sale comes first on 76 of 79 |
+| 6anjqMeW | 191 | create + 5 | +0.77 | +0.30 (+0.004) | too thin |
+| dKMjeGJ4 | 233 | create + 5 | +0.18 | +0.14 (+0.002) | too thin |
+| 8ksFdx6i | 152 | create + 12 | +0.87 | -0.27 | fails |
+| CWUqhP2g | 243 | create + 9 | +1.33 | -0.62 | fails |
+| 9qz7cWBq | 410 | create + 5 | -0.39 | -1.66 | fails |
+| 9pdYXJGy | 208 | create + 7 | +0.35 | -0.71 | fails |
+| AEgTuy8L | 178 | create + 5 | -1.60 | +0.26 | fails |
+
+6anjqMeW's and dKMjeGJ4's first-screen results came from coins priced in another token. None of the eight funds the
+creators of the coins it buys.
+
+**The widened search** (`discover3.py`, 3,621 SOL tapes, picked on the first half, scored on the second): of 43 wallets
+positive on the first half, the four we copy and H9kuqGKN held. Him +1.07, JBokzLFR +0.67, 3yrJE1A8 +0.51 and
+H9kuqGKN +0.48 on the second half. Most of the rest decayed, as the first search found. The next five that held, on
+partial tapes (D5BDDkBt +0.89 on 14, CxyKYmQo +0.78 on 24, AMDEmVoc +0.40 on 67, JBbbosQC +0.39 on 35, M8CcrseQ +0.21
+on 24), are in stage 2.
