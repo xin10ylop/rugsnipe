@@ -10,7 +10,10 @@
 # (getSignaturesForAddress, then one getTransaction per transaction).
 # Our side, from state.db: each position's net after tips and fees (as rugsnipe-check counts it) and our failed buys.
 # stdin: the hot unit's `copy <mint8> his <SOL> tip <M> at create+<k> -> <act>` lines since the start, what the bot did
-# with each launch buy of his it saw (buy, log, skip_small, skip_unlisted, skip_few).
+# with each launch buy of his it saw (buy, log, skip_small, skip_unlisted, skip_few), and its `copyw <mint8> by <wallet8>
+# <SOL> at create+<k> ... -> <act>` lines (entry.copy_more). --wallet another copied wallet (`bash ~/check.sh him
+# <wallet>`): that wallet against the copies of it (its copyw lines), and "us" holds only those; without it, him
+# against everything else we hold.
 import argparse, collections, os, sqlite3, sys, time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -26,6 +29,11 @@ WHY = {
     "skip_few": "not copied: operator he bought < 2 times in 24 h",
 }
 SYSTEM = "11111111111111111111111111111111"
+WHY_W = {
+    "buy": "copied",
+    "log": "journaled (mode = log)",
+    "skip_small": "not copied: its buy under min_sol",
+}
 NOT_SEEN = "not seen at create+0/1 (a later buy, or a coin outside the class filter)"
 
 
@@ -165,6 +173,19 @@ def ours(db, since):
     return pos, failed
 
 
+def copies_w(lines, w8):
+    """mint8 -> (its SOL, '?', create + k, act) of the `copyw` lines of the wallet `w8` (any wallet: None)."""
+    out = {}
+    for l in lines:
+        f = l.split()
+        if len(f) < 15 or f[0] != "copyw" or f[2] != "by" or (w8 is not None and f[3] != w8):
+            continue
+        m8, act = f[1], f[-1]
+        if m8 not in out or (act == "buy" and out[m8][3] != "buy"):
+            out[m8] = (f[4], "?", f[6].replace("create+", ""), act)
+    return out
+
+
 def copies(lines):
     """mint8 -> (his SOL, his tip M, create + k, act) of his first launch buy, a `buy` line winning."""
     out = {}
@@ -217,22 +238,36 @@ def main(argv):
         src = f"JSON-RPC ({name}, {n} transactions)"
     his = per_coin(rows)
     pos, failed = ours(a.state, a.since)
-    cp = copies(sys.stdin.read().splitlines() if not sys.stdin.isatty() else [])
+    lines = sys.stdin.read().splitlines() if not sys.stdin.isatty() else []
+    other = a.wallet != orf.DEFAULT_WALLET
+    if other:
+        # another copied wallet: our side is its copies only
+        cp, why, who = copies_w(lines, a.wallet[:8]), WHY_W, a.wallet[:8]
+        mine = {m for m, v in cp.items() if v[3] == "buy"}
+    else:
+        # him: our side is everything but the other wallets' copies
+        cp, why, who = copies(lines), WHY, "him"
+        mine = None
+        theirs = {m for m, v in copies_w(lines, None).items() if v[3] == "buy"} - {m for m, v in cp.items() if v[3] == "buy"}
+    keep = (lambda m8: m8 in mine) if other else (lambda m8: m8 not in theirs)
+    pos = {m: p for m, p in pos.items() if keep(m[:8])}
+    failed = {m: v for m, v in failed.items() if keep(m[:8])}
     mins = (time.time() - a.since) / 60
-    print(f"== him vs us since the start ({time.strftime('%b %d %H:%M', time.gmtime(a.since))} UTC, "
-          f"{int(mins // 60)}h{int(mins % 60):02d}m ago): his trades from the chain ({src}), ours from state.db")
+    print(f"== {who} vs us since the start ({time.strftime('%b %d %H:%M', time.gmtime(a.since))} UTC, "
+          f"{int(mins // 60)}h{int(mins % 60):02d}m ago): {'its' if other else 'his'} trades from the chain ({src}), ours from state.db"
+          + (f" (ours: the copies of {who} only)" if other else " (ours: all but the other wallets' copies)"))
     hc = [c for c in his.values() if c["closed"]]
     oc = [p for p in pos.values() if p["state"] == "closed"]
     ofail = sum(n for n, _ in failed.values())
     ofail_cost = sum(c or 0 for _, c in failed.values())
     table(["who", "coins", "closed", "wins", "net_closed_sol", "failed_tx", "failed_sol", "total_sol"], [
-        ["him", len(his), len(hc), sum(c["net"] > 0 for c in hc), sol(sum(c["net"] for c in hc)), fails,
+        [who, len(his), len(hc), sum(c["net"] > 0 for c in hc), sol(sum(c["net"] for c in hc)), fails,
          sol(-fail_fee), sol(sum(c["net"] for c in hc) - fail_fee)],
         ["us", len(pos), len(oc), sum(p["net"] > 0 for p in oc), sol(sum(p["net"] for p in oc)), ofail,
          sol(-ofail_cost), sol(sum(p["net"] for p in oc) - ofail_cost)],
     ])
     print()
-    print("== his coins since the start, newest first, and ours on each (net after fees and tips; open = still held)")
+    print(f"== {'its' if other else 'his'} coins since the start, newest first, and ours on each (net after fees and tips; open = still held)")
     by8 = {m[:8]: m for m in pos}
     out = []
     for m, c in sorted(his.items(), key=lambda kv: -kv[1]["t"]):
@@ -243,13 +278,14 @@ def main(argv):
         if nf and not p:
             ours_s = f"failed {nf[0]}x {sol(-(nf[1] or 0))}"
         out.append([time.strftime("%H:%M:%S", time.gmtime(c["t"])), m[:8], f"{c['buy'] / 1e9:.3f}",
-                    f"{j[1]}M" if j else (f"{c['tip'] / 1e6:.1f}M" if c.get("tip") is not None else "?"), f"create+{j[2]}" if j else "-",
-                    sol(c["net"]) if c["closed"] else "open", ours_s, WHY.get(j[3], j[3]) if j else NOT_SEEN])
-    table(["time", "mint", "his_sol", "his_tip", "his_buy", "his_net", "our_net", "the bot on his buy"], out)
+                    f"{j[1]}M" if j and j[1] != "?" else (f"{c['tip'] / 1e6:.1f}M" if c.get("tip") is not None else "?"), f"create+{j[2]}" if j else "-",
+                    sol(c["net"]) if c["closed"] else "open", ours_s, why.get(j[3], j[3]) if j else NOT_SEEN])
+    h = "its" if other else "his"
+    table(["time", "mint", f"{h}_sol", f"{h}_tip", f"{h}_buy", f"{h}_net", "our_net", f"the bot on {h} buy"], out)
     extra = [m for m in pos if m[:8] not in {k[:8] for k in his}]
     if extra:
         print()
-        print("== our coins he did not trade since the start")
+        print(f"== our coins {who if other else 'he'} did not trade since the start")
         table(["time", "mint", "our_net"], [[time.strftime("%H:%M:%S", time.gmtime(pos[m]["t"])), m[:8],
                                                sol(pos[m]["net"]) if pos[m]["state"] == "closed" else "open"]
                                               for m in sorted(extra, key=lambda m: -pos[m]["t"])])
