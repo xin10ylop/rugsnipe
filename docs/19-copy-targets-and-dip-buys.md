@@ -199,3 +199,21 @@ Both wallets made money on most of those coins. Each one, from the chain (`fails
 
 Nothing here is built: on the larger history the refused coins lose as a group. The ones that won today are mostly two
 large coins.
+
+## 10. A wider limit (7.5% / 10%) only when a condition holds (`fails/condlimit.py`, `w3/condlimit.py`)
+
+The 5-day copy of him (558 copies, tip >= 2M). For each condition known before the send, what the wider limit adds
+over 5%. The conditions: his tip, his size, create + 0 / + 1, his block index, the virtual SOL his buy left, the launch
+site, listed or not, and pairs of these.
+
+- **The best ones add +0.2 to +0.47 SOL over 5 days** (on +5.51), positive on 3 of 5 days at most. At 7.5%: other hosts
+  +0.47, tip >= 8M +0.26, vSOL >= 45 +0.26. At 10%: size >= 1.1 SOL +0.20, his index >= 400 +0.20. Most conditions lose,
+  and 10% for every copy loses on every day (-1.05).
+- **Picked on Oct 21-23 and scored on Oct 24-25, they don't hold:** the 7.5% pick (vSOL >= 45) adds -0.009, the 10%
+  pick (size >= 1.1) -0.027.
+- **3yrJE1A8's 2 SOL buys:** 7.5% adds +0.28, all of it Oct 24 (+0.48; then -0.03, -0.17). 10% adds -0.17.
+- **Live, it wouldn't have caught today's winners either.** The refused coins that made money had moved +12% to +45%
+  (DAkZMwi3 +32%, 3fe3ppjS +45%, 3cEYBUp4 and pu5Q3GD2 +12%). At 10%, the ones that would have filled come to +0.10
+  SOL together (HZEe2Rvq, 9387oQyF, GUjeXnaQ, FNHRpj8P, 2DkuBnM6, 97NhoAsk, D7cp9jeq).
+
+The limit stays at 5%.
