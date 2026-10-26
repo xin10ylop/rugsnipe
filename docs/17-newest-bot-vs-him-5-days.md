@@ -493,3 +493,79 @@ stop).
   copies without buying.
 - The bot from scratch, as backtested: `rule_buys = false` (the copies only), with `tweet_gate`, `tweet_feed`, `follow`
   and `dumper_skip` off (they served the rule's buys only).
+
+## 10. Faster, and the operator rule with each operator's arrival timed (Oct 26)
+
+After the first night live: two copies failed on the 5% bound behind a rival (CWiNFA…) that buys right behind him.
+Scripts: `analysis/research/2026-10-26/speed/` and `analysis/research/2026-10-26/oprule/`.
+
+### Speed: nothing to build on these boxes
+
+- **We are as fast as he is.** Under EU leaders, our at-create fires (Oct 21-25) landed a median 90 block positions
+  after the create, 66% of them in the create slot. His buys landed a median 103 positions after it, 63% in the slot.
+  Under NA leaders, 28% of ours and 25% of his land in the create slot; under Asian ones, 7% and 10% (`region.py`).
+- **So the ~90 positions behind his buy are the pipeline itself.** His buy executes, reaches our feed, and our buy
+  reaches the leader. The buyers ahead of us did not react faster. They fired at the create, as he does.
+- **Firing at the create ourselves loses to the copy** (`cover.py`, `prefire.py`, Oct 23 00:00 - Oct 25 18:00). His hot
+  listed operators made 4,297 creates in the window. He attempted 1,240 of them and key-bought 174. No operator with 3+
+  creates had a key rate of 30% or more, so the create does not say which coins he will key. Our buy is placed where
+  our real at-create fires landed. If it lands ahead of him, his guard fails his buy and his trades leave the curve.
+  His own transaction decides the exit: hold to H - 1, or sell at create + 2.
+
+  | | total |
+  |---|---|
+  | the live copy alone (react to his landed key buy) | **+5.50 SOL** (176 copies) |
+  | fire at every hot listed create | +2.69 (key coins +5.34, the other ~4,000 -2.65) |
+  | the same, plus the copy where it did not fill | +4.68 |
+
+  1,444 of those creates have no tape (neither wallet touched them). They are valued at the mean of the taped coins he
+  did not key, which flatters the pre-fire.
+- **Copying his failed key attempts** too (none of his buys landed at create + 0/1): 19 coins, -0.30 SOL (`failcopy.py`).
+- **Far leaders** (`copyregion.py`): the 29 copies under NA leaders make +0.84 SOL landing in his block, +0.77 landing a
+  slot later. Asian leaders: 16 copies, +0.15 / +0.12. A box near those leaders would add about 0.1 SOL over 5 days.
+- **The shred feed** shows his transaction a median 6 ms before the post-execution stream (`grpc_behind_shreds`).
+  Halving our distance (90 -> 45 positions) is worth +0.33 SOL over 5 days (*A bigger tip*, above), and 6 ms is a
+  fraction of that.
+
+Refused copies are already in the backtest: 22% of copies, -0.06 SOL had they filled.
+
+### The operator rule, timed
+
+The backtest counts his landed launch buys on the operator in the 24 h before each buy, as the bot counts them live.
+It builds the table at each 4-hourly refresh from his round trips before that refresh. Two gaps are closed here:
+- The count started empty on Oct 21. It now includes his month of trips before then: 10 more copies, +0.11 SOL.
+- The box lists an operator only at the first refresh after his first trade on it. That lag cost 9 copies, -0.03 SOL.
+
+His key buys (tip >= 2M or size >= 2 SOL), by what the bot can know at the buy (`arrival.py`, Oct 21-25):
+
+| operator | key buys | his net | copy | Oct 21 / 22 / 23 / 24 / 25 |
+|---|---|---|---|---|
+| A: >= 2 of his buys in 24 h (live) | 308 | +33.57 | **+8.13** | +1.53 / +0.98 / +5.24 / +0.40 / -0.02 |
+| B: fewer, traded within 7 days (in the box's table) | 100 | +5.39 | +0.13 | +0.49 / -0.43 / +0.14 / -0.04 / -0.04 |
+| C: back after more than 7 days | 16 | -0.53 | -0.36 | |
+| D: brand new this month | 151 | +4.75 | -0.72 | -0.57 / -0.99 / +0.20 / +0.02 / +0.63 |
+
+The options, with the box's table lag and unlisted copies sold at the default +9 (`options.py`):
+
+| rule | copies | 5 days | without 8ZN71X |
+|---|---|---|---|
+| >= 2 in 24 h and in the box's table (live) | 299 | **+8.15** | +2.36 |
+| >= 2 in 24 h, listed or not | 308 | +8.11 | +2.32 |
+| >= 1 in 24 h | 362 | +7.56 | +1.77 |
+| in the box's table, any count | 399 | +8.27 | +2.48 |
+| no operator rule | 575 | +6.66 | +0.87 |
+
+- **One operator carries the backtest.** 8ZN71X… made +5.79 of the live set's +8.13 SOL, across 38 copies. The other
+  50 operators made +2.34. The five best coins made +4.74. He has traded 8ZN71X since Sep 26. Its creates fell from
+  123 on Oct 23 to 76 on Oct 24 and 37 on Oct 25 (to 18:00). He key-bought one of them on Oct 25, and his two coins on
+  it last night lost.
+- **His big day was his established operators.** On Oct 23 he made +17.72 SOL on A, +2.99 on B, -0.60 on C and +1.80
+  on D. The copy made +5.24, +0.14, -0.10 and +0.20. 8ZN71X alone made +3.51 of it.
+- **Last night** (`nightsig.py`, each create's signer from the chain): 31 key buys. 13 were on brand-new operators: his
+  net +0.56, copy +0.41. 7 were on operators he had traded before: +0.04. 11 passed the live rule: +0.12. One new
+  operator (6sEEeA…) became hot within the night. Its third coin, AE8UD8L6, came at 03:20, before the 03:50 refresh
+  listed it, so the bot skipped it as `skip_unlisted` (copy +0.08). The bot copied its next coins.
+- **The rule stays.** Brand-new operators lose for the copy over the 5 days (-0.72 SOL on 151 copies) while his own net
+  there is +4.75. He is first on those coins, and the price after his buy does not rise enough to pay a round trip
+  90 positions later. Dropping the count while keeping the 7-day table is a wash (+0.12 on 100 more copies). The new
+  operators' last four periods are positive (+0.20, +0.02, +0.63, +0.41 last night), so the next days decide.
