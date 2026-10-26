@@ -116,7 +116,7 @@ FOLLOWS=$(awk 'NF >= 9 { gsub(/\x27/, "", $6); f = ($9 == "fees") ? $10 : "-"; h
 # ---- the copies (entry.copy, docs/17 section 9): mint8 -> his SOL, his tip (M; -1 on lines from before the tip was
 # journaled), create + k, buy / log
 if [ -n "${CHECK_JOURNAL+x}" ]; then JL=$CHECK_JOURNAL; else
-  JL=$(sudo journalctl -u rugsnipe-hot -o short-unix --since "@$E0" 2>/dev/null | grep -E ': copyw? [1-9A-HJ-NP-Za-km-z]{8} (his|by) ')
+  JL=$(sudo journalctl -u rugsnipe-hot -o short-unix --since "@$E0" 2>/dev/null | grep -E ': copyw? [1-9A-HJ-NP-Za-km-z]{8} (his|by) |systemd\[[0-9]+\]: Started rugsnipe-hot')
 fi
 if [ -n "${CHECK_COPY+x}" ]; then CPL=$CHECK_COPY; else
   CPL=$(sed -E 's/^[0-9.]+ [^ ]+ [^ ]+: //' <<<"$JL" | grep -E '^copy [1-9A-HJ-NP-Za-km-z]{8} his ')
@@ -296,10 +296,7 @@ from positions p where p.state <> 'closed';
 .print
 "
 SQL_TT="
-.print == tip test since $( [ -n "${TT:-}" ] && lt -d "@${TT:-0}" '+%b %d %H:%M' ) $LZ (bid.ab_by_tier: the mints whose first byte is odd bid the second arm): every copy sent
-.print    since, by the bid it carried and whom it copied. in_its_slot: landed in the copied buy's block; d_avg: block positions
-.print    behind it there; within_15: in its block at most 15 behind (where the higher bid pays for itself). Keep the
-.print    higher bid only if its row lands closer AND its net per copy beats the lower bid's.
+.print == TIP TEST since $( [ -n "${TT:-}" ] && lt -d "@${TT:-0}" '+%b %d %H:%M' ) $LZ, by our bid: keep the higher bid only if it lands closer (d_avg) AND nets more per copy
 with c as (select m8, 'him' who, slot, idx from copies where act = 'buy' and m8 <> ''
            union all select m8, w8, slot, idx from copyw where act = 'buy' and m8 <> ''),
 a as (select i.intent_id, i.mint, max(s.bid) bid from intents i join sends s on s.intent_id = i.intent_id

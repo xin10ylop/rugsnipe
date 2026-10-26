@@ -278,15 +278,20 @@ by being first, often with a 2-5 SOL buy that is itself the move.
 `bash ~/check.sh` ends with `deploy/bin/rugsnipe-trades`, in Beirut time. The wallets are numbered: 1 is him, 2 is
 3yrJE1A8, 3 is JBokzLFR, then the other `copy_more` wallets in the config's order. It prints three parts:
 
-- **Our copies by wallet:** launch buys seen, sent, filled, refused, open, wins and our net.
-- **What each wallet made itself,** from the chain. Its net is split three ways: on the coins we copied, on the ones
-  the bot skipped (its rules: tip or size, operator, min_sol, or the coin was ours already), and on the ones the bot
-  did not see. Then its holdings, its failed transactions and their fees, and its total. This is the individual
-  `check.sh him` view for every wallet at once.
-- **Every trade, one table per wallet,** newest first:
-  - what the wallet did: its SOL, its tip, its buy slot after the create, its net;
-  - what the bot did: copied, skipped and why, not sent, or not seen;
-  - what our copy did: our bid, where it landed and how far behind, the result, slots held, exit, fees, % and net.
+- **The last 10 trades,** every wallet together: its net, our net and %, the result, where we landed, slots held.
+- **By wallet:**
+  - its own net, then ours;
+  - what we sent, filled, had refused and won;
+  - where its own net came from: the coins we copied, the ones the bot skipped (its rules, or the coin was ours
+    already), the ones the bot did not see, and the ones from before the wallet was added;
+  - its failed transactions' fees.
+- **One table per wallet,** every launch buy of it, newest first:
+  - its net and ours first;
+  - then what the bot did: copied, skipped and why, not sent, not seen, or not watched yet;
+  - then its buy and our copy: bid, landing, result, slots held, fees and exit.
+
+A buy the bot first called dropped and then found landed (it adopts the position) counts as filled. A wallet counts as
+watched from the restart before its first journal line. Its tip leaves out SOL it wraps for a coin priced in WSOL.
 
 The wallets' own transactions are read from the chain once (failed ones too, for their fee) and kept in
 `/var/cache/rugsnipe-trades/<wallet>.json`. Each later run reads only the newer signatures, and retries any transaction
