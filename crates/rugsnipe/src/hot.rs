@@ -209,6 +209,9 @@ pub struct CopyWallet {
     pub min: u64,
     /// The copy sells at create + this many slots.
     pub hold: u16,
+    /// Its copy's price bound, basis points over its post-trade price
+    /// (`max_premium`, else `entry.copy_max_premium`).
+    pub premium_bps: u32,
 }
 
 /// Hot-loop settings derived from the config.
@@ -478,9 +481,7 @@ impl HotCfg {
             copy_min: sol_lamports(cfg.entry.copy_min_sol),
             copy_min_tip: cfg.entry.copy_min_tip_lamports,
             copy_big: sol_lamports(cfg.entry.copy_big_sol),
-            copy_premium_bps: (cfg.entry.copy_max_premium * 10_000.0)
-                .round()
-                .clamp(0.0, 1e6) as u32,
+            copy_premium_bps: premium_bps(cfg.entry.copy_max_premium),
             copy_late_slots: cfg.entry.copy_late_slots,
             copy_listed_only: cfg.entry.copy_listed_only,
             copy_signer_min_buys: cfg.entry.copy_signer_min_buys,
@@ -499,6 +500,9 @@ impl HotCfg {
                         mode: c.mode,
                         min: sol_lamports(c.min_sol),
                         hold: c.hold_to_create_slots,
+                        premium_bps: premium_bps(
+                            c.max_premium.unwrap_or(cfg.entry.copy_max_premium),
+                        ),
                     })
                 })
                 .collect(),
@@ -671,6 +675,11 @@ impl HotCfg {
 /// `bps` above the price at `V_pb`. The real buy's `min_tokens_out` is the
 /// quote at this reserve, so a fill that pays more than the premium over
 /// the expected post-bundle price fails on chain.
+/// A premium (a fraction: 0.05 = 5%) as basis points.
+fn premium_bps(p: f64) -> u32 {
+    (p * 10_000.0).round().clamp(0.0, 1e6) as u32
+}
+
 pub fn entry_v_cap(v_pb: u64, bps: u32) -> u64 {
     let Some(sq) = (v_pb as u128 * v_pb as u128).checked_mul(10_000 + bps as u128) else {
         return u64::MAX;
@@ -845,6 +854,9 @@ pub struct Parked {
     /// `entry.copy_more` ([`HotLoop::copy_more_trade`]): the copy sells at
     /// create + this many slots (0: his copy's exit, the table's hold - 1).
     pub copy_hold: u16,
+    /// A copy's price bound, basis points over the copied buy's post-trade
+    /// price (his: `entry.copy_max_premium`; a `copy_more` wallet's own).
+    pub copy_premium_bps: u32,
 }
 
 /// A create whose dev buy the decoder could not see: no buy found in the
@@ -2374,6 +2386,7 @@ impl HotLoop {
                 follow_hot: 0,
                 copy: false,
                 copy_hold: 0,
+                copy_premium_bps: 0,
             });
             if hidden {
                 self.counters.hidden_dev[0] += 1;
@@ -2671,7 +2684,16 @@ impl HotLoop {
             return;
         }
         self.counters.copy[1] += 1;
-        self.copy_send(t, &r, intent, true, 0, recv_ns, t0);
+        self.copy_send(
+            t,
+            &r,
+            intent,
+            true,
+            0,
+            self.cfg.copy_premium_bps,
+            recv_ns,
+            t0,
+        );
     }
 
     /// `entry.copy_more` (docs/19 section 4): a landed launch buy (a recent
@@ -2711,7 +2733,7 @@ impl HotLoop {
             return;
         }
         self.counters.copy_more[2] += 1;
-        self.copy_send(t, &r, intent, false, c.hold, recv_ns, t0);
+        self.copy_send(t, &r, intent, false, c.hold, c.premium_bps, recv_ns, t0);
     }
 
     /// A copy's mint, if it is free: `None` when we hold it or sent a buy for
@@ -2752,6 +2774,7 @@ impl HotLoop {
         intent: u64,
         his: bool,
         hold: u16,
+        premium_bps: u32,
         recv_ns: u64,
         t0: u64,
     ) {
@@ -2787,6 +2810,7 @@ impl HotLoop {
             follow_hot: 0,
             copy: true,
             copy_hold: hold,
+            copy_premium_bps: premium_bps,
         };
         self.decide_from_watch(
             r.src,
@@ -3612,8 +3636,11 @@ impl HotLoop {
         // (cheaply), the same bound paper E1 applies
         let spend = op.size;
         let v_cap = match pb {
-            // a copy: his post-trade reserve + entry.copy_max_premium
-            Some((v, _)) if copy => entry_v_cap(v, self.cfg.copy_premium_bps).min(op.v_max),
+            // a copy: the copied buy's post-trade reserve + its wallet's bound
+            Some((v, _)) if copy => {
+                let bps = parked.map_or(self.cfg.copy_premium_bps, |p| p.copy_premium_bps);
+                entry_v_cap(v, bps).min(op.v_max)
+            }
             Some((v, _)) => self.cfg.v_cap_at(v, op.v_max),
             None => self.cfg.v_cap(v0, op.v_max),
         };
@@ -5588,6 +5615,7 @@ mod bundle_gate_tests {
             follow_hot: 0,
             copy: false,
             copy_hold: 0,
+            copy_premium_bps: 0,
         }
     }
 

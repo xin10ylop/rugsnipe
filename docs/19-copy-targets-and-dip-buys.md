@@ -297,3 +297,57 @@ The wallets' own transactions are read from the chain once (failed ones too, for
 `/var/cache/rugsnipe-trades/<wallet>.json`. Each later run reads only the newer signatures, and retries any transaction
 a node did not serve yet. The start is Oct 26 15:00 Beirut time (13:00 UTC) by default, so `bash ~/check.sh` alone is
 the whole check. `bash ~/check.sh start [HH:MM]` sets another start.
+
+## 13. H9kuqGKN and D5BDDkBt live: where the wallet's result comes from, and a better exit and bound (Oct 26 night, `h9/`)
+
+At 00:45 Beirut time on Oct 27 (22:45 UTC on Oct 26), `check.sh` showed H9kuqGKN (wallet 4) at +24.56 SOL itself and our copies of it at
+−0.25. D5BDDkBt (wallet 6) was at +2.03 itself and −0.04 for us.
+
+**Most of wallet 4's result was never ours to copy:**
+
+| part | its own net |
+|---|---|
+| Coins before the bot watched it (45; pumpCmXq, the PUMP token itself, alone made +8.48) | +19.30 |
+| Coins outside the bot's class (25: priced in other tokens, or not pump.fun launches; checked on chain) | +2.36 |
+| Skipped (6; mostly Jmy7SAPy +2.10, which a refused copy of wallet 3 had already claimed) | +2.43 |
+| The 47 coins we copied | +0.56 |
+
+Of that last +0.56, it made +2.10 on the 11 copies the 5% price limit refused. On the 36 we filled, it made −1.59
+itself, against our −0.25.
+
+**What a copy of it makes.** Its full trades from Oct 25 18:00 UTC were pulled, with 160-slot tapes of its 154 in-class
+launch buys at create + 0/1 (`h9/coins.py`). Our copies were replayed on those tapes (`h9/replay.py`) with our real
+landings: 21 of our 35 live fills of it landed a slot after its buy, because it buys late in the block.
+
+- **Calibration.** On our 35 real fills, at our real landing and sell slot, the model reads +0.31 against −0.24 on
+  chain: about 0.0155 SOL high per fill. Our 8M fills cost more than its flat fee, and our sells land later in their
+  block. The figures below take 0.0155 off each fill. With that correction, today's setting reads −0.13 on the live
+  period, against −0.24 real.
+- **It holds for minutes.** Its first sell comes a median 190–345 slots after the create. Our create + 9 sells after
+  about 4 seconds. The bound also refuses many of its winners, because its coins keep rising past the first buyers.
+
+| setting (SOL, after the correction) | P1: Oct 25 18:00 – Oct 26 06:00 UTC, 67 coins | P2: 06:00 – 17:44, 38 | P3: live, 49 |
+|---|---|---|---|
+| create + 9, 5% (as it ran) | +0.21 | −0.18 | −0.13 |
+| create + 12, 5% | +0.48 | −0.24 | +0.69 |
+| create + 12, 15% | +0.55 | +0.22 | +1.37 |
+| **create + 12, 20%** | **+0.62** | **+0.22** | **+1.48** |
+| create + 12, 30% / 50% | +0.25 / +0.22 | +0.22 / +0.26 | +1.47 / +1.47 |
+| create + 15, 20% | +1.19 | −0.45 | +2.18 |
+
+- **The choice.** Create + 12 at 20% was picked on P1 + P2, before the bot watched the wallet. It is positive in all
+  three periods. A looser bound adds nothing past 20%. Create + 15 loses in P2.
+- **Selling one slot after its first sell** (capped at create + 40) does not beat create + 12 on P1 + P2 (+1.50
+  against +2.40 before the correction). It is not built.
+- **The profit rests on a few coins.** Without each period's 2 best coins, every setting is slightly negative.
+- **Him and 3yrJE1A8 keep 5%.** A wider bound lost for them (sections 9 and 10).
+
+**Built.** `copy_more[].max_premium` sets a wallet's own price bound, used instead of `entry.copy_max_premium`
+(validated in [0, 0.5)). His copies and the other wallets keep the global one. Wallet 4 should run with
+`hold_to_create_slots = 12, max_premium = 0.2`.
+
+**Wallet 6 is working as set.**
+- 48 of its 52 coins are in-class launch buys. On the 44 before the bot watched it, create + 9 at 5% reads +2.15
+  (before the correction).
+- Since we added it, it has made 4 in-class launch buys, so −0.04 is too few to judge.
+- A 15% bound reads +0.38 better on those 44 coins, about +0.24 after the correction. That is too little to change it.

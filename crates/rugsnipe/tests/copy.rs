@@ -757,6 +757,7 @@ fn a_copy_more_wallets_launch_buy_is_copied_and_sold_at_its_own_slot() {
                 mode,
                 min_sol,
                 hold_to_create_slots: 29,
+                max_premium: None,
             }];
         }
     };
@@ -826,6 +827,7 @@ fn copy_more_needs_the_copy_on_and_distinct_wallets() {
         mode: CopyMode::On,
         min_sol: 0.0,
         hold_to_create_slots: hold,
+        max_premium: None,
     };
     let w = Pubkey::new_unique().to_string();
     let check = |copy: CopyMode, more: Vec<rugsnipe_core::config::CopyMore>| {
@@ -846,5 +848,54 @@ fn copy_more_needs_the_copy_on_and_distinct_wallets() {
     );
     assert!(!check(CopyMode::On, vec![one("not-a-key", 29)]));
     assert!(!check(CopyMode::On, vec![one(&w, 0)]), "a hold of 0");
+    let bound = |p: f64| rugsnipe_core::config::CopyMore {
+        max_premium: Some(p),
+        ..one(&w, 29)
+    };
+    assert!(check(CopyMode::On, vec![bound(0.20)]));
+    assert!(!check(CopyMode::On, vec![bound(0.5)]), "a bound of 50%");
+    assert!(!check(CopyMode::On, vec![bound(-0.01)]), "a negative bound");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_copy_more_wallets_own_max_premium_bounds_its_copies_only() {
+    let other = Pubkey::new_unique();
+    let more = |p: Option<f64>| {
+        move |c: &mut Config| {
+            c.entry.copy_max_premium = 0.05;
+            c.entry.copy_more = vec![rugsnipe_core::config::CopyMore {
+                wallet: other.to_string(),
+                mode: CopyMode::On,
+                min_sol: 0.0,
+                hold_to_create_slots: 12,
+                max_premium: p,
+            }];
+        }
+    };
+    // the fire's minimum tokens out: the looser the bound, the fewer
+    let min_out = |o: &Outcome| o.decisions.iter().map(|d| d.3).filter(|&m| m > 0).max();
+    let its = |p: Option<f64>| {
+        let (o, _) = run(CopyMode::On, false, &more(p), &|hit, _| {
+            vec![buy(hit, other, SOL / 2, 0, SLOT, CI + 3)]
+        });
+        assert_eq!(o.fires, 1, "{:?}", o.labels());
+        min_out(&o).expect("a fire with a bound")
+    };
+    let global = its(None);
+    let loose = its(Some(0.20));
+    assert!(
+        loose < global,
+        "20% binds looser than the 5% default: {loose} vs {global}"
+    );
+    assert_eq!(its(Some(0.05)), global, "the same bound as the default");
+    // his copies keep entry.copy_max_premium whatever a copy_more wallet sets
+    let his = |p: Option<f64>| {
+        let (o, _) = run(CopyMode::On, false, &more(p), &|hit, his| {
+            vec![buy(hit, his, SOL, 0, SLOT, CI + 3)]
+        });
+        assert_eq!(o.fires, 1, "{:?}", o.labels());
+        min_out(&o).expect("a fire with a bound")
+    };
+    assert_eq!(his(Some(0.20)), his(None));
 }

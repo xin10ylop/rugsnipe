@@ -1356,6 +1356,11 @@ pub struct CopyMore {
     /// The copy sells at create + this many slots (the exit's
     /// `hold_to_create_slot` for this position).
     pub hold_to_create_slots: u16,
+    /// Its copy's price bound over its post-trade price (as
+    /// `entry.copy_max_premium`, which applies when this is unset): a wallet
+    /// whose coins keep rising past the first buyers is worth a looser one
+    /// (docs/19 section 13).
+    pub max_premium: Option<f64>,
 }
 impl Default for CopyMore {
     fn default() -> Self {
@@ -1364,6 +1369,7 @@ impl Default for CopyMore {
             mode: CopyMode::On,
             min_sol: 0.0,
             hold_to_create_slots: 29,
+            max_premium: None,
         }
     }
 }
@@ -2437,6 +2443,9 @@ impl Config {
                         "entry.copy_more.hold_to_create_slots",
                         "must be in 1..=300 slots",
                     );
+                }
+                if c.max_premium.is_some_and(|p| !(0.0..0.5).contains(&p)) {
+                    inv(&mut r, "entry.copy_more.max_premium", "must be in [0, 0.5)");
                 }
             }
         }
