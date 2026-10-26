@@ -1,0 +1,11 @@
+# Every 15 minutes: the day's realized SOL to its own Telegram bot (rugsnipe-pnl-tg.service).
+[Unit]
+Description=rugsnipe realized SOL to Telegram (every 15 min)
+
+[Timer]
+OnCalendar=*:0/15
+AccuracySec=30s
+Unit=rugsnipe-pnl-tg.service
+
+[Install]
+WantedBy=timers.target

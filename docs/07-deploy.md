@@ -180,6 +180,24 @@ crash, a restart and a reboot (which clears `/run`). **Unkill is local only.** L
 file, stop the service, `sudo -u rugsnipe rugsnipe-ctl unkill --state /var/lib/rugsnipe/state.db`, start it
 (docs/08 section 10). A Telegram message can kill but never unkill.
 
+### Realized SOL to Telegram every 15 minutes (2026-10-26)
+
+`deploy/bin/rugsnipe-pnl-tg` sends the UTC day's realized SOL every 15 minutes to a Telegram bot of its own. That is
+`risk.realized`, the daily stop's count and the `today_realized_sol` of `bash ~/check.sh`. It runs from
+`deploy/systemd/rugsnipe-pnl-tg.timer`. Use a separate bot from the alert bot, so it never competes with the hot
+unit's `/kill` polling.
+
+```bash
+sudo install -m 755 deploy/bin/rugsnipe-pnl-tg /usr/local/bin/
+sudo install -m 644 deploy/systemd/rugsnipe-pnl-tg.service deploy/systemd/rugsnipe-pnl-tg.timer /etc/systemd/system/
+# in Telegram: open the bot (t.me/<its name>) and press Start
+sudo rugsnipe-pnl-tg setup          # asks for the token (not shown), finds the chat, writes /etc/rugsnipe/keys/pnl-telegram (0600)
+sudo systemctl daemon-reload && sudo systemctl enable --now rugsnipe-pnl-tg.timer
+```
+
+Stop it with `sudo systemctl disable --now rugsnipe-pnl-tg.timer`. `sudo rugsnipe-pnl-tg send --dry` prints the
+message without sending it.
+
 ### Automatic kill triggers (docs/06 section 13)
 
 Implemented (task #12, 2026-10-16; probe/live latch, paper reports them as `would_kill`; each writes a

@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+# rugsnipe-pnl-tg: the day's realized SOL (state.db risk.realized, the UTC day the daily stop counts: the
+# `today_realized_sol` of bash ~/check.sh) sent to a Telegram bot of its own; rugsnipe-pnl-tg.timer runs it every 15 min.
+#   sudo rugsnipe-pnl-tg setup    once: asks for the bot's token (not echoed), finds your chat id from the /start you sent
+#                                 the bot, writes both to /etc/rugsnipe/keys/pnl-telegram (root only), sends a test
+#   sudo rugsnipe-pnl-tg send     read and send now (what the timer runs); --dry prints the message instead
+# Its own bot (not the alert bot in api-keys.toml), so it never competes with the hot unit's /kill polling. Read-only on
+# state.db. TG_API (another Bot API base URL) and RUGSNIPE_PNL_KEYS (another key file) are test hooks.
+import argparse, datetime, getpass, json, os, sqlite3, sys, urllib.parse, urllib.request
+
+KEYS = os.environ.get("RUGSNIPE_PNL_KEYS", "/etc/rugsnipe/keys/pnl-telegram")
+API = os.environ.get("TG_API", "https://api.telegram.org")
+
+
+def call(token, method, **params):
+    """A Bot API call; the token is never printed (errors name the method only)."""
+    req = urllib.request.Request(f"{API}/bot{token}/{method}", urllib.parse.urlencode(params).encode())
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            j = json.load(r)
+    except urllib.error.HTTPError as e:
+        try:
+            j = json.load(e)
+        except ValueError:
+            raise SystemExit(f"telegram {method}: HTTP {e.code}")
+    except (urllib.error.URLError, OSError) as e:
+        raise SystemExit(f"telegram {method}: {type(e).__name__}")
+    if not j.get("ok"):
+        raise SystemExit(f"telegram {method}: {j.get('description', 'refused')}")
+    return j["result"]
+
+
+def load_keys():
+    k = {}
+    try:
+        with open(KEYS) as f:
+            for line in f:
+                if "=" in line and not line.lstrip().startswith("#"):
+                    a, b = line.strip().split("=", 1)
+                    k[a.strip()] = b.strip().strip('"')
+    except OSError as e:
+        raise SystemExit(f"no {KEYS} ({e.strerror}): run sudo rugsnipe-pnl-tg setup")
+    if not k.get("TG_PNL_TOKEN") or not k.get("TG_PNL_CHAT"):
+        raise SystemExit(f"{KEYS} lacks TG_PNL_TOKEN or TG_PNL_CHAT: run sudo rugsnipe-pnl-tg setup")
+    return k["TG_PNL_TOKEN"], k["TG_PNL_CHAT"]
+
+
+def realized(db):
+    """The UTC day's realized lamports (0 before the day's first close)."""
+    c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    day = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+    r = c.execute("select realized from risk where day = ?", (day,)).fetchone()
+    return (r[0] if r and r[0] is not None else 0)
+
+
+def message(db, tz):
+    try:
+        from zoneinfo import ZoneInfo
+        z = ZoneInfo(tz)
+    except Exception:                                 # noqa: BLE001 (no tz database: Beirut's winter offset)
+        z = datetime.timezone(datetime.timedelta(hours=2))
+    now = datetime.datetime.now(z)
+    return f"realized_sol {realized(db) / 1e9:+.4f}  ({now.strftime('%H:%M')})"
+
+
+def setup():
+    if os.geteuid() != 0 and "RUGSNIPE_PNL_KEYS" not in os.environ:
+        raise SystemExit("run it with sudo: the key file is root's")
+    token = (os.environ.get("TG_PNL_TOKEN") or getpass.getpass("the bot's token from @BotFather (not shown): ")).strip()
+    me = call(token, "getMe")
+    chats = {}
+    for u in call(token, "getUpdates", timeout=0):
+        m = u.get("message") or u.get("edited_message") or {}
+        if m.get("chat", {}).get("type") == "private":
+            chats[m["chat"]["id"]] = m["chat"].get("first_name") or m["chat"].get("username") or ""
+    if not chats:
+        raise SystemExit(f"no message to the bot yet: open t.me/{me['username']}, press Start (or send it any message), "
+                         "then run this again")
+    chat, name = list(chats.items())[-1]
+    os.makedirs(os.path.dirname(KEYS), exist_ok=True)
+    fd = os.open(KEYS + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(f"# rugsnipe-pnl-tg: @{me['username']} -> {name}\nTG_PNL_TOKEN={token}\nTG_PNL_CHAT={chat}\n")
+    os.replace(KEYS + ".tmp", KEYS)
+    call(token, "sendMessage", chat_id=chat, text=f"rugsnipe: realized SOL every 15 minutes from now on")
+    print(f"saved to {KEYS} (chat {chat}, {name}); a test message is on its way to @{me['username']}")
+
+
+def main(argv):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("cmd", choices=("send", "setup"))
+    ap.add_argument("--state", default="/var/lib/rugsnipe/state.db")
+    ap.add_argument("--tz", default="Asia/Beirut")
+    ap.add_argument("--dry", action="store_true", help="print the message, send nothing")
+    a = ap.parse_args(argv)
+    if a.cmd == "setup":
+        return setup()
+    text = message(a.state, a.tz)
+    if a.dry:
+        print(text)
+        return
+    token, chat = load_keys()
+    call(token, "sendMessage", chat_id=chat, text=text)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

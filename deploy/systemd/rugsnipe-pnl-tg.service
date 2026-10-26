@@ -1,0 +1,21 @@
+# rugsnipe-pnl-tg -- hot role (fra1): the UTC day's realized SOL (state.db risk.realized, the daily stop's count) sent
+# to a Telegram bot of its own, started every 15 min by rugsnipe-pnl-tg.timer. Read-only on state.db; the bot's token
+# and chat id are in /etc/rugsnipe/keys/pnl-telegram (0600 root, written by `sudo rugsnipe-pnl-tg setup`).
+# Install: sudo install -m 755 deploy/bin/rugsnipe-pnl-tg /usr/local/bin/ and these two units in /etc/systemd/system/.
+# Run once by hand: sudo systemctl start rugsnipe-pnl-tg.service; journalctl -u rugsnipe-pnl-tg
+[Unit]
+Description=rugsnipe realized SOL to Telegram
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/etc/rugsnipe/keys/pnl-telegram
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/bin/rugsnipe-pnl-tg send
+TimeoutStartSec=60
+Nice=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
