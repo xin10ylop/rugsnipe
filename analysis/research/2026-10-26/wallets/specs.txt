@@ -1,0 +1,13 @@
+3yrJE1A8=all:vm
+7PtVk5TZ=all:v9
+5g8bviwg=size>=0.5:vm
+91KNk7bK=size>=0.5:v9
+HL1oF2j9=all:v9
+JBokzLFR=all:v9
+6fAV85kf=all:v9
+9FQnf1QF=all:vm
+9su3UPQW=op>=2:vm
+53DnQU1d=all:v9
+zAnr3Gph=all:vm
+2c945Fd8=all:vm
+E4m886VH=all:vm
