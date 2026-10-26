@@ -97,3 +97,17 @@ After a dump these coins keep falling more often than they bounce. Not built.
   passes every trade of a fresh launch to the hot loop, so the feed is unchanged. Journal lines
   `copyw <mint> by <wallet> <SOL> at create+<k> slot <s> idx <i> sell create+<h> -> buy|log|skip_small`. The status line
   adds `copyw wallets N seen small buy log passed`.
+
+## 6. Live, 2026-10-26 13:00: copy only its 2 SOL buys (`min_sol = 1.5`)
+
+3yrJE1A8 buys either 0.5 or 2 SOL. Its own trades from the start (Oct 25 22:08) to 13:22, read with
+`bash ~/check.sh him 3yrJE1A8`:
+
+| its buy | coins | wins | its mean | a 0.5 SOL copy at its prices |
+|---|---|---|---|---|
+| 2 SOL | 43 | 25 | +7.5% | +1.60 SOL |
+| 0.5 SOL | 22 | 9 | -1.4% | -0.15 SOL |
+
+The first live copy (3c3WaGz7, a 0.5 SOL buy) lost -44.5%, as the wallet itself did (-43%). The box runs
+`copy_more = [{ wallet = "3yrJE1A8...", min_sol = 1.5, hold_to_create_slots = 29 }]` from 13:26. The split is one
+15-hour sample, its own fills before ours; `check.sh him 3yrJE1A8` keeps measuring it.
