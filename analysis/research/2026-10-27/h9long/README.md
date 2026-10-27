@@ -72,3 +72,23 @@ canonical PumpSwap pool against wSOL or WBTC):
 | not routable without Jupiter (direct buys of other quotes, PUMP floats, 3+ hops) | 305 | +28.57 | +3.06 (+0.41) | +1.44 |
 
 The routable part holds in both periods; the rest made its money in P1 and is about zero in P2.
+
+## Does it scale? (`scale.py`, main thread)
+
+The routable buys, TP 2.0 / SL 0.8 / 1790 s, its sell ahead of ours within a slot, at most 3 open, at a bigger stake.
+`exits_pess.py`'s price model (the recorded path shifted by our tokens: later buyers trade fixed token amounts) makes a
+bigger stake pay more than its share: later buyers pay more for the same tokens and it flows to us (5 SOL: +96 on
+Oct 23-27). The cautious model shifts the path by our quote instead (copy bots spend fixed SOL), and lets the wallet's
+own exits fire on the price with our tokens in (its 2.5x comes earlier by our lift and lands ahead of our 2.0x):
+
+| stake | Oct 19-22 | Oct 23-27 | Oct 23-27, 5% haircut |
+|---|---|---|---|
+| 1 SOL | +6.74 (+4.77) | +8.84 (+6.19) | +5.90 (+3.48) |
+| 1.5 SOL | +10.92 (+8.04) | +14.42 (+10.51) | |
+| 2 SOL | +14.30 (+10.56) | +18.98 (+13.87) | +13.25 (+8.59) |
+| 3 SOL | +18.66 (+13.32) | +26.05 (+18.70) | +17.67 (+11.00) |
+| 5 SOL | +3.86 (-3.33) | +25.58 (+15.62) | |
+
+Its TP fires earlier because of our lift on 39 trips at 1 SOL, 55 at 3, 65 at 5. Up to 2-3 SOL the result grows about
+with the stake (the fixed costs thin out, our own impact eats part); at 5 SOL Oct 19-22 is negative without its best
+2. More open positions add little past 5 (at 1 SOL: 3 open +11.03, 5 open +12.46, no cap +12.21, optimistic model).
