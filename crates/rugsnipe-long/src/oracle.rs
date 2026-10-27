@@ -44,6 +44,15 @@ impl Oracle {
         (now_ms().saturating_sub(p.at_ms) < STALE_MS).then_some(p.lamports)
     }
 
+    /// The last price known, however old (accounting: a result is better
+    /// valued at an old rate than at none).
+    pub fn last_known(&self, mint: &Pubkey) -> Option<f64> {
+        if *mint == c::WSOL_MINT {
+            return Some(1.0);
+        }
+        self.inner.lock().ok()?.get(mint).map(|p| p.lamports)
+    }
+
     /// Set a price (tests, or a fill's own rate).
     pub fn set(&self, mint: Pubkey, lamports_per_unit: f64) {
         if let Ok(mut g) = self.inner.lock() {

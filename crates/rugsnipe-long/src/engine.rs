@@ -233,6 +233,14 @@ impl Engine {
 
     pub fn on_trigger(&mut self, t: Trigger) {
         let now = now_ms();
+        // its own trade prices a token it paid with when the SOL came in the
+        // same transaction (a Jupiter leg): a WBTC/SOL rate on every such buy
+        if let Some(v) = t.sol_value {
+            if t.via_jupiter && t.input_amount > 0 && !c::is_sol_like_quote_mint(&t.input_mint) {
+                self.oracle
+                    .set(t.input_mint, v as f64 / t.input_amount as f64);
+            }
+        }
         let rebuy = self
             .its_bought
             .insert(t.mint, now)
@@ -306,6 +314,7 @@ impl Engine {
             paper,
             mint: t.mint.to_string(),
             quote_mint: t.quote_mint.to_string(),
+            quote_program: t.quote_program.to_string(),
             coin_program: t.coin_program.to_string(),
             anchor: plan.anchor.to_string(),
             anchor_program: plan.anchor_program.to_string(),
@@ -427,12 +436,13 @@ impl Engine {
     }
 
     /// Sign one copy per sender (each with its tip), send them, and the
-    /// first copy through `sendTransaction` too. Returns the first signature.
+    /// first copy through `sendTransaction` too. Returns every signature
+    /// (first: the one `sendTransaction` carried).
     fn send_signed(
         &mut self,
         kind: VariantKind,
         ixs_for: &dyn Fn(Option<(Pubkey, u64)>) -> Vec<pump_codec::Instruction>,
-    ) -> Result<String, String> {
+    ) -> Result<Vec<String>, String> {
         let bh = self.blockhash()?;
         let signer = self.signer.as_ref().ok_or("no wallet loaded")?;
         let (_, tips) = self.fees(kind == VariantKind::Buy);
@@ -462,7 +472,10 @@ impl Engine {
                 eprintln!("long send rpc {}: {e}", &first[..8]);
             }
         }
-        Ok(first)
+        Ok(txs
+            .iter()
+            .map(|(_, s)| bs58::encode(s).into_string())
+            .collect())
     }
 
     fn send_buy(
@@ -480,6 +493,7 @@ impl Engine {
         self.buyback_rr = self.buyback_rr.wrapping_add(1);
         let bb = self.buyback_rr;
         let r = r.clone();
+        // one buy sender: one transaction (two landing would double the position)
         self.send_signed(VariantKind::Buy, &move |tip| {
             txb::buy_ixs(
                 &me,
@@ -492,6 +506,7 @@ impl Engine {
                 bb,
             )
         })
+        .map(|v| v.into_iter().next().unwrap_or_default())
     }
 
     /// Expected anchor out for selling our tokens now, and the floor.
@@ -513,9 +528,41 @@ impl Engine {
         (expected * (1.0 - slack)) as u64
     }
 
-    fn send_sell(&mut self, i: usize) -> Result<String, String> {
+    fn send_sell(&mut self, i: usize) -> Result<Vec<String>, String> {
         let p = self.book.positions[i].clone();
-        let r = p.buy_route().ok_or("stored route unreadable")?.reversed();
+        let mut r = p.buy_route().ok_or("stored route unreadable")?.reversed();
+        // the curve completed (or sells keep failing on it): the coin trades
+        // on its canonical PumpSwap pool now
+        let coin = p.mint_pk();
+        let pool = pump_codec::pda::canonical_pump_swap_pool(&coin, &Position::pk(&p.quote_mint));
+        if p.reason == Some(Reason::Complete)
+            || (p.sell_tries >= 3 && route::Chain::pool_exists(&mut self.rpc, &pool))
+        {
+            let qp = if p.quote_program.is_empty() {
+                c::TOKEN_2022_PROGRAM_ID
+            } else {
+                Position::pk(&p.quote_program)
+            };
+            let hops: Vec<_> = r
+                .hops
+                .iter()
+                .map(|h| {
+                    if h.venue == pump_codec::multihop::Venue::Curve && h.base_mint == coin {
+                        pump_codec::multihop::Hop::pool(
+                            &pool,
+                            &coin,
+                            &Position::pk(&p.coin_program),
+                            &h.quote_mint,
+                            &qp,
+                        )
+                    } else {
+                        *h
+                    }
+                })
+                .collect();
+            r = pump_codec::multihop::Route::new(r.input, hops).map_err(|e| format!("{e:?}"))?;
+        }
+        let close_coin = p.sell_tries < 2;
         let min_out = self.sell_min_out(&p);
         let (fees, _) = self.fees(false);
         let (ap, cp, me, tokens) = (
@@ -534,7 +581,7 @@ impl Engine {
                 &cp,
                 tokens,
                 min_out,
-                true,
+                close_coin,
                 &Fees { tip, ..fees },
                 bb,
             )
@@ -558,7 +605,7 @@ impl Engine {
             if a == c::WSOL_MINT {
                 Some(1.0)
             } else {
-                self.oracle.lamports_per_unit(&a)
+                self.oracle.last_known(&a)
             }
         };
         let p = &mut self.book.positions[i];
@@ -760,11 +807,12 @@ impl Engine {
         }
         let (id, mint, tries) = (p.id, p.mint.clone(), p.sell_tries);
         match self.send_sell(i) {
-            Ok(sig) => {
+            Ok(sigs) => {
+                let sig = sigs.first().cloned().unwrap_or_default();
                 let p = &mut self.book.positions[i];
                 p.state = State::Selling;
                 p.sell_sent_ms = now;
-                p.sell_sigs.push(sig.clone());
+                p.sell_sigs.extend(sigs);
                 println!(
                     "long sell #{id} {} {} at {px:.2}x try {tries} sent {}",
                     &mint[..8],

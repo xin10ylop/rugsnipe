@@ -65,6 +65,8 @@ pub struct Position {
     pub paper: bool,
     pub mint: String,
     pub quote_mint: String,
+    #[serde(default)]
+    pub quote_program: String,
     pub coin_program: String,
     pub anchor: String,
     pub anchor_program: String,
@@ -275,6 +277,7 @@ mod tests {
             paper: false,
             mint: String::new(),
             quote_mint: String::new(),
+            quote_program: String::new(),
             coin_program: String::new(),
             anchor: String::new(),
             anchor_program: String::new(),
