@@ -212,8 +212,21 @@ impl Engine {
                 match s {
                     Seen::Buy(t) => self.on_trigger(*t),
                     Seen::Sell { mint, .. } => {
-                        if self.book.live().any(|p| p.mint_pk() == mint) {
-                            println!("long its-sell {} (we hold it)", m8(&mint));
+                        // it sold before any rule of ours fired: out behind it,
+                        // as the backtest sells (its price path ends at its sale)
+                        for p in self
+                            .book
+                            .positions
+                            .iter_mut()
+                            .filter(|p| p.mint_pk() == mint)
+                        {
+                            // (an exit of ours waiting to be retried goes now too)
+                            if p.state == State::Open && p.reason != Some(Reason::Complete) {
+                                p.reason = Some(Reason::ItsSell);
+                                println!("long its-sell #{} {}: out behind it", p.id, m8(&mint));
+                            } else if p.live() {
+                                println!("long its-sell {} (we hold it)", m8(&mint));
+                            }
                         }
                     }
                     Seen::SolBuy { .. } => {}
@@ -762,7 +775,7 @@ impl Engine {
                 }
                 State::Open if now >= p.sell_next_ms => p
                     .reason
-                    .filter(|r| *r == Reason::Complete)
+                    .filter(|r| matches!(r, Reason::Complete | Reason::ItsSell))
                     .or_else(|| pos::exit_due(p, now, cfg.take_profit, cfg.stop, cfg.max_hold_s))
                     .map(|r| (i, Act::Exit(r))),
                 _ => None,

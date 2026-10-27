@@ -277,3 +277,32 @@ fn a_dropped_buy_that_lands_late_reopens() {
     e.on_tx(Src::Ours, &tx);
     assert_eq!(e.book.positions[0].state, State::Failed);
 }
+
+/// 2026-10-27, CkFH2smc: the wallet sold after 14 minutes and the paper copy
+/// held to 30 (-18.4%). The backtest's price path ends at its sale, so its
+/// copies sell right behind it; the engine does the same.
+#[test]
+fn its_early_sell_takes_us_out_behind_it() {
+    use rugsnipe_long::detect::{self, Seen};
+    let mut e = opened("itssell");
+    let sell = fx("w4_sell_wbtc_multihop");
+    let w4: pump_codec::Pubkey = e.cfg.copy_wallet.parse().unwrap();
+    let mint = match detect::read(&sell, &w4, &|_| None).as_slice() {
+        [Seen::Sell { mint, .. }] => *mint,
+        s => panic!("{s:?}"),
+    };
+    // our open position is on the coin it sells
+    e.book.positions[0].mint = mint.to_string();
+    e.on_tx(Src::Copied, &sell);
+    assert_eq!(e.book.positions[0].reason, Some(Reason::ItsSell));
+    e.on_tick(now_ms());
+    let p = &e.book.positions[0];
+    assert_eq!((p.state, p.reason), (State::Closed, Some(Reason::ItsSell)));
+    let dir = std::path::PathBuf::from(&e.cfg.state_dir);
+    assert!(std::fs::read_to_string(dir.join("closed.jsonl"))
+        .unwrap()
+        .contains("\"its_sell\""));
+    // a sale of a coin we no longer hold changes nothing
+    e.on_tx(Src::Copied, &sell);
+    assert_eq!(e.book.positions[0].state, State::Closed);
+}

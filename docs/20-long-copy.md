@@ -50,7 +50,10 @@ within a slot** (`exits_pess.py`):
 - **Buy:** one transaction, one sender (two landing would double the position) plus the same bytes by
   `sendTransaction`; `min_out` from its own fill at `max_premium` (25%).
 - **Exits:** on every trade of the coin, the curve price against the price its buy left, **without our own tokens**:
-  take profit 2.0x, stop 0.8x, 1790 s after its buy, or the curve completing. The sell goes back along the route,
+  take profit 2.0x, stop 0.8x, 1790 s after its buy, the curve completing, or **its own sell** when it leaves first
+  (2026-10-27, CkFH2smc: it sold after 14 minutes and the copy held to 30; the backtest's price path ends at its sale,
+  so its copies sell right behind it: `grid.py mix`, 1 of 135 copies on P1 and 8 of 136 on P2; journal
+  `long its-sell #N <mint>: out behind it`, exit `its_sell`). The sell goes back along the route,
   closes the wSOL and coin accounts (their rent comes back), and is retried with a lower floor if it fails or drops.
 - **When things fail** (2026-10-27, after the hot bot's 2RR6sfbi): a sell that lands and fails goes again at once 3
   times (the floor drops each time), then waits 5 s, 30 s, 2 min, and past `max_sell_fail_sol` (0.01) of failed fees

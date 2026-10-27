@@ -2,7 +2,7 @@
 # slot, our trigger filled on the next trade, the cautious price model q + LIFT by default): exits (take profit, stop,
 # trailing stop, hold), the entry premium limit, a later landing, and the result by quote token. Every grid is picked
 # on Oct 19-22 (P1, without its best 2 copies) and scored on Oct 23-27 (P2); at most 3 open.
-#   python3 -I grid.py exits|stops|tp|cap|days|premium|land|quote [MODEL LIFT] [LO HI]   (ROUTES=BC: only the WBTC routes, A: only SOL)
+#   python3 -I grid.py exits|stops|tp|cap|mix|days|premium|land|quote [MODEL LIFT] [LO HI]   (ROUTES=BC: only the WBTC routes, A: only SOL)
 import sys, json, datetime, collections, itertools, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from route_cls import cls
@@ -27,8 +27,11 @@ for m, v in P.items():
         TRIPS.append((m, x, v["path"]))
 def per(t): return "P1" if datetime.datetime.fromtimestamp(t, datetime.timezone.utc).day <= 22 else "P2"
 
+KIND = {}
+
+
 def one(x, path0, tp=2.0, sl=0.8, hold=1790, trail=None, land=1, pmax=None, stake=1.0):
-    """(buy time, close time, result SOL) or None when the entry is refused."""
+    """(buy time, close time, result SOL) or None when the entry is refused; KIND[mint] = the exit that closed it."""
     b, s = x["tr"]; its = b["v"]
     vbb, vab = b["vt"] + b["tok"], b["vt"]; Qi = 1 / vab - 1 / vbb
     path = [r for r in path0 if (r[0], r[1]) > (b["s"], b["i"] or 0)]
@@ -60,6 +63,7 @@ def one(x, path0, tp=2.0, sl=0.8, hold=1790, trail=None, land=1, pmax=None, stak
         elif trail and peak >= trail[0] and px <= peak * (1 - trail[1]): kind = "trail"
         elif r[6] and r[6] - b["bt"] >= hold: kind = "time"
         else: continue
+        KIND[x["m"]] = kind if not s_slot <= r[0] + 1 else kind + ", its sell first"
         if kind == "time" and not s_slot <= r[0] + 1:
             nxt = [q for q in rest[k + 1:] if q[0] == r[0] + 1]
             return b["bt"], b["bt"] + hold, sell(nxt[-1][5] if nxt else r[5])
@@ -68,7 +72,10 @@ def one(x, path0, tp=2.0, sl=0.8, hold=1790, trail=None, land=1, pmax=None, stak
         nxt = [q for q in rest[k + 1:] if q[0] >= r[0] + 1]
         return b["bt"], r[6] or s_bt, sell(nxt[0][5] if nxt else s_after)
     if s_bt and s_bt - b["bt"] >= min(hold, 1790) and s_slot == s["s"]:
+        KIND[x["m"]] = "time (its 30-minute sell)"
         return b["bt"], b["bt"] + min(hold, 1790), sell(s["vt"] - s["tok"])
+    # no rule of ours fired before its own sell: the path ends there, so we sell right after it (the engine must follow)
+    KIND[x["m"]] = "its early sell, we follow" if s_slot == s["s"] else "its 2.5x sell (lift), we follow"
     return b["bt"], s_bt, sell(s_after)
 
 def score(cap=3, **kw):
@@ -118,6 +125,16 @@ elif WHAT == "tp":
             won = "  ".join(f"{p} won {sum(r > 0 for r, _ in got[p])}/{len(got[p])}" for p in ("P1", "P2"))
             show(f"tp {tp} sl {sl} 1790 s", sc)
             print(f"   {'':44s} {won}")
+elif WHAT == "mix":
+    # what closed each copy as built, and what it made: the rows "we follow" are copies the backtest sells right after
+    # the wallet's own sell (no price path after it)
+    _, got = score()
+    for p in ("P1", "P2"):
+        g = collections.defaultdict(list)
+        for res, m in got[p]: g[KIND.get(m, "?")].append(res)
+        print(f"   {p}:")
+        for k, v in sorted(g.items(), key=lambda kv: -len(kv[1])):
+            print(f"     {k:34s} {len(v):4d} copies  {sum(v):+7.2f} SOL  mean {sum(v) / len(v):+.3f}")
 elif WHAT == "cap":
     # positions open at once (each takes 1 SOL): the bankroll the cap needs against what it adds
     for cap in (1, 2, 3, 4, 5, 7, 10, 99):

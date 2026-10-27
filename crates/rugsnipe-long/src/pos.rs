@@ -34,6 +34,10 @@ pub enum Reason {
     Time,
     /// The curve completed (the coin graduates): out at once.
     Complete,
+    /// It sold the coin before any rule of ours fired: out behind it (the
+    /// backtest's price path ends at its sale, so its copies sell there).
+    #[serde(rename = "its_sell")]
+    ItsSell,
     /// By hand (`rugsnipe-long sell`).
     Manual,
 }
@@ -45,6 +49,7 @@ impl Reason {
             Self::Stop => "stop",
             Self::Time => "time",
             Self::Complete => "complete",
+            Self::ItsSell => "its_sell",
             Self::Manual => "manual",
         }
     }
