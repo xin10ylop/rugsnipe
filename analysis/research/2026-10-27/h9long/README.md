@@ -114,3 +114,9 @@ does nothing on P1; each slot of landing delay costs about 3-5% (10 slots: P1 ne
 WBTC-routed copies make about +0.12 SOL a copy in both periods (28 and 76 copies), SOL-routed about +0.02 (110, 63);
 the WBTC profit comes on 3 of the 8 days. Our copy as built by day (q): +3.1 +1.4 +1.0 -0.5 / -1.0 +5.8 +3.5 +1.4; the
 wallet's own result on the same coins was positive every day (+82 against our +17 over the 8 days).
+
+Take profit from 1.1x (`grid.py tp`, stop 0.8 and 0.9, 1790 s): 2.0 is the best on both periods (P1 +5.03, P2 +9.63).
+Lower takes lose on P1 (1.1: -7.76 / -4.66; 1.2: -6.17 / -0.25; 1.4: -2.90 / +5.85; 1.5: +0.57 / +5.61; 1.6:
++0.48 / +7.18; 1.75: +3.72 / +8.59) and win barely more often (1.1: 45 of 144 on P1 against 37 of 135 at 2.0): a small
+take is mostly eaten by the round trip (the curve fees and about 0.0345 SOL fixed a trade) and cuts off the runs that pay
+for the losers. 2.5 and above equal no take profit at all: the wallet's own 2.5x sale lands first and we sell after it.

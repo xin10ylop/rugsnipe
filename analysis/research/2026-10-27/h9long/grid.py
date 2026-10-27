@@ -2,7 +2,7 @@
 # slot, our trigger filled on the next trade, the cautious price model q + LIFT by default): exits (take profit, stop,
 # trailing stop, hold), the entry premium limit, a later landing, and the result by quote token. Every grid is picked
 # on Oct 19-22 (P1, without its best 2 copies) and scored on Oct 23-27 (P2); at most 3 open.
-#   python3 -I grid.py exits|stops|days|premium|land|quote [MODEL LIFT] [LO HI]   (ROUTES=BC: only the WBTC routes, A: only SOL)
+#   python3 -I grid.py exits|stops|tp|days|premium|land|quote [MODEL LIFT] [LO HI]   (ROUTES=BC: only the WBTC routes, A: only SOL)
 import sys, json, datetime, collections, itertools, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from route_cls import cls
@@ -110,6 +110,14 @@ if WHAT == "exits":
 elif WHAT == "stops":
     for sl in (0.75, 0.8, 0.85, 0.9):
         show(f"tp 2.0 sl {sl} 1790 s", score(sl=sl)[0])
+elif WHAT == "tp":
+    # take profit from 1.1x up, at the built stop and hold, and with a tighter stop; won = closed above zero
+    for sl in (0.8, 0.9):
+        for tp in (1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.75, 2.0, 2.25, 2.5, 3.0, None):
+            sc, got = score(tp=tp, sl=sl)
+            won = "  ".join(f"{p} won {sum(r > 0 for r, _ in got[p])}/{len(got[p])}" for p in ("P1", "P2"))
+            show(f"tp {tp} sl {sl} 1790 s", sc)
+            print(f"   {'':44s} {won}")
 elif WHAT == "days":
     _, got = score()
     for p in ("P1", "P2"):
