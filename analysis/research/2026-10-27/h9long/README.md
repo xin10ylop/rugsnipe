@@ -120,3 +120,9 @@ Lower takes lose on P1 (1.1: -7.76 / -4.66; 1.2: -6.17 / -0.25; 1.4: -2.90 / +5.
 +0.48 / +7.18; 1.75: +3.72 / +8.59) and win barely more often (1.1: 45 of 144 on P1 against 37 of 135 at 2.0): a small
 take is mostly eaten by the round trip (the curve fees and about 0.0345 SOL fixed a trade) and cuts off the runs that pay
 for the losers. 2.5 and above equal no take profit at all: the wallet's own 2.5x sale lands first and we sell after it.
+
+Positions open at once (`grid.py cap`): the wallet holds a median 4 of these coins at once (90%: 7, max 17; every one 30
+minutes), all its coins a median 89. Our routable copies overlap less: at most 1 open P1 +2.59 / P2 +3.51, 2: +6.50 /
++8.11, 3 (built): +5.03 / +9.63, 4: +6.73 / +11.13, 5: +6.69 / +10.86, no cap: +6.69 / +10.43 (146 and 149 copies against
+135 and 136 at 3). Its costs on these buys: a median 0.0071 SOL fee (base + priority; 10%: 0.0035, 90%: 0.0134) and a
+0.00107 SOL tip on 40-55% of them; on its sells a median 0.00001 SOL and no tip.
