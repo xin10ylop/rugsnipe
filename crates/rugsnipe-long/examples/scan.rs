@@ -4,7 +4,7 @@
 //! `min_sol` or more, the route or why there is none. PRICES (optional) is a
 //! JSON map of mint -> lamports per raw unit for buys paid in a held token.
 //!
-//!     cargo run -p rugsnipe-long --example scan -- RPC_URL DIR [PRICES] [MIN_SOL]
+//!     [SCAN_SOL=1] cargo run -p rugsnipe-long --example scan -- RPC_URL DIR [PRICES] [MIN_SOL]
 use pump_codec::constants as c;
 use pump_codec::Pubkey;
 use rugsnipe_long::chain::Rpc;
@@ -55,7 +55,13 @@ fn main() {
     for tx in &txs {
         for s in detect::read(tx, &w4, &price) {
             match s {
-                Seen::SolBuy { .. } => sol_buys += 1,
+                Seen::SolBuy { mint } => {
+                    sol_buys += 1;
+                    // SCAN_SOL=1: one line per SOL-priced buy too
+                    if std::env::var_os("SCAN_SOL").is_some() {
+                        println!("{} {} SOL-priced buy", tx.slot, &mint.to_string()[..8]);
+                    }
+                }
                 Seen::Sell { .. } => sells += 1,
                 Seen::Buy(t) => {
                     let Some(v) = t.sol_value else {
