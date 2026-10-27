@@ -121,6 +121,12 @@ pub enum LaneCmd {
     Released {
         mint: Pubkey,
     },
+    /// The held mint's curve completed (a sell failed with
+    /// `BondingCurveComplete`): read its canonical PumpSwap pool's vaults with
+    /// the held balances ([`LaneEvent::Pool`]) until it is released.
+    Pool {
+        mint: Pubkey,
+    },
     /// Burn nonce `idx` (`value` = the value our variants carry); the
     /// attempt on it (if any) is marked as racing the burn.
     Burn {
@@ -167,9 +173,12 @@ pub struct OwnTrade {
     /// Protocol + creator fee (lamports), 1.25% of the SOL when the event
     /// carries no fee fields.
     pub fee: u64,
-    /// Post-trade virtual reserves.
+    /// Post-trade virtual reserves (a pool sell: the pool's reserves).
     pub v: u64,
     pub t: u64,
+    /// A sell on the canonical PumpSwap pool (a graduated coin), read from
+    /// the transaction's balances ([`own_pool_sell`]).
+    pub pool: bool,
 }
 
 /// A landed buy (succeeded or failed).
@@ -213,8 +222,16 @@ pub enum LaneEvent {
     /// A sell landed and failed (fee paid, position untouched).
     SellFailed {
         sig: [u8; 64],
+        mint: Pubkey,
         fee: u64,
         reason: String,
+    },
+    /// A graduated held mint's PumpSwap pool: the wSOL and coin vault amounts.
+    Pool {
+        mint: Pubkey,
+        reserve_sol: u64,
+        reserve_token: u64,
+        slot: u64,
     },
     /// A held mint's token balance. `exists`: the token account was found
     /// (a missing one reads as 0 tokens; see [`balance_is_trustworthy`]).
@@ -283,6 +300,70 @@ pub fn own_trade(result: &Value, mint: &Pubkey, owner: &Pubkey, slot: u64) -> Op
         fee: t.sol * 125 / 10_000,
         v: t.v,
         t: t.t,
+        pool: false,
+    })
+}
+
+/// Our sell of `mint` on its canonical PumpSwap pool, from a landed
+/// transaction (`jsonParsed` or `json`): no curve TradeEvent, so the tokens
+/// are our token balance's drop, the SOL is the pool's wSOL vault drop
+/// (gross) and our own lamport gain plus the fee and `tip` (net), and the
+/// post-trade reserves are the pool vaults' post balances.
+pub fn own_pool_sell(result: &Value, mint: &Pubkey, owner: &Pubkey, tip: u64) -> Option<OwnTrade> {
+    use pump_codec::constants as c;
+    let meta = &result["meta"];
+    let msg = &result["transaction"]["message"];
+    let mut keys: Vec<String> = msg["accountKeys"]
+        .as_array()?
+        .iter()
+        .filter_map(|k| {
+            k.as_str()
+                .or_else(|| k["pubkey"].as_str())
+                .map(str::to_string)
+        })
+        .collect();
+    for side in ["writable", "readonly"] {
+        for k in meta["loadedAddresses"][side]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            keys.extend(k.as_str().map(str::to_string));
+        }
+    }
+    let me = keys.iter().position(|k| *k == owner.to_string())?;
+    let lamports = |side: &str| meta[side].get(me).and_then(Value::as_u64);
+    let gain = lamports("postBalances")? as i128 - lamports("preBalances")? as i128;
+    let pool = pda::canonical_pump_swap_pool(mint, &c::WSOL_MINT).to_string();
+    let (mint_s, wsol) = (mint.to_string(), c::WSOL_MINT.to_string());
+    let bal = |side: &str, who: &str, m: &str| -> Option<u64> {
+        meta[side].as_array()?.iter().find_map(|b| {
+            (b["owner"].as_str() == Some(who) && b["mint"].as_str() == Some(m))
+                .then(|| b["uiTokenAmount"]["amount"].as_str()?.parse().ok())
+                .flatten()
+        })
+    };
+    let me_s = owner.to_string();
+    let sold = bal("preTokenBalances", &me_s, &mint_s)?
+        .saturating_sub(bal("postTokenBalances", &me_s, &mint_s).unwrap_or(0));
+    if sold == 0 {
+        return None;
+    }
+    let fee = meta["fee"].as_u64().unwrap_or(0);
+    let net = (gain + fee as i128 + tip as i128).max(0) as u64;
+    let v = bal("postTokenBalances", &pool, &wsol)?;
+    let t = bal("postTokenBalances", &pool, &mint_s)?;
+    let gross = bal("preTokenBalances", &pool, &wsol)
+        .map_or(net, |pre| pre.saturating_sub(v))
+        .max(net);
+    Some(OwnTrade {
+        is_buy: false,
+        sol: gross,
+        tokens: sold,
+        fee: gross - net,
+        v,
+        t,
+        pool: true,
     })
 }
 
@@ -713,6 +794,7 @@ pub async fn run(
     let mut attempts: HashMap<u64, Attempt> = HashMap::new();
     let mut sells: HashMap<[u8; 64], SellWatch> = HashMap::new();
     let mut held: HashMap<Pubkey, u64> = HashMap::new();
+    let mut pools: HashSet<Pubkey> = HashSet::new();
     let mut nonces: HashMap<u16, (Pubkey, [u8; 32])> = HashMap::new();
     let mut slot_now = 0u64;
     let mut iv = tokio::time::interval(Duration::from_millis(POLL_MS));
@@ -738,7 +820,8 @@ pub async fn run(
                         sells.insert(sig, SellWatch { mint, sent_slot: slot.max(slot_now), tip });
                     }
                     LaneCmd::Held { intent, mint } => { held.insert(mint, intent); }
-                    LaneCmd::Released { mint } => { held.remove(&mint); }
+                    LaneCmd::Released { mint } => { held.remove(&mint); pools.remove(&mint); }
+                    LaneCmd::Pool { mint } => { pools.insert(mint); }
                     LaneCmd::WatchNonce { idx, account, value } => { nonces.insert(idx, (account, value)); }
                     LaneCmd::Slot(s) => slot_now = slot_now.max(s),
                     LaneCmd::Burn { idx, account, value, signer } => {
@@ -758,7 +841,7 @@ pub async fn run(
                 let now = crate::now_ms();
                 if now.saturating_sub(last_slow) >= SLOW_MS {
                     last_slow = now;
-                    slow(&mut rpc, &cfg, &mut calls, &held, &out).await;
+                    slow(&mut rpc, &cfg, &mut calls, &held, &pools, &out).await;
                 }
                 if calls > 0 {
                     let _ = out.send(LaneEvent::Calls(calls));
@@ -880,7 +963,9 @@ async fn poll(
                     let r =
                         call(rpc, &cfg.budget, calls, "getTransaction", get_tx(&b58(sig))).await;
                     match (r, err) {
-                        (Ok(tx), None) => match own_trade(&tx, &w.mint, &cfg.owner, slot) {
+                        (Ok(tx), None) => match own_trade(&tx, &w.mint, &cfg.owner, slot)
+                            .or_else(|| own_pool_sell(&tx, &w.mint, &cfg.owner, w.tip))
+                        {
                             Some(t) => {
                                 let _ = out.send(LaneEvent::OwnTrade {
                                     sig: *sig,
@@ -902,6 +987,7 @@ async fn poll(
                             let (reason, _) = fail_reason(&e);
                             let _ = out.send(LaneEvent::SellFailed {
                                 sig: *sig,
+                                mint: w.mint,
                                 fee: failed_tx_fee(&tx).unwrap_or(0),
                                 reason,
                             });
@@ -1096,6 +1182,7 @@ async fn slow(
     cfg: &LaneCfg,
     calls: &mut u32,
     held: &HashMap<Pubkey, u64>,
+    pools: &HashSet<Pubkey>,
     out: &UnboundedSender<LaneEvent>,
 ) {
     match call(
@@ -1179,12 +1266,74 @@ async fn slow(
             let _ = out.send(LaneEvent::Error(format!("held balances: {e}")));
         }
     }
+    // graduated held mints: their canonical pool's reserves (the vaults)
+    let pools: Vec<Pubkey> = pools
+        .iter()
+        .filter(|m| held.contains_key(m))
+        .copied()
+        .collect();
+    if pools.is_empty() {
+        return;
+    }
+    let vaults: Vec<String> = pools
+        .iter()
+        .flat_map(|m| {
+            let (base, quote) = pool_vaults(m);
+            [quote.to_string(), base.to_string()]
+        })
+        .collect();
+    let r = call(
+        rpc,
+        &cfg.budget,
+        calls,
+        "getMultipleAccounts",
+        serde_json::json!([vaults, {"encoding": "base64", "commitment": "confirmed"}]),
+    )
+    .await;
+    match r {
+        Ok(v) => {
+            let slot = v["context"]["slot"].as_u64().unwrap_or(0);
+            if let Ok(datas) = rugsnipe_state::chain::parse_multiple_accounts(&v, 2 * pools.len()) {
+                for (k, mint) in pools.into_iter().enumerate() {
+                    let amount = |d: &Option<Vec<u8>>| d.as_deref().and_then(token_amount);
+                    if let (Some(sol), Some(tok)) =
+                        (amount(&datas[2 * k]), amount(&datas[2 * k + 1]))
+                    {
+                        let _ = out.send(LaneEvent::Pool {
+                            mint,
+                            reserve_sol: sol,
+                            reserve_token: tok,
+                            slot,
+                        });
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            let _ = out.send(LaneEvent::Error(format!("pool reserves: {e}")));
+        }
+    }
+}
+
+/// The canonical PumpSwap pool's `(coin vault, wSOL vault)` of a graduated
+/// pump coin (Token-2022 coin, wSOL quote).
+pub fn pool_vaults(mint: &Pubkey) -> (Pubkey, Pubkey) {
+    use pump_codec::constants as c;
+    let pool = pda::canonical_pump_swap_pool(mint, &c::WSOL_MINT);
+    (
+        pda::associated_token_address(&pool, mint, &c::TOKEN_2022_PROGRAM_ID),
+        pda::associated_token_address(&pool, &c::WSOL_MINT, &c::SPL_TOKEN_PROGRAM_ID),
+    )
 }
 
 /// The exit engine's `Trade` of an own trade.
 pub fn trade_of(t: &OwnTrade, mint: Pubkey, owner: Pubkey, slot: u64) -> rugsnipe_exit::Trade {
     rugsnipe_exit::Trade {
-        venue: rugsnipe_exit::Venue::Curve,
+        venue: if t.pool {
+            rugsnipe_exit::Venue::PumpSwap
+        } else {
+            rugsnipe_exit::Venue::Curve
+        },
         mint,
         user: owner,
         is_buy: t.is_buy,

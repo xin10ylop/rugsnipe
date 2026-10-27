@@ -309,6 +309,19 @@ pub enum HotIn {
         /// The token account exists (a missing one reports 0 tokens).
         exists: bool,
     },
+    /// Real: a sell of a held mint failed with `BondingCurveComplete`
+    /// (pump 6005): the coin graduated, its liquidity is in the PumpSwap
+    /// pool, and every curve sell fails (2026-10-27: 2RR6sfbi, 405 failed
+    /// sells over five hours). The exit engine moves the position to the pool.
+    CurveComplete { mint: Pubkey },
+    /// Real: the canonical PumpSwap pool's reserves of a graduated held mint
+    /// (its vaults, read with the held balances).
+    PoolState {
+        mint: Pubkey,
+        reserve_sol: u64,
+        reserve_token: u64,
+        slot: u64,
+    },
     /// The E2 state for a paper intent (`ok = false`: resolution failed,
     /// the hot loop falls back to its buffered trades at the deadline).
     PaperFill {

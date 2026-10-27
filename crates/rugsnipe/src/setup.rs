@@ -11,7 +11,7 @@ use rugsnipe_exit::{ExitConfig, ExitPolicy};
 use rugsnipe_tx::nonce::NoncePool;
 use rugsnipe_tx::signer::HotSigner;
 use rugsnipe_tx::sysix;
-use rugsnipe_tx::template::{CurveParams, NonceKeys, Template};
+use rugsnipe_tx::template::{AmmSellParams, CurveParams, NonceKeys, Template};
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
@@ -245,6 +245,9 @@ pub fn paper_nonce_pool(authority: Pubkey, n: usize) -> NoncePool {
     pool
 }
 
+/// The PumpSwap pool sell's compute limit (70,286 units measured).
+pub const AMM_SELL_CU_LIMIT: u32 = 120_000;
+
 /// Compiled templates: one buy per nonce account (the account key is in
 /// the message), a final sell (`CloseAccount`) and a partial sell.
 #[derive(Debug, Clone)]
@@ -252,6 +255,9 @@ pub struct Templates {
     pub buys: Vec<Template>,
     pub sell_final: Template,
     pub sell_partial: Template,
+    /// The canonical PumpSwap pool's sell: a held coin that graduated
+    /// (its curve completed) sells here.
+    pub amm_sell: Template,
     pub tip_account: Pubkey,
     /// `tx.cu_limit` (or [`PAPER_CU_LIMIT`]): the floor of the per-mint CU
     /// limit (the sells' static limit is at least 88,000).
@@ -306,10 +312,23 @@ pub fn templates(cfg: &Config, owner: Pubkey, pool: &NoncePool) -> Result<Templa
         cu_limit: rugsnipe_tx::cu::sell_cu_limit(cu),
         ..base
     };
+    // the pool sell: 70,286 units measured on mainnet (2026-10-27, 2RR6sfbi
+    // from our wallet: wSOL account created, sell_v2, unwrapped)
+    let amm = AmmSellParams {
+        format: cfg.tx.format,
+        user: owner,
+        nonce: None,
+        cu_limit: AMM_SELL_CU_LIMIT,
+        lads_bytes: lads,
+        tip_account: Some(tip_account),
+        buyback_wallet: c::BUYBACK_FEE_RECIPIENTS[0],
+        base_token_program: TOKEN_2022_PROGRAM_ID,
+    };
     Ok(Templates {
         buys,
         sell_final: Template::sell(&sell, true).map_err(|e| format!("sell template: {e}"))?,
         sell_partial: Template::sell(&sell, false).map_err(|e| format!("sell template: {e}"))?,
+        amm_sell: Template::amm_sell(&amm).map_err(|e| format!("pool sell template: {e}"))?,
         tip_account,
         cu_floor: cu,
         cu_wallet_missing: rugsnipe_tx::cu::wallet_missing_bumps(&owner),

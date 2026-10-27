@@ -408,3 +408,105 @@ fn with_no_lifetime_at_all_sells_retry_every_slot_buys_pause_and_the_guard_gets_
     );
     assert_eq!(jobs[0].tmpl.lifetime(), [0x42; 32]);
 }
+
+/// A held coin graduates under us (2026-10-27, 2RR6sfbi: its curve completed
+/// at our buy and 405 curve sells failed with `BondingCurveComplete` over five
+/// hours, 0.09 SOL of fees, while the tokens sat in the pool): the first
+/// failure moves the position to the canonical PumpSwap pool, the retry is a
+/// real pool sell (`TemplateKind::AmmSell`, never the curve again), the pool's
+/// reserves price it, and our pool sale closes the position.
+#[test]
+fn a_graduated_coin_sells_on_its_pumpswap_pool() {
+    use rugsnipe_exit::{Trade, Venue};
+    use rugsnipe_tx::template::TemplateKind;
+    let dir = tmpdir("sell-graduated");
+    let mut r = Rig::new(&dir, false, |_| {});
+    r.shared.set_blockhash([0x33; 32], 1_000);
+    let mint = Pubkey::new_unique();
+    r.adopt(mint);
+    r.slot(1_003);
+    let first = r.jobs();
+    assert_eq!(first.len(), 1, "{:?}", r.hot.counters);
+    assert!(
+        matches!(first[0].tmpl.kind, TemplateKind::Sell { .. }),
+        "a curve sell first"
+    );
+    // the lane: that sell landed and failed with BondingCurveComplete
+    assert!(r.fills_tx.push(HotIn::CurveComplete { mint }).is_ok());
+    r.slot(1_004);
+    let pool = r.jobs();
+    assert!(
+        !pool.is_empty(),
+        "the sell is re-sent at once: {:?}",
+        r.hot.counters
+    );
+    for j in &pool {
+        assert!(j.real, "a real send");
+        assert_eq!(
+            j.tmpl.kind,
+            TemplateKind::AmmSell,
+            "on the pool, not the dead curve"
+        );
+        assert_eq!(j.tmpl.lifetime(), [0x33; 32]);
+    }
+    assert_eq!(r.hot.counters.graduated, 1);
+    assert!(r.hot.counters.sells_pool >= 1);
+    assert_eq!(r.hot.position_of(&mint).unwrap().venue, Venue::PumpSwap);
+    // a second report of the same graduation changes nothing
+    assert!(r.fills_tx.push(HotIn::CurveComplete { mint }).is_ok());
+    r.slot(1_005);
+    assert_eq!(r.hot.counters.graduated, 1);
+    // the pool's reserves (read by the lane) become the position's market
+    assert!(r
+        .fills_tx
+        .push(HotIn::PoolState {
+            mint,
+            reserve_sol: 80_000_000_000,
+            reserve_token: 200_000_000_000_000,
+            slot: 1_005,
+        })
+        .is_ok());
+    r.slot(1_006);
+    let p = r.hot.position_of(&mint).unwrap();
+    assert_eq!((p.cur_v, p.cur_t), (80_000_000_000, 200_000_000_000_000));
+    // every later try stays on the pool
+    for s in 1_007..1_012 {
+        r.slot(s);
+    }
+    for j in r.jobs() {
+        assert_eq!(j.tmpl.kind, TemplateKind::AmmSell);
+    }
+    r.cold();
+    // our pool sale (the lane's own_pool_sell) closes the position
+    let sale = Trade {
+        venue: Venue::PumpSwap,
+        mint,
+        user: r.owner,
+        is_buy: false,
+        sol_amount: 395_000_000,
+        token_amount: 1_000_000_000,
+        fee_lamports: 1_000_000,
+        reserve_sol: 79_605_000_000,
+        reserve_token: 200_001_000_000_000,
+        slot: 1_012,
+    };
+    assert!(r
+        .fills_tx
+        .push(HotIn::RealTrade {
+            sig: [7; 64],
+            trade: sale,
+        })
+        .is_ok());
+    r.slot(1_012);
+    r.slot(1_013);
+    let msgs = r.cold();
+    assert!(
+        msgs.iter().any(|m| matches!(m, ColdMsg::Exit { mint: m2, venue: Venue::PumpSwap, tokens: 1_000_000_000, .. } if *m2 == mint)),
+        "the pool sale is booked: {msgs:?}"
+    );
+    assert!(
+        msgs.iter()
+            .any(|m| matches!(m, ColdMsg::Closed { mint: m2, .. } if *m2 == mint)),
+        "and the position closes"
+    );
+}

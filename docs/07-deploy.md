@@ -225,6 +225,14 @@ Not implemented: reconcile drift > 60 s.
 retries each sell on a fresh blockhash until the wallet's balance is 0, closes the position in `state.db`, and
 hands the lease back once hot's heartbeat returns (docs/08 section 9).
 
+**A held coin that graduates** (its curve completes and the liquidity moves to the PumpSwap pool) cannot be sold on
+the curve: every curve sell fails with `BondingCurveComplete` (pump 6005). 2026-10-27, 2RR6sfbi: 405 failed sells
+over five hours, 0.09 SOL of fees, the tokens untouched. Since then the first such failure moves the position to the
+canonical pool: journal `graduated <mint8>: the curve is complete, selling on the PumpSwap pool`, the real lane reads
+the pool's vaults with the held balances, and the sell goes out as the pool's `sell_v2` (counters `graduated`,
+`sells_pool`; our pool sale is read from the transaction's balances). Such a position is never handed to the guard,
+which sells on the curve only. The pool sell leaves the coin's token account open (about 0.002 SOL of rent).
+
 `sudo systemctl stop rugsnipe.target` also stops guard. Any open position is then **stranded**: it is bounded by
 `max_open_positions × max_snipe` (4 × 0.25 SOL) but unmanaged. Do this only when flat. Check first with
 `sqlite3 -readonly /var/lib/rugsnipe/state.db "select mint,state from positions where state!='closed'"`.

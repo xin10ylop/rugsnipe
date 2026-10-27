@@ -86,7 +86,7 @@ use rugsnipe_feed::{Feed, FeedBuf, FeedEvent, FeedSrc, FeedStatus, Fired, FiredS
 use rugsnipe_tx::nonce::NoncePool;
 use rugsnipe_tx::senders::{Sender as _, SenderId, SenderSet, Variant, VariantKind};
 use rugsnipe_tx::signer::HotSigner;
-use rugsnipe_tx::template::{MintKeys, Patch, Template};
+use rugsnipe_tx::template::{amm_mint_keys, MintKeys, Patch, Template};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::*};
 use std::sync::Arc;
 
@@ -1435,6 +1435,10 @@ pub struct LoopCounters {
     pub sells_on_nonce: u64,
     pub sells_resolve: u64,
     pub sells_unsent: u64,
+    /// Real: held mints whose curve completed under them (a sell failed with
+    /// `BondingCurveComplete`) / sells sent on their PumpSwap pool.
+    pub graduated: u64,
+    pub sells_pool: u64,
     /// The pre-send entry gate: decisions scored (bundle block present) /
     /// unscored, skipped (`skip` mode), and the scored ones per tertile
     /// (low, mid, high).
@@ -4145,6 +4149,60 @@ impl HotLoop {
                     self.exit_event(i, ExitEvent::Balance { tokens, slot }, now);
                 }
             }
+            HotIn::CurveComplete { mint } => {
+                let Some(i) = self.find_mint(&mint) else {
+                    return;
+                };
+                if !self.slots[i]
+                    .as_ref()
+                    .is_some_and(|s| s.real && s.filled && s.pos.venue == Venue::Curve)
+                {
+                    return;
+                }
+                self.counters.graduated += 1;
+                let k8 = key8(&mint);
+                journal(format_args!(
+                    "graduated {}: the curve is complete, selling on the PumpSwap pool",
+                    std::str::from_utf8(&k8).unwrap_or("?")
+                ));
+                let now = Now {
+                    ms: crate::now_ms(),
+                    slot: self.slot_now,
+                };
+                self.exit_event(
+                    i,
+                    ExitEvent::Complete {
+                        slot: self.slot_now,
+                    },
+                    now,
+                );
+            }
+            HotIn::PoolState {
+                mint,
+                reserve_sol,
+                reserve_token,
+                slot,
+            } => {
+                let Some(i) = self.find_mint(&mint) else {
+                    return;
+                };
+                if !self.slots[i].as_ref().is_some_and(|s| s.real && s.filled) {
+                    return;
+                }
+                let now = Now {
+                    ms: crate::now_ms(),
+                    slot: self.slot_now,
+                };
+                self.exit_event(
+                    i,
+                    ExitEvent::PoolState {
+                        reserve_sol,
+                        reserve_token,
+                        slot,
+                    },
+                    now,
+                );
+            }
         }
     }
 
@@ -5189,7 +5247,10 @@ impl HotLoop {
         let Some(s) = self.slots[i].as_mut() else {
             return;
         };
-        if s.handed_off {
+        // the guard sells on the curve only: a graduated coin's curve sells
+        // all fail (BondingCurveComplete) and would only spend its fees, so
+        // the hot loop keeps it and sells it on the pool
+        if s.handed_off || s.pos.venue == Venue::PumpSwap {
             return;
         }
         s.handed_off = true;
@@ -5252,20 +5313,24 @@ impl HotLoop {
         // on a priority-ordered leader, about 1.6% of a 0.25 SOL stake on
         // average). On the position's sell nonce at most one copy (and one
         // try) executes, as with the buys' nonce.
-        let real_sell = self.cfg.mode.is_real()
-            && self.slots[i]
-                .as_ref()
-                .is_some_and(|s| s.real && order.venue == Venue::Curve);
+        // A graduated coin's sell (venue PumpSwap) is the pool template on a
+        // fresh or resolved blockhash: the sell-pool nonce templates are
+        // curve sells.
+        let curve = order.venue == Venue::Curve;
+        let real_sell = self.cfg.mode.is_real() && self.slots[i].as_ref().is_some_and(|s| s.real);
         let mut nonce_k: Option<usize> = None;
         let nonce_first = order.close_account;
         let lifetime = if !real_sell {
             Some(PAPER_BLOCKHASH)
-        } else if let Some((k, v)) = (owned && nonce_first).then(|| self.sell_nonce(i)).flatten() {
+        } else if let Some((k, v)) = (curve && owned && nonce_first)
+            .then(|| self.sell_nonce(i))
+            .flatten()
+        {
             nonce_k = Some(k);
             Some(v)
         } else if let Some(h) = self.shared.fresh_blockhash() {
             Some(h)
-        } else if let Some((k, v)) = (owned && !nonce_first)
+        } else if let Some((k, v)) = (curve && owned && !nonce_first)
             .then(|| self.sell_nonce(i))
             .flatten()
         {
@@ -5303,7 +5368,7 @@ impl HotLoop {
         let mut unsent = false;
         if !owned {
             self.stats.sells_not_owner.inc();
-        } else if lifetime.is_none() && order.venue == Venue::Curve {
+        } else if lifetime.is_none() {
             self.counters.sells_no_blockhash += 1;
             self.rslog.push(Rec::Risk {
                 kind: 0x43,
@@ -5376,6 +5441,63 @@ impl HotLoop {
                     s.sell_claim_sent = true;
                     self.counters.sells_on_nonce += 1;
                 }
+            }
+        } else if !paper {
+            // a graduated coin: the canonical PumpSwap pool's `sell_v2`
+            // (wSOL out, unwrapped in the same transaction), one signed
+            // message to the sell senders like a partial curve sell
+            let lifetime = lifetime.unwrap_or(PAPER_BLOCKHASH);
+            if lifetime == NO_LIFETIME {
+                self.counters.sells_resolve += 1;
+            } else {
+                s.unsold_since_ms = 0;
+            }
+            let keys = amm_mint_keys(&s.pos.mint, &self.owner, &TOKEN_2022_PROGRAM_ID);
+            let t = &mut self.tmpl.amm_sell;
+            let sell_class = self.leaders.load().class_at(self.slot_now + 1);
+            let plan = self.cfg.sell_plan_at(
+                sell_class.map(ClientClass::bid_class),
+                order.tip_lamports,
+                t.table.n_sigs.clamp(1, 2) as u8,
+            );
+            let (prio, tip) = (plan.priority_lamports, plan.tip_lamports);
+            t.patch(&Patch {
+                keys: &keys,
+                lifetime: &lifetime,
+                amount: order.tokens,
+                limit: order.min_sol_output,
+                priority_lamports: prio,
+                tip_lamports: tip,
+                cu_limit: None,
+            });
+            t.sign(&self.signer, None);
+            let v = Variant::from_template(
+                t,
+                s.intent,
+                0x80 | (order.try_no.min(127) as u8),
+                VariantKind::Sell,
+                prio,
+                tip,
+                Some(self.tmpl.tip_account),
+            );
+            sig = v.sig;
+            let job = FireJob {
+                tmpl: t.clone(),
+                intent: s.intent,
+                idx: v.idx,
+                prio,
+                tip,
+                tip_account: self.tmpl.tip_account,
+                bid: order.tip_lamports,
+                real: true,
+                leader: sell_class.map_or(LEADER_UNKNOWN, |c| c as u8),
+                bundle_prio: 0,
+            };
+            if self.fire.push(job).is_err() {
+                self.counters.ring_full += 1;
+                unsent = true;
+            } else {
+                self.counters.sells_pool += 1;
             }
         }
         if unsent {

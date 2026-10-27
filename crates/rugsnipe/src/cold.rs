@@ -357,6 +357,9 @@ pub struct LandingRow {
 
 /// Rows kept in [`ProbeReport::landings`].
 pub const PROBE_ROWS: usize = 500;
+/// A failed sell's reason ([`crate::real::fail_reason`]) for pump's
+/// `BondingCurveComplete` (6005): the held coin graduated.
+pub const BONDING_CURVE_COMPLETE: &str = "custom_6005";
 
 /// The probe's landing measurement (docs/04 section 7, docs/08 section 9):
 /// which variant landed through which sender, its bid, rank, premium and
@@ -2328,12 +2331,41 @@ impl Cold {
                 let t = crate::real::trade_of(&trade, mint, self.p.cfg.owner, slot);
                 self.to_hot_q.push_back(HotIn::RealTrade { sig, trade: t });
             }
-            E::SellFailed { sig, fee, reason } => {
+            E::SellFailed {
+                sig,
+                mint,
+                fee,
+                reason,
+            } => {
                 self.p.risk.on_tx_cost(fee, crate::now_unix());
-                let mut r = lock(&self.p.report);
-                r.probe.sells_failed += 1;
-                r.probe
-                    .error(format!("sell {} failed ({reason}), fee {fee}", b58(&sig)));
+                {
+                    let mut r = lock(&self.p.report);
+                    r.probe.sells_failed += 1;
+                    r.probe.error(format!(
+                        "sell {} of {mint} failed ({reason}), fee {fee}",
+                        b58(&sig)
+                    ));
+                }
+                // pump's BondingCurveComplete: the coin graduated under us and
+                // every curve sell fails; the hot loop moves the position to
+                // the PumpSwap pool and the lane reads the pool's reserves
+                if reason == BONDING_CURVE_COMPLETE {
+                    self.lane(crate::real::LaneCmd::Pool { mint });
+                    self.to_hot_q.push_back(HotIn::CurveComplete { mint });
+                }
+            }
+            E::Pool {
+                mint,
+                reserve_sol,
+                reserve_token,
+                slot,
+            } => {
+                self.to_hot_q.push_back(HotIn::PoolState {
+                    mint,
+                    reserve_sol,
+                    reserve_token,
+                    slot,
+                });
             }
             E::Balance {
                 mint,
