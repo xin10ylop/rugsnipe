@@ -61,3 +61,9 @@ print(f"   {base[0]:52s} P1 {base[1]['P1'][0]} {base[1]['P1'][1]:+7.2f} ({base[1
 print("   best on P1 (without best 2) -> P2:")
 for name, sc in sorted(res[1:], key=lambda r: -r[1]["P1"][2])[:15]:
     print(f"   {name:52s} P1 {sc['P1'][0]} {sc['P1'][1]:+7.2f} ({sc['P1'][2]:+7.2f})  P2 {sc['P2'][0]} {sc['P2'][1]:+7.2f} ({sc['P2'][2]:+7.2f})")
+if len(sys.argv) > 5:
+    for name in ("ahead of its own (2.45x / 0.71x / 1790 s)", "trail from 1.5x, -35% off the peak, sl 0.71, 1790 s"):
+        tp, sl, tm, tr = rules[name]
+        g = collections.defaultdict(list)
+        for t in trips: g[datetime.datetime.fromtimestamp(t["bt"], datetime.timezone.utc).strftime("%m-%d")].append(run(t, tp, sl, tm, tr))
+        print(f"\n   {name} by day: " + "  ".join(f"{d} {len(v)} {sum(v):+.2f} ({sum(sorted(v, reverse=True)[2:]):+.2f})" for d, v in sorted(g.items())))

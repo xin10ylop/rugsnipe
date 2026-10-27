@@ -110,3 +110,95 @@ asserts our ATA too, so the two never both fill.
 A way to see his tip at execution: there is none on chain. Short of that, a live probe of one ghost per in-class
 launch for about a day (about 0.03 SOL) would measure the real landing (P_AFTER, j) per wallet. It would only pay if
 it showed the copy_more wallets gaining much more than this model gives.
+
+## Round 2: making the ghost pay (selection)
+
+**The economics, checked** (`ghost4.py`, P_AFTER 0.8, before the spray):
+
+| bound | keyed gain over today | his other buys | break-even keyed share | ceiling |
+|---|---|---|---|---|
+| post-bundle + 10% | +0.0049 a buy | -0.0174 a buy (-0.0237 a fill, fill rate 0.73) | 78% | +0.56 SOL a day (P2 +0.37) |
+| post-bundle + 5% | +0.0040 a buy | -0.0104 a buy | 72% | +0.47 a day (P2 +0.28) |
+
+**The spray is far bigger than assumed.** The 1,861 launches a day were only his and our coins.
+- Every pump create signs with the mint authority `TSLvdd1p...`. Counting its signatures gives about 55,800 creates a
+  day on Oct 26-27, and 45,600 a day on Oct 23-24.
+- In class: about 48% (create_v2, not mayhem, SOL quote), so about 26,600 in-class launches a day (`launches.py`).
+- A failed ghost costs 15,000 lamports (all 70 of our refused buys paid exactly that). One ghost per in-class launch
+  is about 0.40 SOL a day per target wallet.
+
+**1. Ghost targets** (`gtargets.py`, `gtrank.py`, `gtcheck.py`):
+- Every launch buyer on 14,880 tapes (5-day 8,349, oos 5,323, 60-slot 1,208), at the ghost position, sold at create + 3
+  to + 12.
+- Of the 95 wallets with 15+ buys in both halves, 7 are positive early without their best 2. 4 of those stay positive
+  late, all near zero per buy:
+
+  | wallet | late (SOL) | buys | per buy | token account |
+  |---|---|---|---|---|
+  | 8ki679dZ | +0.36 | 56 | +0.0064 | random seed: can't be targeted |
+  | 8ptvshQR | +0.06 | 79 | | mixed ATA / random |
+  | 9qz7cWBq | +0.03 | 505 | | random |
+  | 4LTaX4wo | +0.02 | 30 | | mint[:32], predictable but worthless |
+
+- None covers the 0.40 SOL/day spray of its own ghost.
+- The universe is a limit: tapes exist only for coins he, we or the earlier finalists touched. A search free of that
+  bias needs tapes of every in-class launch (about 26,600 a day; roughly 800k RPC calls for one day).
+- **Our six, every launch buy at the ghost position, no key** (late, without best 2):
+  - him -1.1 to -3.3;
+  - 3yr -0.3 to -0.5 (the tapes stop before its create + 29);
+  - JBo -0.7 to -1.8;
+  - Cxy -0.8 to -2.0;
+  - D5 -0.2 to +0.1;
+  - H9 +0.0 to +1.0 (random seed, so no ghost).
+- **Why the copy_more wallets came out at about zero:** our reactive copy already sits right behind them. The live
+  median is 0 trades between for JBo (63 of 116 at zero) and Cxy (10 of 16), and 1 for 3yr. The fills we skip
+  (their other buys) lose at the ghost position.
+
+**2. Keyed prediction for him** (`keyed.py`, `guardkey.py`, `guardlive.py`; trained Oct 21-23, tested Oct 24-25):
+- **Create-time features only:**
+  - the signer's, host's and tool's past keyed share and his past net there;
+  - his 24 h buys of the signer, creator = signer, dev buy, bundle SOL, create fee, name and symbol length, the hour.
+
+  Test precision is 51-56% at 22-26% recall, with no threshold above 79%. The ghost money is negative.
+- **Adding what his buy shows on chain at execution** (size, and U = tip + priority fee):
+  - trees reach 72-76% precision at 100% recall;
+  - boosted trees reach 94-99%, but only by reading the 1-lamport remainder his priority fees carry inside U. A guard
+    can't read that directly; it only sees his wallet's drop.
+- **The guard version, using the lamport drop.**
+  - Rule: drop - base fee - rent (three exact values, told apart by the low digits), modulo 0.1 SOL = tip (+ priority,
+    which ends in 1 lamport) (- the lamport his tier sometimes loses). Key = x >= 2M with no priority remainder, or
+    size >= 2 SOL.
+  - Oct 21-25: precision 75.5%, recall 85.8%.
+  - Money at post-bundle + 5% (P_AFTER 0.8), before the spray: P1 +0.76, P2 +1.06. Without each period's best 2:
+    +0.07 and +0.25 a day.
+  - **His last 24 hours** (376 buys): precision 65.3%, recall 88.5%. 45 buys now carry an extra 1M transfer
+    (2,513,840 beyond the rent). A drop can't tell that from a 1M-higher tip.
+- **Pre-filter** (`prefilter.py`): see the next section.
+
+**3. Delivery:**
+- **Staggered volley:** P_AFTER was 83 of 83 for a single ghost, so there is nothing to raise. Each extra ghost lands
+  later (a larger D) and costs another 15,000 lamports a launch. The real effect needs a live probe.
+- **OR across wallets:** Lighthouse assertions are AND only, so it's one transaction per target wallet (the spray
+  times the number of targets). One transaction for several wallets needs our own guard program, which can also run
+  the lamport key.
+- **A cheap pre-filter** (`prefilter.py`: a random 1,000 of the 91,115 creates on Oct 23-24):
+  - the volume then: 45,600 creates a day, 37% in class, so 16,900 in-class launches a day;
+  - "the signer was bought by him in the 72 h before": keeps 11.3% of launches (about 1,900 a day, 0.029 SOL of spray
+    a day) and 71% of his keyed buys;
+  - the 24 h version: 8.4% of launches and 63% of his keyed buys;
+  - metadata hosts don't filter: 88-95% of launches kept.
+- **The best combination: lamport key + 72 h signer pre-filter, post-bundle + 5%, after the spray:**
+
+  | period | per day | without best 2 |
+  |---|---|---|
+  | P1 | +0.050 | -0.090 |
+  | P2 | +0.166 | +0.076 |
+
+  At post-bundle + 10% it loses in both periods. With the key at its last-24 h precision (65%), it loses outright.
+
+**Verdict, round 2:** none passes.
+- No target wallet pays its own spray.
+- No create-time model reaches the precision bar.
+- The one on-chain key that comes close loses its precision as soon as his payment pattern shifts.
+
+What's left is about +0.1 SOL a day at best, and it rests on a 1-lamport artifact of his fee settings.
