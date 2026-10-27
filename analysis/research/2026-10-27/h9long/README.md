@@ -126,3 +126,8 @@ minutes), all its coins a median 89. Our routable copies overlap less: at most 1
 +8.11, 3 (built): +5.03 / +9.63, 4: +6.73 / +11.13, 5: +6.69 / +10.86, no cap: +6.69 / +10.43 (146 and 149 copies against
 135 and 136 at 3). Its costs on these buys: a median 0.0071 SOL fee (base + priority; 10%: 0.0035, 90%: 0.0134) and a
 0.00107 SOL tip on 40-55% of them; on its sells a median 0.00001 SOL and no tip.
+
+The big buys we cannot route (class E, 372 coins, its net +116.4: paid in a token we do not hold, PUMP +45.6 on 88,
+CARDS +23.8 on 79, TTWO +10.4 on 23, USDC, xStocks ...), copied as if we held every one of those tokens (`ROUTES=E
+grid.py`, no price risk on the token counted): P1 +24.63 on 189 copies, P2 +0.43 on 94 (PUMP -1.32). With them beside
+the routable ones (ROUTES=ABCE, 3 open) P2 falls to +7.38 against +9.63: they take the open slots. Left out.
