@@ -20,7 +20,7 @@
 # CHECK_ERA_T0 (the start, unix s, instead of ~/.rugsnipe-start or the default),
 # CHECK_JOURNAL (the copy/copyw lines with their unix time, as journalctl -o short-unix prints them),
 # CHECK_TRADES (rugsnipe-trades' options instead of the box's), CHECK_DB (another state.db),
-# CHECK_PRINT_SQL=1 (print the SQL and stop).
+# CHECK_PRINT_SQL=1 (print the SQL and stop), CHECK_ERASED (the erased copy wallets instead of ERASED's; empty = none).
 LT=${CHECK_TZ:-Asia/Beirut}; LZ=$(sed 's#.*/##; s#_# #g' <<<"$LT")
 lt() { TZ=$LT date "$@"; }
 SHORT=1; HIM=0
@@ -38,6 +38,9 @@ case "${1:-}" in
 esac
 DB=${CHECK_DB:-/var/lib/rugsnipe/state.db}
 CFG=/etc/rugsnipe/rugsnipe.toml
+# ---- copy wallets erased from every table, our copies of them too (first 8 characters; Oct 27: 3 JBokzLFR, 5 CxyKYmQo).
+# The money lines (wallet, results by scope, the daily stop) still count every trade: they are the wallet's own.
+ERASED=${CHECK_ERASED-JBokzLFR CxyKYmQo}
 now=$(date -u +%s)
 D0=$(date -u -d "$(date -u +%Y-%m-%d) 00:00:00" +%s)
 # ---- the start: every "since" section counts from it across days (journal lines included). By default Oct 26 15:00
@@ -131,6 +134,10 @@ COPIES=$(awk 'NF >= 7 { tip = -1; at = $6; if ($5 == "tip") { tip = $6; gsub(/M/
 if [ -n "${CHECK_COPYW+x}" ]; then CWL=$CHECK_COPYW; else
   CWL=$(sed -E 's/^[0-9.]+ [^ ]+ [^ ]+: //' <<<"$JL" | grep -E '^copyw [1-9A-HJ-NP-Za-km-z]{8} by ')
 fi
+# the erased wallets' copied coins (their buy lines), then their lines out
+ERM=$(awk -v e=" $ERASED " 'index(e, " " $4 " ") && $NF == "buy" { printf "%s(\x27%s\x27)", (n++ ? "," : ""), $2 }' <<<"$CWL")
+[ -n "$ERM" ] || ERM="('')"
+CWL=$(awk -v e=" $ERASED " '!index(e, " " $4 " ")' <<<"$CWL")
 COPYW=$(awk 'NF >= 15 { at = $7; gsub(/[^0-9]/, "", at); h = $13; gsub(/[^0-9]/, "", h); printf "%s(\x27%s\x27,\x27%s\x27,%s,%s,%s,\x27%s\x27,%s,%s)", (n++ ? "," : ""), $2, $4, $5 + 0, (at == "" ? 0 : at), (h == "" ? 0 : h), $NF, $9 + 0, $11 + 0 }' <<<"$CWL")
 [ -n "$COPYW" ] || COPYW="('','',0,0,0,'',0,0)"
 
@@ -151,6 +158,8 @@ create temp table copies(m8 text, his_sol real, tip_m real, at int, act text, sl
 insert into copies values $COPIES;
 create temp table copyw(m8 text, w8 text, sol real, at int, hold int, act text, slot int, idx int);
 insert into copyw values $COPYW;
+create temp table erased(m8 text);
+insert into erased values $ERM;
 create temp view pos0 as
   select p.mint, p.cost, p.state, p.opened_slot, p.closed_slot, min(s.sent_unix_ms) t_ms, max(s.bid) bid,
          coalesce((select sum(e.sol_delta) from exits e where e.mint = p.mint), 0) ex,
@@ -264,7 +273,8 @@ select coalesce((select 'copyw ' || w.w8 from copyw w where w.m8 = substr(p.mint
                 case when exists (select 1 from copies c where c.m8 = substr(p.mint, 1, 8) and c.act = 'buy') then 'copy' else 'rule' end) source,
        count(*) trades, sum(net > 0) wins, sum(net <= -0.3 * cost) big, round(100.0 * avg(net * 1.0 / cost), 1) mean_pct,
        round(sum(net) / 1e9, 4) net_sol
-from pos p where state = 'closed' and cost > 0 and t_ms >= ${ERA:-$D0} * 1000 group by source order by source;
+from pos p where state = 'closed' and cost > 0 and t_ms >= ${ERA:-$D0} * 1000
+  and substr(p.mint, 1, 8) not in (select m8 from erased) group by source order by source;
 .print
 .print == the other copied wallets $SINCE (entry.copy_more, docs/19 section 5): their launch buys the bot saw, by wallet and
 .print    what it did (buy = copied, sold at create + sell_at; skip_small: under the wallet's min_sol; log = journaled only),
@@ -292,7 +302,7 @@ select strftime('%H:%M:%S', t_ms / 1000, 'unixepoch', 'localtime') time, substr(
        case when state = 'closed' then round(100.0 * net / max(cost, 1), 1) end pct,
        case when state = 'closed' then round(net / 1e9, 4) end net_sol, round(txc / 1e9, 4) tips_fees, state,
        coalesce(reason, '-') exit, case when closed_slot is not null then closed_slot - opened_slot end held_slots
-from pos where t_ms >= ${ERA:-0} * 1000 order by t_ms desc limit 10;
+from pos where t_ms >= ${ERA:-0} * 1000 and substr(mint, 1, 8) not in (select m8 from erased) order by t_ms desc limit 10;
 .print
 .print == open now
 select count(*) open_now, coalesce(group_concat(substr(p.mint, 1, 8) || ' tier '
@@ -418,7 +428,8 @@ if [ "$SHORT" = 1 ]; then
   # every launch buy of the copied wallets since the start, one row each (their own trades read from the chain once)
   if [ -n "$ERA" ]; then
     if [ -n "${CHECK_TRADES+x}" ]; then TA=($CHECK_TRADES); else TA=(--state "$DB" --tz "$LT"); fi
-    printf '%s\n' "$JL" | sudo python3 -I "$(tool rugsnipe-trades)" --since "$ERA" --until "$JCUT" "${TA[@]}"
+    printf '%s\n' "$JL" | sudo python3 -I "$(tool rugsnipe-trades)" --since "$ERA" --until "$JCUT" \
+      --erase "$(tr -s ' ' ',' <<<"$ERASED")" "${TA[@]}"
     echo
   fi
   printf '%s\n' "$SQL2" | sq -header -column "$DB"

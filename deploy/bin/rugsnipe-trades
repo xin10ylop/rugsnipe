@@ -25,8 +25,9 @@ orf = VS.orf
 HIM_DEFAULT = "AHwJSnFNUiAU9FfT5ewW2osqMo938WtL7KhfsJyfpaN2"
 SKIP_HIM = {"skip_small": "skip: tip/size low", "skip_unlisted": "skip: op not listed", "skip_few": "skip: op new"}
 SKIP_W = {"skip_small": "skip: < min_sol"}
-# the wallets' numbers in the tables: him 1, then these, then the other copy_more wallets in the config's order
-FIRST = ("3yrJE1A8", "JBokzLFR")
+# the wallets' numbers in the tables: him 1, then these (a number stays when a wallet is removed), then the other
+# copy_more wallets in the config's order
+FIRST = ("3yrJE1A8", "JBokzLFR", "H9kuqGKN", "CxyKYmQo", "D5BDDkBt")
 
 
 def rule_buys(cfg_path):
@@ -50,8 +51,9 @@ def wallets_of(cfg_path):
     more = [(c["wallet"][:8], c["wallet"], f"create+{c.get('hold_to_create_slots', 29)}")
             for c in e.get("copy_more") or [] if c.get("wallet") and (c.get("mode") or "on") != "off"]
     more.sort(key=lambda x: FIRST.index(x[0]) if x[0] in FIRST else len(FIRST))
-    W = [("him", e.get("follow_wallet") or HIM_DEFAULT, "his sell - 1")] + more
-    return [(k, w, sell, str(i)) for i, (k, w, sell) in enumerate(W, 1)]
+    nxt = iter(range(len(FIRST) + 2, 1 << 20))
+    return [("him", e.get("follow_wallet") or HIM_DEFAULT, "his sell - 1", "1")] + [
+        (k, w, sell, str(FIRST.index(k) + 2 if k in FIRST else next(nxt))) for k, w, sell in more]
 
 
 def starts(lines):
@@ -250,6 +252,8 @@ def main(argv):
     ap.add_argument("--until", type=float, default=None,
                     help="when the journal was read (unix s): later buys are left out (their copy lines are not in it)")
     ap.add_argument("--no-chain", action="store_true", help="leave out the wallets' own results (no RPC)")
+    ap.add_argument("--erase", default="",
+                    help="copy wallets left out of every table, our copies of them too (first 8 characters, comma-separated)")
     a = ap.parse_args(argv)
     try:
         from zoneinfo import ZoneInfo
@@ -257,12 +261,15 @@ def main(argv):
     except Exception:                                 # noqa: BLE001 (no tz database: Beirut's winter offset)
         tz = datetime.timezone(datetime.timedelta(hours=2))
     hm = lambda t: datetime.datetime.fromtimestamp(t, tz).strftime("%H:%M:%S")  # noqa: E731
-    W = wallets_of(a.config)
+    E = {x for x in a.erase.split(",") if x}
+    W = [x for x in wallets_of(a.config) if x[0] not in E]
     lines = sys.stdin.read().splitlines()
     until = a.until or datetime.datetime.now().timestamp()
     J = {k: f for k, f in journal(lines).items() if a.since <= f["ts"] < until}
+    gone = {m8 for (who, m8), f in J.items() if who in E and f["act"] == "buy"}
+    J = {k: f for k, f in J.items() if k[0] not in E}
     S = starts(lines)
-    O = {m8: o for m8, o in ours(a.state, a.since).items() if o["t"] < until}
+    O = {m8: o for m8, o in ours(a.state, a.since).items() if o["t"] < until and m8 not in gone}
     coins, fails, chain_err = {}, {}, {}
     if not a.no_chain:
         try:
