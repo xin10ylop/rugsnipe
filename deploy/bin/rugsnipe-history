@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+# rugsnipe-history: both bots' whole history from their saved state (the box's own, or a backup unpacked under --root),
+# read-only, in Beirut time (--tz: another zone). Needs only the files: no journal, no config, no keys, no RPC.
+#   the copy bot (rugsnipe-hot, state.db): totals, by day, every trade oldest first (stake, bid, exit, slots held, P&L
+#     after tips and fees, counted as rugsnipe-check counts it), the buys that landed and were refused, the daily risk
+#     ledger. Every real trade is here, the erased wallets' copies too; which wallet a copy followed is only in the journal.
+#   the long copy (rugsnipe-long, closed.jsonl + positions.json): paper and real apart, by day, every position.
+#     sudo python3 -I rugsnipe-history [--root DIR] [--tz Asia/Beirut] [--failed]
+# --root: where the backup was unpacked (DIR/var/lib/rugsnipe/state.db, DIR/var/lib/rugsnipe-long); default / (the box).
+# --failed: also list every refused buy (by default only their count and cost by reason).
+import argparse, collections, datetime, json, os, sqlite3, sys
+from zoneinfo import ZoneInfo
+
+# check.sh's position view (deploy/bin/rugsnipe-check: pos0, pos, races), plus the exit venue
+VIEWS = """
+create temp view pos0 as
+  select p.mint, p.cost, p.state, p.opened_slot, p.closed_slot, min(s.sent_unix_ms) t_ms, max(s.bid) bid,
+         coalesce((select sum(e.sol_delta) from exits e where e.mint = p.mint), 0) ex,
+         (select group_concat(distinct e.reason) from exits e where e.mint = p.mint) reason,
+         (select group_concat(distinct e.venue) from exits e where e.mint = p.mint) venue,
+         coalesce((select sum(coalesce(f.fee, 0) + coalesce(f.tip, 0)) from fills f
+                   where f.intent_id = p.intent_id and f.fail_reason is null), 0)
+         + coalesce((select sum(coalesce(x.prio, 0) + coalesce(x.tip, 0) + 5000) from exits e join sends x on x.sig = e.sig
+                     where e.mint = p.mint), 0)
+         + case when exists (select 1 from fills f where f.intent_id = p.intent_id and f.fail_reason is null) then 0
+                else coalesce((select max(x.bid) from sends x where x.intent_id = p.intent_id and x.kind = 'buy'), 0) + 5000 end txc
+  from positions p join sends s on s.intent_id = p.intent_id
+  group by p.mint;
+create temp view pos as select *, ex - cost - txc net from pos0;
+create temp view races as
+  select f.sig, f.mint, f.fail_reason, coalesce(f.fail_cost, f.fee, 0) fail_cost, s.sent_unix_ms t_ms
+  from fills f join sends s on s.sig = f.sig;
+"""
+
+
+def sol(lam, d=4):
+    return f"{lam / 1e9:+.{d}f}"
+
+
+def table(head, rows):
+    w = [max(len(str(x)) for x in col) for col in zip(head, *rows)] if rows else [len(h) for h in head]
+    for r in [head] + rows:
+        print("  " + "  ".join(str(x).rjust(n) if i < len(r) - 1 else str(x) for i, (x, n) in enumerate(zip(r, w))))
+
+
+def copy_bot(db, tz, failed):
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    con.executescript(VIEWS)
+    cols = "mint, cost, state, opened_slot, closed_slot, t_ms, bid, ex, reason, venue, txc, net"
+    pos = [dict(zip(cols.split(", "), r)) for r in con.execute(f"select {cols} from pos order by t_ms")]
+    bad = con.execute("select mint, fail_reason, fail_cost, t_ms from races where fail_reason is not null order by t_ms").fetchall()
+    risk = con.execute("select day, start_balance, realized, buys, killed, kill_reason from risk order by day").fetchall()
+    loc = lambda ms: datetime.datetime.fromtimestamp(ms / 1000, tz)
+    closed = [p for p in pos if p["state"] == "closed"]
+    fcost = sum(c for _, _, c, _ in bad)
+    print(f"== the copy bot (rugsnipe-hot): {db}")
+    if not pos:
+        print("  no real trades")
+        return
+    print(f"  {len(pos)} trades {loc(pos[0]['t_ms']):%b %d %H:%M} -> {loc(pos[-1]['t_ms']):%b %d %H:%M}: "
+          f"{len(closed)} closed, {sum(p['net'] > 0 for p in closed)} won; "
+          f"on the curve {sol(sum(p['ex'] - p['cost'] for p in closed))}, tips and fees {sol(-sum(p['txc'] for p in closed))}, "
+          f"{len(bad)} refused buys {sol(-fcost, 5)}: NET {sol(sum(p['net'] for p in closed) - fcost)} SOL")
+    left = [p for p in pos if p["state"] != "closed"]
+    if left:
+        print(f"  {len(left)} not closed in the bot's records (sold by hand, or still held when it stopped): "
+              + ", ".join(p["mint"][:8] for p in left))
+    print("\n== by day (net after tips and fees; refused = buys that landed and were refused, their fees)")
+    days = {}
+    for p in pos:
+        d = days.setdefault(loc(p["t_ms"]).date(), {"n": 0, "w": 0, "net": 0, "pct": [], "f": 0, "fc": 0})
+        d["n"] += 1
+        if p["state"] == "closed":
+            d["w"] += p["net"] > 0
+            d["net"] += p["net"]
+            if p["cost"]:
+                d["pct"].append(100 * p["net"] / p["cost"])
+    for _, _, c, ms in bad:
+        d = days.setdefault(loc(ms).date(), {"n": 0, "w": 0, "net": 0, "pct": [], "f": 0, "fc": 0})
+        d["f"] += 1
+        d["fc"] += c
+    run, rows = 0, []
+    for k, d in sorted(days.items()):
+        run += d["net"] - d["fc"]
+        rows.append([f"{k:%a %b %d}", d["n"], d["w"], f"{sum(d['pct']) / len(d['pct']):+.1f}%" if d["pct"] else "-", sol(d["net"]),
+                     d["f"], sol(-d["fc"], 5), sol(d["net"] - d["fc"]), sol(run)])
+    table(["day", "trades", "won", "mean", "trades_sol", "refused", "refused_sol", "net_sol", "running"], rows)
+    print("\n== every trade, oldest first (curve = sold minus paid; tips_fees = the buy's fee and tip and each sell's;"
+          " held in slots, ~0.4 s each)")
+    rows = []
+    for p in pos:
+        c = p["state"] == "closed"
+        rows.append([f"{loc(p['t_ms']):%b %d %H:%M:%S}", f"{p['cost'] / 1e9:.3f}", f"{(p['bid'] or 0) / 1e6:.2f}M",
+                     p["reason"] or "-", p["venue"] or "-",
+                     p["closed_slot"] - p["opened_slot"] if p["closed_slot"] is not None and p["opened_slot"] is not None else "-",
+                     sol(p["ex"] - p["cost"]) if c else "-", sol(-p["txc"]), sol(p["net"]) if c else "-",
+                     f"{100 * p['net'] / max(p['cost'], 1):+.1f}%" if c else "-", p["state"], p["mint"]])
+    table(["bought", "stake", "bid", "exit", "venue", "held", "curve", "tips_fees", "net_sol", "pct", "state", "coin"], rows)
+    print("\n== refused buys by reason (landed but refused, mostly the price limit: the fee is the cost)")
+    by = collections.Counter()
+    cost = collections.Counter()
+    for _, r, c, _ in bad:
+        by[r] += 1
+        cost[r] += c
+    table(["reason", "buys", "cost_sol"], [[r, n, sol(-cost[r], 5)] for r, n in by.most_common()])
+    if failed:
+        print()
+        table(["time", "reason", "cost_sol", "coin"], [[f"{loc(ms):%b %d %H:%M:%S}", r, sol(-c, 5), m] for m, r, c, ms in bad])
+    print("\n== daily risk ledger (UTC days: what the daily stop counted; killed = the stop latched)")
+    table(["day", "start_sol", "realized_sol", "buys", "killed", "why"],
+          [[d, f"{(b or 0) / 1e9:.4f}", sol(r or 0), n or 0, "yes" if k else "-", w or "-"] for d, b, r, n, k, w in risk])
+
+
+def long_copy(dirp, tz):
+    print(f"\n== the long copy (rugsnipe-long): {dirp}")
+    seen = {}
+    try:
+        with open(os.path.join(dirp, "closed.jsonl")) as f:
+            for line in f:
+                if line.strip():
+                    p = json.loads(line)
+                    seen[p["id"]] = p
+    except FileNotFoundError:
+        pass
+    try:
+        with open(os.path.join(dirp, "positions.json")) as f:
+            for p in json.load(f).get("positions", []):
+                seen.setdefault(p["id"], p)
+    except FileNotFoundError:
+        pass
+    if not seen:
+        print("  no positions")
+        return
+    loc = lambda ms: datetime.datetime.fromtimestamp(ms / 1000, tz)
+    ps = sorted(seen.values(), key=lambda p: p["seen_ms"])
+    for paper in (True, False):
+        side = [p for p in ps if p["paper"] == paper]
+        if not side:
+            continue
+        done = [p for p in side if p["state"] == "closed"]
+        live = [p for p in side if p["state"] in ("buying", "open", "selling")]
+        name = "PAPER (no money: what it would have made)" if paper else "REAL"
+        print(f"  {name}: {len(side)} positions {loc(side[0]['seen_ms']):%b %d %H:%M} -> {loc(side[-1]['seen_ms']):%b %d %H:%M}, "
+              f"{len(done)} closed, {sum(p['net_lamports'] > 0 for p in done)} won, NET {sol(sum(p['net_lamports'] for p in done))} SOL; "
+              f"buys that did not land {sum(p['state'] == 'failed' for p in side)}; still open when it stopped {len(live)}"
+              + (f" ({', '.join(p['mint'][:8] for p in live)})" if live else ""))
+        days = {}
+        for p in done:
+            d = days.setdefault(loc(p["closed_ms"]).date(), [0, 0, 0])
+            d[0] += 1
+            d[1] += p["net_lamports"] > 0
+            d[2] += p["net_lamports"]
+        run, rows = 0, []
+        for k, (n, w, net) in sorted(days.items()):
+            run += net
+            rows.append([f"{k:%a %b %d}", n, w, sol(net), sol(run)])
+        print("   by day (closed):")
+        table(["day", "closed", "won", "net_sol", "running"], rows)
+        print("   every position, oldest first (its_sol = the copied wallet's buy; peak = the best price it saw, x its entry):")
+        rows = []
+        for p in side:
+            c = p["state"] == "closed"
+            end = p["closed_ms"] if c else 0
+            rows.append([p["id"], f"{loc(p['seen_ms']):%b %d %H:%M:%S}", f"{p['its_lamports'] / 1e9:.3f}", p["how"],
+                         f"{p['stake_lamports'] / 1e9:.3f}", p["state"], p.get("reason") or "-", f"{p['peak']:.2f}x" if p["state"] != "failed" else "-",
+                         f"{(end - p['seen_ms']) // 1000}s" if c else "-", sol(p["net_lamports"]) if c else "-",
+                         f"{100 * p['net_lamports'] / max(p['stake_lamports'], 1):+.1f}%" if c else "-", p["mint"]])
+        table(["#", "bought", "its_sol", "route", "stake", "state", "exit", "peak", "held", "net_sol", "pct", "coin"], rows)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--root", default="/")
+    ap.add_argument("--tz", default="Asia/Beirut")
+    ap.add_argument("--failed", action="store_true")
+    a = ap.parse_args()
+    tz = ZoneInfo(a.tz)
+    db = os.path.join(a.root, "var/lib/rugsnipe/state.db")
+    if os.path.exists(db):
+        copy_bot(db, tz, a.failed)
+    else:
+        print(f"== the copy bot: no {db}")
+    long_copy(os.path.join(a.root, "var/lib/rugsnipe-long"), tz)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
