@@ -5,7 +5,10 @@
 #     after tips and fees, counted as rugsnipe-check counts it), the buys that landed and were refused, the daily risk
 #     ledger. Every real trade is here, the erased wallets' copies too; which wallet a copy followed is only in the journal.
 #   the long copy (rugsnipe-long, closed.jsonl + positions.json): paper and real apart, by day, every position.
-#     sudo python3 -I rugsnipe-history [--root DIR] [--tz Asia/Beirut] [--failed]
+#     sudo python3 -I rugsnipe-history [check|all|paper] [--root DIR] [--tz Asia/Beirut] [--since 'YYYY-MM-DD HH:MM'] [--failed]
+# check (default): the copy bot as check.sh shows it: totals (all time and since the start, by default check.sh's
+#   Oct 26 15:00 Beirut), by day, the last 10 trades, refused buys, the risk ledger; all: the same with every trade;
+#   paper: the long copy only.
 # --root: where the backup was unpacked (DIR/var/lib/rugsnipe/state.db, DIR/var/lib/rugsnipe-long); default / (the box).
 # --failed: also list every refused buy (by default only their count and cost by reason).
 import argparse, collections, datetime, json, os, sqlite3, sys
@@ -43,7 +46,7 @@ def table(head, rows):
         print("  " + "  ".join(str(x).rjust(n) if i < len(r) - 1 else str(x) for i, (x, n) in enumerate(zip(r, w))))
 
 
-def copy_bot(db, tz, failed):
+def copy_bot(db, tz, failed, every, since_ms):
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     con.executescript(VIEWS)
     cols = "mint, cost, state, opened_slot, closed_slot, t_ms, bid, ex, reason, venue, txc, net"
@@ -51,16 +54,20 @@ def copy_bot(db, tz, failed):
     bad = con.execute("select mint, fail_reason, fail_cost, t_ms from races where fail_reason is not null order by t_ms").fetchall()
     risk = con.execute("select day, start_balance, realized, buys, killed, kill_reason from risk order by day").fetchall()
     loc = lambda ms: datetime.datetime.fromtimestamp(ms / 1000, tz)
-    closed = [p for p in pos if p["state"] == "closed"]
-    fcost = sum(c for _, _, c, _ in bad)
     print(f"== the copy bot (rugsnipe-hot): {db}")
     if not pos:
         print("  no real trades")
         return
-    print(f"  {len(pos)} trades {loc(pos[0]['t_ms']):%b %d %H:%M} -> {loc(pos[-1]['t_ms']):%b %d %H:%M}: "
-          f"{len(closed)} closed, {sum(p['net'] > 0 for p in closed)} won; "
-          f"on the curve {sol(sum(p['ex'] - p['cost'] for p in closed))}, tips and fees {sol(-sum(p['txc'] for p in closed))}, "
-          f"{len(bad)} refused buys {sol(-fcost, 5)}: NET {sol(sum(p['net'] for p in closed) - fcost)} SOL")
+    def total(name, ps, bs):
+        cl = [p for p in ps if p["state"] == "closed"]
+        fc = sum(c for _, _, c, _ in bs)
+        print(f"  {name}: {len(ps)} trades, {len(cl)} closed, {sum(p['net'] > 0 for p in cl)} won; "
+              f"on the curve {sol(sum(p['ex'] - p['cost'] for p in cl))}, tips and fees {sol(-sum(p['txc'] for p in cl))}, "
+              f"{len(bs)} refused buys {sol(-fc, 5)}: NET {sol(sum(p['net'] for p in cl) - fc)} SOL")
+    total(f"all time ({loc(pos[0]['t_ms']):%b %d %H:%M} -> {loc(pos[-1]['t_ms']):%b %d %H:%M})", pos, bad)
+    total(f"since the start ({loc(since_ms):%b %d %H:%M})", [p for p in pos if p["t_ms"] >= since_ms],
+          [b for b in bad if b[3] >= since_ms])
+    print("  (which wallet each trade copied was only in the bot's journal on fra1, not in the backup)")
     left = [p for p in pos if p["state"] != "closed"]
     if left:
         print(f"  {len(left)} not closed in the bot's records (sold by hand, or still held when it stopped): "
@@ -85,10 +92,11 @@ def copy_bot(db, tz, failed):
         rows.append([f"{k:%a %b %d}", d["n"], d["w"], f"{sum(d['pct']) / len(d['pct']):+.1f}%" if d["pct"] else "-", sol(d["net"]),
                      d["f"], sol(-d["fc"], 5), sol(d["net"] - d["fc"]), sol(run)])
     table(["day", "trades", "won", "mean", "trades_sol", "refused", "refused_sol", "net_sol", "running"], rows)
-    print("\n== every trade, oldest first (curve = sold minus paid; tips_fees = the buy's fee and tip and each sell's;"
-          " held in slots, ~0.4 s each)")
+    shown = pos if every else pos[::-1][:10]
+    print("\n== " + ("every trade, oldest first" if every else "last 10 trades, newest first")
+          + " (curve = sold minus paid; tips_fees = the buy's fee and tip and each sell's; held in slots, ~0.4 s each)")
     rows = []
-    for p in pos:
+    for p in shown:
         c = p["state"] == "closed"
         rows.append([f"{loc(p['t_ms']):%b %d %H:%M:%S}", f"{p['cost'] / 1e9:.3f}", f"{(p['bid'] or 0) / 1e6:.2f}M",
                      p["reason"] or "-", p["venue"] or "-",
@@ -112,7 +120,7 @@ def copy_bot(db, tz, failed):
 
 
 def long_copy(dirp, tz):
-    print(f"\n== the long copy (rugsnipe-long): {dirp}")
+    print(f"== the long copy (rugsnipe-long): {dirp}")
     seen = {}
     try:
         with open(os.path.join(dirp, "closed.jsonl")) as f:
@@ -170,17 +178,21 @@ def long_copy(dirp, tz):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("what", nargs="?", default="check", choices=("check", "all", "paper"))
     ap.add_argument("--root", default="/")
+    ap.add_argument("--since", default="2026-10-26 15:00")
     ap.add_argument("--tz", default="Asia/Beirut")
     ap.add_argument("--failed", action="store_true")
     a = ap.parse_args()
     tz = ZoneInfo(a.tz)
+    if a.what == "paper":
+        return long_copy(os.path.join(a.root, "var/lib/rugsnipe-long"), tz)
     db = os.path.join(a.root, "var/lib/rugsnipe/state.db")
+    since = datetime.datetime.strptime(a.since, "%Y-%m-%d %H:%M").replace(tzinfo=tz)
     if os.path.exists(db):
-        copy_bot(db, tz, a.failed)
+        copy_bot(db, tz, a.failed, a.what == "all", since.timestamp() * 1000)
     else:
         print(f"== the copy bot: no {db}")
-    long_copy(os.path.join(a.root, "var/lib/rugsnipe-long"), tz)
 
 
 if __name__ == "__main__":
