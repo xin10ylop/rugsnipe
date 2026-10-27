@@ -116,6 +116,53 @@ fn compact_u16(out: &mut Vec<u8>, mut v: usize) {
     }
 }
 
+/// The key order for `ixs` paid by `payer`, for a transaction whose layout
+/// nothing patches (the cold paths, `rugsnipe-long`): the payer first, then
+/// every other key in first-use order within its class (signer-writable,
+/// signer-readonly, writable, readonly), each with the union of the flags
+/// its instructions ask for. Program ids are read-only.
+pub fn keys_for(payer: &Pubkey, ixs: &[Instruction]) -> Vec<KeySpec> {
+    let mut v = vec![KeySpec::new(*payer, true, true)];
+    let mut add = |k: Pubkey, s: bool, w: bool| match v.iter_mut().find(|e| e.key == k) {
+        Some(e) => {
+            e.signer |= s;
+            e.writable |= w;
+        }
+        None => v.push(KeySpec::new(k, s, w)),
+    };
+    for ix in ixs {
+        for m in &ix.accounts {
+            add(m.pubkey, m.is_signer, m.is_writable);
+        }
+        add(ix.program_id, false, false);
+    }
+    let mut rest = v.split_off(1);
+    rest.sort_by_key(class);
+    v[0].signer = true;
+    v[0].writable = true;
+    v.extend(rest);
+    v
+}
+
+/// [`keys_for`] + [`compile`] into a legacy transaction, signed by `sign`
+/// (the payer's signature over the message; the payer must be the only
+/// signer). Returns the bytes and the signature.
+pub fn compile_signed_legacy(
+    payer: &Pubkey,
+    ixs: &[Instruction],
+    blockhash: &[u8; 32],
+    sign: impl FnOnce(&[u8]) -> [u8; 64],
+) -> Result<(Vec<u8>, [u8; 64]), CompileError> {
+    let keys = keys_for(payer, ixs);
+    let (mut bytes, layout) = compile(&keys, ixs, blockhash, Format::Legacy)?;
+    if layout.n_sigs != 1 {
+        return Err(CompileError::TooMany("signers (the payer must sign alone)"));
+    }
+    let sig = sign(&bytes[layout.message.0..layout.message.1]);
+    bytes[layout.sigs..layout.sigs + 64].copy_from_slice(&sig);
+    Ok((bytes, sig))
+}
+
 /// Compile `ixs` over the exact key order `keys` into a zero-signed
 /// transaction. Every instruction account must exist in `keys` with at
 /// least the flags the instruction asks for; extra flags are an error

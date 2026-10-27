@@ -422,6 +422,12 @@ if [ "$SHORT" = 1 ]; then
     echo
   fi
   printf '%s\n' "$SQL2" | sq -header -column "$DB"
+  # the long copy (rugsnipe-long, docs/20): its own wallet and book
+  if [ -x /opt/rugsnipe/bin/rugsnipe-long ] && sudo test -f /etc/rugsnipe/long.toml; then
+    echo
+    echo "   long copy service: $(systemctl is-active rugsnipe-long 2>/dev/null)"
+    sudo /opt/rugsnipe/bin/rugsnipe-long status --config /etc/rugsnipe/long.toml --tz "$(TZ=$LT date +%z)" --last 15 --chain 2>&1
+  fi
   exit 0
 fi
 echo "== $(lt +%H:%M:%S) $LZ  hot $(svc rugsnipe-hot)  guard $(svc rugsnipe-guard)  up $(q "$up")s  $(q "$(g 'killed [a-z_]+')")  $(g 'BUYS PAUSED \([a-z_]+\)|FEED STALE')"

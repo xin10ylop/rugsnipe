@@ -52,6 +52,7 @@ pub mod error;
 pub mod events;
 pub mod instructions;
 pub mod launchers;
+pub mod multihop;
 pub mod pda;
 pub mod transfers;
 pub mod tx;

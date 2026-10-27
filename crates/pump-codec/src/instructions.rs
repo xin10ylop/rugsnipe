@@ -1174,6 +1174,32 @@ pub fn create_associated_token_account_idempotent_with_address(
     }
 }
 
+/// SPL Token `SyncNative` (tag 17): a wrapped-SOL account's token amount
+/// catches up with its lamports (after a system transfer into it).
+pub fn spl_sync_native(account: &Pubkey) -> Instruction {
+    Instruction {
+        program_id: c::SPL_TOKEN_PROGRAM_ID,
+        accounts: vec![w(*account)],
+        data: vec![17],
+    }
+}
+
+/// SPL Token `CloseAccount` (tag 9): an empty account (or any wrapped-SOL
+/// account) is closed and its lamports go to `destination`.
+pub fn spl_close_account(account: &Pubkey, destination: &Pubkey, owner: &Pubkey) -> Instruction {
+    token_close_account(&c::SPL_TOKEN_PROGRAM_ID, account, destination, owner)
+}
+
+/// `CloseAccount` (tag 9) under `token_program` (SPL Token or Token-2022:
+/// same tag and accounts).
+pub fn token_close_account(token_program: &Pubkey, account: &Pubkey, destination: &Pubkey, owner: &Pubkey) -> Instruction {
+    Instruction {
+        program_id: *token_program,
+        accounts: vec![w(*account), w(*destination), AccountMeta::new_readonly(*owner, true)],
+        data: vec![9],
+    }
+}
+
 /// Compute Budget `SetComputeUnitLimit` (tag 2, u32 LE).
 pub fn set_compute_unit_limit(units: u32) -> Instruction {
     let mut data = vec![2u8];

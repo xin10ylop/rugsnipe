@@ -2634,6 +2634,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "rugsnipe-long"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "bs58",
+ "futures-util",
+ "pump-codec",
+ "rugsnipe-core",
+ "rugsnipe-tx",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml 1.1.8+spec-1.1.0",
+ "yellowstone-grpc-client",
+ "yellowstone-grpc-proto",
+ "zeroize",
+]
+
+[[package]]
 name = "rugsnipe-sim"
 version = "0.1.0"
 dependencies = [

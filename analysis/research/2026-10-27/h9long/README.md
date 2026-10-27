@@ -56,3 +56,19 @@ past ours in one trade, after it. HAIR takes a further share off every TP / SL f
   By day: +11.7 +10.0 +0.1 +17.7 / +2.1 +5.8 +6.6 +1.3. P2 rests on WBTC-priced coins (+10.9 on 83).
 - **Capital** (in buy order, a copy skipped while the cap is full), P2: 1 open +4.69 (+2.03), 2 open +7.50 (+4.84),
   3 open +10.48 (+7.43), 5 open +15.26 (+12.21).
+
+## What `rugsnipe-long` can route (main thread)
+
+The bot routes through pump's own programs only (`multi_hop_swap` from wrapped SOL or a held float, docs/20). Its
+598 qualifying buys by route (`routable.json`; a direct curve buy is routable when its quote is a float or has a
+canonical PumpSwap pool against wSOL or WBTC):
+
+| buys | count | P1 Oct 19-22 | P2 Oct 23-27 | P2, at most 3 open |
+|---|---|---|---|---|
+| **routable** | 293 | +10.97 (+8.51) | **+12.21 (+9.34)** | **+11.03 (+8.16)** |
+| of which: multihop from wSOL | 179 | +5.32 | +1.08 | |
+| of which: multihop from WBTC (a float) | 91 | +2.35 | +10.02 (+7.64) | +8.89 |
+| of which: curve quoted in WBTC | 20 | +1.71 | +1.12 | |
+| not routable without Jupiter (direct buys of other quotes, PUMP floats, 3+ hops) | 305 | +28.57 | +3.06 (+0.41) | +1.44 |
+
+The routable part holds in both periods; the rest made its money in P1 and is about zero in P2.

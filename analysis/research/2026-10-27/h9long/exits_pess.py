@@ -9,6 +9,8 @@ HAIR = float(sys.argv[1]) if len(sys.argv) > 1 else 0.0
 TP = float(sys.argv[2]) if len(sys.argv) > 2 else 2.45
 SL = float(sys.argv[3]) if len(sys.argv) > 3 else 0.71
 ONLY = sys.argv[4] if len(sys.argv) > 4 else ""
+import os
+ANCHOR = os.environ.get("ANCHOR", ""); AM = json.load(open(f"{SP}/h9long/anchor.json")) if ANCHOR else {}
 P = json.load(open(f"{SP}/h9long/{W[:8]}_fpaths.json"))
 T = {x["m"]: x for x in json.load(open(f"{SP}/h9long/{W[:8]}_trips.json"))}
 COST = {"pump, other quote": 0.9487, "pump, SOL quote": 0.9713}
@@ -19,6 +21,7 @@ for m, v in P.items():
     if not v or "path" not in v: continue
     x = T[m]; b, s = x["tr"]; its = b["v"] or 0
     if its <= 0.05 or (ONLY and ONLY not in x["kind"]): continue
+    if ANCHOR and not AM.get(m, "").startswith(ANCHOR): continue
     vbb, vab = b["vt"] + b["tok"], b["vt"]; Qi = 1 / vab - 1 / vbb
     path = [r for r in v["path"] if (r[0], r[1]) > (b["s"], b["i"] or 0)]
     last = b["s"] + 1

@@ -1,0 +1,55 @@
+# rugsnipe-long -- hot role (fra1). Copies H9kuqGKN's 1.5-SOL buys of pump coins priced in other
+# tokens and holds them up to 30 minutes: take profit 2.0x, stop 0.8x, 29:50 (docs/20).
+#
+# Its own wallet (/etc/rugsnipe/keys/long-wallet.json, from `rugsnipe-long keygen`), its own
+# state (/var/lib/rugsnipe-long: positions.json, closed.jsonl, KILL). It reads the hot unit's
+# config for the gRPC feed and the senders, and the same api-keys file. Without the wallet it
+# runs paper only (mode = "log"). Stop new buys: touch /var/lib/rugsnipe-long/KILL (exits
+# continue); `rugsnipe-long status --config /etc/rugsnipe/long.toml` shows the book.
+[Unit]
+Description=rugsnipe long copy (wallet 4's big buys of coins priced in other tokens)
+Documentation=file:/opt/rugsnipe/src/docs/20-long-copy.md
+PartOf=rugsnipe.target
+Wants=network-online.target
+After=network-online.target time-sync.target chrony.service
+ConditionPathExists=/etc/rugsnipe/long.toml
+StartLimitIntervalSec=300
+StartLimitBurst=20
+
+[Service]
+Type=simple
+User=rugsnipe
+Group=rugsnipe
+StateDirectory=rugsnipe-long
+StateDirectoryMode=0750
+WorkingDirectory=/var/lib/rugsnipe-long
+Environment=RUST_BACKTRACE=1
+ExecStart=/opt/rugsnipe/bin/rugsnipe-long run --config /etc/rugsnipe/long.toml
+Restart=always
+RestartSec=2
+TimeoutStopSec=10
+UMask=0027
+LimitNOFILE=65536
+# Credentials: copied by PID 1 from /etc/rugsnipe/keys into $CREDENTIALS_DIRECTORY (the service
+# user never reads /etc/rugsnipe/keys); ABSENT is the fallback when a file is missing.
+LoadCredential=api-keys:/etc/rugsnipe/keys/api-keys.toml
+SetCredential=api-keys:ABSENT
+LoadCredential=long-wallet:/etc/rugsnipe/keys/long-wallet.json
+SetCredential=long-wallet:ABSENT
+# hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/rugsnipe-long
+
+[Install]
+WantedBy=rugsnipe.target

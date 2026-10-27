@@ -1,0 +1,51 @@
+# /etc/rugsnipe/long.toml: the long copy (rugsnipe-long, docs/20).
+# Copy H9kuqGKN's 1.5-SOL buys of pump coins priced in other tokens; hold up to 30 minutes.
+# The gRPC feed and the senders come from the hot unit's config (hot_config) and api-keys.
+
+# log = paper (live curve, nothing sent); on = real buys from the long wallet; off = nothing.
+mode = "log"
+
+copy_wallet = "H9kuqGKNYgPFYCA17uUTkaqXGum7MK8y1GwbS7cxsjDg"
+
+# its buy valued in SOL: its 1.5-SOL tier (reads 1.45-1.51 by route)
+min_sol = 1.45
+# our buy, valued in SOL (1.0 tested: at 0.5 the fixed costs eat the edge)
+stake_sol = 1.0
+# the curve price against the price its buy left, without our own tokens
+take_profit = 2.0
+stop = 0.8
+# it sells at 1800 s after its buy
+max_hold_s = 1790
+# positions open at once: each takes stake_sol (Oct 23-27: 1 open +4.7, 2 +7.5, 3 +10.5, 5 +15.3 SOL)
+max_open = 3
+# our buy refused above this premium over its average price
+max_premium = 0.25
+# no new buys once today's (UTC) realized result is at or below -daily_stop_sol
+daily_stop_sol = 3.0
+
+# held as floats besides wrapped SOL: routes may start and end in them (WBTC carried Oct 23-27).
+# Buy one with: rugsnipe-long float buy 3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh 3.0
+floats = ["3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh"]
+
+# chain reads and sendTransaction: a line of the api-keys file (never the URL with its key here)
+rpc_url = "cred:RPC_URL"
+hot_config = "/etc/rugsnipe/rugsnipe.toml"
+api_keys = "/etc/rugsnipe/keys/api-keys.toml"
+wallet_file = "/etc/rugsnipe/keys/long-wallet.json"
+
+# one buy sender (two landing would double the position); sells to these (empty = all enabled)
+buy_senders = ["nozomi"]
+sell_senders = ["nozomi"]
+rpc_send = true
+buy_tip_lamports = 1000000
+sell_tip_lamports = 1000000
+# micro-lamports per compute unit (300k units: 2,000,000 = 0.0006 SOL)
+buy_cu_price = 2000000
+sell_cu_price = 1000000
+cu_limit = 300000
+# sell min_out under the expected output: take profit, then stop / time / retries
+sell_slack_tp = 0.30
+sell_slack_exit = 0.50
+
+state_dir = "/var/lib/rugsnipe-long"
+price_api = "https://lite-api.jup.ag/price/v3"

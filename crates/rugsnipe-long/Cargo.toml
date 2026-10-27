@@ -1,0 +1,30 @@
+[package]
+name = "rugsnipe-long"
+version = "0.1.0"
+description = "rugsnipe-long: copies H9kuqGKN's big buys of pump coins priced in other tokens and holds them up to 30 minutes (take profit 2.0x, stop 0.8x, docs/20). Its own wallet, process and state; reads the hot unit's feed and sender settings."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "rugsnipe-long"
+path = "src/main.rs"
+
+[dependencies]
+pump-codec = { workspace = true }
+rugsnipe-core = { path = "../rugsnipe-core" }
+rugsnipe-tx = { path = "../rugsnipe-tx", features = ["rpc", "senders"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { version = "1.1", default-features = false, features = ["parse", "serde", "std"] }
+bs58 = { workspace = true }
+base64 = { workspace = true }
+zeroize = "1.9"
+tokio = { version = "1.53", default-features = false, features = ["rt", "time", "sync", "macros", "net"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+yellowstone-grpc-client = { workspace = true }
+yellowstone-grpc-proto = { workspace = true }
+
+[lints.clippy]
+too_many_arguments = "allow"

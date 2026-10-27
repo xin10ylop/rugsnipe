@@ -99,11 +99,11 @@ UNIT_DIR=/etc/systemd/system
 RUSTUP_HOME_DIR="$PREFIX/rustup"
 CARGO_HOME_DIR="$PREFIX/cargo"
 TARGET_DIR="$PREFIX/target"
-RUST_BINS=(rugsnipe-hot rugsnipe-guard rugsnipe-keeper rugsnipe-ctl rugsnipe-replay rugsnipe-sim)
+RUST_BINS=(rugsnipe-hot rugsnipe-guard rugsnipe-keeper rugsnipe-ctl rugsnipe-replay rugsnipe-sim rugsnipe-long)
 
 if [ "$ROLE" = hot ]; then
   UNITS=(rugsnipe-keeper.service rugsnipe-guard.service rugsnipe-hot.service rugsnipe-tune.service shredstream-proxy.service
-         rugsnipe-operators.service rugsnipe-operators.timer rugsnipe-paper-wide.service)
+         rugsnipe-operators.service rugsnipe-operators.timer rugsnipe-paper-wide.service rugsnipe-long.service)
   ENABLE_UNITS=(rugsnipe-keeper.service rugsnipe-guard.service rugsnipe-hot.service rugsnipe-operators.timer rugsnipe.target)
 else
   UNITS=(rugsnipe-collector.service rugsnipe-discover.service rugsnipe-discover.timer)
@@ -455,6 +455,18 @@ else
   [ "$DRY_RUN" = 1 ] || log "config: created $ETC/rugsnipe.toml from config/rugsnipe.example.toml (mode = paper)"
 fi
 
+# the long copy's own config (docs/20): created once, paper (mode = "log") until edited
+if [ "$ROLE" = hot ]; then
+  if [ -f "$ETC/long.toml" ]; then
+    log "config: $ETC/long.toml exists; not overwritten"
+    run chown "root:$SVC_USER" "$ETC/long.toml"
+    run chmod 0640 "$ETC/long.toml"
+  else
+    put_file "$ETC/long.toml" 0640 "root:$SVC_USER" < "$REPO/config/long.example.toml"
+    [ "$DRY_RUN" = 1 ] || log "config: created $ETC/long.toml from config/long.example.toml (mode = log: paper)"
+  fi
+fi
+
 # ------------------------------------------------------------------------------- 7. chrony
 NTP_CONF=/etc/chrony/sources.d/rugsnipe.sources
 if [ "$ROLE" = hot ]; then
@@ -562,9 +574,9 @@ fi
 
 # ------------------------------------------------------------------------------- 9. final checks
 check_keys
-for k in hot-keypair.json probe-keypair.json api-keys.toml armset-signing.key; do
+for k in hot-keypair.json probe-keypair.json api-keys.toml armset-signing.key long-wallet.json; do
   case "$ROLE:$k" in
-    analytics:hot-keypair.json|analytics:probe-keypair.json|hot:armset-signing.key) continue ;;
+    analytics:hot-keypair.json|analytics:probe-keypair.json|analytics:long-wallet.json|hot:armset-signing.key) continue ;;
   esac
   [ -f "$KEYS/$k" ] || log "credential $KEYS/$k absent -> unit sees 'ABSENT' (paper mode only)"
 done
