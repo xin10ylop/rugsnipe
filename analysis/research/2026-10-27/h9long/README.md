@@ -92,3 +92,25 @@ own exits fire on the price with our tokens in (its 2.5x comes earlier by our li
 Its TP fires earlier because of our lift on 39 trips at 1 SOL, 55 at 3, 65 at 5. Up to 2-3 SOL the result grows about
 with the stake (the fixed costs thin out, our own impact eats part); at 5 SOL Oct 19-22 is negative without its best
 2. More open positions add little past 5 (at 1 SOL: 3 open +11.03, 5 open +12.46, no cap +12.21, optimistic model).
+
+## Its smaller buys, and the rest of the settings (main thread, `band.py`, `grid.py`, `route_cls.py`)
+
+Price paths fetched for its 2,011 buys of 0.8-1.5 SOL of coins priced in another token (`full_paths_band.py`);
+routability rebuilt from the transaction rows (`route_cls.py`: 593 of 598 agree with `routable.json`). The long copy's
+rule on each band, routable only, no cap, P1 Oct 19-22 / P2 Oct 23-27 (cautious model q + lift; path model v):
+
+| its buy | copies | P1 (q / v) | P2 (q / v) |
+|---|---|---|---|
+| 0.8-1.0 SOL | 199 | -1.40 / -0.49 | -2.39 / -1.62 |
+| 1.0-1.25 SOL | 162 | +5.62 / +6.97 | -6.46 / -6.32 |
+| 1.25-1.45 SOL | 56 | -1.84 / -1.82 | -0.92 / -0.66 |
+| 1.45-1.5 SOL | 28 | -1.54 / -1.58 | +0.54 / +0.78 |
+| **1.5+ SOL** | 295 | **+6.69 / +9.11** | **+10.43 / +12.91** |
+
+A stake of two thirds of its buy instead of 1 SOL changes none of the signs. The floor stays at 1.45 (the 1.45-1.5 slice:
+about -0.03 SOL a copy on 28, too few to move it). On the 1.5+ buys (`grid.py`, at most 3 open): the built exits rank 5 of
+129 on P1 under q (trailing stops never in the top 15; a 0.85 stop helps the SOL routes only); a tighter entry premium
+does nothing on P1; each slot of landing delay costs about 3-5% (10 slots: P1 negative without its best 2). By route,
+WBTC-routed copies make about +0.12 SOL a copy in both periods (28 and 76 copies), SOL-routed about +0.02 (110, 63);
+the WBTC profit comes on 3 of the 8 days. Our copy as built by day (q): +3.1 +1.4 +1.0 -0.5 / -1.0 +5.8 +3.5 +1.4; the
+wallet's own result on the same coins was positive every day (+82 against our +17 over the 8 days).
