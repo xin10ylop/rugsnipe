@@ -156,3 +156,124 @@ fn a_restart_keeps_the_open_position() {
         "the stored route reads back"
     );
 }
+
+/// Our own transaction on position 0 (the engine's wallet is the default
+/// key): signature `sig`, landed failed or not, fee, and the coin balance
+/// change.
+fn ours(e: &Engine, sig: u8, err: bool, fee: u64, coin_pre: u64, coin_post: u64) -> TxLite {
+    let me = pump_codec::Pubkey::default();
+    let mint = e.book.positions[0].mint_pk();
+    TxLite {
+        sig: vec![sig; 64],
+        slot: 1,
+        err,
+        fee,
+        keys: vec![me],
+        outer: vec![],
+        inner: vec![],
+        pre_lamports: vec![1_000_000_000],
+        post_lamports: vec![1_000_000_000 - fee],
+        tokens: vec![rugsnipe_long::txlite::TokBal {
+            index: 1,
+            mint,
+            owner: me,
+            program: pump_codec::constants::TOKEN_2022_PROGRAM_ID,
+            pre: coin_pre,
+            post: coin_post,
+        }],
+    }
+}
+
+fn b58(sig: u8) -> String {
+    bs58::encode(vec![sig; 64]).into_string()
+}
+
+/// 2026-10-27, the hot bot's 2RR6sfbi: a sell that kept failing was re-sent
+/// 405 times. Here failed sells go again at once three times (the exit
+/// matters and the floor drops each time), then wait 5 s, 30 s and 2 min, and
+/// past `max_sell_fail_sol` of failed fees every 10 min; never given up.
+#[test]
+fn a_sell_that_keeps_failing_backs_off_instead_of_spending() {
+    let mut e = opened("sellfail");
+    e.cfg.mode = Mode::On;
+    e.cfg.max_sell_fail_sol = 0.001;
+    {
+        let p = &mut e.book.positions[0];
+        p.paper = false;
+        p.tokens = 5_000;
+    }
+    price_to(&mut e, 2.5);
+    let t0 = now_ms();
+    for k in 1..=3u8 {
+        let p = &mut e.book.positions[0];
+        p.state = State::Selling;
+        p.sell_sigs.push(b58(k));
+        let tx = ours(&e, k, true, 300_005, 5_000, 5_000);
+        e.on_tx(Src::Ours, &tx);
+        let p = &e.book.positions[0];
+        assert_eq!((p.state, p.sell_tries), (State::Open, k as u32));
+    }
+    let p = &e.book.positions[0];
+    assert_eq!(p.costs, 3 * 300_005);
+    let wait = p.sell_next_ms.saturating_sub(t0);
+    assert!(
+        (4_000..=6_000).contains(&wait),
+        "the 4th try waits 5 s: {wait}"
+    );
+    // within the wait nothing is sent (an attempt here would fail to send and count a try)
+    e.on_tick(t0 + 1_000);
+    assert_eq!(e.book.positions[0].sell_tries, 3);
+    // past it the exit is tried again (no wallet here: it cannot be sent, and backs off)
+    e.on_tick(t0 + 6_000);
+    let p = &e.book.positions[0];
+    assert_eq!(p.sell_tries, 4);
+    assert!(p.sell_next_ms > t0 + 6_000);
+    // one more failure crosses the 0.001 SOL cap: every 10 min from now
+    let p = &mut e.book.positions[0];
+    p.state = State::Selling;
+    p.sell_sigs.push(b58(9));
+    let tx = ours(&e, 9, true, 300_005, 5_000, 5_000);
+    e.on_tx(Src::Ours, &tx);
+    let p = &e.book.positions[0];
+    assert!(p.costs >= 1_000_000);
+    assert!(p.sell_next_ms >= now_ms() + 590_000, "10 min after the cap");
+    assert!(p.live(), "never given up: the coins are still ours to sell");
+}
+
+/// A buy not seen within 90 s is given up as dropped; if it lands after all,
+/// the position reopens on the tokens it bought instead of leaving them in
+/// the wallet unmanaged.
+#[test]
+fn a_dropped_buy_that_lands_late_reopens() {
+    let mut e = opened("latebuy");
+    e.cfg.mode = Mode::On;
+    {
+        let p = &mut e.book.positions[0];
+        p.paper = false;
+        p.tokens = 0;
+        p.state = State::Failed;
+        p.dropped = true;
+        p.closed_ms = now_ms();
+        p.buy_sig = Some(b58(42));
+    }
+    let tx = ours(&e, 42, false, 1_005_000, 0, 7_777);
+    e.on_tx(Src::Ours, &tx);
+    let p = &e.book.positions[0];
+    assert_eq!(p.state, State::Open);
+    assert_eq!(p.tokens, 7_777);
+    assert!(!p.dropped && p.live());
+    // a buy that landed and failed stays failed (its signature cannot land twice)
+    let mut e = opened("failedbuy");
+    e.cfg.mode = Mode::On;
+    {
+        let p = &mut e.book.positions[0];
+        p.paper = false;
+        p.tokens = 0;
+        p.state = State::Failed;
+        p.dropped = false;
+        p.buy_sig = Some(b58(43));
+    }
+    let tx = ours(&e, 43, false, 1_005_000, 0, 7_777);
+    e.on_tx(Src::Ours, &tx);
+    assert_eq!(e.book.positions[0].state, State::Failed);
+}

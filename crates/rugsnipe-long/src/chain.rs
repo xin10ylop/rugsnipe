@@ -152,7 +152,9 @@ impl Rpc {
     pub fn statuses(&self, sigs: &[String]) -> Result<Vec<Option<Result<u64, String>>>, String> {
         let v = self.rpc.call(
             "getSignatureStatuses",
-            json!([sigs, {"searchTransactionHistory": false}]),
+            // the whole history: a sell that landed while the bot was down
+            // must read as landed, not as dropped and sold again
+            json!([sigs, {"searchTransactionHistory": true}]),
         )?;
         Ok(v["value"]
             .as_array()

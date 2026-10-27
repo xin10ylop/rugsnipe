@@ -74,6 +74,9 @@ pub struct LongCfg {
     /// others (stop, time, retries).
     pub sell_slack_tp: f64,
     pub sell_slack_exit: f64,
+    /// Failed-sell fees (SOL) on one position past which its sells retry
+    /// only every 10 min (they never stop).
+    pub max_sell_fail_sol: f64,
     /// Positions, journal-only state, the kill file.
     pub state_dir: String,
     /// Float prices (Jupiter Price API v3; with a key: `https://api.jup.ag/price/v3`
@@ -109,6 +112,7 @@ impl Default for LongCfg {
             cu_limit: 300_000,
             sell_slack_tp: 0.30,
             sell_slack_exit: 0.50,
+            max_sell_fail_sol: 0.01,
             state_dir: "/var/lib/rugsnipe-long".into(),
             price_api: crate::oracle::API.into(),
         }

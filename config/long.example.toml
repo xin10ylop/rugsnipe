@@ -46,6 +46,9 @@ cu_limit = 300000
 # sell min_out under the expected output: take profit, then stop / time / retries
 sell_slack_tp = 0.30
 sell_slack_exit = 0.50
+# a sell that keeps failing: 3 tries at once, then 5 s, 30 s, 2 min apart; past this much in failed-sell
+# fees on one position, every 10 min (never given up)
+max_sell_fail_sol = 0.01
 
 state_dir = "/var/lib/rugsnipe-long"
 price_api = "https://lite-api.jup.ag/price/v3"

@@ -192,8 +192,13 @@ impl Engine {
                         p.last_slot = tx.slot;
                         p.peak = p.peak.max(p.price());
                     }
-                    if t.complete() && p.state == State::Open && p.reason.is_none() {
-                        p.reason = Some(Reason::Complete);
+                    if t.complete() {
+                        // also while a sell is out: its curve sell fails, and
+                        // the next one goes to the pool
+                        p.graduated = true;
+                        if p.state == State::Open && p.reason.is_none() {
+                            p.reason = Some(Reason::Complete);
+                        }
                     }
                 }
             }
@@ -349,6 +354,9 @@ impl Engine {
             closed_ms: 0,
             costs: 0,
             quote_in: quote_in_est,
+            sell_next_ms: 0,
+            dropped: false,
+            graduated: false,
         };
         if paper {
             println!(
@@ -536,6 +544,7 @@ impl Engine {
         let coin = p.mint_pk();
         let pool = pump_codec::pda::canonical_pump_swap_pool(&coin, &Position::pk(&p.quote_mint));
         if p.reason == Some(Reason::Complete)
+            || p.graduated
             || (p.sell_tries >= 3 && route::Chain::pool_exists(&mut self.rpc, &pool))
         {
             let qp = if p.quote_program.is_empty() {
@@ -629,14 +638,37 @@ impl Engine {
             } else if p.state == State::Selling {
                 p.state = State::Open;
                 p.sell_tries += 1;
+                let cap = (self.cfg.max_sell_fail_sol * 1e9) as u64;
+                let wait = pos::sell_backoff_ms(p.sell_tries, p.costs, cap);
+                p.sell_next_ms = now + wait;
                 println!(
-                    "long sell-failed #{} {} try {} (retried)",
+                    "long sell-failed #{} {} try {} cost {} (next try in {} s)",
                     p.id,
                     m8(&mint),
-                    p.sell_tries
+                    p.sell_tries,
+                    sol(lam),
+                    wait / 1000
                 );
+                if cap > 0 && p.costs >= cap && p.costs - tx.fee < cap {
+                    println!(
+                        "long CRITICAL sells of #{} {} keep failing: {} tries, {} SOL of failed fees; retrying every 10 min",
+                        p.id,
+                        m8(&mint),
+                        p.sell_tries,
+                        sol(-(p.costs as i128))
+                    );
+                }
             }
-        } else if is_buy && p.state == State::Buying {
+        } else if is_buy && (p.state == State::Buying || (p.state == State::Failed && p.dropped)) {
+            if p.dropped {
+                println!(
+                    "long late-fill #{} {}: the buy given up landed after all",
+                    p.id,
+                    m8(&mint)
+                );
+                p.dropped = false;
+                p.closed_ms = 0;
+            }
             p.tokens = tx.token_delta(&me, &mint).max(0) as u64;
             // our curve trade's quote in (the rate for the sell bound)
             p.quote_in = tx
@@ -728,7 +760,7 @@ impl Engine {
                 State::Selling if !p.paper && now.saturating_sub(p.sell_sent_ms) > SELL_WAIT_MS => {
                     Some((i, Act::Chase(false)))
                 }
-                State::Open => p
+                State::Open if now >= p.sell_next_ms => p
                     .reason
                     .filter(|r| *r == Reason::Complete)
                     .or_else(|| pos::exit_due(p, now, cfg.take_profit, cfg.stop, cfg.max_hold_s))
@@ -821,8 +853,10 @@ impl Engine {
                 );
             }
             Err(e) => {
+                let cap = (self.cfg.max_sell_fail_sol * 1e9) as u64;
                 let p = &mut self.book.positions[i];
                 p.sell_tries += 1;
+                p.sell_next_ms = now + pos::sell_backoff_ms(p.sell_tries, p.costs, cap).max(1_000);
                 eprintln!("long sell #{id} {}: {e}", &mint[..8]);
             }
         }
@@ -857,11 +891,12 @@ impl Engine {
         // nothing landed: the blockhash is past its life after ~60 s
         let p = &mut self.book.positions[i];
         let age = now_ms().saturating_sub(if buy { p.buy_sent_ms } else { p.sell_sent_ms });
-        if age < 75_000 {
+        if age < 90_000 {
             return false;
         }
         if buy {
             p.state = State::Failed;
+            p.dropped = true;
             p.closed_ms = now_ms();
             println!("long buy-dropped #{} {}", p.id, &p.mint[..8]);
         } else {
@@ -935,6 +970,23 @@ impl Engine {
                     self.book.positions[i].sell_sent_ms = 0;
                 }
                 _ => {}
+            }
+        }
+        // a buy given up shortly before the stop may have landed while we
+        // were down: read it from the chain (a landed one reopens)
+        let now = now_ms();
+        let late: Vec<String> = self
+            .book
+            .positions
+            .iter()
+            .filter(|p| p.dropped && !p.paper && now.saturating_sub(p.closed_ms) < 600_000)
+            .filter_map(|p| p.buy_sig.clone())
+            .collect();
+        for sig in late {
+            if let Ok(v) = self.rpc.transaction(&sig) {
+                if let Ok(tx) = TxLite::from_rpc_json(&v) {
+                    self.on_ours(&tx);
+                }
             }
         }
         self.rewatch();

@@ -112,6 +112,36 @@ pub struct Position {
     /// with `amount_in`, the rate of the route's other hops.
     #[serde(default)]
     pub quote_in: u64,
+    /// Live: no sell is sent before this (unix ms): failed sells back off
+    /// ([`sell_backoff_ms`]).
+    #[serde(default)]
+    pub sell_next_ms: u64,
+    /// Live: the buy was given up unseen (not landed in time). If it lands
+    /// after all, the position reopens on its tokens.
+    #[serde(default)]
+    pub dropped: bool,
+    /// The coin's curve completed (seen on a trade of it, in any state): its
+    /// sells go to the canonical PumpSwap pool.
+    #[serde(default)]
+    pub graduated: bool,
+}
+
+/// How long to wait before the next sell of a position after `tries` failed
+/// ones that cost `costs` lamports: the first three go at once (the exit
+/// matters and the floor drops with each), then 5 s, 30 s and 2 min; past
+/// `cap` lamports of failed fees, every 10 min. Never given up: the coins
+/// stay sold-for eventually, but a sell that keeps failing (2026-10-27, the
+/// hot bot's 2RR6sfbi: 405 failed sells, 0.09 SOL) can no longer spend fast.
+pub fn sell_backoff_ms(tries: u32, costs: u64, cap: u64) -> u64 {
+    if cap > 0 && costs >= cap {
+        return 600_000;
+    }
+    match tries {
+        0..=2 => 0,
+        3..=5 => 5_000,
+        6..=9 => 30_000,
+        _ => 120_000,
+    }
 }
 
 impl Position {
@@ -271,6 +301,20 @@ impl Book {
 mod tests {
     use super::*;
 
+    #[test]
+    fn failed_sells_back_off_and_the_cap_slows_them_to_ten_minutes() {
+        assert_eq!(sell_backoff_ms(0, 0, 10_000_000), 0);
+        assert_eq!(sell_backoff_ms(2, 600_000, 10_000_000), 0);
+        assert_eq!(sell_backoff_ms(3, 900_000, 10_000_000), 5_000);
+        assert_eq!(sell_backoff_ms(7, 2_100_000, 10_000_000), 30_000);
+        assert_eq!(sell_backoff_ms(12, 3_600_000, 10_000_000), 120_000);
+        assert_eq!(sell_backoff_ms(40, 10_000_000, 10_000_000), 600_000);
+        // no cap: never slower than 2 min
+        assert_eq!(sell_backoff_ms(1_000, u64::MAX, 0), 120_000);
+        // the worst hour after the cap: 6 failed sells (about 0.002 SOL)
+        assert_eq!(3_600_000 / sell_backoff_ms(50, 20_000_000, 10_000_000), 6);
+    }
+
     fn pos() -> Position {
         Position {
             id: 1,
@@ -312,6 +356,9 @@ mod tests {
             closed_ms: 0,
             costs: 0,
             quote_in: 0,
+            sell_next_ms: 0,
+            dropped: false,
+            graduated: false,
         }
     }
 

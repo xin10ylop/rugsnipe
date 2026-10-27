@@ -52,6 +52,14 @@ within a slot** (`exits_pess.py`):
 - **Exits:** on every trade of the coin, the curve price against the price its buy left, **without our own tokens**:
   take profit 2.0x, stop 0.8x, 1790 s after its buy, or the curve completing. The sell goes back along the route,
   closes the wSOL and coin accounts (their rent comes back), and is retried with a lower floor if it fails or drops.
+- **When things fail** (2026-10-27, after the hot bot's 2RR6sfbi): a sell that lands and fails goes again at once 3
+  times (the floor drops each time), then waits 5 s, 30 s, 2 min, and past `max_sell_fail_sol` (0.01) of failed fees
+  on the position every 10 min; never given up (journal `long CRITICAL sells of #N ... keep failing`). A coin whose
+  curve completes in any state (a sell already out included) sells on its canonical PumpSwap pool, as after 3 failed
+  sells when the pool exists (simulated on mainnet: C5xph2yL and EJAxERvK into WBTC, `examples/sim_pool_sell.rs`). A
+  buy not seen in 90 s is given up as dropped; if it lands after all (`long late-fill`), the position reopens on its
+  tokens, also when it landed while the bot was down. Statuses search the whole history, so a sell that landed while
+  the bot was down closes the position instead of being sold again.
 - **Accounting is chain-true:** a position's result is the sum of our wallet's lamport changes over its transactions,
   plus a float's token change at the oracle price. Paper (`mode = "log"`) prices the same decisions on the live curve.
 - **Measured on mainnet** (simulation from our wallet, a 2-hop wSOL route): buy 1,088 bytes, 166k compute units; buy
