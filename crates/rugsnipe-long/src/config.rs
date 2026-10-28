@@ -95,7 +95,7 @@ impl Default for LongCfg {
             take_profit: 2.0,
             stop: 0.8,
             max_hold_s: 1790,
-            max_open: 3,
+            max_open: 4,
             max_premium: 0.25,
             daily_stop_sol: 3.0,
             floats: vec!["3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh".into()],
