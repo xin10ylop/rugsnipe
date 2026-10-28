@@ -49,6 +49,10 @@ within a slot** (`exits_pess.py`):
   hops (a 3-hop transaction is over 1,232 bytes); no Jupiter leg (that part made +0.4 out of sample).
 - **Buy:** one transaction, one sender (two landing would double the position) plus the same bytes by
   `sendTransaction`; `min_out` from its own fill at `max_premium` (25%).
+  A paper buy fills on the curve at the end of its landing slot and is refused by the same `min_out`
+  (journal `long paper-refused #N`, state failed, the fee a landed failure pays): 2026-10-27, coins it buys can
+  double within 2 seconds (6y9aDagF: 1.2x after 1 s, 2.0x after 2 s), and a paper fill past the limit would
+  book a trade the real buy never gets.
 - **Exits:** on every trade of the coin, the curve price against the price its buy left, **without our own tokens**:
   take profit 2.0x, stop 0.8x, 1790 s after its buy, the curve completing, or **its own sell** when it leaves first
   (2026-10-27, CkFH2smc: it sold after 14 minutes and the copy held to 30; the backtest's price path ends at its sale,

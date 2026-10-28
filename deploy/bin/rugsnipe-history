@@ -150,7 +150,7 @@ def long_copy(dirp, tz):
         name = "PAPER (no money: what it would have made)" if paper else "REAL"
         print(f"  {name}: {len(side)} positions {loc(side[0]['seen_ms']):%b %d %H:%M} -> {loc(side[-1]['seen_ms']):%b %d %H:%M}, "
               f"{len(done)} closed, {sum(p['net_lamports'] > 0 for p in done)} won, NET {sol(sum(p['net_lamports'] for p in done))} SOL; "
-              f"buys that did not land {sum(p['state'] == 'failed' for p in side)}; still open when it stopped {len(live)}"
+              f"buys refused or not landed {sum(p['state'] == 'failed' for p in side)}; still open when it stopped {len(live)}"
               + (f" ({', '.join(p['mint'][:8] for p in live)})" if live else ""))
         days = {}
         for p in done:

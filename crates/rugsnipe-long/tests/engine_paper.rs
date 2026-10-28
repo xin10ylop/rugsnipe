@@ -306,3 +306,32 @@ fn its_early_sell_takes_us_out_behind_it() {
     e.on_tx(Src::Copied, &sell);
     assert_eq!(e.book.positions[0].state, State::Closed);
 }
+
+/// A paper buy fills only where the real one would: past `max_premium` over
+/// its price the real buy's min_out refuses it, so the paper buy is refused
+/// too (2026-10-27: coins wallet 4 buys can double within 2 seconds).
+#[test]
+fn a_paper_buy_past_the_price_limit_is_refused() {
+    let mut e = engine("refused");
+    let tx = fx("w4_buy_wsol_multihop");
+    e.on_tx(Src::Copied, &tx);
+    assert_eq!(e.book.positions[0].state, State::Buying);
+    // by the end of its landing slot the curve is at 1.5x its price
+    price_to(&mut e, 1.5);
+    e.on_slot(tx.slot + 2);
+    e.on_tick(now_ms());
+    let p = &e.book.positions[0];
+    assert_eq!(p.state, State::Failed);
+    assert!(
+        p.net_lamports < 0 && p.net_lamports > -1_000_000,
+        "the fee only: {}",
+        p.net_lamports
+    );
+    // at 1.1x it fills
+    let mut e = engine("notrefused");
+    e.on_tx(Src::Copied, &tx);
+    price_to(&mut e, 1.1);
+    e.on_slot(tx.slot + 2);
+    e.on_tick(now_ms());
+    assert_eq!(e.book.positions[0].state, State::Open);
+}

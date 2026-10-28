@@ -781,6 +781,10 @@ impl Engine {
                 _ => None,
             })
             .collect();
+        // a paper buy is refused past max_premium as the real one is (its
+        // min_out), at the fee a landed failure pays (the tip transfer reverts)
+        let max_premium = self.cfg.max_premium;
+        let refused_fee = 5_000 + self.cfg.cu_limit as u64 * self.cfg.buy_cu_price / 1_000_000;
         let mut changed = false;
         for (i, a) in acts {
             match a {
@@ -790,6 +794,24 @@ impl Engine {
                     let q = (p.its_quote_in as f64 * share) as u64;
                     p.tokens = pos::curve_buy(p.vt, p.vq, q, CURVE_FEE_BPS);
                     p.quote_in = q;
+                    let min_out = (p.its_tokens as f64 * share / (1.0 + max_premium)) as u64;
+                    if p.tokens < min_out {
+                        p.state = State::Failed;
+                        p.costs = refused_fee;
+                        p.net_lamports = -(refused_fee as i64);
+                        p.closed_ms = now;
+                        println!(
+                            "long paper-refused #{} {}: at {:.3}x its price, {} tokens under min_out {} (max_premium {})",
+                            p.id,
+                            &p.mint[..8],
+                            p.price(),
+                            p.tokens,
+                            min_out,
+                            max_premium
+                        );
+                        changed = true;
+                        continue;
+                    }
                     p.state = State::Open;
                     println!(
                         "long paper-fill #{} {} tokens {} at {:.3}x its price",
