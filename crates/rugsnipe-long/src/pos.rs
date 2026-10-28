@@ -129,6 +129,10 @@ pub struct Position {
     /// sells go to the canonical PumpSwap pool.
     #[serde(default)]
     pub graduated: bool,
+    /// Paper: the slot whose end state the buy fills on (0 on a record from
+    /// before it: its slot + 1).
+    #[serde(default)]
+    pub land_slot: u64,
 }
 
 /// How long to wait before the next sell of a position after `tries` failed
@@ -150,6 +154,14 @@ pub fn sell_backoff_ms(tries: u32, costs: u64, cap: u64) -> u64 {
 }
 
 impl Position {
+    /// Paper: the slot whose end state the buy fills on.
+    pub fn fill_slot(&self) -> u64 {
+        if self.land_slot > 0 {
+            self.land_slot
+        } else {
+            self.its_slot + 1
+        }
+    }
     pub fn mint_pk(&self) -> Pubkey {
         self.mint.parse().unwrap_or_default()
     }
@@ -364,6 +376,7 @@ mod tests {
             sell_next_ms: 0,
             dropped: false,
             graduated: false,
+            land_slot: 0,
         }
     }
 

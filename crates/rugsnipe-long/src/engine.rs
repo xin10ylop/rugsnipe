@@ -183,7 +183,7 @@ impl Engine {
                     .filter(|p| p.live() && p.mint_pk() == t.mint)
                 {
                     // a paper buy fills on the state at the end of its landing slot
-                    if p.paper && p.state == State::Buying && tx.slot > p.its_slot + 1 {
+                    if p.paper && p.state == State::Buying && tx.slot > p.fill_slot() {
                         continue;
                     }
                     if tx.slot >= p.last_slot {
@@ -370,15 +370,19 @@ impl Engine {
             sell_next_ms: 0,
             dropped: false,
             graduated: false,
+            // the slot we saw its buy in (our feed's latest), plus the landing
+            land_slot: t.slot.max(self.slot) + self.cfg.paper_land_slots,
         };
         if paper {
             println!(
-                "long paper-buy #{id} {} its {:.3} SOL route {} ({} hops) stake {:.3} SOL",
+                "long paper-buy #{id} {} its {:.3} SOL route {} ({} hops) stake {:.3} SOL; seen at its slot +{}, fills at the end of +{}",
                 m8(&t.mint),
                 v as f64 / 1e9,
                 plan.how,
                 plan.route.hops.len(),
-                stake as f64 / 1e9
+                stake as f64 / 1e9,
+                self.slot.saturating_sub(t.slot),
+                p.land_slot - t.slot
             );
         } else {
             // money checks
@@ -766,7 +770,7 @@ impl Engine {
             .enumerate()
             .filter_map(|(i, p)| match p.state {
                 // a paper buy fills once its landing slot is over
-                State::Buying if p.paper && slot > p.its_slot + 1 => Some((i, Act::PaperFill)),
+                State::Buying if p.paper && slot > p.fill_slot() => Some((i, Act::PaperFill)),
                 State::Buying if !p.paper && now.saturating_sub(p.buy_sent_ms) > BUY_WAIT_MS => {
                     Some((i, Act::Chase(true)))
                 }

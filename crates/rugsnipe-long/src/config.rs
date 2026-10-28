@@ -77,6 +77,9 @@ pub struct LongCfg {
     /// Failed-sell fees (SOL) on one position past which its sells retry
     /// only every 10 min (they never stop).
     pub max_sell_fail_sol: f64,
+    /// A paper buy fills on the curve at the end of this many slots after
+    /// the slot we saw its buy in (a real buy lands after we see it).
+    pub paper_land_slots: u64,
     /// Positions, journal-only state, the kill file.
     pub state_dir: String,
     /// Float prices (Jupiter Price API v3; with a key: `https://api.jup.ag/price/v3`
@@ -113,6 +116,7 @@ impl Default for LongCfg {
             sell_slack_tp: 0.30,
             sell_slack_exit: 0.50,
             max_sell_fail_sol: 0.01,
+            paper_land_slots: 1,
             state_dir: "/var/lib/rugsnipe-long".into(),
             price_api: crate::oracle::API.into(),
         }
@@ -146,6 +150,9 @@ impl LongCfg {
         if !(0.0..1.0).contains(&self.sell_slack_tp) || !(0.0..1.0).contains(&self.sell_slack_exit)
         {
             return bad("sell slacks must be in [0, 1)");
+        }
+        if self.paper_land_slots > 50 {
+            return bad("paper_land_slots must be in 0..=50");
         }
         if self.max_open == 0 || self.max_open > 50 {
             return bad("max_open must be in 1..=50");

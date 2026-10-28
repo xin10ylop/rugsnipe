@@ -335,3 +335,25 @@ fn a_paper_buy_past_the_price_limit_is_refused() {
     e.on_tick(now_ms());
     assert_eq!(e.book.positions[0].state, State::Open);
 }
+
+/// A paper buy lands after we see its buy, not after its own slot: seen 3
+/// slots late (our feed's latest slot), it fills on the state at the end of
+/// the slot after that (`paper_land_slots` = 1).
+#[test]
+fn a_paper_buy_fills_a_slot_after_we_saw_its_buy() {
+    let mut e = engine("land");
+    let tx = fx("w4_buy_wsol_multihop");
+    e.on_slot(tx.slot + 3);
+    e.on_tx(Src::Copied, &tx);
+    assert_eq!(e.book.positions[0].land_slot, tx.slot + 4);
+    e.on_slot(tx.slot + 4);
+    e.on_tick(now_ms());
+    assert_eq!(
+        e.book.positions[0].state,
+        State::Buying,
+        "slot +4 is not over"
+    );
+    e.on_slot(tx.slot + 5);
+    e.on_tick(now_ms());
+    assert_eq!(e.book.positions[0].state, State::Open);
+}

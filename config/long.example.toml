@@ -50,6 +50,8 @@ sell_slack_exit = 0.50
 # a sell that keeps failing: 3 tries at once, then 5 s, 30 s, 2 min apart; past this much in failed-sell
 # fees on one position, every 10 min (never given up)
 max_sell_fail_sol = 0.01
+# paper: a buy fills on the curve at the end of this many slots after the slot we saw its buy in
+paper_land_slots = 1
 
 state_dir = "/var/lib/rugsnipe-long"
 price_api = "https://lite-api.jup.ag/price/v3"
